@@ -7,6 +7,7 @@ interface DashboardCardProps {
   children: React.ReactNode;
   className?: string;
   action?: React.ReactNode;
+  style?: React.CSSProperties;
 }
 
 export function DashboardCard({ title, icon, children, className, action }: DashboardCardProps) {
