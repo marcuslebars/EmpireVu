@@ -10,7 +10,7 @@ interface DashboardCardProps {
   style?: React.CSSProperties;
 }
 
-export function DashboardCard({ title, icon, children, className, action }: DashboardCardProps) {
+export function DashboardCard({ title, icon, children, className, action, style }: DashboardCardProps) {
   return (
     <div
       className={cn(
