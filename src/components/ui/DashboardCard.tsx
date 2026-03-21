@@ -13,6 +13,7 @@ interface DashboardCardProps {
 export function DashboardCard({ title, icon, children, className, action, style }: DashboardCardProps) {
   return (
     <div
+      style={style}
       className={cn(
         "bg-card border border-border rounded-xl p-5 transition-shadow duration-200 hover:shadow-lg hover:shadow-black/10",
         className
