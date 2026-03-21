@@ -101,7 +101,7 @@ export default function Dashboard() {
           title="Today's Schedule"
           icon={<Clock className="w-4 h-4" />}
           className="lg:col-span-1 opacity-0 animate-fade-in"
-          style-={{ animationDelay: "160ms" }}
+          style={{ animationDelay: "160ms" }}
           action={
             <button className="text-xs text-primary hover:underline">View all</button>
           }
