@@ -6,23 +6,23 @@
 
 @layer base {
   :root {
-    --background: 220 18% 7%;
-    --foreground: 220 10% 92%;
+    --background: 222 20% 6%;
+    --foreground: 220 10% 93%;
 
-    --card: 220 16% 10%;
-    --card-foreground: 220 10% 92%;
+    --card: 222 18% 9.5%;
+    --card-foreground: 220 10% 93%;
 
-    --popover: 220 16% 10%;
-    --popover-foreground: 220 10% 92%;
+    --popover: 222 18% 9.5%;
+    --popover-foreground: 220 10% 93%;
 
     --primary: 215 100% 55%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 220 16% 14%;
+    --secondary: 222 16% 13%;
     --secondary-foreground: 220 10% 80%;
 
-    --muted: 220 14% 14%;
-    --muted-foreground: 220 10% 50%;
+    --muted: 222 14% 13%;
+    --muted-foreground: 220 10% 48%;
 
     --accent: 252 80% 62%;
     --accent-foreground: 0 0% 100%;
@@ -30,32 +30,34 @@
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 14% 16%;
-    --input: 220 14% 16%;
+    --border: 222 14% 14%;
+    --input: 222 14% 14%;
     --ring: 215 100% 55%;
 
     --radius: 0.5rem;
 
-    --sidebar-background: 220 18% 5%;
+    --sidebar-background: 222 20% 4.5%;
     --sidebar-foreground: 220 10% 70%;
     --sidebar-primary: 215 100% 55%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 16% 12%;
-    --sidebar-accent-foreground: 220 10% 92%;
-    --sidebar-border: 220 14% 12%;
+    --sidebar-accent: 222 16% 11%;
+    --sidebar-accent-foreground: 220 10% 93%;
+    --sidebar-border: 222 14% 11%;
     --sidebar-ring: 215 100% 55%;
 
     /* Custom tokens */
-    --surface-1: 220 16% 10%;
-    --surface-2: 220 16% 13%;
-    --surface-3: 220 16% 16%;
-    --text-primary: 220 10% 92%;
+    --surface-1: 222 18% 9.5%;
+    --surface-2: 222 16% 12%;
+    --surface-3: 222 16% 15%;
+    --text-primary: 220 10% 93%;
     --text-secondary: 220 10% 60%;
-    --text-tertiary: 220 10% 40%;
+    --text-tertiary: 220 10% 38%;
     --accent-blue: 215 100% 55%;
     --accent-violet: 252 80% 62%;
     --success: 152 60% 48%;
     --warning: 38 92% 55%;
+    --urgent: 0 72% 51%;
+    --card-elevated: 222 18% 11%;
   }
 }
 
