@@ -533,22 +533,29 @@ function WorkflowDetailPanel({ workflow, onClose }: { workflow: Workflow; onClos
         </div>
 
         {/* Actions */}
-        <div className="flex gap-2">
-          {workflow.status === "Active" ? (
-            <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--warning))]/15 text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning))]/25 transition-colors">
-              <Pause className="w-3.5 h-3.5" /> Pause
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]">
+              <Play className="w-3.5 h-3.5" /> Run Now
             </button>
-          ) : (
-            <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--success))]/15 text-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/25 transition-colors">
-              <Play className="w-3.5 h-3.5" /> Activate
+            <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors active:scale-[0.97]">
+              <Eye className="w-3.5 h-3.5" /> Test Run
             </button>
-          )}
-          <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors">
-            <Settings2 className="w-3.5 h-3.5" /> Edit
-          </button>
-          <button className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors">
-            <Eye className="w-3.5 h-3.5" /> Log
-          </button>
+          </div>
+          <div className="flex gap-2">
+            {workflow.status === "Active" ? (
+              <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--warning))]/15 text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning))]/25 transition-colors">
+                <Pause className="w-3.5 h-3.5" /> Pause
+              </button>
+            ) : (
+              <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--success))]/15 text-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/25 transition-colors">
+                <Play className="w-3.5 h-3.5" /> Activate
+              </button>
+            )}
+            <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors">
+              <Settings2 className="w-3.5 h-3.5" /> Edit
+            </button>
+          </div>
         </div>
       </div>
     </div>
