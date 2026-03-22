@@ -26,14 +26,22 @@ import {
   Activity,
   ShieldAlert,
   ChevronRight as ChevronRightIcon,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-import { useCalendarView, useCalendarCapacity, useBookingDetail } from "@/lib/api-hooks";
+import {
+  useCalendarView,
+  useCalendarCapacity,
+  useBookingDetail,
+  useCreateBooking,
+  useUpdateBookingStatus,
+} from "@/lib/api-hooks";
 import { SkeletonCard, ErrorBanner, EmptyState, LoadingCards } from "@/components/ui/StateViews";
 import { formatCents, formatDate, relativeTime } from "@/lib/format";
 import { startOfWeek, endOfWeek, addWeeks, subWeeks, format, parseISO, addDays } from "date-fns";
 import type { BookingCalendarRow, BookingDetailResponse } from "@/lib/api-client";
+import { toast } from "@/components/ui/sonner";
 
 /* ── Company palette ── */
 const companyColors: Record<string, { bg: string; border: string; text: string; dot: string }> = {
@@ -53,6 +61,7 @@ const statusConfig: Record<string, { label: string; icon: typeof CheckCircle2; c
   confirmed: { label: "Confirmed", icon: CheckCircle2, cls: "text-[hsl(var(--success))]" },
   pending: { label: "Pending", icon: Clock, cls: "text-[hsl(var(--warning))]" },
   completed: { label: "Completed", icon: CheckCircle2, cls: "text-muted-foreground" },
+  cancelled: { label: "Cancelled", icon: X, cls: "text-destructive" },
   conflict: { label: "Conflict", icon: AlertTriangle, cls: "text-destructive" },
 };
 
@@ -76,6 +85,8 @@ const companies = [
   { id: "3", name: "MarineMecca" },
   { id: "4", name: "Vitatee" },
 ];
+
+const COMPANY_OPTIONS = companies.filter((c) => c.id !== "all");
 
 const timeSlots = Array.from({ length: 13 }, (_, i) => {
   const h = i + 7;
@@ -113,24 +124,6 @@ function DetailRow({ icon: Icon, label, value, highlight }: { icon: React.Elemen
   );
 }
 
-function ActionButton({ icon: Icon, label, primary, destructive }: { icon: React.ElementType; label: string; primary?: boolean; destructive?: boolean }) {
-  return (
-    <button
-      className={cn(
-        "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 active:scale-[0.97]",
-        primary
-          ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-          : destructive
-          ? "text-destructive hover:bg-destructive/10"
-          : "text-secondary-foreground hover:bg-secondary"
-      )}
-    >
-      <Icon className="w-3.5 h-3.5" />
-      {label}
-    </button>
-  );
-}
-
 /* ── Booking position helpers ── */
 function bookingTopFromISO(scheduledFor: string): number {
   const d = parseISO(scheduledFor);
@@ -147,6 +140,153 @@ function getDayIndex(scheduledFor: string, weekStart: Date): number {
   const d = parseISO(scheduledFor);
   const diff = Math.floor((d.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24));
   return diff;
+}
+
+/* ── Create Booking Dialog ── */
+function CreateBookingDialog({ onClose, defaultDate }: { onClose: () => void; defaultDate?: string }) {
+  const { organizationId } = useOrg();
+  const createBooking = useCreateBooking(organizationId);
+
+  const [title, setTitle] = useState("");
+  const [companyId, setCompanyId] = useState(COMPANY_OPTIONS[0].id);
+  const [scheduledFor, setScheduledFor] = useState(
+    defaultDate ?? new Date().toISOString().slice(0, 16)
+  );
+  const [durationMinutes, setDurationMinutes] = useState(60);
+  const [status, setStatus] = useState<"pending" | "confirmed">("pending");
+  const [description, setDescription] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    try {
+      await createBooking.mutateAsync({
+        title: title.trim(),
+        companyId,
+        scheduledFor: new Date(scheduledFor).toISOString(),
+        durationMinutes,
+        status,
+        description: description.trim() || null,
+      });
+      toast.success("Booking created successfully");
+      onClose();
+    } catch {
+      toast.error("Failed to create booking. Please try again.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-card border border-border rounded-2xl w-[480px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">New Booking</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Schedule a new service booking</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Title <span className="text-destructive">*</span></label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+              placeholder="e.g., Boat cleaning service"
+              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Company <span className="text-destructive">*</span></label>
+              <select
+                value={companyId}
+                onChange={(e) => setCompanyId(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+              >
+                {COMPANY_OPTIONS.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Status</label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as "pending" | "confirmed")}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+              >
+                <option value="pending">Pending</option>
+                <option value="confirmed">Confirmed</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Date & Time <span className="text-destructive">*</span></label>
+              <input
+                type="datetime-local"
+                value={scheduledFor}
+                onChange={(e) => setScheduledFor(e.target.value)}
+                required
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Duration (minutes)</label>
+              <input
+                type="number"
+                value={durationMinutes}
+                onChange={(e) => setDurationMinutes(Number(e.target.value))}
+                min={15}
+                max={1440}
+                step={15}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Notes</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              placeholder="Any notes about this booking..."
+              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            />
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={createBooking.isPending || !title.trim()}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]"
+            >
+              {createBooking.isPending ? (
+                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</>
+              ) : (
+                "Create Booking"
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }
 
 /* ── Booking detail panel ── */
@@ -179,18 +319,37 @@ function BookingDetailPanel({
           <ErrorBanner message="Failed to load booking details." onRetry={() => refetch()} />
         </div>
       ) : data ? (
-        <BookingDetailContent detail={data} onClose={onClose} />
+        <BookingDetailContent detail={data} orgId={orgId} onClose={onClose} />
       ) : null}
     </div>
   );
 }
 
-function BookingDetailContent({ detail, onClose }: { detail: BookingDetailResponse; onClose: () => void }) {
+function BookingDetailContent({
+  detail,
+  orgId,
+  onClose,
+}: {
+  detail: BookingDetailResponse;
+  orgId: string;
+  onClose: () => void;
+}) {
   const b = detail.booking;
   const statusCfg = statusConfig[b.status] ?? statusConfig.pending;
   const StatusIcon = statusCfg.icon;
   const priority = (detail.tasks[0]?.priority ?? "low") as string;
   const priCfg = priorityConfig[priority] ?? priorityConfig.low;
+
+  const updateStatus = useUpdateBookingStatus(orgId, b.id);
+
+  const handleStatusChange = async (newStatus: "pending" | "confirmed" | "completed" | "cancelled") => {
+    try {
+      await updateStatus.mutateAsync(newStatus);
+      toast.success(`Booking marked as ${newStatus}`);
+    } catch {
+      toast.error("Failed to update booking status");
+    }
+  };
 
   return (
     <div className="p-4 space-y-5">
@@ -293,14 +452,35 @@ function BookingDetailContent({ detail, onClose }: { detail: BookingDetailRespon
         </div>
       )}
 
-      {/* Actions */}
+      {/* Status Actions */}
       <div>
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2.5">Actions</p>
-        <div className="space-y-1.5">
-          <ActionButton icon={RotateCcw} label="Reschedule" />
-          <ActionButton icon={UserPlus} label="Reassign" />
-          <ActionButton icon={CheckCircle2} label="Mark Complete" primary />
-          <ActionButton icon={ExternalLink} label="Open Linked Records" />
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2.5">Update Status</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {(["pending", "confirmed", "completed", "cancelled"] as const).map((s) => {
+            const cfg = statusConfig[s];
+            const isCurrent = b.status === s;
+            return (
+              <button
+                key={s}
+                onClick={() => handleStatusChange(s)}
+                disabled={isCurrent || updateStatus.isPending}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 active:scale-[0.97]",
+                  isCurrent
+                    ? "bg-primary/10 text-primary border border-primary/30 cursor-default"
+                    : "bg-secondary text-foreground hover:bg-secondary/70",
+                  updateStatus.isPending && "opacity-50 cursor-wait"
+                )}
+              >
+                {updateStatus.isPending && updateStatus.variables === s ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <cfg.icon className="w-3 h-3" />
+                )}
+                {cfg.label}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -316,6 +496,7 @@ export default function CalendarPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [weekOffset, setWeekOffset] = useState(0);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   // Compute week range
   const weekStart = useMemo(() => {
@@ -391,6 +572,14 @@ export default function CalendarPage() {
 
   return (
     <div className="h-[calc(100vh-3.5rem)] flex flex-col">
+      {/* Create Booking Dialog */}
+      {showCreateDialog && (
+        <CreateBookingDialog
+          onClose={() => setShowCreateDialog(false)}
+          defaultDate={weekStart.toISOString().slice(0, 16)}
+        />
+      )}
+
       {/* ── Conflict Alert Banner ── */}
       {conflicts.length > 0 && (
         <div className="shrink-0 px-5 py-2 bg-destructive/10 border-b border-destructive/20 flex items-center gap-3 opacity-0 animate-fade-in">
@@ -479,7 +668,10 @@ export default function CalendarPage() {
             Filters
           </button>
 
-          <button className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all active:scale-[0.97] shadow-md shadow-primary/20">
+          <button
+            onClick={() => setShowCreateDialog(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all active:scale-[0.97] shadow-md shadow-primary/20"
+          >
             <Plus className="w-3.5 h-3.5" />
             New Booking
           </button>
@@ -554,7 +746,7 @@ export default function CalendarPage() {
             )}
           </div>
 
-          {/* Insights panel — static for now */}
+          {/* Insights panel */}
           <div className="mt-auto border-t border-border">
             <button
               onClick={() => setShowSuggestions(!showSuggestions)}

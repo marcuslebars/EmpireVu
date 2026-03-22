@@ -7,7 +7,6 @@ import {
   Calendar,
   User,
   Clock,
-  ChevronDown,
   Zap,
   CheckCircle2,
   Circle,
@@ -17,16 +16,20 @@ import {
   Send,
   X,
   ArrowUpRight,
-  Link2,
-  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { useOrg } from "@/lib/org-context";
-import { useTasks, useTaskDetail } from "@/lib/api-hooks";
+import {
+  useTasks,
+  useTaskDetail,
+  useCreateTask,
+  useUpdateTaskStatus,
+} from "@/lib/api-hooks";
 import { SkeletonRow, ErrorBanner, EmptyState } from "@/components/ui/StateViews";
 import { formatDate, relativeTime } from "@/lib/format";
 import type { TaskListRow, TaskDetailResponse } from "@/lib/api-client";
+import { toast } from "@/components/ui/sonner";
 
 // ─── Styling maps ─────────────────────────────────────────────────────────────
 
@@ -58,6 +61,231 @@ const priorityConfig: Record<string, { bg: string; text: string; dot: string }> 
   low: { bg: "bg-muted", text: "text-muted-foreground", dot: "bg-muted-foreground" },
 };
 
+const COMPANY_OPTIONS = [
+  { id: "1", name: "A1 Marine Care" },
+  { id: "2", name: "RankLocal" },
+  { id: "3", name: "MarineMecca" },
+  { id: "4", name: "Vitatee" },
+];
+
+// ─── Create Task Dialog ───────────────────────────────────────────────────────
+
+function CreateTaskDialog({ onClose }: { onClose: () => void }) {
+  const { organizationId, companyId: ctxCompanyId } = useOrg();
+  const createTask = useCreateTask(organizationId);
+
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState<"low" | "medium" | "high" | "urgent">("medium");
+  const [status, setStatus] = useState<"todo" | "in_progress" | "blocked" | "completed">("todo");
+  const [dueAt, setDueAt] = useState("");
+  const [companyId, setCompanyId] = useState(
+    ctxCompanyId !== "all" ? ctxCompanyId : COMPANY_OPTIONS[0].id
+  );
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    try {
+      await createTask.mutateAsync({
+        title: title.trim(),
+        description: description.trim() || null,
+        priority,
+        status,
+        companyId: companyId || null,
+        dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+      });
+      toast.success("Task created successfully");
+      onClose();
+    } catch {
+      toast.error("Failed to create task. Please try again.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-card border border-border rounded-2xl w-[500px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">New Task</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Create a new task to track work</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Title <span className="text-destructive">*</span></label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+              placeholder="e.g., Follow up with client"
+              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Priority</label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as typeof priority)}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Status</label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as typeof status)}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+              >
+                <option value="todo">To Do</option>
+                <option value="in_progress">In Progress</option>
+                <option value="blocked">Blocked</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Company</label>
+              <select
+                value={companyId}
+                onChange={(e) => setCompanyId(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+              >
+                <option value="">No company</option>
+                {COMPANY_OPTIONS.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Due Date</label>
+              <input
+                type="date"
+                value={dueAt}
+                onChange={(e) => setDueAt(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Description</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              placeholder="Any additional details about this task..."
+              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            />
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={createTask.isPending || !title.trim()}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--accent-blue))] text-white hover:bg-[hsl(var(--accent-blue))]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]"
+            >
+              {createTask.isPending ? (
+                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</>
+              ) : (
+                "Create Task"
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Status Quick-Update Dropdown ─────────────────────────────────────────────
+
+type TaskStatus = "todo" | "in_progress" | "blocked" | "completed";
+
+function StatusDropdown({
+  taskId,
+  currentStatus,
+}: {
+  taskId: string;
+  currentStatus: string;
+}) {
+  const { organizationId } = useOrg();
+  const updateStatus = useUpdateTaskStatus(organizationId, taskId);
+  const [open, setOpen] = useState(false);
+
+  const handleSelect = async (s: TaskStatus) => {
+    setOpen(false);
+    if (s === currentStatus) return;
+    try {
+      await updateStatus.mutateAsync(s);
+      toast.success(`Status updated to ${statusLabel[s]}`);
+    } catch {
+      toast.error("Failed to update status");
+    }
+  };
+
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex items-center gap-1.5 text-xs font-medium transition-colors hover:opacity-80",
+          statusStyle[currentStatus] ?? "text-muted-foreground",
+          updateStatus.isPending && "opacity-50 cursor-wait"
+        )}
+      >
+        {updateStatus.isPending ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        ) : (
+          statusIcon[currentStatus] ?? statusIcon.todo
+        )}
+        {statusLabel[currentStatus] ?? currentStatus}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute top-full left-0 mt-1 z-20 bg-card border border-border rounded-lg shadow-lg shadow-black/20 py-1 min-w-[140px]">
+            {(["todo", "in_progress", "blocked", "completed"] as TaskStatus[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => handleSelect(s)}
+                className={cn(
+                  "w-full text-left px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary flex items-center gap-2",
+                  s === currentStatus ? `${statusStyle[s]} font-semibold` : "text-foreground"
+                )}
+              >
+                {statusIcon[s]}
+                {statusLabel[s]}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Task Detail Panel ────────────────────────────────────────────────────────
 
 function TaskDetailPanel({
@@ -73,7 +301,17 @@ function TaskDetailPanel({
 }) {
   const { organizationId } = useOrg();
   const { data, isLoading, isError } = useTaskDetail(organizationId, taskId);
+  const updateStatus = useUpdateTaskStatus(organizationId, taskId);
   const [commentText, setCommentText] = useState("");
+
+  const handleStatusChange = async (s: TaskStatus) => {
+    try {
+      await updateStatus.mutateAsync(s);
+      toast.success(`Status updated to ${statusLabel[s]}`);
+    } catch {
+      toast.error("Failed to update status");
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -318,17 +556,35 @@ function TaskDetailPanel({
                 </div>
               </div>
 
-              {/* Actions */}
-              <div className="flex gap-2 pt-2 border-t border-border">
-                <button className="flex-1 py-2 rounded-lg text-xs font-medium bg-[hsl(var(--surface-2))] text-foreground hover:bg-[hsl(var(--surface-3))] transition-colors active:scale-[0.98]">
-                  Mark Complete
-                </button>
-                <button className="flex-1 py-2 rounded-lg text-xs font-medium bg-[hsl(var(--surface-2))] text-foreground hover:bg-[hsl(var(--surface-3))] transition-colors active:scale-[0.98]">
-                  Reassign
-                </button>
-                <button className="flex-1 py-2 rounded-lg text-xs font-medium bg-[hsl(var(--surface-2))] text-[hsl(var(--urgent))] hover:bg-[hsl(var(--urgent))]/10 transition-colors active:scale-[0.98]">
-                  Escalate
-                </button>
+              {/* Status Actions */}
+              <div className="space-y-2 pt-2 border-t border-border">
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Update Status</h3>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(["todo", "in_progress", "blocked", "completed"] as TaskStatus[]).map((s) => {
+                    const isCurrent = data.task.status === s;
+                    return (
+                      <button
+                        key={s}
+                        onClick={() => handleStatusChange(s)}
+                        disabled={isCurrent || updateStatus.isPending}
+                        className={cn(
+                          "flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 active:scale-[0.97]",
+                          isCurrent
+                            ? "bg-[hsl(var(--accent-blue))]/10 text-[hsl(var(--accent-blue))] border border-[hsl(var(--accent-blue))]/30 cursor-default"
+                            : "bg-[hsl(var(--surface-2))] text-foreground hover:bg-[hsl(var(--surface-3))]",
+                          updateStatus.isPending && "opacity-50 cursor-wait"
+                        )}
+                      >
+                        {updateStatus.isPending ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          statusIcon[s]
+                        )}
+                        {statusLabel[s]}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </>
           )}
@@ -366,6 +622,7 @@ export default function TasksPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   const handleSearch = (value: string) => {
     setSearch(value);
@@ -401,6 +658,11 @@ export default function TasksPage() {
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-5">
+      {/* Create Task Dialog */}
+      {showCreateDialog && (
+        <CreateTaskDialog onClose={() => setShowCreateDialog(false)} />
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between opacity-0 animate-fade-in">
         <div>
@@ -409,7 +671,10 @@ export default function TasksPage() {
             {isLoading ? "Loading..." : `${totalCount} tasks`}
           </p>
         </div>
-        <button className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--accent-blue))] text-white hover:bg-[hsl(var(--accent-blue))]/90 transition-all active:scale-[0.97] shadow-[0_0_20px_hsl(var(--accent-blue)/0.2)]">
+        <button
+          onClick={() => setShowCreateDialog(true)}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--accent-blue))] text-white hover:bg-[hsl(var(--accent-blue))]/90 transition-all active:scale-[0.97] shadow-[0_0_20px_hsl(var(--accent-blue)/0.2)]"
+        >
           <Plus className="w-4 h-4" />
           New Task
         </button>
@@ -599,11 +864,9 @@ export default function TasksPage() {
                       </div>
                     </td>
 
-                    {/* Status */}
+                    {/* Status — inline quick-update */}
                     <td className="px-4 py-3">
-                      <span className={cn("text-xs font-medium", statusStyle[task.status] ?? "text-muted-foreground")}>
-                        {statusLabel[task.status] ?? task.status}
-                      </span>
+                      <StatusDropdown taskId={task.id} currentStatus={task.status} />
                     </td>
 
                     {/* Priority */}

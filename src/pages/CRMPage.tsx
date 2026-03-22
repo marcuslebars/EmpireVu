@@ -5,8 +5,6 @@ import {
   ChevronRight,
   Calendar,
   DollarSign,
-  ArrowUpRight,
-  ArrowDownRight,
   LayoutGrid,
   List,
   GripVertical,
@@ -15,14 +13,17 @@ import {
   Clock,
   ArrowRight,
   Star,
+  X,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { useOrg } from "@/lib/org-context";
-import { useCRMContacts } from "@/lib/api-hooks";
-import { SkeletonRow, ErrorBanner, EmptyState, LoadingRows } from "@/components/ui/StateViews";
+import { useCRMContacts, useCreateContact, useUpdateContactStage } from "@/lib/api-hooks";
+import { SkeletonRow, ErrorBanner, EmptyState } from "@/components/ui/StateViews";
 import { formatCentsCompact, relativeTime } from "@/lib/format";
 import type { CRMContactRow, NextActionSummary } from "@/lib/api-client";
+import { toast } from "@/components/ui/sonner";
 
 // ─── Styling maps ─────────────────────────────────────────────────────────────
 
@@ -68,6 +69,8 @@ const pipelineStageColors: Record<string, string> = {
   closed: "bg-violet-400",
 };
 
+type ContactStage = "lead" | "qualified" | "active" | "closed";
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function NextActionBadge({ action }: { action: NextActionSummary }) {
@@ -81,6 +84,242 @@ function NextActionBadge({ action }: { action: NextActionSummary }) {
   );
 }
 
+// ─── Create Contact Dialog ────────────────────────────────────────────────────
+
+const COMPANY_OPTIONS = [
+  { id: "1", name: "A1 Marine Care" },
+  { id: "2", name: "RankLocal" },
+  { id: "3", name: "MarineMecca" },
+  { id: "4", name: "Vitatee" },
+];
+
+function CreateContactDialog({
+  onClose,
+  defaultCompanyId,
+}: {
+  onClose: () => void;
+  defaultCompanyId?: string;
+}) {
+  const { organizationId } = useOrg();
+  const createContact = useCreateContact(organizationId);
+
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [companyId, setCompanyId] = useState(defaultCompanyId ?? COMPANY_OPTIONS[0].id);
+  const [stage, setStage] = useState<ContactStage>("lead");
+  const [notes, setNotes] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!firstName.trim()) return;
+    try {
+      await createContact.mutateAsync({
+        firstName: firstName.trim(),
+        lastName: lastName.trim() || null,
+        email: email.trim() || null,
+        phone: phone.trim() || null,
+        companyId,
+        stage,
+        notes: notes.trim() || null,
+      });
+      toast.success("Contact created successfully");
+      onClose();
+    } catch {
+      toast.error("Failed to create contact. Please try again.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-card border border-border rounded-2xl w-[520px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">Add Contact</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Create a new contact in your CRM</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">First Name <span className="text-destructive">*</span></label>
+              <input
+                type="text"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                required
+                placeholder="Jane"
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Last Name</label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Smith"
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="jane@example.com"
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Phone</label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+1 555 000 0000"
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Company <span className="text-destructive">*</span></label>
+              <select
+                value={companyId}
+                onChange={(e) => setCompanyId(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+              >
+                {COMPANY_OPTIONS.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Stage</label>
+              <select
+                value={stage}
+                onChange={(e) => setStage(e.target.value as ContactStage)}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+              >
+                <option value="lead">Lead</option>
+                <option value="qualified">Qualified</option>
+                <option value="active">Active</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Notes</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="Any additional notes about this contact..."
+              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            />
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={createContact.isPending || !firstName.trim()}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]"
+            >
+              {createContact.isPending ? (
+                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</>
+              ) : (
+                "Create Contact"
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Stage Quick-Update Dropdown ──────────────────────────────────────────────
+
+function StageDropdown({
+  contactId,
+  currentStage,
+}: {
+  contactId: string;
+  currentStage: string;
+}) {
+  const { organizationId } = useOrg();
+  const updateStage = useUpdateContactStage(organizationId, contactId);
+  const [open, setOpen] = useState(false);
+  const sc = stageConfig[currentStage] ?? stageConfig.lead;
+
+  const handleSelect = async (s: ContactStage) => {
+    setOpen(false);
+    if (s === currentStage) return;
+    try {
+      await updateStage.mutateAsync(s);
+      toast.success(`Stage updated to ${stageLabel[s]}`);
+    } catch {
+      toast.error("Failed to update stage");
+    }
+  };
+
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "text-[11px] font-medium px-2 py-1 rounded-md transition-colors hover:opacity-80",
+          sc.bg, sc.text,
+          updateStage.isPending && "opacity-50 cursor-wait"
+        )}
+      >
+        {updateStage.isPending ? <Loader2 className="w-3 h-3 animate-spin inline" /> : (stageLabel[currentStage] ?? currentStage)}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute top-full left-0 mt-1 z-20 bg-card border border-border rounded-lg shadow-lg shadow-black/20 py-1 min-w-[120px]">
+            {pipelineStageOrder.map((s) => {
+              const sc2 = stageConfig[s] ?? stageConfig.lead;
+              return (
+                <button
+                  key={s}
+                  onClick={() => handleSelect(s as ContactStage)}
+                  className={cn(
+                    "w-full text-left px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary",
+                    s === currentStage ? `${sc2.text} font-semibold` : "text-foreground"
+                  )}
+                >
+                  {stageLabel[s]}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── CRM Page ─────────────────────────────────────────────────────────────────
 
 export default function CRMPage() {
@@ -91,6 +330,7 @@ export default function CRMPage() {
   const [search, setSearch] = useState("");
   const [filterStage, setFilterStage] = useState("All");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   // Debounce search
   const handleSearch = (value: string) => {
@@ -131,6 +371,14 @@ export default function CRMPage() {
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-5">
+      {/* Create Contact Dialog */}
+      {showCreateDialog && (
+        <CreateContactDialog
+          onClose={() => setShowCreateDialog(false)}
+          defaultCompanyId={apiCompanyId}
+        />
+      )}
+
       {/* Urgent Banner */}
       {urgentCount > 0 && (
         <div className="flex items-center gap-3 bg-red-500/8 border border-red-500/20 rounded-xl px-4 py-3 opacity-0 animate-fade-in">
@@ -159,7 +407,10 @@ export default function CRMPage() {
             {pipelineSummary.length > 0 && ` · ${formatCentsCompact(pipelineSummary.reduce((s, p) => s + p.valueCents, 0))} total pipeline`}
           </p>
         </div>
-        <button className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97] shadow-lg shadow-primary/20">
+        <button
+          onClick={() => setShowCreateDialog(true)}
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97] shadow-lg shadow-primary/20"
+        >
           <Plus className="w-4 h-4" />
           Add Contact
         </button>
@@ -248,7 +499,7 @@ export default function CRMPage() {
                 <th className="text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">Contact</th>
                 <th className="text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">Company</th>
                 <th className="text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">Stage</th>
-                <th className="text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">Value</th>
+                <th className="text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">Pipeline</th>
                 <th className="text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">Next Action</th>
                 <th className="text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">Bookings</th>
                 <th className="text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">Revenue</th>
@@ -268,13 +519,12 @@ export default function CRMPage() {
               ) : contacts.length === 0 ? (
                 <tr>
                   <td colSpan={9}>
-                    <EmptyState title="No contacts found" description="Try adjusting your search or filters." />
+                    <EmptyState title="No contacts found" description="Try adjusting your search or filters, or add a new contact." />
                   </td>
                 </tr>
               ) : (
                 contacts.map((c) => {
                   const cc = getCompanyColors(c.company?.id);
-                  const sc = stageConfig[c.stage] ?? stageConfig.lead;
                   const isHighValue = (c.pipelineValueCents ?? 0) >= 2_500_000;
                   return (
                     <tr
@@ -312,9 +562,7 @@ export default function CRMPage() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={cn("text-[11px] font-medium px-2 py-1 rounded-md", sc.bg, sc.text)}>
-                          {stageLabel[c.stage] ?? c.stage}
-                        </span>
+                        <StageDropdown contactId={c.id} currentStage={c.stage} />
                       </td>
                       <td className="px-4 py-3">
                         <span className={cn("text-sm font-semibold tabular-nums", isHighValue ? "text-foreground" : "text-foreground/80")}>

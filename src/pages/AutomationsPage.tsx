@@ -3,14 +3,22 @@ import {
   Plus, Zap, ArrowRight, MoreHorizontal, Search, Filter, Play, Pause,
   ChevronRight, Calendar, UserPlus, CheckCircle2, Bell, ClipboardList,
   Target, Mail, Clock, AlertTriangle, Building2, Globe, X,
-  Repeat, Settings2, TrendingUp, Eye
+  Repeat, Settings2, TrendingUp, Eye, RotateCcw, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-import { useWorkflows, useWorkflowDetail, useAutomationImpact } from "@/lib/api-hooks";
+import {
+  useWorkflows,
+  useWorkflowDetail,
+  useAutomationImpact,
+  useRunWorkflowNow,
+  useRunWorkflowTest,
+  useRetryWorkflowJob,
+} from "@/lib/api-hooks";
 import { SkeletonCard, ErrorBanner, EmptyState } from "@/components/ui/StateViews";
 import { relativeTime, formatPercent, formatSeconds } from "@/lib/format";
 import type { WorkflowListRow, WorkflowDetailResponse } from "@/lib/api-client";
+import { toast } from "@/components/ui/sonner";
 
 // ─── Styling maps ─────────────────────────────────────────────────────────────
 
@@ -67,11 +75,56 @@ function WorkflowDetailPanel({
   onClose: () => void;
 }) {
   const { organizationId } = useOrg();
-  const { data, isLoading, isError } = useWorkflowDetail(organizationId, workflowId);
+  const { data, isLoading, isError, refetch } = useWorkflowDetail(organizationId, workflowId);
+
+  const runNow = useRunWorkflowNow(organizationId, workflowId);
+  const runTest = useRunWorkflowTest(organizationId, workflowId);
+  const retryJob = useRetryWorkflowJob(organizationId);
 
   const workflow = data?.workflow;
   const runs = data?.workflowRuns.items ?? [];
   const failedJobs = data?.relatedFailedJobs ?? [];
+
+  const handleRunNow = async () => {
+    try {
+      await runNow.mutateAsync({
+        event: {
+          entityType: workflow?.triggerType ?? "manual",
+          eventType: workflow?.triggerType ?? "manual",
+        },
+      });
+      toast.success("Workflow triggered successfully");
+      void refetch();
+    } catch {
+      toast.error("Failed to run workflow. Please try again.");
+    }
+  };
+
+  const handleRunTest = async () => {
+    try {
+      await runTest.mutateAsync({
+        dryRun: true,
+        sampleEvent: {
+          entityType: workflow?.triggerType ?? "manual",
+          eventType: workflow?.triggerType ?? "manual",
+        },
+      });
+      toast.success("Test run completed — check execution log");
+      void refetch();
+    } catch {
+      toast.error("Test run failed. Please try again.");
+    }
+  };
+
+  const handleRetryJob = async (jobId: string) => {
+    try {
+      await retryJob.mutateAsync(jobId);
+      toast.success("Job queued for retry");
+      void refetch();
+    } catch {
+      toast.error("Failed to retry job");
+    }
+  };
 
   return (
     <div className="fixed inset-y-0 right-0 w-[420px] bg-card border-l border-border z-50 shadow-2xl shadow-black/30 animate-slide-in-right overflow-y-auto">
@@ -104,7 +157,7 @@ function WorkflowDetailPanel({
         </div>
 
         {isError && (
-          <p className="text-sm text-destructive">Failed to load workflow details.</p>
+          <ErrorBanner message="Failed to load workflow details." onRetry={() => refetch()} />
         )}
 
         {workflow && (
@@ -136,14 +189,35 @@ function WorkflowDetailPanel({
             {/* Failed Jobs */}
             {failedJobs.length > 0 && (
               <div className="bg-destructive/8 border border-destructive/20 rounded-xl p-4">
-                <p className="text-xs font-semibold text-destructive mb-2">{failedJobs.length} failed job{failedJobs.length > 1 ? "s" : ""}</p>
-                <div className="space-y-1.5">
-                  {failedJobs.slice(0, 3).map((job) => (
-                    <div key={job.id} className="text-xs text-muted-foreground">
-                      {job.lastError ?? "Unknown error"}
-                      {job.failedAt && <span className="ml-2 text-muted-foreground/60">{relativeTime(job.failedAt)}</span>}
+                <p className="text-xs font-semibold text-destructive mb-2">
+                  {failedJobs.length} failed job{failedJobs.length > 1 ? "s" : ""}
+                </p>
+                <div className="space-y-2">
+                  {failedJobs.slice(0, 5).map((job) => (
+                    <div key={job.id} className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-muted-foreground truncate">{job.lastError ?? "Unknown error"}</p>
+                        {job.failedAt && (
+                          <p className="text-[10px] text-muted-foreground/60 mt-0.5">{relativeTime(job.failedAt)}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleRetryJob(job.id)}
+                        disabled={retryJob.isPending}
+                        className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors shrink-0 disabled:opacity-50"
+                      >
+                        {retryJob.isPending ? (
+                          <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-2.5 h-2.5" />
+                        )}
+                        Retry
+                      </button>
                     </div>
                   ))}
+                  {failedJobs.length > 5 && (
+                    <p className="text-[10px] text-muted-foreground">+{failedJobs.length - 5} more failed jobs</p>
+                  )}
                 </div>
               </div>
             )}
@@ -180,14 +254,30 @@ function WorkflowDetailPanel({
               </div>
             </div>
 
-            {/* Actions */}
+            {/* Primary Actions */}
             <div className="space-y-2">
               <div className="flex gap-2">
-                <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]">
-                  <Play className="w-3.5 h-3.5" /> Run Now
+                <button
+                  onClick={handleRunNow}
+                  disabled={runNow.isPending}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97] disabled:opacity-50 disabled:cursor-wait"
+                >
+                  {runNow.isPending ? (
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Running…</>
+                  ) : (
+                    <><Play className="w-3.5 h-3.5" /> Run Now</>
+                  )}
                 </button>
-                <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors active:scale-[0.97]">
-                  <Eye className="w-3.5 h-3.5" /> Test Run
+                <button
+                  onClick={handleRunTest}
+                  disabled={runTest.isPending}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors active:scale-[0.97] disabled:opacity-50 disabled:cursor-wait"
+                >
+                  {runTest.isPending ? (
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Testing…</>
+                  ) : (
+                    <><Eye className="w-3.5 h-3.5" /> Test Run</>
+                  )}
                 </button>
               </div>
               <div className="flex gap-2">
@@ -397,6 +487,25 @@ export default function AutomationsPage() {
     { label: "Draft Workflows", value: isLoading ? "—" : String(workflows.filter((w) => w.status === "draft").length), icon: Settings2, color: "text-muted-foreground" },
   ];
 
+  // Inline Run Now per card (without opening detail panel)
+  const runNowForCard = (workflowId: string, triggerType: string) => async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const orgId = organizationId;
+      // We need a local mutation instance per card — use fetch directly
+      const res = await fetch(`/api/organizations/${orgId}/workflows/${workflowId}/run-now`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event: { entityType: triggerType, eventType: triggerType } }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast.success("Workflow triggered");
+      void refetch();
+    } catch {
+      toast.error("Failed to run workflow");
+    }
+  };
+
   return (
     <div className="max-w-[1400px] mx-auto space-y-6">
       {/* Header */}
@@ -499,6 +608,12 @@ export default function AutomationsPage() {
                         <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded", statusStyles[w.status] ?? statusStyles.inactive)}>
                           {statusLabel[w.status] ?? w.status}
                         </span>
+                        {w.recentRunSummary.failedCount > 0 && (
+                          <span className="flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
+                            <AlertTriangle className="w-2.5 h-2.5" />
+                            {w.recentRunSummary.failedCount} failed
+                          </span>
+                        )}
                       </div>
                       {w.description && (
                         <p className="text-xs text-muted-foreground mt-0.5 truncate">{w.description}</p>
@@ -544,7 +659,7 @@ export default function AutomationsPage() {
                   </div>
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={runNowForCard(w.id, w.triggerType)}
                       className="p-1.5 rounded-lg hover:bg-primary/10 transition-colors text-primary opacity-0 group-hover:opacity-100"
                       title="Run Now"
                     >

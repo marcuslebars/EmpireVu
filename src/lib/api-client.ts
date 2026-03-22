@@ -533,3 +533,178 @@ export function fetchTrace(
 ): Promise<UnifiedTraceResponse> {
   return apiFetch(`/api/organizations/${orgId}/ui/trace/${entityType}/${entityId}`);
 }
+
+// ─── Mutations ────────────────────────────────────────────────────────────────
+
+// Contact mutations
+
+export interface CreateContactInput {
+  companyId: string;
+  email?: string | null;
+  firstName: string;
+  lastName?: string | null;
+  metadata?: Record<string, unknown>;
+  notes?: string | null;
+  phone?: string | null;
+  stage?: "lead" | "qualified" | "active" | "closed";
+}
+
+export function createContact(orgId: string, input: CreateContactInput): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/contacts`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateContactStage(
+  orgId: string,
+  contactId: string,
+  stage: "lead" | "qualified" | "active" | "closed",
+): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "updateStage", stage }),
+  });
+}
+
+export function assignContactOwner(
+  orgId: string,
+  contactId: string,
+  ownerProfileId: string,
+): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "assignOwner", ownerProfileId }),
+  });
+}
+
+// Booking mutations
+
+export interface CreateBookingInput {
+  companyId: string;
+  contactId?: string | null;
+  description?: string | null;
+  durationMinutes?: number;
+  scheduledFor: string;
+  status?: "pending" | "confirmed" | "completed" | "cancelled";
+  title: string;
+}
+
+export function createBooking(orgId: string, input: CreateBookingInput): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/bookings`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateBookingStatus(
+  orgId: string,
+  bookingId: string,
+  status: "pending" | "confirmed" | "completed" | "cancelled",
+): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/bookings/${bookingId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+// Task mutations
+
+export interface CreateTaskInput {
+  assignedToProfileId?: string | null;
+  bookingId?: string | null;
+  companyId?: string | null;
+  contactId?: string | null;
+  description?: string | null;
+  dueAt?: string | null;
+  priority?: "low" | "medium" | "high" | "urgent";
+  status?: "todo" | "in_progress" | "blocked" | "completed";
+  title: string;
+  workflowId?: string | null;
+}
+
+export function createTask(orgId: string, input: CreateTaskInput): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/tasks`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateTaskStatus(
+  orgId: string,
+  taskId: string,
+  status: "todo" | "in_progress" | "blocked" | "completed",
+): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/tasks/${taskId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "updateStatus", status }),
+  });
+}
+
+export function assignTaskUser(
+  orgId: string,
+  taskId: string,
+  assignedToProfileId: string,
+): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/tasks/${taskId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "assignUser", assignedToProfileId }),
+  });
+}
+
+// Workflow action mutations
+
+export interface RunWorkflowNowInput {
+  eventId?: string;
+  event?: {
+    companyId?: string | null;
+    entityId?: string | null;
+    entityType: string;
+    eventType: string;
+    metadata?: Record<string, unknown>;
+    relatedEntityId?: string | null;
+    relatedEntityType?: string | null;
+  };
+}
+
+export function runWorkflowNow(
+  orgId: string,
+  workflowId: string,
+  input: RunWorkflowNowInput,
+): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/workflows/${workflowId}/run-now`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export interface RunWorkflowTestInput {
+  dryRun?: boolean;
+  sampleEvent: {
+    companyId?: string | null;
+    entityId?: string | null;
+    entityType: string;
+    eventType: string;
+    metadata?: Record<string, unknown>;
+    relatedEntityId?: string | null;
+    relatedEntityType?: string | null;
+  };
+}
+
+export function runWorkflowTest(
+  orgId: string,
+  workflowId: string,
+  input: RunWorkflowTestInput,
+): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/workflows/${workflowId}/run-test`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function retryWorkflowJob(orgId: string, jobId: string): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/workflow-event-jobs/${jobId}/retry`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
