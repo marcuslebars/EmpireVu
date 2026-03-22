@@ -244,12 +244,14 @@ export default function AutomationsPage() {
         </button>
       </div>
 
-      {/* Stats strip */}
-      <div className="grid grid-cols-4 gap-3 opacity-0 animate-fade-in" style={{ animationDelay: "60ms" }}>
+      {/* Impact & Stats strip */}
+      <div className="grid grid-cols-6 gap-3 opacity-0 animate-fade-in" style={{ animationDelay: "60ms" }}>
         {[
           { label: "Active Workflows", value: activeCount, icon: Zap, color: "text-[hsl(var(--success))]" },
           { label: "Total Executions", value: totalRuns.toLocaleString(), icon: Repeat, color: "text-primary" },
           { label: "Avg Success Rate", value: `${(workflows.filter(w => w.runs > 0).reduce((s, w) => s + w.successRate, 0) / workflows.filter(w => w.runs > 0).length).toFixed(1)}%`, icon: TrendingUp, color: "text-[hsl(var(--success))]" },
+          { label: "Tasks Created", value: "47", icon: ClipboardList, color: "text-[hsl(var(--warning))]" },
+          { label: "Time Saved", value: "12.4h", icon: Clock, color: "text-[hsl(var(--accent-blue,215_100%_55%))]" },
           { label: "Draft Workflows", value: workflows.filter(w => w.status === "Draft").length, icon: Settings2, color: "text-muted-foreground" },
         ].map((stat, i) => (
           <div key={i} className="bg-card border border-border rounded-xl p-4 flex items-center gap-3">
