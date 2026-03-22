@@ -8,6 +8,7 @@ import Dashboard from "./pages/Dashboard";
 import CalendarPage from "./pages/CalendarPage";
 import TasksPage from "./pages/TasksPage";
 import CRMPage from "./pages/CRMPage";
+import ContactDetailPage from "./pages/ContactDetailPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import AutomationsPage from "./pages/AutomationsPage";
 import FilesPage from "./pages/FilesPage";
