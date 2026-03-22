@@ -296,78 +296,82 @@ export default function CalendarPage() {
           </div>
 
           {/* Scrollable grid body */}
-          <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
-            <div className="relative" style={{ height: timeSlots.length * HOUR_HEIGHT }}>
-              {/* Time rows */}
-              {timeSlots.map((t) => (
+          <div className="flex-1 overflow-y-auto overflow-x-hidden">
+            <div className="grid grid-cols-[3rem_repeat(7,1fr)]" style={{ height: timeSlots.length * HOUR_HEIGHT }}>
+              {/* Time gutter */}
+              <div className="relative border-r border-border">
+                {timeSlots.map((t) => (
+                  <span
+                    key={t.label}
+                    className="absolute right-2 text-[10px] text-muted-foreground font-mono tabular-nums"
+                    style={{ top: (t.hour - GRID_START) * HOUR_HEIGHT - 6 }}
+                  >
+                    {t.label}
+                  </span>
+                ))}
+              </div>
+              {/* Day columns */}
+              {weekDays.map((d, ci) => (
                 <div
-                  key={t.label}
-                  className="absolute w-full grid grid-cols-[3rem_repeat(7,1fr)]"
-                  style={{ top: (t.hour - GRID_START) * HOUR_HEIGHT }}
+                  key={d.full}
+                  className={cn(
+                    "relative border-r border-border/40 last:border-r-0",
+                    ci === todayCol ? "bg-primary/[0.02]" : ""
+                  )}
                 >
-                  <div className="border-r border-border h-0 relative">
-                    <span className="absolute -top-2 right-2 text-[10px] text-muted-foreground font-mono tabular-nums">{t.label}</span>
-                  </div>
-                  {weekDays.map((d, ci) => (
+                  {/* Hour lines */}
+                  {timeSlots.map((t) => (
                     <div
-                      key={d.full}
-                      className={cn(
-                        "border-r border-b border-border/40 last:border-r-0",
-                        ci === todayCol ? "bg-primary/[0.02]" : ""
-                      )}
-                      style={{ height: HOUR_HEIGHT }}
+                      key={t.label}
+                      className="absolute inset-x-0 border-b border-border/40"
+                      style={{ top: (t.hour - GRID_START) * HOUR_HEIGHT + HOUR_HEIGHT }}
                     />
                   ))}
-                </div>
-              ))}
 
-              {/* Current time indicator */}
-              <div
-                className="absolute left-12 right-0 z-20 pointer-events-none"
-                style={{ top: (10 - GRID_START) * HOUR_HEIGHT + 30 }}
-              >
-                <div className="flex items-center">
-                  <div className="w-2 h-2 rounded-full bg-destructive" />
-                  <div className="flex-1 h-px bg-destructive/60" />
-                </div>
-              </div>
-
-              {/* Booking blocks */}
-              {filteredBookings.map((b) => {
-                const colors = companyColors[b.company];
-                const StatusIcon = statusConfig[b.status].icon;
-                const isConflict = b.status === "conflict";
-                return (
-                  <button
-                    key={b.id}
-                    onClick={() => setSelectedBooking(b)}
-                    className={cn(
-                      "absolute rounded-md border px-2 py-1.5 text-left cursor-pointer transition-all duration-150 hover:brightness-110 hover:shadow-lg group z-10",
-                      colors.bg,
-                      colors.border,
-                      isConflict && "ring-1 ring-destructive/50 animate-pulse-soft",
-                      selectedBooking?.id === b.id && "ring-2 ring-primary shadow-lg shadow-primary/10"
-                    )}
-                    style={{
-                      left: `calc(3rem + ${(b.day / 7) * 100}% * (1 - 3rem / 100%))`,
-                      width: `calc((100% - 3rem) / 7 - 4px)`,
-                      top: bookingTop(b),
-                      height: bookingHeight(b),
-                      marginLeft: `calc(${b.day} * ((100% - 3rem) / 7))`,
-                    }}
-                    // Simplified positioning
-                    {...{} /* override with clean calc */}
-                  >
-                    <div className="flex items-start justify-between gap-1">
-                      <p className={cn("text-[11px] font-semibold truncate leading-tight", colors.text)}>{b.title}</p>
-                      <StatusIcon className={cn("w-3 h-3 shrink-0 mt-0.5", statusConfig[b.status].cls)} />
+                  {/* Current time indicator (only on today col) */}
+                  {ci === todayCol && (
+                    <div
+                      className="absolute inset-x-0 z-20 pointer-events-none flex items-center"
+                      style={{ top: (10 - GRID_START) * HOUR_HEIGHT + 30 }}
+                    >
+                      <div className="w-2 h-2 rounded-full bg-destructive -ml-1" />
+                      <div className="flex-1 h-px bg-destructive/60" />
                     </div>
-                    {b.durationMin >= 60 && (
-                      <div className="mt-1 space-y-0.5">
-                        <p className="text-[10px] text-muted-foreground truncate">{b.customer}</p>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[9px] text-muted-foreground font-mono">{b.durationMin}m</span>
-                          {b.hasPayment && <CreditCard className="w-2.5 h-2.5 text-success" />}
+                  )}
+
+                  {/* Bookings for this column */}
+                  {filteredBookings
+                    .filter((b) => b.day === ci)
+                    .map((b) => {
+                      const colors = companyColors[b.company];
+                      const StatusIcon = statusConfig[b.status].icon;
+                      const isConflict = b.status === "conflict";
+                      return (
+                        <button
+                          key={b.id}
+                          onClick={() => setSelectedBooking(b)}
+                          className={cn(
+                            "absolute inset-x-1 rounded-md border px-2 py-1.5 text-left cursor-pointer transition-all duration-150 hover:brightness-110 hover:shadow-lg z-10 overflow-hidden",
+                            colors.bg,
+                            colors.border,
+                            isConflict && "ring-1 ring-destructive/50 animate-pulse-soft",
+                            selectedBooking?.id === b.id && "ring-2 ring-primary shadow-lg shadow-primary/10"
+                          )}
+                          style={{
+                            top: bookingTop(b),
+                            height: bookingHeight(b),
+                          }}
+                        >
+                          <div className="flex items-start justify-between gap-1">
+                            <p className={cn("text-[11px] font-semibold truncate leading-tight", colors.text)}>{b.title}</p>
+                            <StatusIcon className={cn("w-3 h-3 shrink-0 mt-0.5", statusConfig[b.status].cls)} />
+                          </div>
+                          {b.durationMin >= 60 && (
+                            <div className="mt-1 space-y-0.5">
+                              <p className="text-[10px] text-muted-foreground truncate">{b.customer}</p>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[9px] text-muted-foreground font-mono">{b.durationMin}m</span>
+                                {b.hasPayment && <CreditCard className="w-2.5 h-2.5 text-success" />}
                           {b.hasNote && <StickyNote className="w-2.5 h-2.5 text-muted-foreground" />}
                           {b.hasIssue && <AlertTriangle className="w-2.5 h-2.5 text-warning" />}
                         </div>
