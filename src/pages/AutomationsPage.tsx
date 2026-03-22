@@ -244,12 +244,14 @@ export default function AutomationsPage() {
         </button>
       </div>
 
-      {/* Stats strip */}
-      <div className="grid grid-cols-4 gap-3 opacity-0 animate-fade-in" style={{ animationDelay: "60ms" }}>
+      {/* Impact & Stats strip */}
+      <div className="grid grid-cols-6 gap-3 opacity-0 animate-fade-in" style={{ animationDelay: "60ms" }}>
         {[
           { label: "Active Workflows", value: activeCount, icon: Zap, color: "text-[hsl(var(--success))]" },
           { label: "Total Executions", value: totalRuns.toLocaleString(), icon: Repeat, color: "text-primary" },
           { label: "Avg Success Rate", value: `${(workflows.filter(w => w.runs > 0).reduce((s, w) => s + w.successRate, 0) / workflows.filter(w => w.runs > 0).length).toFixed(1)}%`, icon: TrendingUp, color: "text-[hsl(var(--success))]" },
+          { label: "Tasks Created", value: "47", icon: ClipboardList, color: "text-[hsl(var(--warning))]" },
+          { label: "Time Saved", value: "12.4h", icon: Clock, color: "text-[hsl(var(--accent-blue,215_100%_55%))]" },
           { label: "Draft Workflows", value: workflows.filter(w => w.status === "Draft").length, icon: Settings2, color: "text-muted-foreground" },
         ].map((stat, i) => (
           <div key={i} className="bg-card border border-border rounded-xl p-4 flex items-center gap-3">
@@ -392,12 +394,21 @@ export default function AutomationsPage() {
                 <div className="text-right min-w-[70px]">
                   <p className="text-xs text-muted-foreground">{w.lastRun}</p>
                 </div>
-                <button
-                  onClick={(e) => e.stopPropagation()}
-                  className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground opacity-0 group-hover:opacity-100"
-                >
-                  <MoreHorizontal className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); }}
+                    className="p-1.5 rounded-lg hover:bg-primary/10 transition-colors text-primary opacity-0 group-hover:opacity-100"
+                    title="Run Now"
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={(e) => e.stopPropagation()}
+                    className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground opacity-0 group-hover:opacity-100"
+                  >
+                    <MoreHorizontal className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -531,22 +542,29 @@ function WorkflowDetailPanel({ workflow, onClose }: { workflow: Workflow; onClos
         </div>
 
         {/* Actions */}
-        <div className="flex gap-2">
-          {workflow.status === "Active" ? (
-            <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--warning))]/15 text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning))]/25 transition-colors">
-              <Pause className="w-3.5 h-3.5" /> Pause
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]">
+              <Play className="w-3.5 h-3.5" /> Run Now
             </button>
-          ) : (
-            <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--success))]/15 text-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/25 transition-colors">
-              <Play className="w-3.5 h-3.5" /> Activate
+            <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors active:scale-[0.97]">
+              <Eye className="w-3.5 h-3.5" /> Test Run
             </button>
-          )}
-          <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors">
-            <Settings2 className="w-3.5 h-3.5" /> Edit
-          </button>
-          <button className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors">
-            <Eye className="w-3.5 h-3.5" /> Log
-          </button>
+          </div>
+          <div className="flex gap-2">
+            {workflow.status === "Active" ? (
+              <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--warning))]/15 text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning))]/25 transition-colors">
+                <Pause className="w-3.5 h-3.5" /> Pause
+              </button>
+            ) : (
+              <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--success))]/15 text-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/25 transition-colors">
+                <Play className="w-3.5 h-3.5" /> Activate
+              </button>
+            )}
+            <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors">
+              <Settings2 className="w-3.5 h-3.5" /> Edit
+            </button>
+          </div>
         </div>
       </div>
     </div>

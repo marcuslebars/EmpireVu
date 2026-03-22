@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Phone, Mail, MapPin, Calendar, CheckCircle2, DollarSign, FileText, MessageSquare, Send, Plus, Edit3, MoreHorizontal, TrendingUp, AlertTriangle, ArrowRight, Clock, Star, Zap, ExternalLink } from "lucide-react";
+import { ArrowLeft, Phone, Mail, MapPin, Calendar, CheckCircle2, DollarSign, FileText, MessageSquare, Send, Plus, Edit3, MoreHorizontal, TrendingUp, AlertTriangle, ArrowRight, Clock, Star, Zap, ExternalLink, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SystemTraceChain, type SystemEvent } from "@/components/system/GlobalActivityFeed";
 
 const companyColors: Record<string, { bg: string; text: string; dot: string }> = {
   "A1 Marine Care": { bg: "bg-primary/15", text: "text-primary", dot: "bg-primary" },
@@ -122,7 +123,35 @@ export default function ContactDetailPage() {
     { key: "bookings", label: "Bookings", count: contact.bookingsCount },
     { key: "tasks", label: "Tasks", count: contact.tasksOpen + contact.tasksDone },
     { key: "financials", label: "Financials" },
+    { key: "workflows", label: "Workflows" },
     { key: "notes", label: "Notes" },
+  ];
+
+  // Triggered workflows for this contact
+  const contactWorkflows: { name: string; trigger: string; result: string; time: string; trace: SystemEvent[] }[] = [
+    {
+      name: "New Booking Workflow",
+      trigger: "Booking created",
+      result: "Task created + Team assigned",
+      time: "2h ago",
+      trace: [
+        { id: "cw1", type: "booking_created", title: "Booking created", detail: "Vessel Inspection — Main dock", company: contact.company, timestamp: "2h ago" },
+        { id: "cw2", type: "workflow_triggered", title: "Workflow triggered", detail: "New Booking Workflow", company: contact.company, timestamp: "2h ago" },
+        { id: "cw3", type: "task_created", title: "Task created", detail: "Confirm vessel inspection", company: contact.company, timestamp: "2h ago" },
+        { id: "cw4", type: "notification_sent", title: "Notification sent", detail: "James K. assigned", company: contact.company, timestamp: "2h ago" },
+      ],
+    },
+    {
+      name: "Pipeline Stage Automation",
+      trigger: "Stage changed",
+      result: "Follow-up task created",
+      time: "1w ago",
+      trace: [
+        { id: "cw5", type: "stage_changed", title: "Stage changed", detail: "Lead → Qualified", company: contact.company, timestamp: "1w ago" },
+        { id: "cw6", type: "workflow_triggered", title: "Workflow triggered", detail: "Pipeline Stage Automation", company: contact.company, timestamp: "1w ago" },
+        { id: "cw7", type: "task_created", title: "Task created", detail: "Schedule discovery call", company: contact.company, timestamp: "1w ago" },
+      ],
+    },
   ];
 
   return (
@@ -387,6 +416,37 @@ export default function ContactDetailPage() {
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-semibold text-foreground tabular-nums">{inv.amount}</span>
                     <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400">{inv.status}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "workflows" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">{contactWorkflows.length} triggered workflows</h3>
+            </div>
+            <div className="space-y-3">
+              {contactWorkflows.map((wf, i) => (
+                <div key={i} className="bg-card border border-border rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-[hsl(var(--accent-violet))]/10 flex items-center justify-center">
+                        <Zap className="w-3.5 h-3.5 text-[hsl(var(--accent-violet))]" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{wf.name}</p>
+                        <p className="text-[10px] text-muted-foreground">{wf.trigger} → {wf.result}</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground">{wf.time}</span>
+                  </div>
+                  {/* Trace chain */}
+                  <div className="bg-secondary/30 rounded-lg p-3">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Execution Trace</p>
+                    <SystemTraceChain events={wf.trace} />
                   </div>
                 </div>
               ))}

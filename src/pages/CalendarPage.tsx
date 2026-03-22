@@ -25,8 +25,10 @@ import {
   TrendingUp,
   Activity,
   ShieldAlert,
+  ChevronRight as ChevronRightIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SystemTraceChain, type SystemEvent } from "@/components/system/GlobalActivityFeed";
 
 /* ── Company palette ── */
 const companyColors: Record<string, { bg: string; border: string; text: string; dot: string }> = {
@@ -623,6 +625,18 @@ export default function CalendarPage() {
                     </div>
                   </div>
                 )}
+
+                {/* System Trace */}
+                <div>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2.5">System Trace</p>
+                  <div className="bg-secondary/30 rounded-lg p-3">
+                    <SystemTraceChain events={[
+                      { id: "bt1", type: "booking_created" as const, title: "Booking created", detail: selectedBooking.title, company: selectedBooking.companyName, timestamp: "Created" },
+                      { id: "bt2", type: "workflow_triggered" as const, title: "Workflow triggered", detail: "New Booking Workflow", company: selectedBooking.companyName, timestamp: "Auto" },
+                      { id: "bt3", type: "task_created" as const, title: "Task created", detail: "Confirm booking details", company: selectedBooking.companyName, timestamp: "Auto" },
+                    ]} />
+                  </div>
+                </div>
 
                 {/* Related Tasks */}
                 <div>

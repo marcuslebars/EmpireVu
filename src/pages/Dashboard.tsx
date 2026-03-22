@@ -15,9 +15,11 @@ import {
   Mail,
   AlertCircle,
   CircleDot,
+  ChevronRight,
 } from "lucide-react";
 import { DashboardCard, StatCard } from "@/components/ui/DashboardCard";
 import { cn } from "@/lib/utils";
+import GlobalActivityFeed, { globalEvents, SystemTraceChain } from "@/components/system/GlobalActivityFeed";
 
 // Company color mapping for multi-company awareness
 const companyColors: Record<string, string> = {
@@ -70,14 +72,6 @@ const leads = [
   { name: "CoastGuard Supplies", value: "$15,800", stage: "Negotiation", days: 5, company: "MarineMecca" },
 ];
 
-const activities = [
-  { text: "Marcus R. completed vessel inspection", company: "MarineMecca", time: "12 min ago", icon: CheckSquare },
-  { text: "New lead assigned: Horizon Maritime Ltd", company: "A1 Marine Care", time: "34 min ago", icon: UserPlus },
-  { text: "Invoice #1247 paid ($3,200)", company: "RankLocal", time: "1h ago", icon: CreditCard },
-  { text: "Automation 'Welcome Email' triggered 4×", company: "Vitatee", time: "2h ago", icon: Mail },
-  { text: "Sprint 14 completed — 23/26 tasks done", company: "A1 Marine Care", time: "3h ago", icon: CheckSquare },
-];
-
 const teamMembers = [
   { initials: "JD", name: "James Donovan", status: "online", role: "CEO", task: "Reviewing contracts" },
   { initials: "MR", name: "Marcus Reeves", status: "online", role: "Operations", task: "Vessel inspection" },
@@ -97,6 +91,13 @@ const statusConfig: Record<string, { color: string; label: string }> = {
   busy: { color: "bg-warning", label: "Busy" },
   offline: { color: "bg-muted-foreground", label: "Offline" },
 };
+
+/* System health summary */
+const systemStats = [
+  { label: "Workflows Active", value: "5", icon: Zap, color: "text-[hsl(var(--accent-violet))]" },
+  { label: "Tasks Auto-Created Today", value: "8", icon: CheckSquare, color: "text-[hsl(var(--success))]" },
+  { label: "Automations Triggered", value: "14", icon: Activity, color: "text-primary" },
+];
 
 export default function Dashboard() {
   return (
@@ -153,8 +154,37 @@ export default function Dashboard() {
         <StatCard label="Active Issues" value="6" change="2 resolved today" positive icon={<AlertTriangle className="w-3.5 h-3.5" />} />
       </div>
 
+      {/* ═══ SYSTEM ACTIVITY FEED ═══ */}
+      <section className="space-y-4 opacity-0 animate-fade-in" style={{ animationDelay: "150ms" }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Activity className="w-3.5 h-3.5 text-primary" />
+            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+              System Activity
+            </h2>
+            <span className="text-[9px] font-bold text-primary bg-primary/10 rounded-full w-4 h-4 flex items-center justify-center">{globalEvents.length}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            {systemStats.map((s, i) => (
+              <div key={i} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                <s.icon className={cn("w-3 h-3", s.color)} />
+                <span className="font-semibold text-foreground tabular-nums">{s.value}</span>
+                <span>{s.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <DashboardCard
+          title="Live Activity Feed"
+          icon={<Zap className="w-3.5 h-3.5" />}
+          action={<button className="text-xs text-primary hover:underline font-medium">View all</button>}
+        >
+          <GlobalActivityFeed maxItems={5} showTrace />
+        </DashboardCard>
+      </section>
+
       {/* ═══ TIER 2: OPERATIONAL OVERVIEW ═══ */}
-      <section className="space-y-4 opacity-0 animate-fade-in" style={{ animationDelay: "180ms" }}>
+      <section className="space-y-4 opacity-0 animate-fade-in" style={{ animationDelay: "210ms" }}>
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
           Operations
         </h2>
@@ -249,42 +279,17 @@ export default function Dashboard() {
       </section>
 
       {/* ═══ TIER 3: INSIGHTS / PASSIVE ═══ */}
-      <section className="space-y-4 opacity-0 animate-fade-in" style={{ animationDelay: "240ms" }}>
+      <section className="space-y-4 opacity-0 animate-fade-in" style={{ animationDelay: "270ms" }}>
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
           Insights
         </h2>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Activity Feed */}
-          <DashboardCard
-            title="Activity Feed"
-            icon={<Activity className="w-3.5 h-3.5" />}
-            className="lg:col-span-2"
-            action={<button className="text-xs text-primary hover:underline font-medium">View all</button>}
-          >
-            <div className="space-y-0.5">
-              {activities.map((a, i) => (
-                <div key={i} className="flex items-start gap-3 px-2.5 py-2.5 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer">
-                  <span className="flex items-center justify-center w-7 h-7 rounded-md bg-secondary text-muted-foreground shrink-0 mt-0.5">
-                    <a.icon className="w-3.5 h-3.5" />
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground leading-snug">{a.text}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <CompanyTag name={a.company} />
-                      <span className="text-[11px] text-muted-foreground/60">·</span>
-                      <span className="text-[11px] text-muted-foreground/60">{a.time}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </DashboardCard>
-
           {/* Leads */}
           <DashboardCard
             title="New Leads"
             icon={<UserPlus className="w-3.5 h-3.5" />}
             badge={leads.length}
+            className="lg:col-span-1"
             action={<button className="text-xs text-primary hover:underline font-medium">View all</button>}
           >
             <div className="space-y-0.5">
@@ -303,11 +308,55 @@ export default function Dashboard() {
               ))}
             </div>
           </DashboardCard>
+
+          {/* Automation Impact */}
+          <DashboardCard
+            title="Automation Impact"
+            icon={<Zap className="w-3.5 h-3.5" />}
+            className="lg:col-span-2"
+            variant="elevated"
+          >
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="bg-secondary/40 rounded-lg p-3 text-center">
+                <p className="text-lg font-bold text-foreground tabular-nums">47</p>
+                <p className="text-[10px] text-muted-foreground">Tasks auto-created</p>
+              </div>
+              <div className="bg-secondary/40 rounded-lg p-3 text-center">
+                <p className="text-lg font-bold text-[hsl(var(--success))] tabular-nums">12.4h</p>
+                <p className="text-[10px] text-muted-foreground">Time saved (est.)</p>
+              </div>
+              <div className="bg-secondary/40 rounded-lg p-3 text-center">
+                <p className="text-lg font-bold text-[hsl(var(--accent-violet))] tabular-nums">98.2%</p>
+                <p className="text-[10px] text-muted-foreground">Success rate</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Recent Chains</p>
+              {globalEvents.filter(e => e.trace).slice(0, 2).map((evt) => (
+                <div key={evt.id} className="bg-secondary/30 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Zap className="w-3 h-3 text-[hsl(var(--accent-violet))]" />
+                    <span className="text-xs font-medium text-foreground">{evt.detail}</span>
+                    <span className="text-[9px] text-muted-foreground ml-auto">{evt.timestamp}</span>
+                  </div>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-primary/10 text-primary">{evt.title}</span>
+                    {evt.trace!.map((step, si) => (
+                      <div key={step.id} className="flex items-center gap-1">
+                        <ChevronRight className="w-2.5 h-2.5 text-muted-foreground/40" />
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-secondary text-foreground/70">{step.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </DashboardCard>
         </div>
       </section>
 
       {/* Quick Actions */}
-      <section className="opacity-0 animate-fade-in" style={{ animationDelay: "300ms" }}>
+      <section className="opacity-0 animate-fade-in" style={{ animationDelay: "330ms" }}>
         <div className="p-5 rounded-xl bg-[hsl(var(--card-elevated))] border border-border shadow-md shadow-black/10">
           <div className="flex items-center gap-2.5 mb-4">
             <span className="flex items-center justify-center w-7 h-7 rounded-md bg-primary/10 text-primary">
