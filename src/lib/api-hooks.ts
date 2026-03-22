@@ -351,3 +351,23 @@ export function useRetryWorkflowJob(orgId: string) {
     },
   });
 }
+
+// ─── Organizations & Companies ───────────────────────────────────────────────
+
+import { fetchOrganizations, fetchCompanies } from "./api-client";
+
+export function useOrganizations() {
+  return useQuery({
+    queryKey: ["organizations"],
+    queryFn: () => fetchOrganizations(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+export function useCompanies(orgId: string) {
+  return useQuery({
+    queryKey: ["companies", orgId],
+    queryFn: () => fetchCompanies(orgId),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}

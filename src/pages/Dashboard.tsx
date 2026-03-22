@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Calendar,
   CheckSquare,
@@ -15,29 +16,17 @@ import {
 import { DashboardCard, StatCard } from "@/components/ui/DashboardCard";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-import { useDashboardSummary, useDashboardActivity, useAutomationImpact } from "@/lib/api-hooks";
+import { 
+  useDashboardSummary, 
+  useDashboardActivity, 
+  useAutomationImpact,
+  useOrganizations,
+  useCompanies
+} from "@/lib/api-hooks";
 import { SkeletonStatCard, SkeletonCard, ErrorBanner, EmptyState, LoadingCards } from "@/components/ui/StateViews";
 import { relativeTime, formatCentsCompact, formatSeconds, formatPercent } from "@/lib/format";
 import type { DashboardActivityItem } from "@/lib/api-client";
-
-// ─── Company colour mapping ──────────────────────────────────────────────────
-
-const companyColors: Record<string, string> = {
-  "A1 Marine Care": "hsl(195 80% 50%)",
-  RankLocal: "hsl(152 60% 48%)",
-  MarineMecca: "hsl(38 92% 55%)",
-  Vitatee: "hsl(280 70% 58%)",
-};
-
-function CompanyTag({ name }: { name: string }) {
-  const color = companyColors[name];
-  return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color ?? "hsl(var(--muted-foreground))" }} />
-      {name}
-    </span>
-  );
-}
+import { useNavigate } from "react-router-dom";
 
 // ─── Event type config ───────────────────────────────────────────────────────
 
@@ -56,10 +45,22 @@ const eventTypeConfig: Record<string, { label: string; color: string }> = {
 function ActivityFeedItem({ item }: { item: DashboardActivityItem }) {
   const cfg = eventTypeConfig[item.eventType] ?? { label: item.eventType, color: "text-muted-foreground" };
   const companyName = item.company?.name ?? "";
+  const navigate = useNavigate();
+
+  const handleClick = () => {
+    if (!item.entity) return;
+    if (item.entity.type === "contact") navigate(`/crm/${item.entity.id}`);
+    if (item.entity.type === "booking") navigate("/calendar");
+    if (item.entity.type === "task") navigate("/tasks");
+    if (item.entity.type === "workflow") navigate("/automations");
+  };
 
   return (
-    <div className="flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer">
-      <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 bg-primary/10">
+    <div 
+      onClick={handleClick}
+      className="flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer group"
+    >
+      <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 bg-primary/10 group-hover:bg-primary/20 transition-colors">
         <Activity className="w-3.5 h-3.5 text-primary" />
       </div>
       <div className="flex-1 min-w-0">
@@ -80,6 +81,7 @@ function ActivityFeedItem({ item }: { item: DashboardActivityItem }) {
           <span className="text-[10px] text-muted-foreground/50">{relativeTime(item.occurredAt)}</span>
         </div>
       </div>
+      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors self-center" />
     </div>
   );
 }
@@ -87,16 +89,22 @@ function ActivityFeedItem({ item }: { item: DashboardActivityItem }) {
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const { organizationId, companyId } = useOrg();
   const activityParams = companyId !== "all" ? { companyId, limit: 10 } : { limit: 10 };
 
   const summary = useDashboardSummary(organizationId);
   const activity = useDashboardActivity(organizationId, activityParams);
   const impact = useAutomationImpact(organizationId);
+  const { data: orgs } = useOrganizations();
+  const { data: companies } = useCompanies(organizationId);
 
   const s = summary.data;
   const imp = impact.data;
   const activityItems = activity.data ?? [];
+
+  const currentOrgName = orgs?.find(o => o.id === organizationId)?.name ?? "Organization";
+  const currentCompanyName = companyId === "all" ? "All Companies" : (companies?.find(c => c.id === companyId)?.name ?? "Filtered");
 
   return (
     <div className="max-w-[1440px] mx-auto space-y-6">
@@ -105,7 +113,7 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Command Center</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Thinker Holdings · {companyId === "all" ? "All Companies" : "Filtered"} · {new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+            {currentOrgName} · {currentCompanyName} · {new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -196,7 +204,7 @@ export default function Dashboard() {
         <DashboardCard
           title="Live Activity Feed"
           icon={<Zap className="w-3.5 h-3.5" />}
-          action={<button className="text-xs text-primary hover:underline font-medium">View all</button>}
+          action={<button onClick={() => navigate("/crm")} className="text-xs text-primary hover:underline font-medium">View all</button>}
         >
           {activity.isLoading ? (
             <LoadingCards count={3} />
@@ -268,13 +276,14 @@ export default function Dashboard() {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: "New Booking", icon: Calendar, primary: true },
-              { label: "New Task", icon: CheckSquare, primary: false },
-              { label: "Add Lead", icon: UserPlus, primary: false },
-              { label: "Create Invoice", icon: FileText, primary: false },
+              { label: "New Booking", icon: Calendar, primary: true, path: "/calendar" },
+              { label: "New Task", icon: CheckSquare, primary: false, path: "/tasks" },
+              { label: "Add Lead", icon: UserPlus, primary: false, path: "/crm" },
+              { label: "Create Invoice", icon: FileText, primary: false, path: "/dashboard" },
             ].map((action, i) => (
               <button
                 key={i}
+                onClick={() => navigate(action.path)}
                 className={cn(
                   "flex items-center gap-2.5 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-150 active:scale-[0.97]",
                   action.primary

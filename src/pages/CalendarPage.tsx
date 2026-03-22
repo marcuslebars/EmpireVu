@@ -36,6 +36,7 @@ import {
   useBookingDetail,
   useCreateBooking,
   useUpdateBookingStatus,
+  useCompanies,
 } from "@/lib/api-hooks";
 import { SkeletonCard, ErrorBanner, EmptyState, LoadingCards } from "@/components/ui/StateViews";
 import { formatCents, formatDate, relativeTime } from "@/lib/format";
@@ -45,16 +46,12 @@ import { toast } from "@/components/ui/sonner";
 
 /* ── Company palette ── */
 const companyColors: Record<string, { bg: string; border: string; text: string; dot: string }> = {
-  a1: { bg: "bg-[hsl(195_80%_50%/0.12)]", border: "border-[hsl(195_80%_50%/0.3)]", text: "text-[hsl(195_80%_50%)]", dot: "bg-[hsl(195_80%_50%)]" },
-  rank: { bg: "bg-[hsl(152_60%_48%/0.12)]", border: "border-[hsl(152_60%_48%/0.3)]", text: "text-[hsl(152_60%_48%)]", dot: "bg-[hsl(152_60%_48%)]" },
-  marine: { bg: "bg-[hsl(38_92%_55%/0.12)]", border: "border-[hsl(38_92%_55%/0.3)]", text: "text-[hsl(38_92%_55%)]", dot: "bg-[hsl(38_92%_55%)]" },
-  vita: { bg: "bg-[hsl(280_70%_58%/0.12)]", border: "border-[hsl(280_70%_58%/0.3)]", text: "text-[hsl(280_70%_58%)]", dot: "bg-[hsl(280_70%_58%)]" },
   default: { bg: "bg-primary/10", border: "border-primary/30", text: "text-primary", dot: "bg-primary" },
 };
 
 function getCompanyColors(companyId: string | null | undefined) {
-  if (!companyId) return companyColors.default;
-  return companyColors[companyId] ?? companyColors.default;
+  // In a real app, we might derive this from the company ID or name
+  return companyColors.default;
 }
 
 const statusConfig: Record<string, { label: string; icon: typeof CheckCircle2; cls: string }> = {
@@ -77,16 +74,6 @@ const statusDotColor: Record<string, string> = {
   busy: "bg-[hsl(var(--warning))]",
   offline: "bg-muted-foreground",
 };
-
-const companies = [
-  { id: "all", name: "All Companies" },
-  { id: "1", name: "A1 Marine Care" },
-  { id: "2", name: "RankLocal" },
-  { id: "3", name: "MarineMecca" },
-  { id: "4", name: "Vitatee" },
-];
-
-const COMPANY_OPTIONS = companies.filter((c) => c.id !== "all");
 
 const timeSlots = Array.from({ length: 13 }, (_, i) => {
   const h = i + 7;
@@ -145,10 +132,11 @@ function getDayIndex(scheduledFor: string, weekStart: Date): number {
 /* ── Create Booking Dialog ── */
 function CreateBookingDialog({ onClose, defaultDate }: { onClose: () => void; defaultDate?: string }) {
   const { organizationId } = useOrg();
+  const { data: companies } = useCompanies(organizationId);
   const createBooking = useCreateBooking(organizationId);
 
   const [title, setTitle] = useState("");
-  const [companyId, setCompanyId] = useState(COMPANY_OPTIONS[0].id);
+  const [companyId, setCompanyId] = useState("");
   const [scheduledFor, setScheduledFor] = useState(
     defaultDate ?? new Date().toISOString().slice(0, 16)
   );
@@ -156,9 +144,16 @@ function CreateBookingDialog({ onClose, defaultDate }: { onClose: () => void; de
   const [status, setStatus] = useState<"pending" | "confirmed">("pending");
   const [description, setDescription] = useState("");
 
+  // Set initial company if available
+  useMemo(() => {
+    if (companies && companies.length > 0 && !companyId) {
+      setCompanyId(companies[0].id);
+    }
+  }, [companies, companyId]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim() || !companyId) return;
     try {
       await createBooking.mutateAsync({
         title: title.trim(),
@@ -207,9 +202,11 @@ function CreateBookingDialog({ onClose, defaultDate }: { onClose: () => void; de
               <select
                 value={companyId}
                 onChange={(e) => setCompanyId(e.target.value)}
+                required
                 className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
               >
-                {COMPANY_OPTIONS.map((c) => (
+                {!companies && <option>Loading companies...</option>}
+                {companies?.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
@@ -258,29 +255,26 @@ function CreateBookingDialog({ onClose, defaultDate }: { onClose: () => void; de
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              placeholder="Any notes about this booking..."
+              placeholder="Add any specific instructions or notes..."
               className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
             />
           </div>
 
-          <div className="flex gap-2 pt-2">
+          <div className="pt-2 flex gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
+              className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold bg-secondary text-foreground hover:bg-surface-3 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={createBooking.isPending || !title.trim()}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]"
+              disabled={createBooking.isPending || !companyId}
+              className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {createBooking.isPending ? (
-                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</>
-              ) : (
-                "Create Booking"
-              )}
+              {createBooking.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+              Create Booking
             </button>
           </div>
         </form>
@@ -289,723 +283,417 @@ function CreateBookingDialog({ onClose, defaultDate }: { onClose: () => void; de
   );
 }
 
-/* ── Booking detail panel ── */
-function BookingDetailPanel({
-  bookingId,
-  orgId,
-  onClose,
-}: {
-  bookingId: string;
-  orgId: string;
-  onClose: () => void;
-}) {
-  const { data, isLoading, isError, refetch } = useBookingDetail(orgId, bookingId);
+export default function CalendarPage() {
+  const { organizationId, companyId } = useOrg();
+  const [view, setView] = useState<(typeof views)[number]>("Week");
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
 
-  return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="p-4 border-b border-border flex items-center justify-between">
-        <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Booking Details</h3>
-        <button onClick={onClose} className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground">
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
+  const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+  const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
 
-      {isLoading ? (
-        <div className="p-4">
-          <LoadingCards count={3} />
-        </div>
-      ) : isError ? (
-        <div className="p-4">
-          <ErrorBanner message="Failed to load booking details." onRetry={() => refetch()} />
-        </div>
-      ) : data ? (
-        <BookingDetailContent detail={data} orgId={orgId} onClose={onClose} />
-      ) : null}
-    </div>
-  );
-}
+  const params = useMemo(() => ({
+    start: weekStart.toISOString(),
+    end: weekEnd.toISOString(),
+    companyId: companyId === "all" ? undefined : companyId,
+  }), [weekStart, weekEnd, companyId]);
 
-function BookingDetailContent({
-  detail,
-  orgId,
-  onClose,
-}: {
-  detail: BookingDetailResponse;
-  orgId: string;
-  onClose: () => void;
-}) {
-  const b = detail.booking;
-  const statusCfg = statusConfig[b.status] ?? statusConfig.pending;
-  const StatusIcon = statusCfg.icon;
-  const priority = (detail.tasks[0]?.priority ?? "low") as string;
-  const priCfg = priorityConfig[priority] ?? priorityConfig.low;
+  const { data: calendarData, isLoading, isError, refetch } = useCalendarView(organizationId, params);
+  const { data: capacityData } = useCalendarCapacity(organizationId, params);
+  const { data: detailData, isLoading: isDetailLoading } = useBookingDetail(organizationId, selectedBookingId);
+  const updateStatus = useUpdateBookingStatus(organizationId, selectedBookingId || "");
 
-  const updateStatus = useUpdateBookingStatus(orgId, b.id);
+  const bookings = calendarData?.bookings.items ?? [];
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
-  const handleStatusChange = async (newStatus: "pending" | "confirmed" | "completed" | "cancelled") => {
+  const handlePrev = () => setCurrentDate(subWeeks(currentDate, 1));
+  const handleNext = () => setCurrentDate(addWeeks(currentDate, 1));
+  const handleToday = () => setCurrentDate(new Date());
+
+  const handleStatusUpdate = async (status: string) => {
+    if (!selectedBookingId) return;
     try {
-      await updateStatus.mutateAsync(newStatus);
-      toast.success(`Booking marked as ${newStatus}`);
+      await updateStatus.mutateAsync(status);
+      toast.success(`Booking marked as ${status}`);
     } catch {
-      toast.error("Failed to update booking status");
+      toast.error("Failed to update status");
     }
   };
 
   return (
-    <div className="p-4 space-y-5">
-      {/* Title + status */}
-      <div>
-        <h2 className="text-sm font-semibold text-foreground leading-snug">{b.title}</h2>
-        <div className="flex items-center gap-2 mt-2 flex-wrap">
-          {b.company && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
-              <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-              {b.company.name}
-            </span>
-          )}
-          <span className={cn("inline-flex items-center gap-1 text-[10px] font-medium", statusCfg.cls)}>
-            <StatusIcon className="w-3 h-3" />
-            {statusCfg.label}
-          </span>
-          <span className={cn("inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full border", priCfg.cls)}>
-            {priority === "high" && <Zap className="w-2.5 h-2.5 mr-0.5" />}
-            {priCfg.label}
-          </span>
-        </div>
-      </div>
-
-      {/* Details */}
-      <div>
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2.5">Details</p>
-        <div className="space-y-2.5 bg-secondary/30 rounded-lg p-3">
-          <DetailRow icon={Clock} label="Scheduled" value={formatDate(b.scheduledFor, "EEE MMM d, h:mm a")} />
-          <DetailRow icon={CalendarDays} label="Duration" value={`${b.durationMinutes} min`} />
-          {b.contact && <DetailRow icon={Circle} label="Contact" value={b.contact.name} />}
-          {b.revenueCents != null && (
-            <DetailRow icon={DollarSign} label="Revenue" value={formatCents(b.revenueCents)} highlight />
-          )}
-          {b.description && <DetailRow icon={StickyNote} label="Notes" value={b.description} />}
-        </div>
-      </div>
-
-      {/* Related Tasks */}
-      {detail.tasks.length > 0 && (
-        <div>
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2.5">Related Tasks</p>
-          <div className="space-y-1.5">
-            {detail.tasks.map((t) => (
-              <div key={t.id} className="flex items-center gap-2 text-xs text-secondary-foreground bg-secondary/30 rounded-lg px-3 py-2">
-                {t.status === "completed" ? (
-                  <CheckCircle2 className="w-3 h-3 text-[hsl(var(--success))]" />
-                ) : (
-                  <Circle className="w-3 h-3 text-muted-foreground" />
-                )}
-                <span className="flex-1 truncate">{t.title}</span>
-                <span className={cn("text-[9px]", t.status === "completed" ? "text-muted-foreground" : "text-[hsl(var(--warning))]")}>
-                  {t.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Workflow runs */}
-      {detail.triggeredWorkflowRuns.length > 0 && (
-        <div>
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2.5">Workflow Runs</p>
-          <div className="space-y-1.5">
-            {detail.triggeredWorkflowRuns.slice(0, 3).map((run) => (
-              <div key={run.id} className="flex items-center gap-2 text-xs text-secondary-foreground bg-secondary/30 rounded-lg px-3 py-2">
-                <Zap className="w-3 h-3 text-[hsl(var(--accent-violet))]" />
-                <span className="flex-1 truncate">{run.workflow?.label ?? "Workflow"}</span>
-                <span className={cn("text-[9px]", run.status === "completed" ? "text-[hsl(var(--success))]" : run.status === "failed" ? "text-destructive" : "text-muted-foreground")}>
-                  {run.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* System Trace */}
-      {detail.trace.length > 0 && (
-        <div>
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2.5">System Trace</p>
-          <div className="bg-secondary/30 rounded-lg p-3 space-y-2">
-            {detail.trace.slice(0, 5).map((t, i) => (
-              <div key={t.id} className="flex items-start gap-2.5 relative">
-                {i < Math.min(detail.trace.length, 5) - 1 && (
-                  <div className="absolute left-[11px] top-6 w-px h-[calc(100%-4px)] bg-border" />
-                )}
-                <div className="w-[22px] h-[22px] rounded-md flex items-center justify-center shrink-0 z-10 bg-primary/10">
-                  <Activity className="w-2.5 h-2.5 text-primary" />
-                </div>
-                <div className="pb-2 min-w-0">
-                  <p className="text-[11px] font-medium text-foreground leading-snug">{t.title}</p>
-                  <p className="text-[10px] text-muted-foreground truncate">{t.detail}</p>
-                  <p className="text-[9px] text-muted-foreground/50 mt-0.5">{relativeTime(t.occurredAt)}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Status Actions */}
-      <div>
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2.5">Update Status</p>
-        <div className="grid grid-cols-2 gap-1.5">
-          {(["pending", "confirmed", "completed", "cancelled"] as const).map((s) => {
-            const cfg = statusConfig[s];
-            const isCurrent = b.status === s;
-            return (
-              <button
-                key={s}
-                onClick={() => handleStatusChange(s)}
-                disabled={isCurrent || updateStatus.isPending}
-                className={cn(
-                  "flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 active:scale-[0.97]",
-                  isCurrent
-                    ? "bg-primary/10 text-primary border border-primary/30 cursor-default"
-                    : "bg-secondary text-foreground hover:bg-secondary/70",
-                  updateStatus.isPending && "opacity-50 cursor-wait"
-                )}
-              >
-                {updateStatus.isPending && updateStatus.variables === s ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <cfg.icon className="w-3 h-3" />
-                )}
-                {cfg.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ════════════════════════════════════════════ */
-export default function CalendarPage() {
-  const { organizationId, companyId } = useOrg();
-  const [currentView, setCurrentView] = useState<(typeof views)[number]>("Week");
-  const [selectedCompanyFilter, setSelectedCompanyFilter] = useState("all");
-  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showSuggestions, setShowSuggestions] = useState(true);
-  const [weekOffset, setWeekOffset] = useState(0);
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
-
-  // Compute week range
-  const weekStart = useMemo(() => {
-    const base = startOfWeek(new Date(), { weekStartsOn: 1 });
-    return weekOffset >= 0 ? addWeeks(base, weekOffset) : subWeeks(base, Math.abs(weekOffset));
-  }, [weekOffset]);
-  const weekEnd = useMemo(() => endOfWeek(weekStart, { weekStartsOn: 1 }), [weekStart]);
-
-  const weekDays = useMemo(
-    () =>
-      Array.from({ length: 7 }, (_, i) => {
-        const d = addDays(weekStart, i);
-        return { short: format(d, "EEE"), date: format(d, "d"), full: format(d, "EEE d"), iso: d.toISOString(), dayIndex: i };
-      }),
-    [weekStart]
-  );
-
-  const apiCompanyId = selectedCompanyFilter !== "all" ? selectedCompanyFilter : companyId !== "all" ? companyId : undefined;
-
-  const calendarQuery = useCalendarView(organizationId, {
-    start: weekStart.toISOString(),
-    end: weekEnd.toISOString(),
-    companyId: apiCompanyId,
-    pageSize: 100,
-  });
-
-  const capacityQuery = useCalendarCapacity(organizationId, {
-    start: weekStart.toISOString(),
-    end: weekEnd.toISOString(),
-    companyId: apiCompanyId,
-  });
-
-  const bookings = calendarQuery.data?.bookings.items ?? [];
-  const assignedUsers = calendarQuery.data?.assignedUsers ?? [];
-  const capacityUsers = capacityQuery.data?.users ?? [];
-
-  // Client-side search filter
-  const filteredBookings = useMemo(() => {
-    if (!searchQuery) return bookings;
-    const q = searchQuery.toLowerCase();
-    return bookings.filter(
-      (b) =>
-        b.title.toLowerCase().includes(q) ||
-        b.contact?.name.toLowerCase().includes(q) ||
-        b.company?.name.toLowerCase().includes(q)
-    );
-  }, [bookings, searchQuery]);
-
-  const conflicts = useMemo(
-    () => filteredBookings.filter((b) => b.status === "conflict"),
-    [filteredBookings]
-  );
-
-  const upcomingBookings = useMemo(
-    () =>
-      filteredBookings
-        .filter((b) => b.status !== "completed")
-        .sort((a, z) => a.scheduledFor.localeCompare(z.scheduledFor))
-        .slice(0, 6),
-    [filteredBookings]
-  );
-
-  const todayCol = useMemo(() => {
-    const today = new Date();
-    const idx = weekDays.findIndex((d) => {
-      const wd = parseISO(d.iso);
-      return wd.toDateString() === today.toDateString();
-    });
-    return idx;
-  }, [weekDays]);
-
-  const weekRangeLabel = `${format(weekStart, "MMM d")} – ${format(weekEnd, "MMM d, yyyy")}`;
-
-  return (
-    <div className="h-[calc(100vh-3.5rem)] flex flex-col">
-      {/* Create Booking Dialog */}
-      {showCreateDialog && (
-        <CreateBookingDialog
-          onClose={() => setShowCreateDialog(false)}
-          defaultDate={weekStart.toISOString().slice(0, 16)}
-        />
-      )}
-
-      {/* ── Conflict Alert Banner ── */}
-      {conflicts.length > 0 && (
-        <div className="shrink-0 px-5 py-2 bg-destructive/10 border-b border-destructive/20 flex items-center gap-3 opacity-0 animate-fade-in">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-destructive/20 flex items-center justify-center">
-              <ShieldAlert className="w-3.5 h-3.5 text-destructive" />
-            </div>
-            <span className="text-xs font-semibold text-destructive">
-              {conflicts.length} scheduling conflict{conflicts.length > 1 ? "s" : ""} detected
-            </span>
-          </div>
-          <span className="text-[11px] text-destructive/70">
-            {conflicts.map((c) => c.title).join(" — ")}
-          </span>
-          <button className="ml-auto text-[10px] font-medium text-destructive hover:text-destructive/80 border border-destructive/30 rounded-md px-2.5 py-1 transition-colors active:scale-[0.97]">
-            Resolve All
-          </button>
-        </div>
-      )}
-
-      {/* ── Top Controls ── */}
-      <div className="shrink-0 px-5 py-3 border-b border-border flex items-center justify-between gap-4 opacity-0 animate-fade-in">
-        <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold text-foreground tracking-tight">Schedule</h1>
-          <div className="flex items-center gap-1 ml-2">
-            <button
-              onClick={() => setWeekOffset((o) => o - 1)}
-              className="p-1 rounded-md hover:bg-secondary transition-colors text-muted-foreground"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="text-sm font-medium text-foreground px-2 tabular-nums">{weekRangeLabel}</span>
-            <button
-              onClick={() => setWeekOffset((o) => o + 1)}
-              className="p-1 rounded-md hover:bg-secondary transition-colors text-muted-foreground"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setWeekOffset(0)}
-              className="text-xs text-primary hover:text-primary/80 ml-2 font-medium transition-colors"
-            >
-              Today
-            </button>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search bookings…"
-              className="w-48 bg-secondary/80 border border-transparent rounded-lg pl-8 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40 transition-all"
-            />
-          </div>
-
-          <select
-            value={selectedCompanyFilter}
-            onChange={(e) => setSelectedCompanyFilter(e.target.value)}
-            className="bg-secondary border-0 rounded-lg px-3 py-1.5 text-xs text-secondary-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
-          >
-            {companies.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-
-          <div className="flex bg-secondary rounded-lg p-0.5">
+    <div className="h-[calc(100vh-8rem)] flex flex-col gap-4">
+      {/* Header */}
+      <div className="flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-4">
+          <h1 className="text-xl font-bold text-foreground">Calendar</h1>
+          <div className="flex items-center bg-secondary/50 rounded-lg p-1 border border-border">
             {views.map((v) => (
               <button
                 key={v}
-                onClick={() => setCurrentView(v)}
+                onClick={() => setView(v)}
                 className={cn(
-                  "px-3 py-1 rounded-md text-xs font-medium transition-colors",
-                  currentView === v ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  "px-3 py-1 text-xs font-medium rounded-md transition-all",
+                  view === v ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 {v}
               </button>
             ))}
           </div>
+        </div>
 
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary transition-colors">
-            <Filter className="w-3.5 h-3.5" />
-            Filters
-          </button>
-
+        <div className="flex items-center gap-3">
+          <div className="flex items-center bg-secondary/50 rounded-lg border border-border">
+            <button onClick={handlePrev} className="p-1.5 hover:text-foreground text-muted-foreground transition-colors">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button onClick={handleToday} className="px-3 py-1.5 text-xs font-medium hover:text-foreground text-muted-foreground border-x border-border transition-colors">
+              Today
+            </button>
+            <button onClick={handleNext} className="p-1.5 hover:text-foreground text-muted-foreground transition-colors">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+          <span className="text-sm font-semibold text-foreground min-w-[140px] text-center">
+            {format(weekStart, "MMM d")} – {format(weekEnd, "MMM d, yyyy")}
+          </span>
           <button
-            onClick={() => setShowCreateDialog(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all active:scale-[0.97] shadow-md shadow-primary/20"
+            onClick={() => setIsCreateOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-md shadow-primary/20"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-4 h-4" />
             New Booking
           </button>
         </div>
       </div>
 
-      {/* ── Error banner ── */}
-      {calendarQuery.isError && (
-        <div className="px-5 py-2">
-          <ErrorBanner message="Failed to load calendar." onRetry={() => calendarQuery.refetch()} />
-        </div>
-      )}
-
-      {/* ── Main 3-panel layout ── */}
-      <div className="flex flex-1 min-h-0 opacity-0 animate-fade-in" style={{ animationDelay: "100ms" }}>
-        {/* ── LEFT: Team Panel ── */}
-        <aside className="w-60 shrink-0 border-r border-border bg-card/50 flex flex-col overflow-y-auto">
-          <div className="p-4 space-y-1">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Team & Workload</h3>
-              <span className="text-[10px] text-muted-foreground">{capacityUsers.length}</span>
-            </div>
-
-            {capacityQuery.isLoading ? (
-              <LoadingCards count={3} />
-            ) : capacityUsers.length === 0 ? (
-              <EmptyState title="No team data" description="Assign users to bookings to see workload." />
-            ) : (
-              capacityUsers.map((cu) => {
-                const cap = getCapacity(cu.totalDurationMinutes);
+      <div className="flex-1 flex gap-4 min-h-0">
+        {/* Main Calendar Grid */}
+        <div className="flex-1 bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
+          {/* Day Headers */}
+          <div className="grid grid-cols-[64px_1fr] border-b border-border bg-secondary/30">
+            <div className="border-r border-border" />
+            <div className="grid grid-cols-7">
+              {days.map((day, i) => {
+                const isToday = format(day, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
                 return (
-                  <div
-                    key={cu.user.id}
-                    className={cn(
-                      "w-full text-left px-2.5 py-2.5 rounded-lg",
-                      cu.isOverloaded && "ring-1 ring-destructive/30 bg-destructive/[0.04]"
-                    )}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div className="relative">
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 bg-primary">
-                          {cu.user.initials}
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-1">
-                          <p className="text-xs font-medium text-foreground truncate">{cu.user.name}</p>
-                        </div>
-                        <p className="text-[10px] text-muted-foreground">{cu.bookingCount} bookings</p>
-                      </div>
-                    </div>
-                    <div className="mt-2 flex items-center gap-2">
-                      <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
-                        <div
-                          className={cn("h-full rounded-full transition-all duration-500", capacityBarColor[cap.level])}
-                          style={{ width: `${Math.min(cap.pct, 100)}%` }}
-                        />
-                      </div>
-                      <span className={cn(
-                        "text-[9px] font-semibold tabular-nums shrink-0",
-                        cap.level === "overloaded" ? "text-destructive" : cap.level === "high" ? "text-primary" : "text-muted-foreground"
-                      )}>
-                        {cu.bookingCount} · {cap.label}
-                      </span>
-                    </div>
-                    {cu.conflictCount > 0 && (
-                      <p className="text-[9px] text-destructive mt-1">{cu.conflictCount} conflict{cu.conflictCount > 1 ? "s" : ""}</p>
-                    )}
+                  <div key={i} className={cn("px-2 py-3 text-center border-r border-border last:border-r-0", isToday && "bg-primary/5")}>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{format(day, "EEE")}</p>
+                    <p className={cn("text-lg font-bold mt-0.5", isToday ? "text-primary" : "text-foreground")}>{format(day, "d")}</p>
                   </div>
                 );
-              })
-            )}
+              })}
+            </div>
           </div>
 
-          {/* Insights panel */}
-          <div className="mt-auto border-t border-border">
-            <button
-              onClick={() => setShowSuggestions(!showSuggestions)}
-              className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-secondary/50 transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <Lightbulb className="w-3.5 h-3.5 text-[hsl(var(--warning))]" />
-                <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Insights</h3>
-              </div>
-              {conflicts.length > 0 && (
-                <span className="text-[9px] font-bold text-[hsl(var(--warning))] bg-[hsl(var(--warning)/0.12)] rounded-full w-4 h-4 flex items-center justify-center">
-                  {conflicts.length}
-                </span>
-              )}
-            </button>
-            {showSuggestions && conflicts.length > 0 && (
-              <div className="px-3 pb-3 space-y-1.5">
-                {conflicts.map((c) => (
-                  <div
-                    key={c.id}
-                    className="flex items-start gap-2 p-2 rounded-lg bg-destructive/[0.06] hover:bg-destructive/[0.1]"
-                  >
-                    <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0 text-destructive" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[10px] text-secondary-foreground leading-snug">Conflict: {c.title}</p>
-                      <button className="text-[9px] font-semibold text-primary hover:text-primary/80 mt-1 flex items-center gap-0.5 transition-colors">
-                        Resolve <ArrowRight className="w-2.5 h-2.5" />
-                      </button>
-                    </div>
+          {/* Scrollable Grid */}
+          <div className="flex-1 overflow-y-auto relative custom-scrollbar">
+            <div className="grid grid-cols-[64px_1fr] min-h-full">
+              {/* Time Labels */}
+              <div className="border-r border-border bg-secondary/10">
+                {timeSlots.map((slot) => (
+                  <div key={slot.hour} className="h-[56px] px-2 py-1 text-[10px] font-medium text-muted-foreground text-right border-b border-border/50">
+                    {slot.label}
                   </div>
                 ))}
               </div>
-            )}
-          </div>
-        </aside>
 
-        {/* ── CENTER: Calendar Grid ── */}
-        <div className="flex-1 min-w-0 flex flex-col">
-          {/* Day header row */}
-          <div className="shrink-0 grid grid-cols-[3rem_repeat(7,1fr)] border-b border-border bg-card/30">
-            <div className="border-r border-border" />
-            {weekDays.map((d, i) => {
-              const dayBookings = filteredBookings.filter((b) => getDayIndex(b.scheduledFor, weekStart) === i && b.status !== "completed");
-              const dayConflicts = dayBookings.filter((b) => b.status === "conflict").length;
-              const dayRevenue = dayBookings.reduce((s, b) => s + (b.revenueCents ?? 0), 0);
-              return (
-                <div key={d.full} className={cn("text-center py-2.5 border-r border-border last:border-r-0", i === todayCol && "bg-primary/5")}>
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{d.short}</p>
-                  <p className={cn("text-sm font-semibold mt-0.5", i === todayCol ? "text-primary" : "text-foreground")}>{d.date}</p>
-                  <div className="flex items-center justify-center gap-2 mt-1">
-                    <span className="text-[9px] text-muted-foreground tabular-nums">{dayBookings.length} jobs</span>
-                    {dayRevenue > 0 && (
-                      <span className="text-[9px] text-[hsl(var(--success))] tabular-nums font-medium">
-                        ${(dayRevenue / 100000).toFixed(1)}k
-                      </span>
-                    )}
-                    {dayConflicts > 0 && (
-                      <span className="text-[9px] text-destructive font-semibold flex items-center gap-0.5">
-                        <AlertTriangle className="w-2.5 h-2.5" />{dayConflicts}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Scrollable grid body */}
-          <div className="flex-1 overflow-y-auto overflow-x-hidden">
-            {calendarQuery.isLoading ? (
-              <div className="p-6">
-                <LoadingCards count={4} />
-              </div>
-            ) : (
-              <div className="grid grid-cols-[3rem_repeat(7,1fr)]" style={{ height: timeSlots.length * HOUR_HEIGHT }}>
-                {/* Time gutter */}
-                <div className="relative border-r border-border">
-                  {timeSlots.map((t) => (
-                    <span
-                      key={t.label}
-                      className="absolute right-2 text-[10px] text-muted-foreground font-mono tabular-nums"
-                      style={{ top: (t.hour - GRID_START) * HOUR_HEIGHT - 6 }}
-                    >
-                      {t.label}
-                    </span>
-                  ))}
-                </div>
-
-                {/* Day columns */}
-                {weekDays.map((d, ci) => (
-                  <div key={d.full} className={cn("relative border-r border-border/40 last:border-r-0", ci === todayCol && "bg-primary/[0.02]")}>
-                    {timeSlots.map((t) => (
-                      <div
-                        key={t.label}
-                        className="absolute inset-x-0 border-b border-border/40"
-                        style={{ top: (t.hour - GRID_START) * HOUR_HEIGHT + HOUR_HEIGHT }}
-                      />
-                    ))}
-
-                    {ci === todayCol && (
-                      <div
-                        className="absolute inset-x-0 z-20 pointer-events-none flex items-center"
-                        style={{ top: (new Date().getHours() - GRID_START) * HOUR_HEIGHT + (new Date().getMinutes() / 60) * HOUR_HEIGHT }}
-                      >
-                        <div className="w-2 h-2 rounded-full bg-destructive -ml-1" />
-                        <div className="flex-1 h-px bg-destructive/60" />
-                      </div>
-                    )}
-
-                    {filteredBookings
-                      .filter((b) => getDayIndex(b.scheduledFor, weekStart) === ci)
-                      .map((b) => {
-                        const colors = companyColors.default;
-                        const StatusIcon = (statusConfig[b.status] ?? statusConfig.pending).icon;
-                        const isConflict = b.status === "conflict";
-                        const isHigh = b.priority === "high" || b.priority === "urgent";
-                        const top = bookingTopFromISO(b.scheduledFor);
-                        const height = bookingHeightFromDuration(b.durationMinutes);
-
-                        if (top < 0 || top > timeSlots.length * HOUR_HEIGHT) return null;
-
-                        return (
-                          <button
-                            key={b.id}
-                            onClick={() => setSelectedBookingId(b.id)}
-                            className={cn(
-                              "absolute inset-x-1 rounded-md border px-2 py-1.5 text-left cursor-pointer transition-all duration-150 hover:brightness-110 hover:shadow-lg z-10 overflow-hidden",
-                              colors.bg, colors.border,
-                              isConflict && "ring-1 ring-destructive/60 border-destructive/50 shadow-[0_0_12px_hsl(0_72%_51%/0.15)]",
-                              selectedBookingId === b.id && "ring-2 ring-primary shadow-lg shadow-primary/10"
-                            )}
-                            style={{ top, height }}
-                          >
-                            <div className="flex items-start justify-between gap-1">
-                              <div className="flex items-center gap-1 min-w-0">
-                                {isConflict && <AlertTriangle className="w-3 h-3 text-destructive shrink-0 animate-pulse" />}
-                                <p className={cn("text-[11px] font-semibold truncate leading-tight", colors.text)}>{b.title}</p>
-                              </div>
-                              <div className="flex items-center gap-0.5 shrink-0">
-                                {isHigh && !isConflict && <Zap className="w-2.5 h-2.5 text-[hsl(var(--warning))]" />}
-                                <StatusIcon className={cn("w-3 h-3", (statusConfig[b.status] ?? statusConfig.pending).cls)} />
-                              </div>
-                            </div>
-                            {b.durationMinutes >= 60 && (
-                              <div className="mt-1 space-y-0.5">
-                                <p className="text-[10px] text-muted-foreground truncate">{b.contact?.name ?? b.company?.name ?? ""}</p>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[9px] text-muted-foreground font-mono">{b.durationMinutes}m</span>
-                                  {b.revenueCents != null && (
-                                    <span className="text-[9px] text-[hsl(var(--success))] font-semibold tabular-nums">
-                                      {formatCents(b.revenueCents)}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </button>
-                        );
-                      })}
-                  </div>
+              {/* Grid Columns */}
+              <div className="grid grid-cols-7 relative">
+                {/* Horizontal Grid Lines */}
+                {timeSlots.map((slot) => (
+                  <div key={slot.hour} className="absolute left-0 right-0 border-b border-border/50" style={{ top: (slot.hour - GRID_START) * HOUR_HEIGHT }} />
                 ))}
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* ── RIGHT: Details / Upcoming Panel ── */}
-        <aside className="w-[18rem] shrink-0 border-l border-border bg-card/50 flex flex-col overflow-hidden">
-          {selectedBookingId ? (
-            <BookingDetailPanel
-              bookingId={selectedBookingId}
-              orgId={organizationId}
-              onClose={() => setSelectedBookingId(null)}
-            />
-          ) : (
-            <div className="flex-1 overflow-y-auto">
-              {/* Weekly stats */}
-              <div className="p-4 border-b border-border">
-                <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">Week Overview</h3>
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="bg-secondary/40 rounded-lg p-2.5 text-center">
-                    <p className="text-lg font-bold text-foreground tabular-nums">
-                      {filteredBookings.filter((b) => b.status !== "completed").length}
-                    </p>
-                    <p className="text-[9px] text-muted-foreground">Active</p>
-                  </div>
-                  <div className="bg-secondary/40 rounded-lg p-2.5 text-center">
-                    <p className="text-lg font-bold text-[hsl(var(--success))] tabular-nums">
-                      {formatCents(filteredBookings.reduce((s, b) => s + (b.revenueCents ?? 0), 0))}
-                    </p>
-                    <p className="text-[9px] text-muted-foreground">Revenue</p>
-                  </div>
-                  <div className="bg-secondary/40 rounded-lg p-2.5 text-center">
-                    <p className={cn("text-lg font-bold tabular-nums", conflicts.length > 0 ? "text-destructive" : "text-foreground")}>
-                      {conflicts.length}
-                    </p>
-                    <p className="text-[9px] text-muted-foreground">Conflicts</p>
-                  </div>
-                </div>
-              </div>
+                {/* Vertical Grid Lines */}
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="absolute top-0 bottom-0 border-r border-border/50" style={{ left: `${((i + 1) / 7) * 100}%` }} />
+                ))}
 
-              {/* Upcoming */}
-              <div className="p-4 border-b border-border">
-                <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">Upcoming</h3>
-                {calendarQuery.isLoading ? (
-                  <LoadingCards count={3} />
-                ) : upcomingBookings.length === 0 ? (
-                  <EmptyState title="No upcoming bookings" />
+                {/* Bookings */}
+                {isLoading ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-background/50 backdrop-blur-[1px] z-10">
+                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                  </div>
+                ) : isError ? (
+                  <div className="absolute inset-0 flex items-center justify-center p-4">
+                    <ErrorBanner message="Failed to load calendar." onRetry={refetch} />
+                  </div>
+                ) : bookings.length === 0 ? (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <p className="text-xs text-muted-foreground">No bookings this week</p>
+                  </div>
                 ) : (
-                  <div className="space-y-1.5">
-                    {upcomingBookings.map((b) => {
-                      const StatusIcon = (statusConfig[b.status] ?? statusConfig.pending).icon;
-                      const isConflict = b.status === "conflict";
-                      return (
-                        <button
-                          key={b.id}
-                          onClick={() => setSelectedBookingId(b.id)}
-                          className={cn(
-                            "w-full text-left p-3 rounded-lg transition-all duration-150",
-                            isConflict
-                              ? "bg-destructive/[0.06] hover:bg-destructive/[0.1] border border-destructive/20"
-                              : "bg-secondary/30 hover:bg-secondary/60"
-                          )}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
-                              {formatDate(b.scheduledFor, "EEE · HH:mm")}
-                            </span>
-                            <div className="flex items-center gap-1">
-                              {(b.priority === "high" || b.priority === "urgent") && (
-                                <Zap className="w-2.5 h-2.5 text-[hsl(var(--warning))]" />
-                              )}
-                              <StatusIcon className={cn("w-3 h-3", (statusConfig[b.status] ?? statusConfig.pending).cls)} />
+                  bookings.map((booking) => {
+                    const top = bookingTopFromISO(booking.scheduledFor);
+                    const height = bookingHeightFromDuration(booking.durationMinutes);
+                    const dayIdx = getDayIndex(booking.scheduledFor, weekStart);
+                    if (dayIdx < 0 || dayIdx > 6) return null;
+
+                    const colors = getCompanyColors(booking.company?.id);
+                    const isSelected = selectedBookingId === booking.id;
+
+                    return (
+                      <div
+                        key={booking.id}
+                        onClick={() => setSelectedBookingId(booking.id)}
+                        className={cn(
+                          "absolute left-[2%] right-[2%] rounded-lg border p-2 cursor-pointer transition-all duration-200 group overflow-hidden",
+                          colors.bg,
+                          colors.border,
+                          isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-card z-20 shadow-lg" : "hover:shadow-md hover:z-10"
+                        )}
+                        style={{ top, height, left: `${(dayIdx / 7) * 100 + 0.5}%`, width: `${100 / 7 - 1}%` }}
+                      >
+                        <div className="flex items-start justify-between gap-1">
+                          <p className={cn("text-[10px] font-bold leading-tight truncate", colors.text)}>{booking.title}</p>
+                          {booking.status === "confirmed" && <CheckCircle2 className={cn("w-2.5 h-2.5 shrink-0", colors.text)} />}
+                        </div>
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className={cn("w-1 h-1 rounded-full", colors.dot)} />
+                          <p className="text-[9px] text-muted-foreground truncate font-medium">{booking.company?.name || "No Company"}</p>
+                        </div>
+                        {height > 40 && (
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <div className="flex -space-x-1">
+                              {booking.assignedUserSummary.users.slice(0, 2).map((u, i) => (
+                                <div key={i} className="w-3.5 h-3.5 rounded-full bg-background border border-border flex items-center justify-center text-[7px] font-bold">
+                                  {u.initials}
+                                </div>
+                              ))}
                             </div>
+                            <p className="text-[8px] text-muted-foreground font-medium">{format(parseISO(booking.scheduledFor), "h:mm a")}</p>
                           </div>
-                          <p className="text-xs font-medium text-foreground mt-1 truncate">{b.title}</p>
-                          {b.company && (
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className="inline-flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
-                                <span className="w-1 h-1 rounded-full bg-primary" />
-                                {b.company.name}
-                              </span>
-                              {b.revenueCents != null && (
-                                <span className="text-[9px] text-[hsl(var(--success))] tabular-nums font-medium">
-                                  {formatCents(b.revenueCents)}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
-          )}
-        </aside>
+          </div>
+        </div>
+
+        {/* Sidebar: Capacity & Details */}
+        <div className="w-80 flex flex-col gap-4 shrink-0 min-h-0">
+          {/* Capacity Card */}
+          <div className="bg-card border border-border rounded-xl p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Team Capacity</h3>
+              <TrendingUp className="w-3.5 h-3.5 text-muted-foreground" />
+            </div>
+            <div className="space-y-4">
+              {capacityData?.assignedUsers.slice(0, 4).map((u, i) => {
+                const cap = getCapacity(u.totalDurationMinutes);
+                return (
+                  <div key={i} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="font-semibold text-foreground">{u.user.name}</span>
+                      <span className={cn("font-bold", cap.level === "overloaded" ? "text-destructive" : "text-muted-foreground")}>
+                        {Math.round(cap.pct)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+                      <div className={cn("h-full transition-all duration-500", capacityBarColor[cap.level])} style={{ width: `${cap.pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+              {!capacityData && <LoadingCards count={3} />}
+            </div>
+          </div>
+
+          {/* Detail Panel */}
+          <div className="flex-1 bg-card border border-border rounded-xl flex flex-col shadow-sm min-h-0">
+            {!selectedBookingId ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+                <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center mb-3">
+                  <CalendarDays className="w-6 h-6 text-muted-foreground/40" />
+                </div>
+                <p className="text-sm font-semibold text-foreground">No Selection</p>
+                <p className="text-xs text-muted-foreground mt-1">Select a booking to view details and manage status.</p>
+              </div>
+            ) : isDetailLoading ? (
+              <div className="p-6 space-y-6">
+                <div className="space-y-2">
+                  <div className="h-4 w-3/4 bg-secondary animate-pulse rounded" />
+                  <div className="h-3 w-1/2 bg-secondary animate-pulse rounded" />
+                </div>
+                <LoadingCards count={3} />
+              </div>
+            ) : detailData ? (
+              <div className="flex-1 flex flex-col min-h-0">
+                <div className="p-5 border-b border-border shrink-0">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h3 className="text-sm font-bold text-foreground leading-tight">{detailData.booking.title}</h3>
+                    <button onClick={() => setSelectedBookingId(null)} className="p-1 hover:bg-secondary rounded-md transition-colors">
+                      <X className="w-3.5 h-3.5 text-muted-foreground" />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider", statusConfig[detailData.booking.status]?.cls || "bg-secondary text-muted-foreground")}>
+                      {detailData.booking.status}
+                    </span>
+                    {detailData.booking.priority && (
+                      <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider", priorityConfig[detailData.booking.priority]?.cls)}>
+                        {detailData.booking.priority}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
+                  {/* Primary Info */}
+                  <div className="grid grid-cols-2 gap-y-4 gap-x-2">
+                    <DetailRow icon={Briefcase} label="Company" value={detailData.booking.company?.name || "None"} highlight />
+                    <DetailRow icon={Users} label="Contact" value={detailData.booking.contact?.name || "None"} />
+                    <DetailRow icon={CalendarDays} label="Date" value={format(parseISO(detailData.booking.scheduledFor), "MMM d, yyyy")} />
+                    <DetailRow icon={Clock} label="Time" value={format(parseISO(detailData.booking.scheduledFor), "h:mm a")} />
+                  </div>
+
+                  {/* Description */}
+                  {detailData.booking.description && (
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <StickyNote className="w-3 h-3" />
+                        Notes
+                      </h4>
+                      <p className="text-xs text-foreground/80 leading-relaxed bg-secondary/30 p-3 rounded-lg border border-border/50 italic">
+                        "{detailData.booking.description}"
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Team */}
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                      <UserPlus className="w-3 h-3" />
+                      Assigned Team
+                    </h4>
+                    <div className="space-y-2">
+                      {detailData.booking.assignedUserSummary.users.map((u, i) => (
+                        <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-secondary/40 border border-border/50">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary">
+                              {u.initials}
+                            </div>
+                            <span className="text-xs font-medium text-foreground">{u.name}</span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">Primary</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Linked Tasks */}
+                  {detailData.linkedTasks.length > 0 && (
+                    <div className="space-y-3">
+                      <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Linked Tasks
+                      </h4>
+                      <div className="space-y-2">
+                        {detailData.linkedTasks.map((t) => (
+                          <div key={t.id} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer group border border-transparent hover:border-border">
+                            <Circle className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                            <span className="text-xs text-foreground/80 group-hover:text-foreground transition-colors truncate flex-1">{t.title}</span>
+                            <ArrowRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="p-4 border-t border-border bg-secondary/20 shrink-0">
+                  <div className="grid grid-cols-2 gap-2">
+                    {detailData.booking.status === "pending" && (
+                      <button
+                        onClick={() => handleStatusUpdate("confirmed")}
+                        disabled={updateStatus.isPending}
+                        className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+                      >
+                        {updateStatus.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                        Confirm Booking
+                      </button>
+                    )}
+                    {detailData.booking.status === "confirmed" && (
+                      <button
+                        onClick={() => handleStatusUpdate("completed")}
+                        disabled={updateStatus.isPending}
+                        className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-[hsl(var(--success))] text-white hover:opacity-90 transition-all"
+                      >
+                        {updateStatus.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                        Mark Completed
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleStatusUpdate("cancelled")}
+                      disabled={updateStatus.isPending}
+                      className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-secondary text-foreground hover:bg-surface-3 transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleStatusUpdate("no_show")}
+                      disabled={updateStatus.isPending}
+                      className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-secondary text-foreground hover:bg-surface-3 transition-all"
+                    >
+                      No-show
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
       </div>
+
+      {isCreateOpen && <CreateBookingDialog onClose={() => setIsCreateOpen(false)} />}
     </div>
+  );
+}
+
+function Briefcase(props: any) {
+  return (
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+      <rect width="20" height="14" x="2" y="6" rx="2" />
+    </svg>
+  );
+}
+
+function Users(props: any) {
+  return (
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
   );
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Search,
   Bell,
@@ -7,19 +7,11 @@ import {
   Building2,
   Briefcase,
   Check,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-
-const organizations = [{ id: "1", name: "Thinker Holdings" }];
-
-const companies = [
-  { id: "all", name: "All Companies", color: "hsl(215 100% 55%)" },
-  { id: "1", name: "A1 Marine Care", color: "hsl(195 80% 50%)" },
-  { id: "2", name: "RankLocal", color: "hsl(152 60% 48%)" },
-  { id: "3", name: "MarineMecca", color: "hsl(38 92% 55%)" },
-  { id: "4", name: "Vitatee", color: "hsl(280 70% 58%)" },
-];
+import { useOrganizations, useCompanies } from "@/lib/api-hooks";
 
 function Dropdown({
   label,
@@ -28,6 +20,7 @@ function Dropdown({
   selected,
   onSelect,
   showDot,
+  isLoading,
 }: {
   label: string;
   icon: React.ElementType;
@@ -35,6 +28,7 @@ function Dropdown({
   selected: string;
   onSelect: (id: string) => void;
   showDot?: boolean;
+  isLoading?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const current = items.find((i) => i.id === selected);
@@ -42,17 +36,27 @@ function Dropdown({
   return (
     <div className="relative">
       <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-secondary-foreground hover:bg-secondary hover:text-foreground transition-all duration-150 active:scale-[0.97]"
+        onClick={() => !isLoading && setOpen(!open)}
+        disabled={isLoading}
+        className={cn(
+          "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-secondary-foreground hover:bg-secondary hover:text-foreground transition-all duration-150 active:scale-[0.97]",
+          isLoading && "opacity-50 cursor-not-allowed"
+        )}
       >
-        <Icon className="w-4 h-4 text-muted-foreground" />
+        {isLoading ? (
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        ) : (
+          <Icon className="w-4 h-4 text-muted-foreground" />
+        )}
         {showDot && current?.color && (
           <span
             className="w-2 h-2 rounded-full shrink-0"
             style={{ background: current.color }}
           />
         )}
-        <span className="max-w-[160px] truncate">{current?.name || label}</span>
+        <span className="max-w-[160px] truncate">
+          {isLoading ? `Loading ${label}...` : (current?.name || label)}
+        </span>
         <ChevronDown
           className={cn(
             "w-3.5 h-3.5 text-muted-foreground transition-transform duration-200",
@@ -67,30 +71,34 @@ function Dropdown({
             <div className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
               {label}
             </div>
-            {items.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => {
-                  onSelect(item.id);
-                  setOpen(false);
-                }}
-                className={cn(
-                  "w-full text-left px-3 py-2 text-sm hover:bg-secondary transition-colors flex items-center gap-2.5",
-                  selected === item.id && "text-foreground font-medium"
-                )}
-              >
-                {item.color && (
-                  <span
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ background: item.color }}
-                  />
-                )}
-                <span className="flex-1 truncate">{item.name}</span>
-                {selected === item.id && (
-                  <Check className="w-3.5 h-3.5 text-primary shrink-0" />
-                )}
-              </button>
-            ))}
+            {items.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-muted-foreground">No {label.toLowerCase()}s found</div>
+            ) : (
+              items.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    onSelect(item.id);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "w-full text-left px-3 py-2 text-sm hover:bg-secondary transition-colors flex items-center gap-2.5",
+                    selected === item.id && "text-foreground font-medium"
+                  )}
+                >
+                  {item.color && (
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ background: item.color }}
+                    />
+                  )}
+                  <span className="flex-1 truncate">{item.name}</span>
+                  {selected === item.id && (
+                    <Check className="w-3.5 h-3.5 text-primary shrink-0" />
+                  )}
+                </button>
+              ))
+            )}
           </div>
         </>
       )}
@@ -98,8 +106,37 @@ function Dropdown({
   );
 }
 
+const COMPANY_COLORS = [
+  "hsl(215 100% 55%)",
+  "hsl(195 80% 50%)",
+  "hsl(152 60% 48%)",
+  "hsl(38 92% 55%)",
+  "hsl(280 70% 58%)",
+  "hsl(340 75% 55%)",
+  "hsl(160 85% 45%)",
+];
+
 export function TopBar() {
   const { organizationId, setOrganizationId, companyId, setCompanyId } = useOrg();
+
+  const { data: orgs, isLoading: isLoadingOrgs } = useOrganizations();
+  const { data: companies, isLoading: isLoadingCompanies } = useCompanies(organizationId);
+
+  const orgItems = useMemo(() => orgs || [], [orgs]);
+  
+  const companyItems = useMemo(() => {
+    const base = [{ id: "all", name: "All Companies", color: "hsl(215 100% 55%)" }];
+    if (!companies) return base;
+    
+    return [
+      ...base,
+      ...companies.map((c, i) => ({
+        id: c.id,
+        name: c.name,
+        color: COMPANY_COLORS[(i + 1) % COMPANY_COLORS.length],
+      })),
+    ];
+  }, [companies]);
 
   return (
     <header className="h-14 border-b border-border bg-background/90 backdrop-blur-xl sticky top-0 z-30 flex items-center justify-between px-5 gap-4">
@@ -108,23 +145,25 @@ export function TopBar() {
         <Dropdown
           label="Organization"
           icon={Building2}
-          items={organizations}
+          items={orgItems}
           selected={organizationId}
           onSelect={setOrganizationId}
+          isLoading={isLoadingOrgs}
         />
         <span className="text-border select-none">/</span>
         <Dropdown
           label="Company"
           icon={Briefcase}
-          items={companies}
+          items={companyItems}
           selected={companyId}
           onSelect={setCompanyId}
           showDot
+          isLoading={isLoadingCompanies}
         />
       </div>
 
       {/* Center: Search */}
-      <div className="flex-1 max-w-lg mx-4">
+      <div className="flex-1 max-lg mx-4">
         <div className="relative group">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
           <input

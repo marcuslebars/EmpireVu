@@ -708,3 +708,19 @@ export function retryWorkflowJob(orgId: string, jobId: string): Promise<unknown>
     body: JSON.stringify({}),
   });
 }
+
+// ─── Organizations & Companies ───────────────────────────────────────────────
+
+export interface OrganizationSummary {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export function fetchOrganizations(): Promise<OrganizationSummary[]> {
+  return apiFetch("/api/organizations");
+}
+
+export function fetchCompanies(orgId: string): Promise<CompanySummary[]> {
+  return apiFetch(`/api/organizations/${orgId}/companies`);
+}
