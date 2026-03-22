@@ -394,12 +394,21 @@ export default function AutomationsPage() {
                 <div className="text-right min-w-[70px]">
                   <p className="text-xs text-muted-foreground">{w.lastRun}</p>
                 </div>
-                <button
-                  onClick={(e) => e.stopPropagation()}
-                  className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground opacity-0 group-hover:opacity-100"
-                >
-                  <MoreHorizontal className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); }}
+                    className="p-1.5 rounded-lg hover:bg-primary/10 transition-colors text-primary opacity-0 group-hover:opacity-100"
+                    title="Run Now"
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={(e) => e.stopPropagation()}
+                    className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground opacity-0 group-hover:opacity-100"
+                  >
+                    <MoreHorizontal className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
