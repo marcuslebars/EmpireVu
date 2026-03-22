@@ -114,6 +114,7 @@ export default {
         "slide-in-left": "slide-in-left 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards",
         "scale-in": "scale-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards",
         shimmer: "shimmer 3s ease-in-out infinite",
+        "slide-in-right": "slide-in-right 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards",
         "pulse-soft": "pulse-soft 2s ease-in-out infinite",
       },
     },
