@@ -123,7 +123,35 @@ export default function ContactDetailPage() {
     { key: "bookings", label: "Bookings", count: contact.bookingsCount },
     { key: "tasks", label: "Tasks", count: contact.tasksOpen + contact.tasksDone },
     { key: "financials", label: "Financials" },
+    { key: "workflows", label: "Workflows" },
     { key: "notes", label: "Notes" },
+  ];
+
+  // Triggered workflows for this contact
+  const contactWorkflows: { name: string; trigger: string; result: string; time: string; trace: SystemEvent[] }[] = [
+    {
+      name: "New Booking Workflow",
+      trigger: "Booking created",
+      result: "Task created + Team assigned",
+      time: "2h ago",
+      trace: [
+        { id: "cw1", type: "booking_created", title: "Booking created", detail: "Vessel Inspection — Main dock", company: contact.company, timestamp: "2h ago" },
+        { id: "cw2", type: "workflow_triggered", title: "Workflow triggered", detail: "New Booking Workflow", company: contact.company, timestamp: "2h ago" },
+        { id: "cw3", type: "task_created", title: "Task created", detail: "Confirm vessel inspection", company: contact.company, timestamp: "2h ago" },
+        { id: "cw4", type: "notification_sent", title: "Notification sent", detail: "James K. assigned", company: contact.company, timestamp: "2h ago" },
+      ],
+    },
+    {
+      name: "Pipeline Stage Automation",
+      trigger: "Stage changed",
+      result: "Follow-up task created",
+      time: "1w ago",
+      trace: [
+        { id: "cw5", type: "stage_changed", title: "Stage changed", detail: "Lead → Qualified", company: contact.company, timestamp: "1w ago" },
+        { id: "cw6", type: "workflow_triggered", title: "Workflow triggered", detail: "Pipeline Stage Automation", company: contact.company, timestamp: "1w ago" },
+        { id: "cw7", type: "task_created", title: "Task created", detail: "Schedule discovery call", company: contact.company, timestamp: "1w ago" },
+      ],
+    },
   ];
 
   return (
