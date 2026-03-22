@@ -25,8 +25,10 @@ import {
   TrendingUp,
   Activity,
   ShieldAlert,
+  ChevronRight as ChevronRightIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SystemTraceChain, type SystemEvent } from "@/components/system/GlobalActivityFeed";
 
 /* ── Company palette ── */
 const companyColors: Record<string, { bg: string; border: string; text: string; dot: string }> = {
