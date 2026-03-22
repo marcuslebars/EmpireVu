@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -6,19 +6,17 @@ import {
   Search,
   Filter,
   Clock,
-  MapPin,
   AlertTriangle,
   CheckCircle2,
   Circle,
   Eye,
   EyeOff,
-  MoreHorizontal,
-  CalendarDays,
   RotateCcw,
   UserPlus,
   ExternalLink,
   StickyNote,
   CreditCard,
+  CalendarDays,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -31,7 +29,6 @@ const companyColors: Record<string, { bg: string; border: string; text: string; 
   vita: { bg: "bg-[hsl(280_70%_58%/0.12)]", border: "border-[hsl(280_70%_58%/0.3)]", text: "text-[hsl(280_70%_58%)]", dot: "bg-[hsl(280_70%_58%)]" },
 };
 
-/* ── Status config ── */
 const statusConfig = {
   confirmed: { label: "Confirmed", icon: CheckCircle2, cls: "text-success" },
   pending: { label: "Pending", icon: Clock, cls: "text-warning" },
@@ -39,7 +36,6 @@ const statusConfig = {
   conflict: { label: "Conflict", icon: AlertTriangle, cls: "text-destructive" },
 };
 
-/* ── Team ── */
 const teamMembers = [
   { id: "1", name: "James Donovan", initials: "JD", role: "Operations Lead", status: "available" as const, color: "hsl(215 100% 55%)" },
   { id: "2", name: "Marcus Reeves", initials: "MR", role: "Field Technician", status: "busy" as const, color: "hsl(152 60% 48%)" },
@@ -49,7 +45,6 @@ const teamMembers = [
 
 const statusDotColor = { available: "bg-success", busy: "bg-warning", offline: "bg-muted-foreground" };
 
-/* ── Companies ── */
 const companies = [
   { id: "all", name: "All Companies" },
   { id: "a1", name: "A1 Marine Care" },
@@ -58,7 +53,6 @@ const companies = [
   { id: "vita", name: "Vitatee" },
 ];
 
-/* ── Time slots ── */
 const timeSlots = Array.from({ length: 13 }, (_, i) => {
   const h = i + 7;
   return { label: `${h.toString().padStart(2, "0")}:00`, hour: h };
@@ -74,7 +68,6 @@ const weekDays = [
   { short: "Sun", date: 22, full: "Sun 22" },
 ];
 
-/* ── Bookings ── */
 type Booking = {
   id: string;
   day: number;
@@ -106,14 +99,12 @@ const bookings: Booking[] = [
   { id: "8", day: 3, startHour: 13, startMin: 0, durationMin: 120, title: "Anchor System Install", company: "a1", companyName: "A1 Marine Care", assignee: "Marcus Reeves", assigneeId: "2", status: "confirmed", customer: "NZ Maritime", service: "Anchor Install", notes: "Deep-water anchoring system.", hasPayment: true },
   { id: "9", day: 4, startHour: 10, startMin: 0, durationMin: 60, title: "Listing Optimisation", company: "marine", companyName: "MarineMecca", assignee: "Kira Lam", assigneeId: "3", status: "completed", customer: "MarineMecca", service: "Marketplace", notes: "Amazon & eBay listings." },
   { id: "10", day: 4, startHour: 14, startMin: 0, durationMin: 90, title: "Fulfilment Workshop", company: "vita", companyName: "Vitatee", assignee: "Aisha Shah", assigneeId: "4", status: "confirmed", customer: "Vitatee", service: "Logistics", notes: "Warehouse team walkthrough." },
-  // conflict example
   { id: "11", day: 1, startHour: 9, startMin: 30, durationMin: 60, title: "Emergency Dive Survey", company: "a1", companyName: "A1 Marine Care", assignee: "Marcus Reeves", assigneeId: "2", status: "conflict", customer: "Port Authority NZ", service: "Dive Survey", notes: "Overlaps with propeller repair — needs reassignment.", hasIssue: true },
 ];
 
 const views = ["Day", "Week", "Month"] as const;
-
-const HOUR_HEIGHT = 56; // px per hour
-const GRID_START = 7; // 07:00
+const HOUR_HEIGHT = 56;
+const GRID_START = 7;
 
 function bookingTop(b: Booking) {
   return (b.startHour - GRID_START) * HOUR_HEIGHT + (b.startMin / 60) * HOUR_HEIGHT;
@@ -122,11 +113,37 @@ function bookingHeight(b: Booking) {
   return (b.durationMin / 60) * HOUR_HEIGHT - 3;
 }
 
-/* ── Upcoming (right panel) ── */
 const upcomingBookings = bookings
   .filter((b) => b.status !== "completed")
   .sort((a, b) => a.day * 1440 + a.startHour * 60 + a.startMin - (b.day * 1440 + b.startHour * 60 + b.startMin))
   .slice(0, 6);
+
+/* ── Sub-components ── */
+function DetailRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <Icon className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
+      <div>
+        <p className="text-[10px] text-muted-foreground">{label}</p>
+        <p className="text-xs text-foreground font-medium">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function ActionButton({ icon: Icon, label, primary }: { icon: React.ElementType; label: string; primary?: boolean }) {
+  return (
+    <button
+      className={cn(
+        "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 active:scale-[0.97]",
+        primary ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm" : "text-secondary-foreground hover:bg-secondary"
+      )}
+    >
+      <Icon className="w-3.5 h-3.5" />
+      {label}
+    </button>
+  );
+}
 
 /* ════════════════════════════════════════════ */
 export default function CalendarPage() {
@@ -151,7 +168,7 @@ export default function CalendarPage() {
     return true;
   });
 
-  const todayCol = 3; // Thu is "today"
+  const todayCol = 3;
 
   return (
     <div className="h-[calc(100vh-3.5rem)] flex flex-col">
@@ -160,15 +177,18 @@ export default function CalendarPage() {
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold text-foreground tracking-tight">Schedule</h1>
           <div className="flex items-center gap-1 ml-2">
-            <button className="p-1 rounded-md hover:bg-secondary transition-colors text-muted-foreground"><ChevronLeft className="w-4 h-4" /></button>
+            <button className="p-1 rounded-md hover:bg-secondary transition-colors text-muted-foreground">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
             <span className="text-sm font-medium text-foreground px-2 tabular-nums">Mar 16 – 22, 2026</span>
-            <button className="p-1 rounded-md hover:bg-secondary transition-colors text-muted-foreground"><ChevronRight className="w-4 h-4" /></button>
+            <button className="p-1 rounded-md hover:bg-secondary transition-colors text-muted-foreground">
+              <ChevronRight className="w-4 h-4" />
+            </button>
             <button className="text-xs text-primary hover:text-primary/80 ml-2 font-medium transition-colors">Today</button>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Search */}
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <input
@@ -179,7 +199,6 @@ export default function CalendarPage() {
             />
           </div>
 
-          {/* Company filter */}
           <select
             value={selectedCompany}
             onChange={(e) => setSelectedCompany(e.target.value)}
@@ -190,7 +209,6 @@ export default function CalendarPage() {
             ))}
           </select>
 
-          {/* View toggle */}
           <div className="flex bg-secondary rounded-lg p-0.5">
             {views.map((v) => (
               <button
@@ -220,7 +238,6 @@ export default function CalendarPage() {
 
       {/* ── Main 3-panel layout ── */}
       <div className="flex flex-1 min-h-0 opacity-0 animate-fade-in" style={{ animationDelay: "100ms" }}>
-
         {/* ── LEFT: Team Panel ── */}
         <aside className="w-56 shrink-0 border-r border-border bg-card/50 p-4 flex flex-col gap-4 overflow-y-auto">
           <div className="flex items-center justify-between">
@@ -240,10 +257,7 @@ export default function CalendarPage() {
                   )}
                 >
                   <div className="relative">
-                    <div
-                      className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-                      style={{ background: m.color }}
-                    >
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0" style={{ background: m.color }}>
                       {m.initials}
                     </div>
                     <span className={cn("absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-card", statusDotColor[m.status])} />
@@ -252,13 +266,16 @@ export default function CalendarPage() {
                     <p className="text-xs font-medium text-foreground truncate">{m.name}</p>
                     <p className="text-[10px] text-muted-foreground truncate">{m.role}</p>
                   </div>
-                  {visible ? <Eye className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" /> : <EyeOff className="w-3 h-3 text-muted-foreground" />}
+                  {visible ? (
+                    <Eye className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                  ) : (
+                    <EyeOff className="w-3 h-3 text-muted-foreground" />
+                  )}
                 </button>
               );
             })}
           </div>
 
-          {/* Availability summary */}
           <div className="mt-auto pt-4 border-t border-border space-y-2">
             <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Availability</h4>
             {teamMembers.map((m) => {
@@ -279,18 +296,9 @@ export default function CalendarPage() {
           <div className="shrink-0 grid grid-cols-[3rem_repeat(7,1fr)] border-b border-border bg-card/30">
             <div className="border-r border-border" />
             {weekDays.map((d, i) => (
-              <div
-                key={d.full}
-                className={cn(
-                  "text-center py-2.5 border-r border-border last:border-r-0",
-                  i === todayCol ? "bg-primary/5" : ""
-                )}
-              >
+              <div key={d.full} className={cn("text-center py-2.5 border-r border-border last:border-r-0", i === todayCol && "bg-primary/5")}>
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{d.short}</p>
-                <p className={cn(
-                  "text-sm font-semibold mt-0.5",
-                  i === todayCol ? "text-primary" : "text-foreground"
-                )}>{d.date}</p>
+                <p className={cn("text-sm font-semibold mt-0.5", i === todayCol ? "text-primary" : "text-foreground")}>{d.date}</p>
               </div>
             ))}
           </div>
@@ -301,39 +309,23 @@ export default function CalendarPage() {
               {/* Time gutter */}
               <div className="relative border-r border-border">
                 {timeSlots.map((t) => (
-                  <span
-                    key={t.label}
-                    className="absolute right-2 text-[10px] text-muted-foreground font-mono tabular-nums"
-                    style={{ top: (t.hour - GRID_START) * HOUR_HEIGHT - 6 }}
-                  >
+                  <span key={t.label} className="absolute right-2 text-[10px] text-muted-foreground font-mono tabular-nums" style={{ top: (t.hour - GRID_START) * HOUR_HEIGHT - 6 }}>
                     {t.label}
                   </span>
                 ))}
               </div>
+
               {/* Day columns */}
               {weekDays.map((d, ci) => (
-                <div
-                  key={d.full}
-                  className={cn(
-                    "relative border-r border-border/40 last:border-r-0",
-                    ci === todayCol ? "bg-primary/[0.02]" : ""
-                  )}
-                >
+                <div key={d.full} className={cn("relative border-r border-border/40 last:border-r-0", ci === todayCol && "bg-primary/[0.02]")}>
                   {/* Hour lines */}
                   {timeSlots.map((t) => (
-                    <div
-                      key={t.label}
-                      className="absolute inset-x-0 border-b border-border/40"
-                      style={{ top: (t.hour - GRID_START) * HOUR_HEIGHT + HOUR_HEIGHT }}
-                    />
+                    <div key={t.label} className="absolute inset-x-0 border-b border-border/40" style={{ top: (t.hour - GRID_START) * HOUR_HEIGHT + HOUR_HEIGHT }} />
                   ))}
 
-                  {/* Current time indicator (only on today col) */}
+                  {/* Current time indicator */}
                   {ci === todayCol && (
-                    <div
-                      className="absolute inset-x-0 z-20 pointer-events-none flex items-center"
-                      style={{ top: (10 - GRID_START) * HOUR_HEIGHT + 30 }}
-                    >
+                    <div className="absolute inset-x-0 z-20 pointer-events-none flex items-center" style={{ top: (10 - GRID_START) * HOUR_HEIGHT + 30 }}>
                       <div className="w-2 h-2 rounded-full bg-destructive -ml-1" />
                       <div className="flex-1 h-px bg-destructive/60" />
                     </div>
@@ -352,15 +344,11 @@ export default function CalendarPage() {
                           onClick={() => setSelectedBooking(b)}
                           className={cn(
                             "absolute inset-x-1 rounded-md border px-2 py-1.5 text-left cursor-pointer transition-all duration-150 hover:brightness-110 hover:shadow-lg z-10 overflow-hidden",
-                            colors.bg,
-                            colors.border,
+                            colors.bg, colors.border,
                             isConflict && "ring-1 ring-destructive/50 animate-pulse-soft",
                             selectedBooking?.id === b.id && "ring-2 ring-primary shadow-lg shadow-primary/10"
                           )}
-                          style={{
-                            top: bookingTop(b),
-                            height: bookingHeight(b),
-                          }}
+                          style={{ top: bookingTop(b), height: bookingHeight(b) }}
                         >
                           <div className="flex items-start justify-between gap-1">
                             <p className={cn("text-[11px] font-semibold truncate leading-tight", colors.text)}>{b.title}</p>
@@ -372,14 +360,16 @@ export default function CalendarPage() {
                               <div className="flex items-center gap-1.5">
                                 <span className="text-[9px] text-muted-foreground font-mono">{b.durationMin}m</span>
                                 {b.hasPayment && <CreditCard className="w-2.5 h-2.5 text-success" />}
-                          {b.hasNote && <StickyNote className="w-2.5 h-2.5 text-muted-foreground" />}
-                          {b.hasIssue && <AlertTriangle className="w-2.5 h-2.5 text-warning" />}
-                        </div>
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
+                                {b.hasNote && <StickyNote className="w-2.5 h-2.5 text-muted-foreground" />}
+                                {b.hasIssue && <AlertTriangle className="w-2.5 h-2.5 text-warning" />}
+                              </div>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -387,17 +377,17 @@ export default function CalendarPage() {
         {/* ── RIGHT: Details / Upcoming Panel ── */}
         <aside className="w-72 shrink-0 border-l border-border bg-card/50 flex flex-col overflow-hidden">
           {selectedBooking ? (
-            /* ── Booking Detail ── */
             <div className="flex-1 overflow-y-auto">
               <div className="p-4 border-b border-border flex items-center justify-between">
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Booking Details</h3>
-                <button onClick={() => setSelectedBooking(null)} className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground"><X className="w-3.5 h-3.5" /></button>
+                <button onClick={() => setSelectedBooking(null)} className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground">
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
               <div className="p-4 space-y-4">
-                {/* Title & status */}
                 <div>
                   <h2 className="text-sm font-semibold text-foreground">{selectedBooking.title}</h2>
-                  <div className="flex items-center gap-2 mt-1.5">
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     <span className={cn("inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full", companyColors[selectedBooking.company].bg, companyColors[selectedBooking.company].text)}>
                       <span className={cn("w-1.5 h-1.5 rounded-full", companyColors[selectedBooking.company].dot)} />
                       {selectedBooking.companyName}
@@ -409,7 +399,6 @@ export default function CalendarPage() {
                   </div>
                 </div>
 
-                {/* Meta */}
                 <div className="space-y-2.5">
                   <DetailRow icon={Clock} label="Time" value={`${weekDays[selectedBooking.day].full}, ${selectedBooking.startHour.toString().padStart(2, "0")}:${selectedBooking.startMin.toString().padStart(2, "0")} — ${selectedBooking.durationMin} min`} />
                   <DetailRow icon={Circle} label="Customer" value={selectedBooking.customer} />
@@ -417,7 +406,6 @@ export default function CalendarPage() {
                   <DetailRow icon={Circle} label="Assigned" value={selectedBooking.assignee} />
                 </div>
 
-                {/* Notes */}
                 {selectedBooking.notes && (
                   <div className="bg-secondary/50 rounded-lg p-3">
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1">Notes</p>
@@ -425,7 +413,6 @@ export default function CalendarPage() {
                   </div>
                 )}
 
-                {/* Related tasks */}
                 <div>
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Related Tasks</p>
                   <div className="space-y-1.5">
@@ -440,7 +427,6 @@ export default function CalendarPage() {
                   </div>
                 </div>
 
-                {/* Quick actions */}
                 <div className="space-y-1.5 pt-2 border-t border-border">
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Actions</p>
                   <ActionButton icon={RotateCcw} label="Reschedule" />
@@ -451,7 +437,6 @@ export default function CalendarPage() {
               </div>
             </div>
           ) : (
-            /* ── Upcoming list ── */
             <div className="flex-1 overflow-y-auto">
               <div className="p-4 border-b border-border">
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Upcoming</h3>
@@ -461,11 +446,7 @@ export default function CalendarPage() {
                   const colors = companyColors[b.company];
                   const StatusIcon = statusConfig[b.status].icon;
                   return (
-                    <button
-                      key={b.id}
-                      onClick={() => setSelectedBooking(b)}
-                      className="w-full text-left p-3 rounded-lg bg-secondary/30 hover:bg-secondary/60 transition-all duration-150 group"
-                    >
+                    <button key={b.id} onClick={() => setSelectedBooking(b)} className="w-full text-left p-3 rounded-lg bg-secondary/30 hover:bg-secondary/60 transition-all duration-150">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
                           {weekDays[b.day].short} · {b.startHour.toString().padStart(2, "0")}:{b.startMin.toString().padStart(2, "0")}
@@ -489,36 +470,5 @@ export default function CalendarPage() {
         </aside>
       </div>
     </div>
-  );
-}
-
-/* ── Sub-components ── */
-import React from "react";
-
-function DetailRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
-  return (
-    <div className="flex items-start gap-2.5">
-      <Icon className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
-      <div>
-        <p className="text-[10px] text-muted-foreground">{label}</p>
-        <p className="text-xs text-foreground font-medium">{value}</p>
-      </div>
-    </div>
-  );
-}
-
-function ActionButton({ icon: Icon, label, primary }: { icon: React.ElementType; label: string; primary?: boolean }) {
-  return (
-    <button
-      className={cn(
-        "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 active:scale-[0.97]",
-        primary
-          ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-          : "text-secondary-foreground hover:bg-secondary"
-      )}
-    >
-      <Icon className="w-3.5 h-3.5" />
-      {label}
-    </button>
   );
 }
