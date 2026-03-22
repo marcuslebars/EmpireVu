@@ -9,6 +9,7 @@ import {
   Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useOrg } from "@/lib/org-context";
 
 const organizations = [{ id: "1", name: "Thinker Holdings" }];
 
@@ -98,8 +99,7 @@ function Dropdown({
 }
 
 export function TopBar() {
-  const [org, setOrg] = useState("1");
-  const [company, setCompany] = useState("all");
+  const { organizationId, setOrganizationId, companyId, setCompanyId } = useOrg();
 
   return (
     <header className="h-14 border-b border-border bg-background/90 backdrop-blur-xl sticky top-0 z-30 flex items-center justify-between px-5 gap-4">
@@ -109,16 +109,16 @@ export function TopBar() {
           label="Organization"
           icon={Building2}
           items={organizations}
-          selected={org}
-          onSelect={setOrg}
+          selected={organizationId}
+          onSelect={setOrganizationId}
         />
         <span className="text-border select-none">/</span>
         <Dropdown
           label="Company"
           icon={Briefcase}
           items={companies}
-          selected={company}
-          onSelect={setCompany}
+          selected={companyId}
+          onSelect={setCompanyId}
           showDot
         />
       </div>

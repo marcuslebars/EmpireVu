@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { OrgProvider } from "@/lib/org-context";
 import Dashboard from "./pages/Dashboard";
 import CalendarPage from "./pages/CalendarPage";
 import TasksPage from "./pages/TasksPage";
@@ -16,31 +17,40 @@ import TeamPage from "./pages/TeamPage";
 import SettingsPage from "./pages/SettingsPage";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 2,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route element={<AppLayout />}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/calendar" element={<CalendarPage />} />
-            <Route path="/tasks" element={<TasksPage />} />
-            <Route path="/crm" element={<CRMPage />} />
-            <Route path="/crm/:id" element={<ContactDetailPage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/automations" element={<AutomationsPage />} />
-            <Route path="/files" element={<FilesPage />} />
-            <Route path="/team" element={<TeamPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-          </Route>
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
+    <OrgProvider>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <Routes>
+            <Route element={<AppLayout />}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/calendar" element={<CalendarPage />} />
+              <Route path="/tasks" element={<TasksPage />} />
+              <Route path="/crm" element={<CRMPage />} />
+              <Route path="/crm/:id" element={<ContactDetailPage />} />
+              <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/automations" element={<AutomationsPage />} />
+              <Route path="/files" element={<FilesPage />} />
+              <Route path="/team" element={<TeamPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+            </Route>
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </TooltipProvider>
+    </OrgProvider>
   </QueryClientProvider>
 );
 

@@ -1,35 +1,56 @@
-import { useState } from "react";
-import { Plus, Search, ChevronRight, Calendar, DollarSign, ArrowUpRight, ArrowDownRight, LayoutGrid, List, GripVertical, Zap, AlertTriangle, Clock, ArrowRight, Star } from "lucide-react";
+import { useState, useMemo } from "react";
+import {
+  Plus,
+  Search,
+  ChevronRight,
+  Calendar,
+  DollarSign,
+  ArrowUpRight,
+  ArrowDownRight,
+  LayoutGrid,
+  List,
+  GripVertical,
+  Zap,
+  AlertTriangle,
+  Clock,
+  ArrowRight,
+  Star,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
+import { useOrg } from "@/lib/org-context";
+import { useCRMContacts } from "@/lib/api-hooks";
+import { SkeletonRow, ErrorBanner, EmptyState, LoadingRows } from "@/components/ui/StateViews";
+import { formatCentsCompact, relativeTime } from "@/lib/format";
+import type { CRMContactRow, NextActionSummary } from "@/lib/api-client";
+
+// ─── Styling maps ─────────────────────────────────────────────────────────────
 
 const companyColors: Record<string, { bg: string; text: string; dot: string }> = {
-  "A1 Marine Care": { bg: "bg-primary/15", text: "text-primary", dot: "bg-primary" },
-  "RankLocal": { bg: "bg-emerald-500/15", text: "text-emerald-400", dot: "bg-emerald-400" },
-  "MarineMecca": { bg: "bg-amber-500/15", text: "text-amber-400", dot: "bg-amber-400" },
-  "Vitatee": { bg: "bg-violet-500/15", text: "text-violet-400", dot: "bg-violet-400" },
+  "1": { bg: "bg-primary/15", text: "text-primary", dot: "bg-primary" },
+  "2": { bg: "bg-emerald-500/15", text: "text-emerald-400", dot: "bg-emerald-400" },
+  "3": { bg: "bg-amber-500/15", text: "text-amber-400", dot: "bg-amber-400" },
+  "4": { bg: "bg-violet-500/15", text: "text-violet-400", dot: "bg-violet-400" },
+  default: { bg: "bg-primary/15", text: "text-primary", dot: "bg-primary" },
 };
 
-const pipelineStages = [
-  { name: "Lead", count: 12, value: "$48.2K", change: "+3", changeDir: "up" as const, color: "bg-muted-foreground" },
-  { name: "Qualified", count: 8, value: "$92.5K", change: "+2", changeDir: "up" as const, color: "bg-primary" },
-  { name: "Active", count: 15, value: "$284.1K", change: "-1", changeDir: "down" as const, color: "bg-emerald-400" },
-  { name: "Closed", count: 24, value: "$412.8K", change: "+5", changeDir: "up" as const, color: "bg-violet-400" },
-];
+function getCompanyColors(companyId: string | null | undefined) {
+  if (!companyId) return companyColors.default;
+  return companyColors[companyId] ?? companyColors.default;
+}
 
-type NextAction = { label: string; type: "urgent" | "action" | "wait" | "done" };
+const stageConfig: Record<string, { bg: string; text: string }> = {
+  lead: { bg: "bg-muted", text: "text-muted-foreground" },
+  qualified: { bg: "bg-primary/15", text: "text-primary" },
+  active: { bg: "bg-emerald-500/15", text: "text-emerald-400" },
+  closed: { bg: "bg-violet-500/15", text: "text-violet-400" },
+};
 
-const nextActions: Record<string, NextAction> = {
-  "1": { label: "Confirm booking", type: "urgent" },
-  "2": { label: "Send invoice", type: "action" },
-  "3": { label: "Schedule follow-up", type: "action" },
-  "4": { label: "Qualify lead", type: "urgent" },
-  "5": { label: "Send proposal", type: "action" },
-  "6": { label: "Follow up", type: "wait" },
-  "7": { label: "Review contract", type: "action" },
-  "8": { label: "Schedule intro call", type: "urgent" },
-  "9": { label: "Closed — won", type: "done" },
-  "10": { label: "Closed — won", type: "done" },
+const stageLabel: Record<string, string> = {
+  lead: "Lead",
+  qualified: "Qualified",
+  active: "Active",
+  closed: "Closed",
 };
 
 const actionConfig: Record<string, { bg: string; text: string; icon: typeof Zap }> = {
@@ -39,47 +60,74 @@ const actionConfig: Record<string, { bg: string; text: string; icon: typeof Zap 
   done: { bg: "bg-emerald-500/15", text: "text-emerald-400", icon: Star },
 };
 
-const contacts = [
-  { id: "1", name: "Horizon Maritime Ltd", email: "ops@horizonmaritime.com", phone: "+1 604 555 0142", stage: "Qualified", value: "$24,500", numValue: 24500, company: "A1 Marine Care", owner: "James K.", lastActivity: "Booking scheduled — Vessel Inspection", lastActivityTime: "2h ago", bookings: 3, upcomingBookings: 1, revenue: 18400 },
-  { id: "2", name: "Pacific Digital Agency", email: "hello@pacificdigital.co", phone: "+1 778 555 0198", stage: "Active", value: "$8,200", numValue: 8200, company: "RankLocal", owner: "Kira M.", lastActivity: "Invoice sent — $4,200", lastActivityTime: "4h ago", bookings: 7, upcomingBookings: 2, revenue: 34200 },
-  { id: "3", name: "CoastGuard Supplies", email: "procurement@coastguard.com", phone: "+1 250 555 0167", stage: "Active", value: "$15,800", numValue: 15800, company: "MarineMecca", owner: "Tom R.", lastActivity: "Task completed — Equipment delivery", lastActivityTime: "1d ago", bookings: 5, upcomingBookings: 1, revenue: 42100 },
-  { id: "4", name: "BioNova Health", email: "partnerships@bionova.health", phone: "+1 416 555 0234", stage: "Lead", value: "$12,000", numValue: 12000, company: "Vitatee", owner: "Sarah L.", lastActivity: "New lead — Inbound inquiry", lastActivityTime: "3h ago", bookings: 0, upcomingBookings: 0, revenue: 0 },
-  { id: "5", name: "Stellar Shipping Co", email: "info@stellarship.com", phone: "+1 604 555 0311", stage: "Qualified", value: "$31,200", numValue: 31200, company: "A1 Marine Care", owner: "James K.", lastActivity: "Meeting note added", lastActivityTime: "1d ago", bookings: 1, upcomingBookings: 0, revenue: 8900 },
-  { id: "6", name: "GreenWave Marketing", email: "ceo@greenwave.io", phone: "+1 778 555 0455", stage: "Lead", value: "$6,400", numValue: 6400, company: "RankLocal", owner: "Kira M.", lastActivity: "Follow-up email sent", lastActivityTime: "5h ago", bookings: 0, upcomingBookings: 0, revenue: 0 },
-  { id: "7", name: "OceanTech Solutions", email: "sales@oceantech.com", phone: "+1 250 555 0522", stage: "Active", value: "$19,900", numValue: 19900, company: "MarineMecca", owner: "Tom R.", lastActivity: "Booking completed — Hull cleaning", lastActivityTime: "2d ago", bookings: 12, upcomingBookings: 3, revenue: 67300 },
-  { id: "8", name: "NeuraLink Supplements", email: "info@neuralink-supps.com", phone: "+1 647 555 0189", stage: "Lead", value: "$9,800", numValue: 9800, company: "Vitatee", owner: "Sarah L.", lastActivity: "Qualification call scheduled", lastActivityTime: "6h ago", bookings: 0, upcomingBookings: 0, revenue: 0 },
-  { id: "9", name: "Maritime Safety Corp", email: "ops@marsafety.com", phone: "+1 604 555 0677", stage: "Closed", value: "$45,000", numValue: 45000, company: "A1 Marine Care", owner: "James K.", lastActivity: "Contract signed", lastActivityTime: "3d ago", bookings: 8, upcomingBookings: 0, revenue: 45000 },
-  { id: "10", name: "FreshPulse Wellness", email: "team@freshpulse.co", phone: "+1 416 555 0890", stage: "Closed", value: "$22,500", numValue: 22500, company: "Vitatee", owner: "Sarah L.", lastActivity: "Project completed", lastActivityTime: "1w ago", bookings: 4, upcomingBookings: 0, revenue: 22500 },
-];
-
-const stageConfig: Record<string, { bg: string; text: string }> = {
-  Lead: { bg: "bg-muted", text: "text-muted-foreground" },
-  Qualified: { bg: "bg-primary/15", text: "text-primary" },
-  Active: { bg: "bg-emerald-500/15", text: "text-emerald-400" },
-  Closed: { bg: "bg-violet-500/15", text: "text-violet-400" },
+const pipelineStageOrder = ["lead", "qualified", "active", "closed"];
+const pipelineStageColors: Record<string, string> = {
+  lead: "bg-muted-foreground",
+  qualified: "bg-primary",
+  active: "bg-emerald-400",
+  closed: "bg-violet-400",
 };
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function NextActionBadge({ action }: { action: NextActionSummary }) {
+  const ac = actionConfig[action.type];
+  if (!ac) return null;
+  return (
+    <span className={cn("text-[11px] font-medium px-2 py-1 rounded-md inline-flex items-center gap-1.5", ac.bg, ac.text)}>
+      <ac.icon className="w-3 h-3" />
+      {action.label}
+    </span>
+  );
+}
+
+// ─── CRM Page ─────────────────────────────────────────────────────────────────
 
 export default function CRMPage() {
   const navigate = useNavigate();
+  const { organizationId, companyId } = useOrg();
+
   const [view, setView] = useState<"table" | "pipeline">("table");
   const [search, setSearch] = useState("");
-  const [filterCompany, setFilterCompany] = useState("All");
   const [filterStage, setFilterStage] = useState("All");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  const filtered = contacts.filter((c) => {
-    if (search && !c.name.toLowerCase().includes(search.toLowerCase()) && !c.email.toLowerCase().includes(search.toLowerCase())) return false;
-    if (filterCompany !== "All" && c.company !== filterCompany) return false;
-    if (filterStage !== "All" && c.stage !== filterStage) return false;
-    return true;
+  // Debounce search
+  const handleSearch = (value: string) => {
+    setSearch(value);
+    clearTimeout((handleSearch as any)._t);
+    (handleSearch as any)._t = setTimeout(() => setDebouncedSearch(value), 300);
+  };
+
+  const apiCompanyId = companyId !== "all" ? companyId : undefined;
+  const apiStage = filterStage !== "All" ? filterStage.toLowerCase() : undefined;
+
+  const { data, isLoading, isError, refetch } = useCRMContacts(organizationId, {
+    search: debouncedSearch || undefined,
+    stage: apiStage,
+    companyId: apiCompanyId,
+    pageSize: 50,
   });
 
-  const pipelineGroups = ["Lead", "Qualified", "Active", "Closed"].map((stage) => ({
-    stage,
-    contacts: filtered.filter((c) => c.stage === stage),
-  }));
+  const contacts = data?.rows.items ?? [];
+  const pipelineSummary = data?.pipelineSummary ?? [];
+  const totalCount = data?.rows.pagination.total ?? 0;
 
-  const totalValue = contacts.reduce((s, c) => s + c.numValue, 0);
-  const urgentCount = Object.values(nextActions).filter((a) => a.type === "urgent").length;
+  // Pipeline summary by stage
+  const pipelineByStage = useMemo(() => {
+    const map: Record<string, { count: number; valueCents: number }> = {};
+    for (const s of pipelineSummary) {
+      map[s.stage] = { count: s.count, valueCents: s.valueCents };
+    }
+    return map;
+  }, [pipelineSummary]);
+
+  const urgentCount = contacts.filter((c) => c.nextAction.type === "urgent").length;
+
+  const pipelineGroups = pipelineStageOrder.map((stage) => ({
+    stage,
+    contacts: contacts.filter((c) => c.stage === stage),
+  }));
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-5">
@@ -107,7 +155,8 @@ export default function CRMPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">CRM</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {contacts.length} contacts · ${(totalValue / 1000).toFixed(1)}K total pipeline
+            {isLoading ? "Loading..." : `${totalCount} contacts`}
+            {pipelineSummary.length > 0 && ` · ${formatCentsCompact(pipelineSummary.reduce((s, p) => s + p.valueCents, 0))} total pipeline`}
           </p>
         </div>
         <button className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97] shadow-lg shadow-primary/20">
@@ -116,34 +165,37 @@ export default function CRMPage() {
         </button>
       </div>
 
+      {/* Error */}
+      {isError && (
+        <ErrorBanner message="Failed to load contacts." onRetry={() => refetch()} />
+      )}
+
       {/* Pipeline Summary */}
       <div className="grid grid-cols-4 gap-3 opacity-0 animate-fade-in" style={{ animationDelay: "60ms" }}>
-        {pipelineStages.map((stage) => (
-          <button
-            key={stage.name}
-            onClick={() => setFilterStage(filterStage === stage.name ? "All" : stage.name)}
-            className={cn(
-              "bg-card border rounded-xl p-4 transition-all text-left",
-              filterStage === stage.name ? "border-primary/40 ring-1 ring-primary/20" : "border-border hover:border-border/80"
-            )}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div className={cn("w-2 h-2 rounded-full", stage.color)} />
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{stage.name}</span>
+        {pipelineStageOrder.map((stage) => {
+          const s = pipelineByStage[stage] ?? { count: 0, valueCents: 0 };
+          return (
+            <button
+              key={stage}
+              onClick={() => setFilterStage(filterStage === stageLabel[stage] ? "All" : stageLabel[stage])}
+              className={cn(
+                "bg-card border rounded-xl p-4 transition-all text-left",
+                filterStage === stageLabel[stage] ? "border-primary/40 ring-1 ring-primary/20" : "border-border hover:border-border/80"
+              )}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className={cn("w-2 h-2 rounded-full", pipelineStageColors[stage])} />
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{stageLabel[stage]}</span>
+                </div>
               </div>
-              <span className={cn(
-                "text-[10px] font-semibold px-1.5 py-0.5 rounded-md flex items-center gap-0.5",
-                stage.changeDir === "up" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
-              )}>
-                {stage.changeDir === "up" ? <ArrowUpRight className="w-2.5 h-2.5" /> : <ArrowDownRight className="w-2.5 h-2.5" />}
-                {stage.change}
-              </span>
-            </div>
-            <p className="text-xl font-bold text-foreground tabular-nums">{stage.value}</p>
-            <p className="text-xs text-muted-foreground mt-1">{stage.count} contacts</p>
-          </button>
-        ))}
+              <p className="text-xl font-bold text-foreground tabular-nums">
+                {isLoading ? "—" : formatCentsCompact(s.valueCents)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">{isLoading ? "—" : `${s.count} contacts`}</p>
+            </button>
+          );
+        })}
       </div>
 
       {/* Controls */}
@@ -154,19 +206,11 @@ export default function CRMPage() {
             <input
               type="text"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => handleSearch(e.target.value)}
               placeholder="Search contacts..."
               className="w-full bg-secondary border-0 rounded-lg pl-9 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
             />
           </div>
-          <select
-            value={filterCompany}
-            onChange={(e) => setFilterCompany(e.target.value)}
-            className="bg-secondary border-0 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 appearance-none cursor-pointer"
-          >
-            <option value="All">All Companies</option>
-            {Object.keys(companyColors).map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
           <select
             value={filterStage}
             onChange={(e) => setFilterStage(e.target.value)}
@@ -180,10 +224,16 @@ export default function CRMPage() {
           </select>
         </div>
         <div className="flex items-center gap-1 bg-secondary rounded-lg p-0.5">
-          <button onClick={() => setView("table")} className={cn("p-1.5 rounded-md transition-colors", view === "table" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+          <button
+            onClick={() => setView("table")}
+            className={cn("p-1.5 rounded-md transition-colors", view === "table" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+          >
             <List className="w-4 h-4" />
           </button>
-          <button onClick={() => setView("pipeline")} className={cn("p-1.5 rounded-md transition-colors", view === "pipeline" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+          <button
+            onClick={() => setView("pipeline")}
+            className={cn("p-1.5 rounded-md transition-colors", view === "pipeline" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+          >
             <LayoutGrid className="w-4 h-4" />
           </button>
         </div>
@@ -207,79 +257,102 @@ export default function CRMPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((c) => {
-                const cc = companyColors[c.company] || companyColors["A1 Marine Care"];
-                const sc = stageConfig[c.stage];
-                const action = nextActions[c.id];
-                const ac = action ? actionConfig[action.type] : null;
-                const isHighValue = c.numValue >= 25000;
-                return (
-                  <tr
-                    key={c.id}
-                    onClick={() => navigate(`/crm/${c.id}`)}
-                    className={cn(
-                      "border-b border-border/40 last:border-b-0 hover:bg-secondary/40 transition-colors cursor-pointer group",
-                      isHighValue && "bg-primary/[0.02]"
-                    )}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold relative", cc.bg, cc.text)}>
-                          {c.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
-                          {isHighValue && (
-                            <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-400 flex items-center justify-center">
-                              <Star className="w-1.5 h-1.5 text-amber-950" />
-                            </div>
-                          )}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">{c.name}</p>
-                          <p className="text-xs text-muted-foreground">{c.email}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn("text-[11px] font-medium px-2 py-1 rounded-md inline-flex items-center gap-1.5", cc.bg, cc.text)}>
-                        <span className={cn("w-1.5 h-1.5 rounded-full", cc.dot)} />
-                        {c.company}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn("text-[11px] font-medium px-2 py-1 rounded-md", sc.bg, sc.text)}>{c.stage}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn("text-sm font-semibold tabular-nums", isHighValue ? "text-foreground" : "text-foreground/80")}>{c.value}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {action && ac && (
-                        <span className={cn("text-[11px] font-medium px-2 py-1 rounded-md inline-flex items-center gap-1.5", ac.bg, ac.text)}>
-                          <ac.icon className="w-3 h-3" />
-                          {action.label}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
-                        <Calendar className="w-3 h-3 text-muted-foreground" />
-                        <span className="text-xs tabular-nums text-muted-foreground">{c.bookings}</span>
-                        {c.upcomingBookings > 0 && (
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-primary/10 text-primary tabular-nums">{c.upcomingBookings} upcoming</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        <DollarSign className="w-3 h-3 text-emerald-400" />
-                        <span className="text-xs font-medium tabular-nums text-emerald-400">${(c.revenue / 1000).toFixed(1)}K</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">{c.owner}</td>
-                    <td className="px-4 py-3">
-                      <ChevronRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              {isLoading ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i}>
+                    <td colSpan={9} className="px-0 py-0">
+                      <SkeletonRow cols={8} />
                     </td>
                   </tr>
-                );
-              })}
+                ))
+              ) : contacts.length === 0 ? (
+                <tr>
+                  <td colSpan={9}>
+                    <EmptyState title="No contacts found" description="Try adjusting your search or filters." />
+                  </td>
+                </tr>
+              ) : (
+                contacts.map((c) => {
+                  const cc = getCompanyColors(c.company?.id);
+                  const sc = stageConfig[c.stage] ?? stageConfig.lead;
+                  const isHighValue = (c.pipelineValueCents ?? 0) >= 2_500_000;
+                  return (
+                    <tr
+                      key={c.id}
+                      onClick={() => navigate(`/crm/${c.id}`)}
+                      className={cn(
+                        "border-b border-border/40 last:border-b-0 hover:bg-secondary/40 transition-colors cursor-pointer group",
+                        isHighValue && "bg-primary/[0.02]"
+                      )}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold relative", cc.bg, cc.text)}>
+                            {c.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
+                            {isHighValue && (
+                              <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-400 flex items-center justify-center">
+                                <Star className="w-1.5 h-1.5 text-amber-950" />
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">{c.name}</p>
+                            <p className="text-xs text-muted-foreground">{c.email ?? "—"}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        {c.company ? (
+                          <span className={cn("text-[11px] font-medium px-2 py-1 rounded-md inline-flex items-center gap-1.5", cc.bg, cc.text)}>
+                            <span className={cn("w-1.5 h-1.5 rounded-full", cc.dot)} />
+                            {c.company.name}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={cn("text-[11px] font-medium px-2 py-1 rounded-md", sc.bg, sc.text)}>
+                          {stageLabel[c.stage] ?? c.stage}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={cn("text-sm font-semibold tabular-nums", isHighValue ? "text-foreground" : "text-foreground/80")}>
+                          {c.pipelineValueCents != null ? formatCentsCompact(c.pipelineValueCents) : "—"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <NextActionBadge action={c.nextAction} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3 h-3 text-muted-foreground" />
+                          <span className="text-xs tabular-nums text-muted-foreground">{c.bookingsCount}</span>
+                          {c.upcomingBookingsCount > 0 && (
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-primary/10 text-primary tabular-nums">
+                              {c.upcomingBookingsCount} upcoming
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1">
+                          <DollarSign className="w-3 h-3 text-emerald-400" />
+                          <span className="text-xs font-medium tabular-nums text-emerald-400">
+                            {formatCentsCompact(c.realizedRevenueCents)}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground">
+                        {c.owner?.name ?? "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <ChevronRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -288,23 +361,33 @@ export default function CRMPage() {
       {/* Pipeline / Kanban View */}
       {view === "pipeline" && (
         <div className="grid grid-cols-4 gap-3 opacity-0 animate-fade-in" style={{ animationDelay: "140ms" }}>
-          {pipelineGroups.map(({ stage, contacts: stageContacts }) => {
-            const ps = pipelineStages.find((p) => p.name === stage);
-            return (
-              <div key={stage} className="space-y-2">
-                <div className="flex items-center justify-between px-1 mb-1">
-                  <div className="flex items-center gap-2">
-                    <div className={cn("w-2 h-2 rounded-full", ps?.color)} />
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{stage}</span>
-                    <span className="text-[10px] text-muted-foreground bg-secondary px-1.5 py-0.5 rounded-md tabular-nums">{stageContacts.length}</span>
-                  </div>
+          {pipelineGroups.map(({ stage, contacts: stageContacts }) => (
+            <div key={stage} className="space-y-2">
+              <div className="flex items-center justify-between px-1 mb-1">
+                <div className="flex items-center gap-2">
+                  <div className={cn("w-2 h-2 rounded-full", pipelineStageColors[stage])} />
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{stageLabel[stage]}</span>
+                  <span className="text-[10px] text-muted-foreground bg-secondary px-1.5 py-0.5 rounded-md tabular-nums">{stageContacts.length}</span>
                 </div>
-                <div className="space-y-2 min-h-[200px]">
-                  {stageContacts.map((c) => {
-                    const cc = companyColors[c.company] || companyColors["A1 Marine Care"];
-                    const action = nextActions[c.id];
-                    const ac = action ? actionConfig[action.type] : null;
-                    const isHighValue = c.numValue >= 25000;
+              </div>
+              <div className="space-y-2 min-h-[200px]">
+                {isLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 2 }).map((_, i) => (
+                      <div key={i} className="bg-card border border-border rounded-xl p-3.5 space-y-2">
+                        <div className="h-3 bg-secondary rounded animate-pulse w-3/4" />
+                        <div className="h-3 bg-secondary rounded animate-pulse w-1/2" />
+                      </div>
+                    ))}
+                  </div>
+                ) : stageContacts.length === 0 ? (
+                  <div className="bg-secondary/20 border border-dashed border-border rounded-xl p-4 text-center">
+                    <p className="text-[11px] text-muted-foreground">No contacts</p>
+                  </div>
+                ) : (
+                  stageContacts.map((c) => {
+                    const cc = getCompanyColors(c.company?.id);
+                    const isHighValue = (c.pipelineValueCents ?? 0) >= 2_500_000;
                     return (
                       <div
                         key={c.id}
@@ -312,7 +395,7 @@ export default function CRMPage() {
                         className={cn(
                           "bg-card border rounded-xl p-3.5 transition-all cursor-pointer group",
                           isHighValue ? "border-amber-500/20 hover:border-amber-500/40" : "border-border hover:border-primary/30",
-                          action?.type === "urgent" && "ring-1 ring-red-500/20"
+                          c.nextAction.type === "urgent" && "ring-1 ring-red-500/20"
                         )}
                       >
                         <div className="flex items-start justify-between mb-2">
@@ -327,44 +410,43 @@ export default function CRMPage() {
                             </div>
                             <div>
                               <p className="text-sm font-medium text-foreground leading-tight">{c.name}</p>
-                              <span className={cn("text-[10px] font-medium mt-0.5 inline-flex items-center gap-1", cc.text)}>
-                                <span className={cn("w-1 h-1 rounded-full", cc.dot)} />
-                                {c.company}
-                              </span>
+                              {c.company && (
+                                <span className={cn("text-[10px] font-medium mt-0.5 inline-flex items-center gap-1", cc.text)}>
+                                  <span className={cn("w-1 h-1 rounded-full", cc.dot)} />
+                                  {c.company.name}
+                                </span>
+                              )}
                             </div>
                           </div>
                           <GripVertical className="w-3.5 h-3.5 text-muted-foreground/30 opacity-0 group-hover:opacity-100 transition-opacity" />
                         </div>
 
                         <div className="flex items-center justify-between mb-2">
-                          <span className={cn("text-sm font-bold tabular-nums", isHighValue ? "text-foreground" : "text-foreground/90")}>{c.value}</span>
+                          <span className={cn("text-sm font-bold tabular-nums", isHighValue ? "text-foreground" : "text-foreground/90")}>
+                            {c.pipelineValueCents != null ? formatCentsCompact(c.pipelineValueCents) : "—"}
+                          </span>
                           <div className="flex items-center gap-2">
-                            {c.upcomingBookings > 0 && (
+                            {c.upcomingBookingsCount > 0 && (
                               <span className="flex items-center gap-0.5 text-[10px] text-primary">
-                                <Calendar className="w-2.5 h-2.5" />{c.upcomingBookings}
+                                <Calendar className="w-2.5 h-2.5" />{c.upcomingBookingsCount}
                               </span>
                             )}
-                            {c.revenue > 0 && (
+                            {c.realizedRevenueCents > 0 && (
                               <span className="flex items-center gap-0.5 text-[10px] text-emerald-400">
-                                <DollarSign className="w-2.5 h-2.5" />{(c.revenue / 1000).toFixed(0)}K
+                                <DollarSign className="w-2.5 h-2.5" />{formatCentsCompact(c.realizedRevenueCents)}
                               </span>
                             )}
                           </div>
                         </div>
 
-                        {action && ac && (
-                          <div className={cn("flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-md", ac.bg, ac.text)}>
-                            <ac.icon className="w-3 h-3" />
-                            {action.label}
-                          </div>
-                        )}
+                        <NextActionBadge action={c.nextAction} />
                       </div>
                     );
-                  })}
-                </div>
+                  })
+                )}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
     </div>

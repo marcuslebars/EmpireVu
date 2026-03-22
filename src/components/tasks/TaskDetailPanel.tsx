@@ -1,7 +1,8 @@
 import { X, User, Calendar, Clock, Link2, MessageSquare, CheckCircle2, Circle, Zap, ArrowUpRight, FileText, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
-import { SystemTraceChain, type SystemEvent } from "@/components/system/GlobalActivityFeed";
+import { SystemTraceChain } from "@/components/system/GlobalActivityFeed";
+import type { TraceRecord } from "@/lib/api-client";
 
 interface Task {
   id: string;
@@ -48,36 +49,18 @@ const subtaskItems = [
   { title: "Prepare safety checklist", done: true },
 ];
 
-// System trace per task (simulated)
-const taskTraces: Record<string, SystemEvent[]> = {
-  "TSK-001": [
-    { id: "tr1", type: "booking_created", title: "Booking created", detail: "Vessel Inspection — Pacific Voyager", company: "A1 Marine Care", timestamp: "2d ago" },
-    { id: "tr2", type: "workflow_triggered", title: "Workflow triggered", detail: "New Booking Workflow", company: "A1 Marine Care", timestamp: "2d ago" },
-    { id: "tr3", type: "task_created", title: "Task created", detail: "TSK-001 — Confirm vessel inspection details", company: "A1 Marine Care", timestamp: "2d ago" },
-    { id: "tr4", type: "notification_sent", title: "Notification sent", detail: "Marcus Reid assigned", company: "A1 Marine Care", timestamp: "2d ago" },
-  ],
-  "TSK-006": [
-    { id: "tr5", type: "stage_changed", title: "CRM stage changed", detail: "Active → Overdue", company: "A1 Marine Care", timestamp: "3d ago" },
-    { id: "tr6", type: "workflow_triggered", title: "Workflow triggered", detail: "Overdue Invoice Alert", company: "A1 Marine Care", timestamp: "3d ago" },
-    { id: "tr7", type: "task_created", title: "Task created", detail: "TSK-006 — Follow up on outstanding invoice", company: "A1 Marine Care", timestamp: "3d ago" },
-  ],
-  "TSK-012": [
-    { id: "tr8", type: "contact_updated", title: "New contact added", detail: "Rachel Kim — RankLocal", company: "RankLocal", timestamp: "1d ago" },
-    { id: "tr9", type: "workflow_triggered", title: "Workflow triggered", detail: "Lead Follow-Up", company: "RankLocal", timestamp: "1d ago" },
-    { id: "tr10", type: "task_created", title: "Task created", detail: "TSK-012 — Send proposal to new lead", company: "RankLocal", timestamp: "1d ago" },
-  ],
-};
+// Note: trace data is now passed in as a prop from the live API.
 
 interface Props {
   task: Task;
   onClose: () => void;
   onNavigateContact: (id: string) => void;
   onNavigateCalendar: () => void;
+  trace?: TraceRecord[];
 }
 
-export default function TaskDetailPanel({ task, onClose, onNavigateContact, onNavigateCalendar }: Props) {
+export default function TaskDetailPanel({ task, onClose, onNavigateContact, onNavigateCalendar, trace }: Props) {
   const [commentText, setCommentText] = useState("");
-  const trace = taskTraces[task.id];
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -119,7 +102,7 @@ export default function TaskDetailPanel({ task, onClose, onNavigateContact, onNa
                 <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">System Trace</h3>
               </div>
               <div className="bg-[hsl(var(--surface-2))]/60 rounded-lg p-3 border border-border/50">
-                <SystemTraceChain events={trace} />
+                <SystemTraceChain trace={trace ?? []} />
               </div>
             </div>
           )}
