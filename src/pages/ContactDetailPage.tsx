@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Phone, Mail, MapPin, Calendar, CheckCircle2, DollarSign, FileText, MessageSquare, Send, Plus, Edit3, MoreHorizontal, TrendingUp, AlertTriangle, ArrowRight, Clock, Star, Zap, ExternalLink } from "lucide-react";
+import { ArrowLeft, Phone, Mail, MapPin, Calendar, CheckCircle2, DollarSign, FileText, MessageSquare, Send, Plus, Edit3, MoreHorizontal, TrendingUp, AlertTriangle, ArrowRight, Clock, Star, Zap, ExternalLink, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SystemTraceChain, type SystemEvent } from "@/components/system/GlobalActivityFeed";
 
 const companyColors: Record<string, { bg: string; text: string; dot: string }> = {
   "A1 Marine Care": { bg: "bg-primary/15", text: "text-primary", dot: "bg-primary" },
