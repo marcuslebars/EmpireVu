@@ -423,6 +423,37 @@ export default function ContactDetailPage() {
           </div>
         )}
 
+        {activeTab === "workflows" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">{contactWorkflows.length} triggered workflows</h3>
+            </div>
+            <div className="space-y-3">
+              {contactWorkflows.map((wf, i) => (
+                <div key={i} className="bg-card border border-border rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-[hsl(var(--accent-violet))]/10 flex items-center justify-center">
+                        <Zap className="w-3.5 h-3.5 text-[hsl(var(--accent-violet))]" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{wf.name}</p>
+                        <p className="text-[10px] text-muted-foreground">{wf.trigger} → {wf.result}</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground">{wf.time}</span>
+                  </div>
+                  {/* Trace chain */}
+                  <div className="bg-secondary/30 rounded-lg p-3">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Execution Trace</p>
+                    <SystemTraceChain events={wf.trace} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {activeTab === "notes" && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">

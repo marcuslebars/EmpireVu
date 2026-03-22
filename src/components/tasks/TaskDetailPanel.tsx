@@ -1,6 +1,7 @@
 import { X, User, Calendar, Clock, Link2, MessageSquare, CheckCircle2, Circle, Zap, ArrowUpRight, FileText, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { SystemTraceChain, type SystemEvent } from "@/components/system/GlobalActivityFeed";
 
 interface Task {
   id: string;
@@ -47,6 +48,26 @@ const subtaskItems = [
   { title: "Prepare safety checklist", done: true },
 ];
 
+// System trace per task (simulated)
+const taskTraces: Record<string, SystemEvent[]> = {
+  "TSK-001": [
+    { id: "tr1", type: "booking_created", title: "Booking created", detail: "Vessel Inspection — Pacific Voyager", company: "A1 Marine Care", timestamp: "2d ago" },
+    { id: "tr2", type: "workflow_triggered", title: "Workflow triggered", detail: "New Booking Workflow", company: "A1 Marine Care", timestamp: "2d ago" },
+    { id: "tr3", type: "task_created", title: "Task created", detail: "TSK-001 — Confirm vessel inspection details", company: "A1 Marine Care", timestamp: "2d ago" },
+    { id: "tr4", type: "notification_sent", title: "Notification sent", detail: "Marcus Reid assigned", company: "A1 Marine Care", timestamp: "2d ago" },
+  ],
+  "TSK-006": [
+    { id: "tr5", type: "stage_changed", title: "CRM stage changed", detail: "Active → Overdue", company: "A1 Marine Care", timestamp: "3d ago" },
+    { id: "tr6", type: "workflow_triggered", title: "Workflow triggered", detail: "Overdue Invoice Alert", company: "A1 Marine Care", timestamp: "3d ago" },
+    { id: "tr7", type: "task_created", title: "Task created", detail: "TSK-006 — Follow up on outstanding invoice", company: "A1 Marine Care", timestamp: "3d ago" },
+  ],
+  "TSK-012": [
+    { id: "tr8", type: "contact_updated", title: "New contact added", detail: "Rachel Kim — RankLocal", company: "RankLocal", timestamp: "1d ago" },
+    { id: "tr9", type: "workflow_triggered", title: "Workflow triggered", detail: "Lead Follow-Up", company: "RankLocal", timestamp: "1d ago" },
+    { id: "tr10", type: "task_created", title: "Task created", detail: "TSK-012 — Send proposal to new lead", company: "RankLocal", timestamp: "1d ago" },
+  ],
+};
+
 interface Props {
   task: Task;
   onClose: () => void;
@@ -56,6 +77,7 @@ interface Props {
 
 export default function TaskDetailPanel({ task, onClose, onNavigateContact, onNavigateCalendar }: Props) {
   const [commentText, setCommentText] = useState("");
+  const trace = taskTraces[task.id];
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -86,6 +108,19 @@ export default function TaskDetailPanel({ task, onClose, onNavigateContact, onNa
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[hsl(var(--urgent))]/8 border border-[hsl(var(--urgent))]/20">
               <Clock className="w-3.5 h-3.5 text-[hsl(var(--urgent))] animate-pulse" />
               <span className="text-xs font-medium text-[hsl(var(--urgent))]">This task is overdue — due {task.dueDate}</span>
+            </div>
+          )}
+
+          {/* System Trace */}
+          {trace && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Zap className="w-3 h-3 text-[hsl(var(--accent-violet))]" />
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">System Trace</h3>
+              </div>
+              <div className="bg-[hsl(var(--surface-2))]/60 rounded-lg p-3 border border-border/50">
+                <SystemTraceChain events={trace} />
+              </div>
             </div>
           )}
 
