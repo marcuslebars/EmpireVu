@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { Toaster } from "@/components/ui/toaster";
+import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AppContextProvider } from "@/lib/app-context";
@@ -20,12 +20,11 @@ import TeamPage from "./pages/TeamPage";
 import SettingsPage from "./pages/SettingsPage";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
-import { Navigate, Outlet } from "react-router-dom";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 2,
+      retry: 1,
       refetchOnWindowFocus: false,
     },
   },
@@ -33,13 +32,14 @@ const queryClient = new QueryClient({
 
 function LoadingScreen() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/50">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4">
+      <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      <p className="text-muted-foreground">Loading Syncoree...</p>
     </div>
   );
 }
 
-function GuestRoute() {
+function SignInRoute() {
   const { status, isLoading, session } = useAuth();
 
   if (isLoading) {
@@ -54,10 +54,10 @@ function GuestRoute() {
     return <Navigate to="/onboarding" replace />;
   }
 
-  return <Outlet />;
+  return <SignInPage />;
 }
 
-function AuthenticatedRoute() {
+function ProtectedLayout() {
   const { status, isLoading, session } = useAuth();
 
   if (isLoading) {
@@ -79,7 +79,7 @@ function AuthenticatedRoute() {
   );
 }
 
-function OnboardingRoute() {
+function OnboardingLayout() {
   const { status, isLoading, session } = useAuth();
 
   if (isLoading) {
@@ -97,43 +97,36 @@ function OnboardingRoute() {
   return <OnboardingPage />;
 }
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route element={<GuestRoute />}>
-              <Route path="/signin" element={<SignInPage />} />
-            </Route>
-
-            <Route path="/onboarding" element={<OnboardingRoute />} />
-
-            <Route
-              element={
-                <AuthenticatedRoute />
-              }
-            >
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/calendar" element={<CalendarPage />} />
-              <Route path="/tasks" element={<TasksPage />} />
-              <Route path="/crm" element={<CRMPage />} />
-              <Route path="/crm/:id" element={<ContactDetailPage />} />
-              <Route path="/projects" element={<ProjectsPage />} />
-              <Route path="/automations" element={<AutomationsPage />} />
-              <Route path="/files" element={<FilesPage />} />
-              <Route path="/team" element={<TeamPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-            </Route>
-
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </AuthProvider>
-  </QueryClientProvider>
-);
+const App = () => {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/signin" element={<SignInRoute />} />
+              <Route path="/onboarding" element={<OnboardingLayout />} />
+              <Route element={<ProtectedLayout />}>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/calendar" element={<CalendarPage />} />
+                <Route path="/tasks" element={<TasksPage />} />
+                <Route path="/crm" element={<CRMPage />} />
+                <Route path="/crm/:id" element={<ContactDetailPage />} />
+                <Route path="/projects" element={<ProjectsPage />} />
+                <Route path="/automations" element={<AutomationsPage />} />
+                <Route path="/files" element={<FilesPage />} />
+                <Route path="/team" element={<TeamPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+              </Route>
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </AuthProvider>
+    </QueryClientProvider>
+  );
+};
 
 export default App;

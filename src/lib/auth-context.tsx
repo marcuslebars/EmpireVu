@@ -8,13 +8,23 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import type { User } from "@supabase/supabase-js";
 import { useQueryClient } from "@tanstack/react-query";
-
 import { supabase } from "@/lib/supabase";
-import { type SessionContextResponse, apiRequest } from "@/lib/api";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
+
+interface User {
+  id: string;
+  email?: string;
+}
+
+interface SessionContextResponse {
+  activeOrganizationId: string | null;
+  companies: Array<{ id: string; name: string; stage: string }>;
+  organizations: Array<{ id: string; name: string; slug: string; membershipRole: string }>;
+  profile: { id: string; email: string; fullName: string | null } | null;
+  user: { id: string; email?: string };
+}
 
 interface AuthContextValue {
   status: AuthStatus;
@@ -44,7 +54,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchSessionContext = useCallback(async (currentUser: User) => {
     try {
-      const context = await apiRequest<SessionContextResponse>("/api/session/context");
+      const response = await fetch("/api/session/context", { credentials: "include" });
+      if (!response.ok) {
+        throw new Error("Failed to fetch session");
+      }
+      const payload = await response.json();
+      const context = payload.data as SessionContextResponse;
       setSession(context);
       setUser(currentUser);
       setStatus("authenticated");
@@ -57,52 +72,70 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearAuthState]);
 
   useEffect(() => {
+    let mounted = true;
+
     const initAuth = async () => {
-      const { data: { session: supabaseSession } } = await supabase.auth.getSession();
-      
-      if (supabaseSession?.user) {
-        await fetchSessionContext(supabaseSession.user);
-      } else {
-        setStatus("unauthenticated");
+      try {
+        const { data: { session: supabaseSession } } = await supabase.auth.getSession();
+        
+        if (mounted) {
+          if (supabaseSession?.user) {
+            await fetchSessionContext({ id: supabaseSession.user.id, email: supabaseSession.user.email });
+          } else {
+            setStatus("unauthenticated");
+          }
+        }
+      } catch (error) {
+        console.error("Auth init error:", error);
+        if (mounted) {
+          setStatus("unauthenticated");
+        }
       }
     };
 
     initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, supabaseSession) => {
+      if (!mounted) return;
+      
       if (event === "SIGNED_OUT" || !supabaseSession?.user) {
         clearAuthState();
         navigate("/signin");
       } else if (supabaseSession?.user) {
-        await fetchSessionContext(supabaseSession.user);
+        await fetchSessionContext({ id: supabaseSession.user.id, email: supabaseSession.user.email });
       }
     });
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
     };
   }, [fetchSessionContext, clearAuthState, navigate]);
 
   const signIn = useCallback(async (email: string, password: string): Promise<{ error: string | null }> => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (error) {
-      return { error: error.message };
-    }
-
-    if (data.user) {
-      const context = await fetchSessionContext(data.user);
-      if (context && context.organizations.length > 0) {
-        navigate("/");
-      } else if (context) {
-        navigate("/onboarding");
+      if (error) {
+        return { error: error.message };
       }
-    }
 
-    return { error: null };
+      if (data.user) {
+        const context = await fetchSessionContext(data.user);
+        if (context && context.organizations.length > 0) {
+          navigate("/");
+        } else if (context) {
+          navigate("/onboarding");
+        }
+      }
+
+      return { error: null };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Sign in failed" };
+    }
   }, [fetchSessionContext, navigate]);
 
   const signOut = useCallback(async () => {
