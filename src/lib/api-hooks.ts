@@ -1,0 +1,373 @@
+/**
+ * React Query hooks for all Syncoree UI endpoints.
+ * Each hook is typed, deduped, and cached via @tanstack/react-query.
+ */
+
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  fetchDashboardSummary,
+  fetchDashboardActivity,
+  fetchAutomationImpact,
+  fetchCalendarView,
+  fetchCalendarCapacity,
+  fetchBookingDetail,
+  fetchCRMContacts,
+  fetchContactDetail,
+  fetchTasks,
+  fetchTaskDetail,
+  fetchWorkflows,
+  fetchWorkflowDetail,
+  fetchWorkflowJobs,
+  fetchTrace,
+  createContact,
+  updateContactStage,
+  assignContactOwner,
+  createBooking,
+  updateBookingStatus,
+  createTask,
+  updateTaskStatus,
+  assignTaskUser,
+  runWorkflowNow,
+  runWorkflowTest,
+  retryWorkflowJob,
+  type CreateContactInput,
+  type CreateBookingInput,
+  type CreateTaskInput,
+  type RunWorkflowNowInput,
+  type RunWorkflowTestInput,
+} from "./api-client";
+
+// ─── Dashboard ───────────────────────────────────────────────────────────────
+
+export function useDashboardSummary(orgId: string) {
+  return useQuery({
+    queryKey: ["dashboard", "summary", orgId],
+    queryFn: () => fetchDashboardSummary(orgId),
+    staleTime: 30_000,
+  });
+}
+
+export function useDashboardActivity(
+  orgId: string,
+  params: { companyId?: string; limit?: number } = {},
+) {
+  return useQuery({
+    queryKey: ["dashboard", "activity", orgId, params],
+    queryFn: () => fetchDashboardActivity(orgId, params),
+    staleTime: 15_000,
+  });
+}
+
+export function useAutomationImpact(orgId: string) {
+  return useQuery({
+    queryKey: ["dashboard", "automation-impact", orgId],
+    queryFn: () => fetchAutomationImpact(orgId),
+    staleTime: 30_000,
+  });
+}
+
+// ─── Calendar ────────────────────────────────────────────────────────────────
+
+export function useCalendarView(
+  orgId: string,
+  params: { start?: string; end?: string; companyId?: string; assignedUserId?: string; page?: number; pageSize?: number } = {},
+) {
+  return useQuery({
+    queryKey: ["calendar", "view", orgId, params],
+    queryFn: () => fetchCalendarView(orgId, params),
+    staleTime: 20_000,
+  });
+}
+
+export function useCalendarCapacity(
+  orgId: string,
+  params: { start?: string; end?: string; companyId?: string } = {},
+) {
+  return useQuery({
+    queryKey: ["calendar", "capacity", orgId, params],
+    queryFn: () => fetchCalendarCapacity(orgId, params),
+    staleTime: 20_000,
+  });
+}
+
+export function useBookingDetail(orgId: string, bookingId: string | null) {
+  return useQuery({
+    queryKey: ["calendar", "booking", orgId, bookingId],
+    queryFn: () => fetchBookingDetail(orgId, bookingId!),
+    enabled: Boolean(bookingId),
+    staleTime: 10_000,
+  });
+}
+
+// ─── CRM ─────────────────────────────────────────────────────────────────────
+
+export function useCRMContacts(
+  orgId: string,
+  params: {
+    search?: string;
+    stage?: string;
+    companyId?: string;
+    ownerProfileId?: string;
+    nextAction?: string;
+    page?: number;
+    pageSize?: number;
+  } = {},
+) {
+  return useQuery({
+    queryKey: ["crm", "contacts", orgId, params],
+    queryFn: () => fetchCRMContacts(orgId, params),
+    staleTime: 20_000,
+  });
+}
+
+export function useContactDetail(orgId: string, contactId: string | null) {
+  return useQuery({
+    queryKey: ["crm", "contact", orgId, contactId],
+    queryFn: () => fetchContactDetail(orgId, contactId!),
+    enabled: Boolean(contactId),
+    staleTime: 10_000,
+  });
+}
+
+// ─── Tasks ───────────────────────────────────────────────────────────────────
+
+export function useTasks(
+  orgId: string,
+  params: {
+    search?: string;
+    status?: string;
+    priority?: string;
+    companyId?: string;
+    assigneeId?: string;
+    overdue?: boolean;
+    page?: number;
+    pageSize?: number;
+  } = {},
+) {
+  return useQuery({
+    queryKey: ["tasks", "list", orgId, params],
+    queryFn: () => fetchTasks(orgId, params),
+    staleTime: 20_000,
+  });
+}
+
+export function useTaskDetail(orgId: string, taskId: string | null) {
+  return useQuery({
+    queryKey: ["tasks", "detail", orgId, taskId],
+    queryFn: () => fetchTaskDetail(orgId, taskId!),
+    enabled: Boolean(taskId),
+    staleTime: 10_000,
+  });
+}
+
+// ─── Automations ─────────────────────────────────────────────────────────────
+
+export function useWorkflows(
+  orgId: string,
+  params: {
+    search?: string;
+    status?: string;
+    triggerType?: string;
+    companyId?: string;
+    page?: number;
+    pageSize?: number;
+  } = {},
+) {
+  return useQuery({
+    queryKey: ["automations", "workflows", orgId, params],
+    queryFn: () => fetchWorkflows(orgId, params),
+    staleTime: 20_000,
+  });
+}
+
+export function useWorkflowDetail(orgId: string, workflowId: string | null) {
+  return useQuery({
+    queryKey: ["automations", "workflow", orgId, workflowId],
+    queryFn: () => fetchWorkflowDetail(orgId, workflowId!),
+    enabled: Boolean(workflowId),
+    staleTime: 10_000,
+  });
+}
+
+export function useWorkflowJobs(
+  orgId: string,
+  params: { status?: string; companyId?: string; page?: number; pageSize?: number } = {},
+) {
+  return useQuery({
+    queryKey: ["automations", "jobs", orgId, params],
+    queryFn: () => fetchWorkflowJobs(orgId, params),
+    staleTime: 20_000,
+  });
+}
+
+// ─── System Trace ─────────────────────────────────────────────────────────────
+
+export function useTrace(
+  orgId: string,
+  entityType: "contact" | "booking" | "task" | null,
+  entityId: string | null,
+) {
+  return useQuery({
+    queryKey: ["trace", orgId, entityType, entityId],
+    queryFn: () => fetchTrace(orgId, entityType!, entityId!),
+    enabled: Boolean(entityType && entityId),
+    staleTime: 10_000,
+  });
+}
+
+// ─── Mutation Hooks ───────────────────────────────────────────────────────────
+
+// Contact mutations
+
+export function useCreateContact(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateContactInput) => createContact(orgId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["crm", "contacts", orgId] });
+      void qc.invalidateQueries({ queryKey: ["dashboard", "summary", orgId] });
+    },
+  });
+}
+
+export function useUpdateContactStage(orgId: string, contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (stage: "lead" | "qualified" | "active" | "closed") =>
+      updateContactStage(orgId, contactId, stage),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["crm", "contacts", orgId] });
+      void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
+    },
+  });
+}
+
+export function useAssignContactOwner(orgId: string, contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ownerProfileId: string) =>
+      assignContactOwner(orgId, contactId, ownerProfileId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
+    },
+  });
+}
+
+// Booking mutations
+
+export function useCreateBooking(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateBookingInput) => createBooking(orgId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["calendar", "view", orgId] });
+      void qc.invalidateQueries({ queryKey: ["calendar", "capacity", orgId] });
+      void qc.invalidateQueries({ queryKey: ["dashboard", "summary", orgId] });
+    },
+  });
+}
+
+export function useUpdateBookingStatus(orgId: string, bookingId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (status: "pending" | "confirmed" | "completed" | "cancelled") =>
+      updateBookingStatus(orgId, bookingId, status),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["calendar", "view", orgId] });
+      void qc.invalidateQueries({ queryKey: ["calendar", "booking", orgId, bookingId] });
+      void qc.invalidateQueries({ queryKey: ["dashboard", "summary", orgId] });
+    },
+  });
+}
+
+// Task mutations
+
+export function useCreateTask(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateTaskInput) => createTask(orgId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["tasks", "list", orgId] });
+      void qc.invalidateQueries({ queryKey: ["dashboard", "summary", orgId] });
+    },
+  });
+}
+
+export function useUpdateTaskStatus(orgId: string, taskId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (status: "todo" | "in_progress" | "blocked" | "completed") =>
+      updateTaskStatus(orgId, taskId, status),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["tasks", "list", orgId] });
+      void qc.invalidateQueries({ queryKey: ["tasks", "detail", orgId, taskId] });
+      void qc.invalidateQueries({ queryKey: ["dashboard", "summary", orgId] });
+    },
+  });
+}
+
+export function useAssignTaskUser(orgId: string, taskId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (assignedToProfileId: string) =>
+      assignTaskUser(orgId, taskId, assignedToProfileId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["tasks", "detail", orgId, taskId] });
+      void qc.invalidateQueries({ queryKey: ["tasks", "list", orgId] });
+    },
+  });
+}
+
+// Workflow action mutations
+
+export function useRunWorkflowNow(orgId: string, workflowId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: RunWorkflowNowInput) => runWorkflowNow(orgId, workflowId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["automations", "workflow", orgId, workflowId] });
+      void qc.invalidateQueries({ queryKey: ["automations", "workflows", orgId] });
+    },
+  });
+}
+
+export function useRunWorkflowTest(orgId: string, workflowId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: RunWorkflowTestInput) => runWorkflowTest(orgId, workflowId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["automations", "workflow", orgId, workflowId] });
+    },
+  });
+}
+
+export function useRetryWorkflowJob(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) => retryWorkflowJob(orgId, jobId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["automations", "jobs", orgId] });
+      void qc.invalidateQueries({ queryKey: ["automations", "workflow", orgId] });
+    },
+  });
+}
+
+// ─── Organizations & Companies ───────────────────────────────────────────────
+
+import { fetchOrganizations, fetchCompanies } from "./api-client";
+
+export function useOrganizations() {
+  return useQuery({
+    queryKey: ["organizations"],
+    queryFn: () => fetchOrganizations(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+export function useCompanies(orgId: string) {
+  return useQuery({
+    queryKey: ["companies", orgId],
+    queryFn: () => fetchCompanies(orgId),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}

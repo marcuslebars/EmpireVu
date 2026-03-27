@@ -1,618 +1,446 @@
-import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Search, Workflow, Zap } from "lucide-react";
-
-import { Button } from "@/components/ui/button";
-import { EmptyState, ErrorState, LoadingState } from "@/components/system/AsyncState";
-import { useAppContext } from "@/lib/app-context";
-import { apiRequest, toQueryString } from "@/lib/api";
-import { formatDateTime } from "@/lib/formatters";
+import { useState, useMemo } from "react";
+import {
+  Plus, Zap, ArrowRight, MoreHorizontal, Search, Filter, Play, Pause,
+  ChevronRight, Calendar, UserPlus, CheckCircle2, Bell, ClipboardList,
+  Target, Mail, Clock, AlertTriangle, Building2, Globe, X,
+  Repeat, Settings2, TrendingUp, Eye, RotateCcw, Loader2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useOrg } from "@/lib/org-context";
+import {
+  useWorkflows,
+  useWorkflowDetail,
+  useAutomationImpact,
+  useRunWorkflowNow,
+  useRunWorkflowTest,
+  useRetryWorkflowJob,
+  useCompanies,
+} from "@/lib/api-hooks";
+import { SkeletonCard, ErrorBanner, EmptyState } from "@/components/ui/StateViews";
+import { relativeTime, formatPercent, formatSeconds } from "@/lib/format";
+import type { WorkflowListRow, WorkflowDetailResponse } from "@/lib/api-client";
+import { toast } from "@/components/ui/sonner";
 
-interface WorkflowsListResponse {
-  rows: {
-    items: Array<{
-      company: { id: string; name: string } | null;
-      createdAt: string;
-      description: string | null;
-      id: string;
-      metrics: {
-        failedRuns: number;
-        successRate: number;
-        totalRuns: number;
-      };
-      name: string;
-      recentRunSummary: {
-        lastRunAt: string | null;
-        lastRunStatus: string | null;
-        recentRunsCount: number;
-      };
-      status: string;
-      triggerType: string;
-    }>;
-  };
-}
+// ─── Styling maps ─────────────────────────────────────────────────────────────
 
-interface AutomationImpactResponse {
-  estimatedTimeSavedSeconds: number;
-  failedJobsCount: number;
-  successRate: number;
-  tasksAutoCreated: number;
-  totalWorkflowRuns: number;
-}
+const statusStyles: Record<string, string> = {
+  active: "bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]",
+  paused: "bg-[hsl(var(--warning))]/15 text-[hsl(var(--warning))]",
+  draft: "bg-muted text-muted-foreground",
+  inactive: "bg-muted text-muted-foreground",
+};
 
-interface WorkflowJobsResponse {
-  rows: {
-    items: Array<{
-      activityEvent: { id: string; label: string } | null;
-      activityEventId: string;
-      attemptCount: number;
-      availableAt: string;
-      claimedAt: string | null;
-      company: { id: string; name: string } | null;
-      failureReason: string | null;
-      id: string;
-      lastError: string | null;
-      remainingAttempts: number;
-      retryEligible: boolean;
-      status: string;
-      updatedAt: string;
-      workerId: string | null;
-    }>;
-  };
-  summary: {
-    completedRecentCount: number;
-    failedCount: number;
-    pendingCount: number;
-    runningCount: number;
-    suspiciousRunningCount: number;
-  };
-}
+const statusLabel: Record<string, string> = {
+  active: "Active",
+  paused: "Paused",
+  draft: "Draft",
+  inactive: "Inactive",
+};
 
-interface WorkflowDetailResponse {
-  relatedFailedJobs: Array<{
-    activityEvent: { id: string; label: string } | null;
-    failedAt: string | null;
-    id: string;
-    lastError: string | null;
-    retryEligible: boolean;
-    status: string;
-  }>;
-  workflow: {
-    company: { id: string; name: string } | null;
-    createdAt: string;
-    description: string | null;
-    id: string;
-    name: string;
-    status: string;
-    triggerType: string;
-  };
-  workflowRuns: {
-    items: Array<{
-      completedAt: string | null;
-      createdAt: string;
-      failureReason: string | null;
-      id: string;
-      status: string;
-      triggerEvent: { id: string; label: string } | null;
-    }>;
-  };
-}
+const triggerTypeLabel: Record<string, string> = {
+  booking_created: "Booking Created",
+  booking_completed: "Booking Completed",
+  contact_created: "New Contact Added",
+  stage_changed: "CRM Stage Changed",
+  task_completed: "Task Completed",
+  invoice_overdue: "Invoice Overdue",
+  scheduled: "Scheduled",
+};
 
-interface WorkflowExecutionResponse {
-  actionsExecutedCount: number;
-  createdTasksCount: number;
-  dryRun: boolean;
-  failureReason: string | null;
-  matchedConditions: boolean;
-  skippedReason: string | null;
-  timeSavedSeconds: number;
-}
+const triggerOptions = [
+  { label: "Booking Created", icon: Calendar, category: "Calendar" },
+  { label: "Booking Completed", icon: CheckCircle2, category: "Calendar" },
+  { label: "New Contact Added", icon: UserPlus, category: "CRM" },
+  { label: "CRM Stage Changed", icon: Target, category: "CRM" },
+  { label: "Task Completed", icon: ClipboardList, category: "Tasks" },
+  { label: "Invoice Overdue", icon: Clock, category: "Finance" },
+  { label: "Scheduled Time", icon: Repeat, category: "System" },
+];
 
-function labelize(value: string): string {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
+const actionOptions = [
+  { label: "Create Task", icon: ClipboardList },
+  { label: "Assign User", icon: UserPlus },
+  { label: "Send Notification", icon: Bell },
+  { label: "Update Status", icon: Settings2 },
+  { label: "Schedule Follow-up", icon: Clock },
+  { label: "Send Email", icon: Mail },
+];
 
-function buildDefaultWorkflowEvent(triggerType: string, companyId: string | null): string {
-  const base = {
-    companyId,
-    entityId: null,
-    metadata: {},
-    relatedEntityId: null,
-    relatedEntityType: null,
-  } as const;
+// ─── Workflow Detail Panel ────────────────────────────────────────────────────
 
-  switch (triggerType) {
-    case "contact.created":
-      return JSON.stringify({
-        ...base,
-        entityType: "contact",
-        eventType: triggerType,
-      }, null, 2);
-    case "contact.stage_changed":
-      return JSON.stringify({
-        ...base,
-        entityType: "contact",
-        eventType: triggerType,
-        metadata: {
-          previousStage: "lead",
-          stage: "qualified",
-          stage_changed_to: "qualified",
-        },
-      }, null, 2);
-    case "booking.created":
-    case "booking.completed":
-      return JSON.stringify({
-        ...base,
-        entityType: "booking",
-        eventType: triggerType,
-      }, null, 2);
-    case "task.completed":
-      return JSON.stringify({
-        ...base,
-        entityType: "task",
-        eventType: triggerType,
-      }, null, 2);
-    default:
-      return JSON.stringify({
-        ...base,
-        entityType: "contact",
-        eventType: triggerType,
-      }, null, 2);
-  }
-}
+function WorkflowDetailPanel({
+  workflowId,
+  onClose,
+}: {
+  workflowId: string;
+  onClose: () => void;
+}) {
+  const { organizationId } = useOrg();
+  const { data, isLoading, isError, refetch } = useWorkflowDetail(organizationId, workflowId);
 
-export default function AutomationsPage() {
-  const queryClient = useQueryClient();
-  const { activeCompanyId, activeOrganizationId } = useAppContext();
-  const [search, setSearch] = useState("");
-  const [jobStatusFilter, setJobStatusFilter] = useState<"all" | "pending" | "running" | "completed" | "failed">("all");
-  const [recentFailuresOnly, setRecentFailuresOnly] = useState(false);
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
-  const [workflowEventJson, setWorkflowEventJson] = useState("");
-  const [workflowRunMessage, setWorkflowRunMessage] = useState<string | null>(null);
+  const runNow = useRunWorkflowNow(organizationId, workflowId);
+  const runTest = useRunWorkflowTest(organizationId, workflowId);
+  const retryJob = useRetryWorkflowJob(organizationId);
 
-  const workflowsQuery = useQuery({
-    queryKey: ["org", activeOrganizationId, "automations", activeCompanyId ?? "all", search],
-    queryFn: () =>
-      apiRequest<WorkflowsListResponse>(
-        `/api/organizations/${activeOrganizationId}/ui/automations/workflows${toQueryString({
-          companyId: activeCompanyId,
-          limit: 100,
-          page: 1,
-          search,
-        })}`,
-      ),
-  });
-  const automationImpactQuery = useQuery({
-    queryKey: ["org", activeOrganizationId, "dashboard", "automation-impact", activeCompanyId ?? "all"],
-    queryFn: () =>
-      apiRequest<AutomationImpactResponse>(
-        `/api/organizations/${activeOrganizationId}/ui/dashboard/automation-impact${toQueryString({
-          companyId: activeCompanyId,
-        })}`,
-      ),
-  });
-  const jobsQuery = useQuery({
-    queryKey: ["org", activeOrganizationId, "automations", "jobs", activeCompanyId ?? "all", jobStatusFilter, recentFailuresOnly],
-    queryFn: () =>
-      apiRequest<WorkflowJobsResponse>(
-        `/api/organizations/${activeOrganizationId}/ui/automations/jobs${toQueryString({
-          companyId: activeCompanyId,
-          limit: 20,
-          page: 1,
-          recentFailures: recentFailuresOnly || undefined,
-          status: jobStatusFilter === "all" ? undefined : jobStatusFilter,
-        })}`,
-      ),
-  });
-  const workflowDetailQuery = useQuery({
-    enabled: Boolean(selectedWorkflowId),
-    queryKey: ["org", activeOrganizationId, "automations", "detail", selectedWorkflowId, activeCompanyId ?? "all"],
-    queryFn: () =>
-      apiRequest<WorkflowDetailResponse>(
-        `/api/organizations/${activeOrganizationId}/ui/automations/workflows/${selectedWorkflowId}${toQueryString({
-          companyId: activeCompanyId,
-        })}`,
-      ),
-  });
-  const retryJobMutation = useMutation({
-    mutationFn: (jobId: string) => apiRequest(`/api/organizations/${activeOrganizationId}/workflow-event-jobs/${jobId}/retry`, { method: "POST" }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["org", activeOrganizationId, "automations"] }),
-        queryClient.invalidateQueries({ queryKey: ["org", activeOrganizationId, "dashboard"] }),
-      ]);
-    },
-  });
-  const runWorkflowTestMutation = useMutation({
-    mutationFn: (sampleEvent: Record<string, unknown>) =>
-      apiRequest<WorkflowExecutionResponse>(`/api/organizations/${activeOrganizationId}/workflows/${selectedWorkflowId}/run-test`, {
-        body: JSON.stringify({ dryRun: true, sampleEvent }),
-        method: "POST",
-      }),
-    onSuccess: (data) => {
-      setWorkflowRunMessage(
-        data.failureReason
-          ? `Test run failed: ${data.failureReason}`
-          : `Test run complete. ${data.actionsExecutedCount} actions projected and ${data.createdTasksCount} tasks projected.`,
-      );
-    },
-  });
-  const runWorkflowNowMutation = useMutation({
-    mutationFn: (event: Record<string, unknown>) =>
-      apiRequest<WorkflowExecutionResponse>(`/api/organizations/${activeOrganizationId}/workflows/${selectedWorkflowId}/run-now`, {
-        body: JSON.stringify({ event }),
-        method: "POST",
-      }),
-    onSuccess: async (data) => {
-      setWorkflowRunMessage(
-        data.failureReason
-          ? `Run now failed: ${data.failureReason}`
-          : `Workflow executed. ${data.actionsExecutedCount} actions ran and ${data.createdTasksCount} tasks were created.`,
-      );
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["org", activeOrganizationId, "automations"] }),
-        queryClient.invalidateQueries({ queryKey: ["org", activeOrganizationId, "dashboard"] }),
-        queryClient.invalidateQueries({ queryKey: ["org", activeOrganizationId, "tasks"] }),
-      ]);
-    },
-  });
+  const workflow = data?.workflow;
+  const runs = data?.workflowRuns.items ?? [];
+  const failedJobs = data?.relatedFailedJobs ?? [];
 
-  useEffect(() => {
-    setSelectedWorkflowId(null);
-    setJobStatusFilter("all");
-    setRecentFailuresOnly(false);
-    setWorkflowEventJson("");
-    setWorkflowRunMessage(null);
-  }, [activeCompanyId, activeOrganizationId]);
-
-  useEffect(() => {
-    const workflowsList = workflowsQuery.data?.rows?.items ?? [];
-    const workflow = workflowsList.find((w) => w.id === selectedWorkflowId) ?? null;
-    if (!workflow) {
-      setWorkflowEventJson("");
-      setWorkflowRunMessage(null);
-      return;
-    }
-
-    setWorkflowEventJson(
-      buildDefaultWorkflowEvent(
-        workflow.triggerType,
-        activeCompanyId ?? workflow.company?.id ?? null,
-      ),
-    );
-    setWorkflowRunMessage(null);
-  }, [activeCompanyId, selectedWorkflowId, workflowsQuery.data]);
-
-  if (workflowsQuery.isLoading) {
-    return <LoadingState label="Loading workflow automation data..." />;
-  }
-
-  if (workflowsQuery.error) {
-    return (
-      <ErrorState
-        description={workflowsQuery.error instanceof Error ? workflowsQuery.error.message : "Unable to load workflows."}
-        onRetry={() => workflowsQuery.refetch()}
-        title="Automations unavailable"
-      />
-    );
-  }
-
-  const workflows = workflowsQuery.data.rows.items;
-  const selectedWorkflow = workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? null;
-
-  const executeWorkflowControl = (mode: "run" | "test") => {
+  const handleRunNow = async () => {
     try {
-      const parsed = JSON.parse(workflowEventJson) as Record<string, unknown>;
-
-      if (mode === "test") {
-        runWorkflowTestMutation.mutate(parsed);
-        return;
-      }
-
-      runWorkflowNowMutation.mutate(parsed);
+      await runNow.mutateAsync({
+        event: {
+          entityType: workflow?.triggerType ?? "manual",
+          eventType: workflow?.triggerType ?? "manual",
+        },
+      });
+      toast.success("Workflow triggered successfully");
+      void refetch();
     } catch {
-      setWorkflowRunMessage("Workflow event JSON is invalid.");
+      toast.error("Failed to run workflow. Please try again.");
+    }
+  };
+
+  const handleRunTest = async () => {
+    try {
+      await runTest.mutateAsync({
+        dryRun: true,
+        sampleEvent: {
+          entityType: workflow?.triggerType ?? "manual",
+          eventType: workflow?.triggerType ?? "manual",
+        },
+      });
+      toast.success("Test run completed — check execution log");
+      void refetch();
+    } catch {
+      toast.error("Test run failed. Please try again.");
+    }
+  };
+
+  const handleRetryJob = async (jobId: string) => {
+    try {
+      await retryJob.mutateAsync(jobId);
+      toast.success("Job queued for retry");
+      void refetch();
+    } catch {
+      toast.error("Failed to retry job");
     }
   };
 
   return (
-    <div className="mx-auto max-w-[1440px] space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Automations</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">Workflow observability and queue health for internal operations</p>
-        </div>
-        <div className="relative w-full max-w-sm">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            className="w-full rounded-lg border border-border bg-card py-2 pl-9 pr-3 text-sm text-foreground outline-none"
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search workflows..."
-            value={search}
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Visible Workflows</p>
-          <p className="mt-2 text-2xl font-semibold text-foreground">{workflows.length}</p>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Queue Pending</p>
-          <p className="mt-2 text-2xl font-semibold text-foreground">{jobsQuery.data?.summary.pendingCount ?? 0}</p>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Queue Running</p>
-          <p className="mt-2 text-2xl font-semibold text-foreground">{jobsQuery.data?.summary.runningCount ?? 0}</p>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Queue Failed</p>
-          <p className="mt-2 text-2xl font-semibold text-foreground">{jobsQuery.data?.summary.failedCount ?? 0}</p>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Completed (24h)</p>
-          <p className="mt-2 text-2xl font-semibold text-foreground">{jobsQuery.data?.summary.completedRecentCount ?? 0}</p>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Stale Running</p>
-          <p className="mt-2 text-2xl font-semibold text-foreground">{jobsQuery.data?.summary.suspiciousRunningCount ?? 0}</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <section className="space-y-4 rounded-xl border border-border bg-card p-4">
-          <div className="flex items-center gap-2">
-            <Workflow className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Workflow List</h2>
+    <div className="fixed inset-y-0 right-0 w-[420px] bg-card border-l border-border z-50 shadow-2xl shadow-black/30 animate-slide-in-right overflow-y-auto">
+      <div className="p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-start justify-between">
+          <div className="flex-1 min-w-0">
+            {isLoading ? (
+              <div className="space-y-2">
+                <div className="h-4 bg-secondary/80 animate-pulse rounded w-2/3" />
+                <div className="h-3 bg-secondary/80 animate-pulse rounded w-full" />
+              </div>
+            ) : workflow ? (
+              <>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded", statusStyles[workflow.status] ?? statusStyles.inactive)}>
+                    {statusLabel[workflow.status] ?? workflow.status}
+                  </span>
+                </div>
+                <h2 className="text-lg font-bold text-foreground">{workflow.name}</h2>
+                {workflow.description && (
+                  <p className="text-xs text-muted-foreground mt-1">{workflow.description}</p>
+                )}
+              </>
+            ) : null}
           </div>
-          {workflows.length === 0 ? (
-            <EmptyState description="No workflows match the current organization/company scope." title="No workflows found" />
-          ) : (
-            <div className="space-y-3">
-              {workflows.map((workflow) => (
-                <button
-                  key={workflow.id}
-                  className={cn(
-                    "w-full rounded-lg border px-4 py-3 text-left transition-colors",
-                    workflow.id === selectedWorkflowId ? "border-primary/50 bg-primary/5" : "border-border/60 bg-background/30",
-                  )}
-                  onClick={() => setSelectedWorkflowId(workflow.id)}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{workflow.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {workflow.company?.name ?? "Global"} - {labelize(workflow.status)} - Trigger {workflow.triggerType}
-                      </p>
-                    </div>
-                    <span className="text-xs text-muted-foreground">{workflow.metrics.totalRuns} runs</span>
-                  </div>
-                  <p className="mt-2 text-sm text-muted-foreground">{workflow.description ?? "No workflow description provided."}</p>
-                  <div className="mt-2 flex gap-4 text-xs text-muted-foreground">
-                    <span>{workflow.metrics.successRate}% success</span>
-                    <span>{workflow.metrics.failedRuns} failed runs</span>
-                    <span>{workflow.recentRunSummary.lastRunAt ? formatDateTime(workflow.recentRunSummary.lastRunAt) : "Never run"}</span>
-                  </div>
-                </button>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {isError && (
+          <ErrorBanner message="Failed to load workflow details." onRetry={() => refetch()} />
+        )}
+
+        {workflow && (
+          <>
+            {/* Company */}
+            {workflow.company && (
+              <div className="flex items-center gap-2">
+                <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-xs font-medium px-2 py-0.5 rounded border bg-secondary text-foreground border-border">
+                  {workflow.company.name}
+                </span>
+              </div>
+            )}
+
+            {/* Stats */}
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "Total Runs", value: data!.workflowRuns.pagination.total.toLocaleString() },
+                { label: "Last Run", value: runs[0]?.createdAt ? relativeTime(runs[0].createdAt) : "Never" },
+                { label: "Trigger", value: triggerTypeLabel[workflow.triggerType] ?? workflow.triggerType },
+              ].map((s, i) => (
+                <div key={i} className="bg-secondary rounded-lg p-3 text-center">
+                  <p className="text-base font-bold text-foreground tabular-nums truncate">{s.value}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{s.label}</p>
+                </div>
               ))}
             </div>
-          )}
 
-          <div className="space-y-3 rounded-lg border border-border/60 bg-background/30 p-4">
-            <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-primary" />
-              <h3 className="text-sm font-semibold text-foreground">Automation Impact</h3>
-            </div>
-            {automationImpactQuery.isLoading ? <LoadingState label="Loading impact metrics..." /> : null}
-            {automationImpactQuery.error ? (
-              <ErrorState
-                description={automationImpactQuery.error instanceof Error ? automationImpactQuery.error.message : "Unable to load automation impact."}
-                onRetry={() => automationImpactQuery.refetch()}
-                title="Impact unavailable"
-              />
-            ) : null}
-            {automationImpactQuery.data ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-xs text-muted-foreground">Workflow Runs</p>
-                  <p className="text-lg font-semibold text-foreground">{automationImpactQuery.data.totalWorkflowRuns}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Success Rate</p>
-                  <p className="text-lg font-semibold text-foreground">{automationImpactQuery.data.successRate}%</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Tasks Auto-Created</p>
-                  <p className="text-lg font-semibold text-foreground">{automationImpactQuery.data.tasksAutoCreated}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Failed Jobs</p>
-                  <p className="text-lg font-semibold text-foreground">{automationImpactQuery.data.failedJobsCount}</p>
+            {/* Failed Jobs */}
+            {failedJobs.length > 0 && (
+              <div className="bg-destructive/8 border border-destructive/20 rounded-xl p-4">
+                <p className="text-xs font-semibold text-destructive mb-2">
+                  {failedJobs.length} failed job{failedJobs.length > 1 ? "s" : ""}
+                </p>
+                <div className="space-y-2">
+                  {failedJobs.slice(0, 5).map((job) => (
+                    <div key={job.id} className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-muted-foreground truncate">{job.lastError ?? "Unknown error"}</p>
+                        {job.failedAt && (
+                          <p className="text-[10px] text-muted-foreground/60 mt-0.5">{relativeTime(job.failedAt)}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleRetryJob(job.id)}
+                        disabled={retryJob.isPending}
+                        className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors shrink-0 disabled:opacity-50"
+                      >
+                        {retryJob.isPending ? (
+                          <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-2.5 h-2.5" />
+                        )}
+                        Retry
+                      </button>
+                    </div>
+                  ))}
+                  {failedJobs.length > 5 && (
+                    <p className="text-[10px] text-muted-foreground">+{failedJobs.length - 5} more failed jobs</p>
+                  )}
                 </div>
               </div>
-            ) : null}
-          </div>
+            )}
 
-          <div className="space-y-3 rounded-lg border border-border/60 bg-background/30 p-4">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-primary" />
-              <h3 className="text-sm font-semibold text-foreground">Queue Jobs</h3>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {(["all", "pending", "running", "completed", "failed"] as const).map((status) => (
-                <button
-                  key={status}
-                  className={cn(
-                    "rounded-md border px-3 py-1.5 text-xs transition-colors",
-                    jobStatusFilter === status ? "border-primary/40 bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground",
-                  )}
-                  onClick={() => setJobStatusFilter(status)}
-                >
-                  {labelize(status)}
-                </button>
-              ))}
-              <button
-                className={cn(
-                  "rounded-md border px-3 py-1.5 text-xs transition-colors",
-                  recentFailuresOnly ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-border bg-card text-muted-foreground",
+            {/* Execution Log */}
+            <div>
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Recent Executions</h3>
+              <div className="space-y-2">
+                {runs.length === 0 ? (
+                  <p className="text-xs text-muted-foreground bg-secondary rounded-lg p-3 text-center">No executions yet</p>
+                ) : (
+                  runs.slice(0, 5).map((run) => (
+                    <div key={run.id} className="flex items-center gap-3 bg-secondary rounded-lg p-3">
+                      <div className={cn(
+                        "w-2 h-2 rounded-full shrink-0",
+                        run.status === "completed" ? "bg-[hsl(var(--success))]" :
+                        run.status === "failed" ? "bg-[hsl(var(--urgent))]" :
+                        "bg-[hsl(var(--warning))]"
+                      )} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-foreground">
+                          {run.status === "completed" ? "All actions completed" :
+                           run.status === "failed" ? (run.failureReason ?? "Failed") :
+                           "Running"}
+                        </p>
+                        {run.triggerEvent && (
+                          <p className="text-[10px] text-muted-foreground">{run.triggerEvent.label}</p>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-muted-foreground shrink-0">{relativeTime(run.createdAt)}</span>
+                    </div>
+                  ))
                 )}
-                onClick={() => setRecentFailuresOnly((current) => !current)}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="pt-4 border-t border-border flex gap-3">
+              <button
+                onClick={handleRunNow}
+                disabled={runNow.isPending}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all disabled:opacity-50"
               >
-                Recent failures
+                {runNow.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                Run Now
+              </button>
+              <button
+                onClick={handleRunTest}
+                disabled={runTest.isPending}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-secondary text-foreground hover:bg-surface-3 transition-all disabled:opacity-50"
+              >
+                {runTest.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                Test Run
               </button>
             </div>
-            {jobsQuery.isLoading ? <LoadingState label="Loading workflow jobs..." /> : null}
-            {jobsQuery.error ? (
-              <ErrorState
-                description={jobsQuery.error instanceof Error ? jobsQuery.error.message : "Unable to load workflow jobs."}
-                onRetry={() => jobsQuery.refetch()}
-                title="Workflow jobs unavailable"
-              />
-            ) : null}
-            {jobsQuery.data && jobsQuery.data.rows.items.length === 0 ? (
-              <EmptyState description="No workflow event jobs were found in the current scope." title="No queue jobs" />
-            ) : null}
-            {jobsQuery.data ? (
-              <div className="space-y-2">
-                {jobsQuery.data.rows.items.map((job) => (
-                  <div key={job.id} className="rounded-lg border border-border/60 bg-card/70 px-4 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{job.activityEvent?.label ?? "Workflow event job"}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {job.company?.name ?? "No company"} - {labelize(job.status)} - Attempt {job.attemptCount}
-                        </p>
-                      </div>
-                      {job.retryEligible ? (
-                        <Button
-                          disabled={retryJobMutation.isPending}
-                          onClick={() => retryJobMutation.mutate(job.id)}
-                          size="sm"
-                          variant="outline"
-                        >
-                          Retry
-                        </Button>
-                      ) : null}
-                    </div>
-                    {job.workerId || job.claimedAt ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {job.workerId ? `Worker ${job.workerId}` : "Claimed"}
-                        {job.claimedAt ? ` - ${formatDateTime(job.claimedAt)}` : ""}
-                      </p>
-                    ) : null}
-                    <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-muted-foreground">
-                      <p>Job ID: {job.id}</p>
-                      <p>Activity Event ID: {job.activityEventId}</p>
-                      <p>Available At: {formatDateTime(job.availableAt)}</p>
-                      <p>Updated At: {formatDateTime(job.updatedAt)}</p>
-                      <p>Remaining Attempts: {job.remainingAttempts}</p>
-                    </div>
-                    {job.failureReason ? <p className="mt-2 text-sm text-destructive">{job.failureReason}</p> : null}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        </section>
-
-        <aside className="rounded-xl border border-border bg-card p-4">
-          <h2 className="text-sm font-semibold text-foreground">Workflow Detail</h2>
-          {!selectedWorkflow ? (
-            <EmptyState description="Select a workflow from the list to inspect runs and linked failed jobs." title="No workflow selected" />
-          ) : null}
-          {selectedWorkflow && workflowDetailQuery.isLoading ? <LoadingState label="Loading workflow detail..." /> : null}
-          {selectedWorkflow && workflowDetailQuery.error ? (
-            <ErrorState
-              description={workflowDetailQuery.error instanceof Error ? workflowDetailQuery.error.message : "Unable to load workflow detail."}
-              onRetry={() => workflowDetailQuery.refetch()}
-              title="Workflow detail unavailable"
-            />
-          ) : null}
-          {workflowDetailQuery.data ? (
-            <div className="space-y-4">
-              <div>
-                <p className="text-lg font-semibold text-foreground">{workflowDetailQuery.data.workflow.name}</p>
-                <p className="text-sm text-muted-foreground">
-                  {workflowDetailQuery.data.workflow.company?.name ?? "Global"} - {labelize(workflowDetailQuery.data.workflow.status)}
-                </p>
-                <p className="mt-2 text-sm text-muted-foreground">{workflowDetailQuery.data.workflow.description ?? "No workflow description provided."}</p>
-              </div>
-
-              <div className="space-y-2 rounded-lg border border-border/60 bg-background/30 px-4 py-3">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">Run Controls</p>
-                <textarea
-                  className="min-h-[180px] w-full rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs text-foreground outline-none"
-                  onChange={(event) => setWorkflowEventJson(event.target.value)}
-                  value={workflowEventJson}
-                />
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    disabled={runWorkflowNowMutation.isPending || runWorkflowTestMutation.isPending || !workflowEventJson.trim()}
-                    onClick={() => executeWorkflowControl("test")}
-                    size="sm"
-                    variant="outline"
-                  >
-                    Test Run
-                  </Button>
-                  <Button
-                    disabled={runWorkflowNowMutation.isPending || runWorkflowTestMutation.isPending || !workflowEventJson.trim()}
-                    onClick={() => executeWorkflowControl("run")}
-                    size="sm"
-                  >
-                    Run Now
-                  </Button>
-                </div>
-                {workflowRunMessage ? <p className="text-xs text-muted-foreground">{workflowRunMessage}</p> : null}
-                {runWorkflowTestMutation.error ? (
-                  <p className="text-sm text-destructive">
-                    {runWorkflowTestMutation.error instanceof Error ? runWorkflowTestMutation.error.message : "Unable to test the workflow."}
-                  </p>
-                ) : null}
-                {runWorkflowNowMutation.error ? (
-                  <p className="text-sm text-destructive">
-                    {runWorkflowNowMutation.error instanceof Error ? runWorkflowNowMutation.error.message : "Unable to run the workflow now."}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">Recent Runs</p>
-                {workflowDetailQuery.data.workflowRuns.items.length === 0 ? (
-                  <EmptyState description="This workflow has not produced any runs yet." title="No workflow runs" />
-                ) : (
-                  workflowDetailQuery.data.workflowRuns.items.map((run) => (
-                    <div key={run.id} className="rounded-lg border border-border/60 bg-background/30 px-4 py-3">
-                      <p className="text-sm font-medium text-foreground">{labelize(run.status)}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {run.triggerEvent?.label ?? "Manual or synthetic event"} - {formatDateTime(run.createdAt)}
-                      </p>
-                      {run.failureReason ? <p className="mt-2 text-sm text-destructive">{run.failureReason}</p> : null}
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">Related Failed Jobs</p>
-                {workflowDetailQuery.data.relatedFailedJobs.length === 0 ? (
-                  <EmptyState description="No failed jobs are currently linked to this workflow." title="No failed jobs" />
-                ) : (
-                  workflowDetailQuery.data.relatedFailedJobs.map((job) => (
-                    <div key={job.id} className="rounded-lg border border-border/60 bg-background/30 px-4 py-3">
-                      <p className="text-sm font-medium text-foreground">{job.activityEvent?.label ?? "Workflow event"}</p>
-                      <p className="text-xs text-muted-foreground">{job.failedAt ? formatDateTime(job.failedAt) : "Failure time unknown"}</p>
-                      {job.lastError ? <p className="mt-2 text-sm text-destructive">{job.lastError}</p> : null}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          ) : null}
-        </aside>
+          </>
+        )}
       </div>
+    </div>
+  );
+}
+
+// ─── Automations Page ─────────────────────────────────────────────────────────
+
+export default function AutomationsPage() {
+  const { organizationId, companyId } = useOrg();
+  const [search, setSearch] = useState("");
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+
+  const params = useMemo(() => ({
+    companyId: companyId === "all" ? undefined : companyId,
+    search: search || undefined,
+  }), [companyId, search]);
+
+  const { data: workflows, isLoading, isError, refetch } = useWorkflows(organizationId, params);
+  const { data: impact } = useAutomationImpact(organizationId, params);
+  const runNow = useRunWorkflowNow(organizationId, ""); // Dummy ID for card action
+
+  const workflowList = workflows ?? [];
+
+  const handleQuickRun = async (id: string, triggerType: string) => {
+    try {
+      await runNow.mutateAsync({
+        workflowId: id,
+        event: { entityType: triggerType, eventType: triggerType },
+      });
+      toast.success("Workflow triggered");
+    } catch {
+      toast.error("Failed to trigger workflow");
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Automations</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Streamline your operations with smart workflows</p>
+        </div>
+        <button className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-[hsl(var(--accent-violet))] text-white hover:bg-[hsl(var(--accent-violet))]/90 transition-all shadow-md shadow-violet-500/20 active:scale-[0.97]">
+          <Plus className="w-4 h-4" />
+          Create Workflow
+        </button>
+      </div>
+
+      {/* Impact Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {[
+          { label: "Time Saved", value: formatSeconds(impact?.totalTimeSavedSeconds ?? 0), icon: Clock, color: "text-[hsl(var(--accent-blue))]" },
+          { label: "Tasks Automated", value: (impact?.totalTasksAutomated ?? 0).toLocaleString(), icon: Zap, color: "text-[hsl(var(--accent-violet))]" },
+          { label: "Success Rate", value: formatPercent(impact?.successRate ?? 0), icon: CheckCircle2, color: "text-[hsl(var(--success))]" },
+          { label: "Active Workflows", value: workflowList.filter(w => w.status === "active").length.toString(), icon: Play, color: "text-primary" },
+        ].map((stat, i) => (
+          <div key={i} className="bg-card border border-border rounded-2xl p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <stat.icon className={cn("w-4 h-4", stat.color)} />
+              <TrendingUp className="w-3 h-3 text-muted-foreground" />
+            </div>
+            <p className="text-2xl font-bold text-foreground tabular-nums">{stat.value}</p>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-1">{stat.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search workflows..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-card border border-border rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+          />
+        </div>
+        <button className="flex items-center gap-2 px-3 py-2 rounded-xl bg-secondary text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
+          <Filter className="w-3.5 h-3.5" />
+          Filter
+        </button>
+      </div>
+
+      {/* Workflow Grid */}
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
+      ) : isError ? (
+        <ErrorBanner message="Failed to load workflows." onRetry={refetch} />
+      ) : workflowList.length === 0 ? (
+        <EmptyState
+          title="No workflows found"
+          description={search ? "Try adjusting your search terms." : "Start automating your business today."}
+          action={!search ? { label: "Create Workflow", onClick: () => {} } : undefined}
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {workflowList.map((workflow) => (
+            <div
+              key={workflow.id}
+              onClick={() => setSelectedWorkflowId(workflow.id)}
+              className="bg-card border border-border rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-primary/30 transition-all cursor-pointer group relative overflow-hidden"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+                  <Zap className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={cn("text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full", statusStyles[workflow.status] ?? statusStyles.inactive)}>
+                    {statusLabel[workflow.status] ?? workflow.status}
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleQuickRun(workflow.id, workflow.triggerType);
+                    }}
+                    className="p-1.5 rounded-lg bg-secondary text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-0 group-hover:opacity-100 transition-all"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                  </button>
+                </div>
+              </div>
+
+              <h3 className="text-sm font-bold text-foreground mb-1 group-hover:text-primary transition-colors">{workflow.name}</h3>
+              <p className="text-xs text-muted-foreground line-clamp-2 mb-4 h-8">{workflow.description}</p>
+
+              <div className="space-y-3 pt-4 border-t border-border/50">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-muted-foreground font-medium">Trigger</span>
+                  <span className="text-foreground font-bold">{triggerTypeLabel[workflow.triggerType] ?? workflow.triggerType}</span>
+                </div>
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-muted-foreground font-medium">Last Run</span>
+                  <span className="text-foreground font-bold">{workflow.lastRunAt ? relativeTime(workflow.lastRunAt) : "Never"}</span>
+                </div>
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-muted-foreground font-medium">Success Rate</span>
+                  <span className="text-[hsl(var(--success))] font-bold">{formatPercent(workflow.successRate)}</span>
+                </div>
+              </div>
+
+              {workflow.company && (
+                <div className="mt-4 pt-3 border-t border-border/50 flex items-center gap-2">
+                  <Building2 className="w-3 h-3 text-muted-foreground" />
+                  <span className="text-[10px] font-medium text-muted-foreground">{workflow.company.name}</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Detail Panel */}
+      {selectedWorkflowId && (
+        <WorkflowDetailPanel
+          workflowId={selectedWorkflowId}
+          onClose={() => setSelectedWorkflowId(null)}
+        />
+      )}
     </div>
   );
 }

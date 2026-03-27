@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Search,
   Bell,
@@ -9,6 +9,7 @@ import {
   Check,
   LogOut,
   User,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppContext } from "@/lib/app-context";
@@ -20,6 +21,8 @@ const companyColors = [
   "hsl(152 60% 48%)",
   "hsl(38 92% 55%)",
   "hsl(280 70% 58%)",
+  "hsl(340 75% 55%)",
+  "hsl(160 85% 45%)",
 ];
 
 function Dropdown({
@@ -29,6 +32,7 @@ function Dropdown({
   selected,
   onSelect,
   showDot,
+  isLoading,
 }: {
   label: string;
   icon: React.ElementType;
@@ -36,6 +40,7 @@ function Dropdown({
   selected: string;
   onSelect: (id: string) => void;
   showDot?: boolean;
+  isLoading?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const current = items.find((i) => i.id === selected);
@@ -43,17 +48,27 @@ function Dropdown({
   return (
     <div className="relative">
       <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-secondary-foreground hover:bg-secondary hover:text-foreground transition-all duration-150 active:scale-[0.97]"
+        onClick={() => !isLoading && setOpen(!open)}
+        disabled={isLoading}
+        className={cn(
+          "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-secondary-foreground hover:bg-secondary hover:text-foreground transition-all duration-150 active:scale-[0.97]",
+          isLoading && "opacity-50 cursor-not-allowed"
+        )}
       >
-        <Icon className="w-4 h-4 text-muted-foreground" />
+        {isLoading ? (
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        ) : (
+          <Icon className="w-4 h-4 text-muted-foreground" />
+        )}
         {showDot && current?.color && (
           <span
             className="w-2 h-2 rounded-full shrink-0"
             style={{ background: current.color }}
           />
         )}
-        <span className="max-w-[160px] truncate">{current?.name || label}</span>
+        <span className="max-w-[160px] truncate">
+          {isLoading ? `Loading ${label}...` : (current?.name || label)}
+        </span>
         <ChevronDown
           className={cn(
             "w-3.5 h-3.5 text-muted-foreground transition-transform duration-200",
@@ -68,30 +83,34 @@ function Dropdown({
             <div className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
               {label}
             </div>
-            {items.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => {
-                  onSelect(item.id);
-                  setOpen(false);
-                }}
-                className={cn(
-                  "w-full text-left px-3 py-2 text-sm hover:bg-secondary transition-colors flex items-center gap-2.5",
-                  selected === item.id && "text-foreground font-medium"
-                )}
-              >
-                {item.color && (
-                  <span
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ background: item.color }}
-                  />
-                )}
-                <span className="flex-1 truncate">{item.name}</span>
-                {selected === item.id && (
-                  <Check className="w-3.5 h-3.5 text-primary shrink-0" />
-                )}
-              </button>
-            ))}
+            {items.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-muted-foreground">No {label.toLowerCase()}s found</div>
+            ) : (
+              items.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    onSelect(item.id);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "w-full text-left px-3 py-2 text-sm hover:bg-secondary transition-colors flex items-center gap-2.5",
+                    selected === item.id && "text-foreground font-medium"
+                  )}
+                >
+                  {item.color && (
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ background: item.color }}
+                    />
+                  )}
+                  <span className="flex-1 truncate">{item.name}</span>
+                  {selected === item.id && (
+                    <Check className="w-3.5 h-3.5 text-primary shrink-0" />
+                  )}
+                </button>
+              ))
+            )}
           </div>
         </>
       )}
@@ -166,18 +185,20 @@ export function TopBar() {
     setActiveCompanyId,
     setActiveOrganizationId,
   } = useAppContext();
-  const companyItems = [
-    { id: "all", name: "All Companies", color: companyColors[0] },
-    ...companies.map((company, index) => ({
-      id: company.id,
-      name: company.name,
-      color: companyColors[(index + 1) % companyColors.length],
-    })),
-  ];
-  const organizationItems = organizations.map((organization) => ({
-    id: organization.id,
-    name: organization.name,
-  }));
+
+  const companyItems = useMemo(() => {
+    const base = [{ id: "all", name: "All Companies", color: "hsl(215 100% 55%)" }];
+    return [
+      ...base,
+      ...companies.map((c, i) => ({
+        id: c.id,
+        name: c.name,
+        color: companyColors[(i + 1) % companyColors.length],
+      })),
+    ];
+  }, [companies]);
+
+  const organizationItems = useMemo(() => organizations || [], [organizations]);
 
   return (
     <header className="h-14 border-b border-border bg-background/90 backdrop-blur-xl sticky top-0 z-30 flex items-center justify-between px-5 gap-4">

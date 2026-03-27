@@ -1,220 +1,594 @@
-import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Search } from "lucide-react";
-import { useNavigate } from "react-router-dom";
-
-import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
-import { EmptyState, ErrorState, LoadingState } from "@/components/system/AsyncState";
-import { useAppContext } from "@/lib/app-context";
-import { apiRequest, toQueryString } from "@/lib/api";
-import { formatDateTime } from "@/lib/formatters";
+import { useState, useMemo } from "react";
+import {
+  Plus,
+  Search,
+  Filter,
+  AlertTriangle,
+  Calendar,
+  User,
+  Clock,
+  Zap,
+  CheckCircle2,
+  Circle,
+  Loader2,
+  Ban,
+  MessageSquare,
+  Send,
+  X,
+  ArrowUpRight,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useNavigate } from "react-router-dom";
+import { useOrg } from "@/lib/org-context";
+import {
+  useTasks,
+  useTaskDetail,
+  useCreateTask,
+  useUpdateTaskStatus,
+  useCompanies,
+} from "@/lib/api-hooks";
+import { SkeletonRow, ErrorBanner, EmptyState } from "@/components/ui/StateViews";
+import { formatDate, relativeTime } from "@/lib/format";
+import type { TaskListRow, TaskDetailResponse } from "@/lib/api-client";
+import { toast } from "@/components/ui/sonner";
 
-interface TaskListRow {
-  assignee: { initials: string; name: string } | null;
-  booking: { id: string; label: string } | null;
-  commentsCount: number;
-  company: { id: string; name: string } | null;
-  contact: { id: string; name: string } | null;
-  dueAt: string | null;
-  id: string;
-  isOverdue: boolean;
-  priority: "low" | "medium" | "high" | "urgent";
-  status: "todo" | "in_progress" | "blocked" | "completed";
-  title: string;
-  workflow: { id: string; label: string } | null;
-}
+// ─── Styling maps ─────────────────────────────────────────────────────────────
 
-interface TasksListResponse {
-  rows: {
-    items: TaskListRow[];
+const statusIcon: Record<string, React.ReactNode> = {
+  todo: <Circle className="w-3.5 h-3.5 text-muted-foreground" />,
+  in_progress: <Loader2 className="w-3.5 h-3.5 text-[hsl(var(--accent-blue))] animate-[spin_3s_linear_infinite]" />,
+  blocked: <Ban className="w-3.5 h-3.5 text-[hsl(var(--urgent))]" />,
+  completed: <CheckCircle2 className="w-3.5 h-3.5 text-[hsl(var(--success))]" />,
+};
+
+const statusStyle: Record<string, string> = {
+  todo: "text-muted-foreground",
+  in_progress: "text-[hsl(var(--accent-blue))]",
+  blocked: "text-[hsl(var(--urgent))]",
+  completed: "text-[hsl(var(--success))]",
+};
+
+const statusLabel: Record<string, string> = {
+  todo: "To Do",
+  in_progress: "In Progress",
+  blocked: "Blocked",
+  completed: "Completed",
+};
+
+const priorityConfig: Record<string, { bg: string; text: string; dot: string }> = {
+  urgent: { bg: "bg-[hsl(var(--urgent))]/10", text: "text-[hsl(var(--urgent))]", dot: "bg-[hsl(var(--urgent))]" },
+  high: { bg: "bg-[hsl(var(--urgent))]/10", text: "text-[hsl(var(--urgent))]", dot: "bg-[hsl(var(--urgent))]" },
+  medium: { bg: "bg-[hsl(var(--warning))]/10", text: "text-[hsl(var(--warning))]", dot: "bg-[hsl(var(--warning))]" },
+  low: { bg: "bg-muted", text: "text-muted-foreground", dot: "bg-muted-foreground" },
+};
+
+// ─── Create Task Dialog ───────────────────────────────────────────────────────
+
+function CreateTaskDialog({ onClose }: { onClose: () => void }) {
+  const { organizationId, companyId: ctxCompanyId } = useOrg();
+  const { data: companies } = useCompanies(organizationId);
+  const createTask = useCreateTask(organizationId);
+
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState<"low" | "medium" | "high" | "urgent">("medium");
+  const [status, setStatus] = useState<"todo" | "in_progress" | "blocked" | "completed">("todo");
+  const [dueAt, setDueAt] = useState("");
+  const [companyId, setCompanyId] = useState(
+    ctxCompanyId !== "all" ? ctxCompanyId : ""
+  );
+
+  // Set initial company if available and not already set
+  useMemo(() => {
+    if (companies && companies.length > 0 && !companyId && ctxCompanyId === "all") {
+      setCompanyId(companies[0].id);
+    }
+  }, [companies, companyId, ctxCompanyId]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    try {
+      await createTask.mutateAsync({
+        title: title.trim(),
+        description: description.trim() || null,
+        priority,
+        status,
+        companyId: companyId || null,
+        dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+      });
+      toast.success("Task created successfully");
+      onClose();
+    } catch {
+      toast.error("Failed to create task. Please try again.");
+    }
   };
-  summary: {
-    blockedCount: number;
-    completedCount: number;
-    inProgressCount: number;
-    overdueCount: number;
-    todoCount: number;
-  };
-}
-
-const statusOptions = ["all", "todo", "in_progress", "blocked", "completed"] as const;
-
-function labelize(value: string): string {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-export default function TasksPage() {
-  const navigate = useNavigate();
-  const { activeCompanyId, activeOrganizationId } = useAppContext();
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<(typeof statusOptions)[number]>("all");
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-
-  const tasksQuery = useQuery({
-    queryKey: ["org", activeOrganizationId, "tasks", activeCompanyId ?? "all", search, status],
-    queryFn: () =>
-      apiRequest<TasksListResponse>(
-        `/api/organizations/${activeOrganizationId}/ui/tasks${toQueryString({
-          companyId: activeCompanyId,
-          limit: 100,
-          page: 1,
-          search,
-          status: status === "all" ? undefined : status,
-        })}`,
-      ),
-  });
-
-  if (tasksQuery.isLoading) {
-    return <LoadingState label="Loading tasks..." />;
-  }
-
-  if (tasksQuery.error) {
-    return (
-      <ErrorState
-        description={tasksQuery.error instanceof Error ? tasksQuery.error.message : "Unable to load tasks."}
-        onRetry={() => tasksQuery.refetch()}
-        title="Tasks unavailable"
-      />
-    );
-  }
-
-  const rows = tasksQuery.data.rows.items;
-  const summary = tasksQuery.data.summary;
-
-  useEffect(() => {
-    setSelectedTaskId(null);
-  }, [activeCompanyId, activeOrganizationId]);
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-5">
-      <div className="flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-card border border-border rounded-2xl w-[500px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">New Task</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Create a new task to track work</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Title <span className="text-destructive">*</span></label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+              placeholder="e.g., Follow up with client"
+              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Priority</label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as typeof priority)}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Status</label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as typeof status)}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+              >
+                <option value="todo">To Do</option>
+                <option value="in_progress">In Progress</option>
+                <option value="blocked">Blocked</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Company</label>
+              <select
+                value={companyId}
+                onChange={(e) => setCompanyId(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+              >
+                <option value="">No company</option>
+                {companies?.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Due Date</label>
+              <input
+                type="date"
+                value={dueAt}
+                onChange={(e) => setDueAt(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Description</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              placeholder="Any additional details about this task..."
+              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            />
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={createTask.isPending || !title.trim()}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--accent-blue))] text-white hover:bg-[hsl(var(--accent-blue))]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]"
+            >
+              {createTask.isPending ? (
+                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</>
+              ) : (
+                "Create Task"
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Status Quick-Update Dropdown ─────────────────────────────────────────────
+
+type TaskStatus = "todo" | "in_progress" | "blocked" | "completed";
+
+function StatusDropdown({
+  taskId,
+  currentStatus,
+}: {
+  taskId: string;
+  currentStatus: string;
+}) {
+  const { organizationId } = useOrg();
+  const updateStatus = useUpdateTaskStatus(organizationId, taskId);
+  const [open, setOpen] = useState(false);
+
+  const handleSelect = async (s: TaskStatus) => {
+    setOpen(false);
+    if (s === currentStatus) return;
+    try {
+      await updateStatus.mutateAsync(s);
+      toast.success(`Status updated to ${statusLabel[s]}`);
+    } catch {
+      toast.error("Failed to update status");
+    }
+  };
+
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex items-center gap-1.5 text-xs font-medium transition-colors hover:opacity-80",
+          statusStyle[currentStatus] ?? "text-muted-foreground",
+          updateStatus.isPending && "opacity-50 cursor-wait"
+        )}
+      >
+        {updateStatus.isPending ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        ) : (
+          statusIcon[currentStatus] ?? <Circle className="w-3.5 h-3.5" />
+        )}
+        <span>{statusLabel[currentStatus] ?? currentStatus}</span>
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute top-full left-0 mt-1 w-40 bg-popover border border-border rounded-lg shadow-xl z-50 py-1 animate-scale-in">
+            {(Object.keys(statusLabel) as TaskStatus[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => handleSelect(s)}
+                className={cn(
+                  "w-full text-left px-3 py-1.5 text-xs hover:bg-secondary transition-colors flex items-center gap-2",
+                  currentStatus === s ? "text-foreground font-bold" : "text-muted-foreground"
+                )}
+              >
+                {statusIcon[s]}
+                {statusLabel[s]}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Tasks Page ───────────────────────────────────────────────────────────────
+
+export default function TasksPage() {
+  const { organizationId, companyId } = useOrg();
+  const [search, setSearch] = useState("");
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+
+  const params = useMemo(() => ({
+    companyId: companyId === "all" ? undefined : companyId,
+    search: search || undefined,
+  }), [companyId, search]);
+
+  const { data: tasks, isLoading, isError, refetch } = useTasks(organizationId, params);
+  const { data: detail, isLoading: isDetailLoading } = useTaskDetail(organizationId, selectedTaskId);
+  const updateStatus = useUpdateTaskStatus(organizationId, selectedTaskId || "");
+
+  const taskList = tasks ?? [];
+
+  const handleStatusUpdate = async (status: TaskStatus) => {
+    if (!selectedTaskId) return;
+    try {
+      await updateStatus.mutateAsync(status);
+      toast.success(`Task marked as ${statusLabel[status]}`);
+    } catch {
+      toast.error("Failed to update status");
+    }
+  };
+
+  return (
+    <div className="h-[calc(100vh-8rem)] flex flex-col gap-6">
+      {/* Header */}
+      <div className="flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Tasks</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">{rows.length} visible tasks in the active scope</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Track and manage operational work</p>
         </div>
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-          <AlertTriangle className="h-4 w-4 text-primary" />
-          Task lists and detail panels now use live API data.
-        </div>
+        <button
+          onClick={() => setIsCreateOpen(true)}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-[hsl(var(--accent-blue))] text-white hover:bg-[hsl(var(--accent-blue))]/90 transition-all shadow-md shadow-blue-500/20 active:scale-[0.97]"
+        >
+          <Plus className="w-4 h-4" />
+          New Task
+        </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        {([
-          ["todo", summary.todoCount],
-          ["in_progress", summary.inProgressCount],
-          ["blocked", summary.blockedCount],
-          ["completed", summary.completedCount],
-          ["overdue", summary.overdueCount],
-        ] as Array<[string, number]>).map(([key, value]) => (
-          <div key={key} className="rounded-xl border border-border bg-card p-4">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">{labelize(key)}</p>
-            <p className="mt-2 text-2xl font-semibold text-foreground">{value}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex items-center justify-between gap-3">
-        <div className="relative w-full max-w-sm">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      {/* Filters */}
+      <div className="flex items-center gap-3 shrink-0">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
-            className="w-full rounded-lg border border-border bg-card py-2 pl-9 pr-3 text-sm text-foreground outline-none"
-            onChange={(event) => setSearch(event.target.value)}
+            type="text"
             placeholder="Search tasks..."
             value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-card border border-border rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
           />
         </div>
-        <div className="flex gap-1 rounded-lg bg-secondary p-1">
-          {statusOptions.map((option) => (
-            <button
-              key={option}
-              className={cn(
-                "rounded-md px-3 py-2 text-xs font-medium transition-colors",
-                option === status ? "bg-card text-foreground shadow-sm" : "text-muted-foreground",
-              )}
-              onClick={() => setStatus(option)}
-            >
-              {labelize(option)}
-            </button>
-          ))}
+        <button className="flex items-center gap-2 px-3 py-2 rounded-xl bg-secondary text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
+          <Filter className="w-3.5 h-3.5" />
+          Filter
+        </button>
+      </div>
+
+      <div className="flex-1 flex gap-6 min-h-0">
+        {/* Task List */}
+        <div className="flex-1 bg-card border border-border rounded-2xl overflow-hidden flex flex-col shadow-sm">
+          <div className="overflow-y-auto flex-1 custom-scrollbar">
+            <table className="w-full text-left border-collapse">
+              <thead className="sticky top-0 bg-card z-10">
+                <tr className="bg-secondary/30 border-b border-border">
+                  <th className="px-4 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-wider w-10"></th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Task</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Priority</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Company</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Due</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {isLoading ? (
+                  Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
+                ) : isError ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8">
+                      <ErrorBanner message="Failed to load tasks." onRetry={refetch} />
+                    </td>
+                  </tr>
+                ) : taskList.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12">
+                      <EmptyState title="No tasks found" description="Create a task to get started." />
+                    </td>
+                  </tr>
+                ) : (
+                  taskList.map((task) => (
+                    <tr
+                      key={task.id}
+                      onClick={() => setSelectedTaskId(task.id)}
+                      className={cn(
+                        "hover:bg-secondary/40 transition-colors cursor-pointer group",
+                        selectedTaskId === task.id && "bg-secondary/60"
+                      )}
+                    >
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStatusUpdate("completed");
+                          }}
+                          className="text-muted-foreground hover:text-[hsl(var(--success))] transition-colors"
+                        >
+                          <Circle className="w-4 h-4" />
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="text-sm font-semibold text-foreground leading-tight">{task.title}</p>
+                        {task.description && (
+                          <p className="text-[10px] text-muted-foreground truncate max-w-[200px] mt-0.5">{task.description}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusDropdown taskId={task.id} currentStatus={task.status} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn("w-1.5 h-1.5 rounded-full", priorityConfig[task.priority]?.dot)} />
+                          <span className={cn("text-[10px] font-bold uppercase tracking-wider", priorityConfig[task.priority]?.text)}>
+                            {task.priority}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        {task.company ? (
+                          <span className="text-xs text-foreground/80">{task.company.name}</span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                          <Calendar className="w-3 h-3" />
+                          <span>{task.dueAt ? formatDate(task.dueAt) : "No date"}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Detail Panel */}
+        <div className="w-96 bg-card border border-border rounded-2xl flex flex-col shadow-sm overflow-hidden shrink-0">
+          {!selectedTaskId ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+              <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center mb-4">
+                <CheckCircle2 className="w-6 h-6 text-muted-foreground/40" />
+              </div>
+              <h3 className="text-sm font-bold text-foreground">Select a Task</h3>
+              <p className="text-xs text-muted-foreground mt-1">Click on a task to view its full details, activity, and management options.</p>
+            </div>
+          ) : isDetailLoading ? (
+            <div className="p-6 space-y-6">
+              <div className="space-y-2">
+                <div className="h-4 w-3/4 bg-secondary animate-pulse rounded" />
+                <div className="h-3 w-1/2 bg-secondary animate-pulse rounded" />
+              </div>
+              <div className="space-y-4 pt-4">
+                <div className="h-20 bg-secondary animate-pulse rounded-xl" />
+                <div className="h-32 bg-secondary animate-pulse rounded-xl" />
+              </div>
+            </div>
+          ) : detail ? (
+            <div className="flex-1 flex flex-col min-h-0">
+              {/* Detail Header */}
+              <div className="p-5 border-b border-border bg-secondary/10">
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <h3 className="text-base font-bold text-foreground leading-tight">{detail.task.title}</h3>
+                  <button onClick={() => setSelectedTaskId(null)} className="p-1 hover:bg-secondary rounded-md transition-colors">
+                    <X className="w-4 h-4 text-muted-foreground" />
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5", statusStyle[detail.task.status], "bg-background border border-border")}>
+                    {statusIcon[detail.task.status]}
+                    {statusLabel[detail.task.status]}
+                  </span>
+                  <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider", priorityConfig[detail.task.priority]?.bg, priorityConfig[detail.task.priority]?.text)}>
+                    {detail.task.priority}
+                  </span>
+                </div>
+              </div>
+
+              {/* Detail Content */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
+                {/* Meta Info */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Company</p>
+                    <p className="text-xs font-medium text-foreground">{detail.task.company?.name || "None"}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Due Date</p>
+                    <p className="text-xs font-medium text-foreground">{detail.task.dueAt ? formatDate(detail.task.dueAt) : "No date"}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Assigned To</p>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-4 h-4 rounded-full bg-primary/10 flex items-center justify-center text-[8px] font-bold text-primary">
+                        {detail.task.assignedUser?.initials || "—"}
+                      </div>
+                      <span className="text-xs font-medium text-foreground">{detail.task.assignedUser?.name || "Unassigned"}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Created</p>
+                    <p className="text-xs font-medium text-foreground">{relativeTime(detail.task.createdAt)}</p>
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Description</p>
+                  <div className="bg-secondary/30 rounded-xl p-3 border border-border/50">
+                    <p className="text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap">
+                      {detail.task.description || "No description provided."}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Status Actions */}
+                <div className="space-y-3">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Update Status</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(Object.keys(statusLabel) as TaskStatus[]).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => handleStatusUpdate(s)}
+                        disabled={updateStatus.isPending || detail.task.status === s}
+                        className={cn(
+                          "flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all border",
+                          detail.task.status === s
+                            ? "bg-secondary border-border text-foreground opacity-50 cursor-default"
+                            : "bg-background border-border hover:border-primary/50 text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {statusIcon[s]}
+                        {statusLabel[s]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Activity/Trace */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Activity History</p>
+                    <Zap className="w-3 h-3 text-[hsl(var(--accent-violet))]" />
+                  </div>
+                  <div className="space-y-4 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-border">
+                    {detail.timeline.length === 0 ? (
+                      <p className="text-[10px] text-muted-foreground italic pl-8">No activity recorded yet.</p>
+                    ) : (
+                      detail.timeline.map((item, i) => (
+                        <div key={i} className="relative pl-8">
+                          <div className="absolute left-0 top-1 w-6 h-6 rounded-full bg-card border border-border flex items-center justify-center z-10">
+                            <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                          </div>
+                          <div className="space-y-0.5">
+                            <p className="text-xs font-medium text-foreground">{item.label}</p>
+                            <p className="text-[10px] text-muted-foreground">{relativeTime(item.occurredAt)}</p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Comment */}
+              <div className="p-4 border-t border-border bg-secondary/20">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Add a comment..."
+                    className="w-full bg-card border border-border rounded-xl pl-4 pr-10 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                  <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-colors">
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
-      {rows.length === 0 ? (
-        <EmptyState
-          description="There are no tasks for the current organization/company filters yet."
-          title="No tasks found"
-        />
-      ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                <th className="px-4 py-3">Task</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Priority</th>
-                <th className="px-4 py-3">Assignee</th>
-                <th className="px-4 py-3">Due</th>
-                <th className="px-4 py-3">Linked Contact</th>
-                <th className="px-4 py-3">Company</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr
-                  key={row.id}
-                  className={cn(
-                    "cursor-pointer border-b border-border/40 transition-colors hover:bg-secondary/20",
-                    row.isOverdue && row.status !== "completed" && "bg-destructive/5",
-                  )}
-                  onClick={() => setSelectedTaskId(row.id)}
-                >
-                  <td className="px-4 py-3">
-                    <p className="text-sm font-medium text-foreground">{row.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {row.commentsCount} comment{row.commentsCount === 1 ? "" : "s"}
-                      {row.workflow ? ` · ${row.workflow.label}` : ""}
-                    </p>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-foreground">{labelize(row.status)}</td>
-                  <td className="px-4 py-3 text-sm text-foreground">{labelize(row.priority)}</td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground">{row.assignee?.name ?? "Unassigned"}</td>
-                  <td className={cn("px-4 py-3 text-sm", row.isOverdue ? "text-destructive" : "text-muted-foreground")}>
-                    {formatDateTime(row.dueAt)}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground">
-                    {row.contact ? (
-                      <button
-                        className="text-primary"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          navigate(`/crm/${row.contact!.id}`);
-                        }}
-                      >
-                        {row.contact.name}
-                      </button>
-                    ) : row.booking ? (
-                      row.booking.label
-                    ) : (
-                      "Not linked"
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground">{row.company?.name ?? "No company"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {selectedTaskId ? (
-        <TaskDetailPanel
-          onClose={() => setSelectedTaskId(null)}
-          onNavigateCalendar={() => navigate("/calendar")}
-          onNavigateContact={(id) => navigate(`/crm/${id}`)}
-          taskId={selectedTaskId}
-        />
-      ) : null}
+      {isCreateOpen && <CreateTaskDialog onClose={() => setIsCreateOpen(false)} />}
     </div>
   );
 }

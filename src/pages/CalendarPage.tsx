@@ -1,398 +1,699 @@
-import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CalendarDays, Clock, Users } from "lucide-react";
-
-import { Button } from "@/components/ui/button";
-import { EmptyState, ErrorState, LoadingState } from "@/components/system/AsyncState";
-import { useAppContext } from "@/lib/app-context";
-import { apiRequest, toQueryString } from "@/lib/api";
-import { formatDate, formatDateTime } from "@/lib/formatters";
+import { useState, useMemo } from "react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Search,
+  Filter,
+  Clock,
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  Eye,
+  EyeOff,
+  RotateCcw,
+  UserPlus,
+  ExternalLink,
+  StickyNote,
+  CreditCard,
+  CalendarDays,
+  X,
+  DollarSign,
+  Zap,
+  Lightbulb,
+  ArrowRight,
+  TrendingUp,
+  Activity,
+  ShieldAlert,
+  ChevronRight as ChevronRightIcon,
+  Loader2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useOrg } from "@/lib/org-context";
+import {
+  useCalendarView,
+  useCalendarCapacity,
+  useBookingDetail,
+  useCreateBooking,
+  useUpdateBookingStatus,
+  useCompanies,
+} from "@/lib/api-hooks";
+import { SkeletonCard, ErrorBanner, EmptyState, LoadingCards } from "@/components/ui/StateViews";
+import { formatCents, formatDate, relativeTime } from "@/lib/format";
+import { startOfWeek, endOfWeek, addWeeks, subWeeks, format, parseISO, addDays } from "date-fns";
+import type { BookingCalendarRow, BookingDetailResponse } from "@/lib/api-client";
+import { toast } from "@/components/ui/sonner";
 
-interface CalendarViewResponse {
-  assignedUsers: Array<{
-    bookingCount: number;
-    totalDurationMinutes: number;
-    user: { id: string; name: string };
-  }>;
-  bookings: {
-    items: Array<{
-      assignedUserSummary: {
-        users: Array<{ id: string; name: string }>;
-      };
-      company: { id: string; name: string } | null;
-      contact: { id: string; name: string } | null;
-      durationMinutes: number;
-      id: string;
-      scheduledFor: string;
-      status: "pending" | "confirmed" | "completed" | "cancelled";
-      taskCount: number;
-      title: string;
-    }>;
-  };
-  range: {
-    end: string;
-    start: string;
-  };
-}
-
-interface CapacityResponse {
-  users: Array<{
-    bookingCount: number;
-    conflictCount: number;
-    isOverloaded: boolean;
-    overloadIndicator: string | null;
-    totalDurationMinutes: number;
-    user: { id: string; name: string };
-  }>;
-}
-
-interface BookingDetailResponse {
-  booking: {
-    company: { id: string; name: string } | null;
-    contact: { id: string; name: string } | null;
-    description: string | null;
-    durationMinutes: number;
-    id: string;
-    revenueCents: number | null;
-    scheduledFor: string;
-    status: "pending" | "confirmed" | "completed" | "cancelled";
-    title: string;
-  };
-  tasks: Array<{
-    id: string;
-    priority: string;
-    status: string;
-    title: string;
-  }>;
-  trace: Array<{
-    detail: string;
-    id: string;
-    occurredAt: string;
-    title: string;
-  }>;
-  triggeredWorkflowRuns: Array<{
-    id: string;
-    status: string;
-    workflow: { label: string } | null;
-  }>;
-}
-
-const nextBookingStatuses: Record<BookingDetailResponse["booking"]["status"], BookingDetailResponse["booking"]["status"][]> = {
-  cancelled: [],
-  completed: [],
-  confirmed: ["completed", "cancelled"],
-  pending: ["confirmed", "cancelled"],
+/* ── Company palette ── */
+const companyColors: Record<string, { bg: string; border: string; text: string; dot: string }> = {
+  default: { bg: "bg-primary/10", border: "border-primary/30", text: "text-primary", dot: "bg-primary" },
 };
 
-function getCurrentWeekRange(): { start: string; end: string } {
-  const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const day = start.getUTCDay();
-  const diff = day === 0 ? 6 : day - 1;
-  start.setUTCDate(start.getUTCDate() - diff);
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + 6);
-  end.setUTCHours(23, 59, 59, 999);
-
-  return {
-    end: end.toISOString(),
-    start: start.toISOString(),
-  };
+function getCompanyColors(companyId: string | null | undefined) {
+  // In a real app, we might derive this from the company ID or name
+  return companyColors.default;
 }
 
-function labelize(value: string): string {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+const statusConfig: Record<string, { label: string; icon: typeof CheckCircle2; cls: string }> = {
+  confirmed: { label: "Confirmed", icon: CheckCircle2, cls: "text-[hsl(var(--success))]" },
+  pending: { label: "Pending", icon: Clock, cls: "text-[hsl(var(--warning))]" },
+  completed: { label: "Completed", icon: CheckCircle2, cls: "text-muted-foreground" },
+  cancelled: { label: "Cancelled", icon: X, cls: "text-destructive" },
+  conflict: { label: "Conflict", icon: AlertTriangle, cls: "text-destructive" },
+};
+
+const priorityConfig: Record<string, { label: string; cls: string }> = {
+  high: { label: "High", cls: "text-destructive bg-destructive/10 border-destructive/20" },
+  urgent: { label: "Urgent", cls: "text-destructive bg-destructive/10 border-destructive/20" },
+  medium: { label: "Medium", cls: "text-[hsl(var(--warning))] bg-[hsl(var(--warning)/0.1)] border-[hsl(var(--warning)/0.2)]" },
+  low: { label: "Low", cls: "text-muted-foreground bg-secondary border-border" },
+};
+
+const statusDotColor: Record<string, string> = {
+  available: "bg-[hsl(var(--success))]",
+  busy: "bg-[hsl(var(--warning))]",
+  offline: "bg-muted-foreground",
+};
+
+const timeSlots = Array.from({ length: 13 }, (_, i) => {
+  const h = i + 7;
+  return { label: `${h.toString().padStart(2, "0")}:00`, hour: h };
+});
+
+const views = ["Day", "Week", "Month"] as const;
+const HOUR_HEIGHT = 56;
+const GRID_START = 7;
+
+function getCapacity(totalMin: number): { label: string; level: "low" | "medium" | "high" | "overloaded"; pct: number } {
+  const pct = Math.min((totalMin / 480) * 100, 120);
+  if (pct > 100) return { label: "Overloaded", level: "overloaded", pct };
+  if (pct >= 75) return { label: "High", level: "high", pct };
+  if (pct >= 40) return { label: "Medium", level: "medium", pct };
+  return { label: "Low", level: "low", pct };
+}
+
+const capacityBarColor: Record<string, string> = {
+  low: "bg-[hsl(var(--success))]",
+  medium: "bg-[hsl(var(--warning))]",
+  high: "bg-primary",
+  overloaded: "bg-destructive",
+};
+
+function DetailRow({ icon: Icon, label, value, highlight }: { icon: React.ElementType; label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <Icon className={cn("w-3.5 h-3.5 mt-0.5 shrink-0", highlight ? "text-primary" : "text-muted-foreground")} />
+      <div>
+        <p className="text-[10px] text-muted-foreground">{label}</p>
+        <p className={cn("text-xs font-medium", highlight ? "text-primary" : "text-foreground")}>{value}</p>
+      </div>
+    </div>
+  );
+}
+
+/* ── Booking position helpers ── */
+function bookingTopFromISO(scheduledFor: string): number {
+  const d = parseISO(scheduledFor);
+  const h = d.getHours();
+  const m = d.getMinutes();
+  return (h - GRID_START) * HOUR_HEIGHT + (m / 60) * HOUR_HEIGHT;
+}
+
+function bookingHeightFromDuration(durationMinutes: number): number {
+  return (durationMinutes / 60) * HOUR_HEIGHT - 3;
+}
+
+function getDayIndex(scheduledFor: string, weekStart: Date): number {
+  const d = parseISO(scheduledFor);
+  const diff = Math.floor((d.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24));
+  return diff;
+}
+
+/* ── Create Booking Dialog ── */
+function CreateBookingDialog({ onClose, defaultDate }: { onClose: () => void; defaultDate?: string }) {
+  const { organizationId } = useOrg();
+  const { data: companies } = useCompanies(organizationId);
+  const createBooking = useCreateBooking(organizationId);
+
+  const [title, setTitle] = useState("");
+  const [companyId, setCompanyId] = useState("");
+  const [scheduledFor, setScheduledFor] = useState(
+    defaultDate ?? new Date().toISOString().slice(0, 16)
+  );
+  const [durationMinutes, setDurationMinutes] = useState(60);
+  const [status, setStatus] = useState<"pending" | "confirmed">("pending");
+  const [description, setDescription] = useState("");
+
+  // Set initial company if available
+  useMemo(() => {
+    if (companies && companies.length > 0 && !companyId) {
+      setCompanyId(companies[0].id);
+    }
+  }, [companies, companyId]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim() || !companyId) return;
+    try {
+      await createBooking.mutateAsync({
+        title: title.trim(),
+        companyId,
+        scheduledFor: new Date(scheduledFor).toISOString(),
+        durationMinutes,
+        status,
+        description: description.trim() || null,
+      });
+      toast.success("Booking created successfully");
+      onClose();
+    } catch {
+      toast.error("Failed to create booking. Please try again.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-card border border-border rounded-2xl w-[480px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">New Booking</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Schedule a new service booking</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Title <span className="text-destructive">*</span></label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+              placeholder="e.g., Boat cleaning service"
+              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Company <span className="text-destructive">*</span></label>
+              <select
+                value={companyId}
+                onChange={(e) => setCompanyId(e.target.value)}
+                required
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+              >
+                {!companies && <option>Loading companies...</option>}
+                {companies?.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Status</label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as "pending" | "confirmed")}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+              >
+                <option value="pending">Pending</option>
+                <option value="confirmed">Confirmed</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Date & Time <span className="text-destructive">*</span></label>
+              <input
+                type="datetime-local"
+                value={scheduledFor}
+                onChange={(e) => setScheduledFor(e.target.value)}
+                required
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Duration (minutes)</label>
+              <input
+                type="number"
+                value={durationMinutes}
+                onChange={(e) => setDurationMinutes(Number(e.target.value))}
+                min={15}
+                max={1440}
+                step={15}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Notes</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              placeholder="Add any specific instructions or notes..."
+              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            />
+          </div>
+
+          <div className="pt-2 flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold bg-secondary text-foreground hover:bg-surface-3 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={createBooking.isPending || !companyId}
+              className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {createBooking.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+              Create Booking
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }
 
 export default function CalendarPage() {
-  const queryClient = useQueryClient();
-  const { activeCompanyId, activeOrganizationId } = useAppContext();
-  const [search, setSearch] = useState("");
-  const [assignedUserId, setAssignedUserId] = useState<string | null>(null);
+  const { organizationId, companyId } = useOrg();
+  const [view, setView] = useState<(typeof views)[number]>("Week");
+  const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
-  const range = useMemo(() => getCurrentWeekRange(), []);
-  const calendarQuery = useQuery({
-    queryKey: ["org", activeOrganizationId, "calendar", activeCompanyId ?? "all", assignedUserId ?? "all", range],
-    queryFn: () =>
-      apiRequest<CalendarViewResponse>(
-        `/api/organizations/${activeOrganizationId}/ui/calendar${toQueryString({
-          assignedUserId,
-          companyId: activeCompanyId,
-          end: range.end,
-          limit: 100,
-          page: 1,
-          start: range.start,
-        })}`,
-      ),
-  });
-  const capacityQuery = useQuery({
-    queryKey: ["org", activeOrganizationId, "calendar", "capacity", activeCompanyId ?? "all", range],
-    queryFn: () =>
-      apiRequest<CapacityResponse>(
-        `/api/organizations/${activeOrganizationId}/ui/calendar/capacity${toQueryString({
-          companyId: activeCompanyId,
-          end: range.end,
-          start: range.start,
-        })}`,
-      ),
-  });
-  const bookingDetailQuery = useQuery({
-    enabled: Boolean(selectedBookingId),
-    queryKey: ["org", activeOrganizationId, "calendar", "booking", selectedBookingId, activeCompanyId ?? "all"],
-    queryFn: () =>
-      apiRequest<BookingDetailResponse>(
-        `/api/organizations/${activeOrganizationId}/ui/calendar/bookings/${selectedBookingId}${toQueryString({
-          companyId: activeCompanyId,
-        })}`,
-      ),
-  });
-  const updateStatusMutation = useMutation({
-    mutationFn: (status: BookingDetailResponse["booking"]["status"]) =>
-      apiRequest(`/api/organizations/${activeOrganizationId}/bookings/${selectedBookingId}`, {
-        body: JSON.stringify({ status }),
-        method: "PATCH",
-      }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["org", activeOrganizationId, "calendar"] }),
-        queryClient.invalidateQueries({ queryKey: ["org", activeOrganizationId, "dashboard"] }),
-      ]);
-    },
-  });
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
 
-  useEffect(() => {
-    setSelectedBookingId(null);
-    setAssignedUserId(null);
-  }, [activeCompanyId, activeOrganizationId]);
+  const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+  const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
 
-  if (calendarQuery.isLoading) {
-    return <LoadingState label="Loading schedule..." />;
-  }
+  const params = useMemo(() => ({
+    start: weekStart.toISOString(),
+    end: weekEnd.toISOString(),
+    companyId: companyId === "all" ? undefined : companyId,
+  }), [weekStart, weekEnd, companyId]);
 
-  if (calendarQuery.error) {
-    return (
-      <ErrorState
-        description={calendarQuery.error instanceof Error ? calendarQuery.error.message : "Unable to load the calendar."}
-        onRetry={() => calendarQuery.refetch()}
-        title="Calendar unavailable"
-      />
-    );
-  }
+  const { data: calendarData, isLoading, isError, refetch } = useCalendarView(organizationId, params);
+  const { data: capacityData } = useCalendarCapacity(organizationId, params);
+  const { data: detailData, isLoading: isDetailLoading } = useBookingDetail(organizationId, selectedBookingId);
+  const updateStatus = useUpdateBookingStatus(organizationId, selectedBookingId || "");
 
-  const bookings = calendarQuery.data.bookings.items.filter((booking) => {
-    if (!search.trim()) {
-      return true;
+  const bookings = calendarData?.bookings.items ?? [];
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+  const handlePrev = () => setCurrentDate(subWeeks(currentDate, 1));
+  const handleNext = () => setCurrentDate(addWeeks(currentDate, 1));
+  const handleToday = () => setCurrentDate(new Date());
+
+  const handleStatusUpdate = async (status: string) => {
+    if (!selectedBookingId) return;
+    try {
+      await updateStatus.mutateAsync(status);
+      toast.success(`Booking marked as ${status}`);
+    } catch {
+      toast.error("Failed to update status");
     }
-
-    const term = search.toLowerCase();
-    return booking.title.toLowerCase().includes(term) || booking.contact?.name.toLowerCase().includes(term);
-  });
-  const bookingsByDay = new Map<string, typeof bookings>();
-
-  bookings.forEach((booking) => {
-    const key = formatDate(booking.scheduledFor);
-    bookingsByDay.set(key, [...(bookingsByDay.get(key) ?? []), booking]);
-  });
+  };
 
   return (
-    <div className="mx-auto max-w-[1440px] space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Schedule</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {formatDate(calendarQuery.data.range.start)} to {formatDate(calendarQuery.data.range.end)}
-          </p>
+    <div className="h-[calc(100vh-8rem)] flex flex-col gap-4">
+      {/* Header */}
+      <div className="flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-4">
+          <h1 className="text-xl font-bold text-foreground">Calendar</h1>
+          <div className="flex items-center bg-secondary/50 rounded-lg p-1 border border-border">
+            {views.map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={cn(
+                  "px-3 py-1 text-xs font-medium rounded-md transition-all",
+                  view === v ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
         </div>
-        <input
-          className="w-full max-w-xs rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none"
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search bookings or contacts..."
-          value={search}
-        />
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center bg-secondary/50 rounded-lg border border-border">
+            <button onClick={handlePrev} className="p-1.5 hover:text-foreground text-muted-foreground transition-colors">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button onClick={handleToday} className="px-3 py-1.5 text-xs font-medium hover:text-foreground text-muted-foreground border-x border-border transition-colors">
+              Today
+            </button>
+            <button onClick={handleNext} className="p-1.5 hover:text-foreground text-muted-foreground transition-colors">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+          <span className="text-sm font-semibold text-foreground min-w-[140px] text-center">
+            {format(weekStart, "MMM d")} – {format(weekEnd, "MMM d, yyyy")}
+          </span>
+          <button
+            onClick={() => setIsCreateOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-md shadow-primary/20"
+          >
+            <Plus className="w-4 h-4" />
+            New Booking
+          </button>
+        </div>
       </div>
 
-      {bookings.length === 0 ? (
-        <EmptyState description="No bookings were found for the active organization/company scope this week." title="No bookings scheduled" />
-      ) : null}
-
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[280px_minmax(0,1fr)_360px]">
-        <aside className="space-y-4 rounded-xl border border-border bg-card p-4">
-          <div className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Team Capacity</h2>
-          </div>
-          {capacityQuery.isLoading ? <LoadingState label="Loading capacity..." /> : null}
-          {capacityQuery.error ? (
-            <ErrorState
-              description={capacityQuery.error instanceof Error ? capacityQuery.error.message : "Unable to load capacity."}
-              onRetry={() => capacityQuery.refetch()}
-              title="Capacity unavailable"
-            />
-          ) : null}
-          {capacityQuery.data ? (
-            <div className="space-y-3">
-              {capacityQuery.data.users.map((item) => (
-                <button
-                  key={item.user.id}
-                  className={cn(
-                    "w-full rounded-lg border px-3 py-3 text-left transition-colors",
-                    assignedUserId === item.user.id ? "border-primary/50 bg-primary/5" : "border-border/60 bg-background/30",
-                  )}
-                  onClick={() => setAssignedUserId((current) => (current === item.user.id ? null : item.user.id))}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-medium text-foreground">{item.user.name}</p>
-                    {item.isOverloaded || item.conflictCount > 0 ? <AlertTriangle className="h-4 w-4 text-destructive" /> : null}
+      <div className="flex-1 flex gap-4 min-h-0">
+        {/* Main Calendar Grid */}
+        <div className="flex-1 bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
+          {/* Day Headers */}
+          <div className="grid grid-cols-[64px_1fr] border-b border-border bg-secondary/30">
+            <div className="border-r border-border" />
+            <div className="grid grid-cols-7">
+              {days.map((day, i) => {
+                const isToday = format(day, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
+                return (
+                  <div key={i} className={cn("px-2 py-3 text-center border-r border-border last:border-r-0", isToday && "bg-primary/5")}>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{format(day, "EEE")}</p>
+                    <p className={cn("text-lg font-bold mt-0.5", isToday ? "text-primary" : "text-foreground")}>{format(day, "d")}</p>
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {item.bookingCount} booking{item.bookingCount === 1 ? "" : "s"} · {Math.round(item.totalDurationMinutes / 60)}h scheduled
-                  </p>
-                  {item.overloadIndicator ? <p className="mt-2 text-xs text-destructive">{item.overloadIndicator}</p> : null}
-                </button>
-              ))}
+                );
+              })}
             </div>
-          ) : null}
-        </aside>
-
-        <section className="rounded-xl border border-border bg-card p-4">
-          <div className="mb-4 flex items-center gap-2">
-            <CalendarDays className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Weekly Bookings</h2>
           </div>
-          {bookings.length === 0 ? null : (
-            <div className="space-y-4">
-              {[...bookingsByDay.entries()].map(([day, dayBookings]) => (
-                <div key={day} className="space-y-2">
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">{day}</p>
-                  <div className="space-y-2">
-                    {dayBookings.map((booking) => (
-                      <button
+
+          {/* Scrollable Grid */}
+          <div className="flex-1 overflow-y-auto relative custom-scrollbar">
+            <div className="grid grid-cols-[64px_1fr] min-h-full">
+              {/* Time Labels */}
+              <div className="border-r border-border bg-secondary/10">
+                {timeSlots.map((slot) => (
+                  <div key={slot.hour} className="h-[56px] px-2 py-1 text-[10px] font-medium text-muted-foreground text-right border-b border-border/50">
+                    {slot.label}
+                  </div>
+                ))}
+              </div>
+
+              {/* Grid Columns */}
+              <div className="grid grid-cols-7 relative">
+                {/* Horizontal Grid Lines */}
+                {timeSlots.map((slot) => (
+                  <div key={slot.hour} className="absolute left-0 right-0 border-b border-border/50" style={{ top: (slot.hour - GRID_START) * HOUR_HEIGHT }} />
+                ))}
+
+                {/* Vertical Grid Lines */}
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="absolute top-0 bottom-0 border-r border-border/50" style={{ left: `${((i + 1) / 7) * 100}%` }} />
+                ))}
+
+                {/* Bookings */}
+                {isLoading ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-background/50 backdrop-blur-[1px] z-10">
+                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                  </div>
+                ) : isError ? (
+                  <div className="absolute inset-0 flex items-center justify-center p-4">
+                    <ErrorBanner message="Failed to load calendar." onRetry={refetch} />
+                  </div>
+                ) : bookings.length === 0 ? (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <p className="text-xs text-muted-foreground">No bookings this week</p>
+                  </div>
+                ) : (
+                  bookings.map((booking) => {
+                    const top = bookingTopFromISO(booking.scheduledFor);
+                    const height = bookingHeightFromDuration(booking.durationMinutes);
+                    const dayIdx = getDayIndex(booking.scheduledFor, weekStart);
+                    if (dayIdx < 0 || dayIdx > 6) return null;
+
+                    const colors = getCompanyColors(booking.company?.id);
+                    const isSelected = selectedBookingId === booking.id;
+
+                    return (
+                      <div
                         key={booking.id}
-                        className={cn(
-                          "w-full rounded-lg border px-4 py-3 text-left transition-colors",
-                          selectedBookingId === booking.id ? "border-primary/50 bg-primary/5" : "border-border/60 bg-background/30",
-                        )}
                         onClick={() => setSelectedBookingId(booking.id)}
+                        className={cn(
+                          "absolute left-[2%] right-[2%] rounded-lg border p-2 cursor-pointer transition-all duration-200 group overflow-hidden",
+                          colors.bg,
+                          colors.border,
+                          isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-card z-20 shadow-lg" : "hover:shadow-md hover:z-10"
+                        )}
+                        style={{ top, height, left: `${(dayIdx / 7) * 100 + 0.5}%`, width: `${100 / 7 - 1}%` }}
                       >
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-medium text-foreground">{booking.title}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {formatDateTime(booking.scheduledFor)} · {booking.company?.name ?? "No company"}
-                            </p>
-                          </div>
-                          <span className="text-xs text-muted-foreground">{labelize(booking.status)}</span>
+                        <div className="flex items-start justify-between gap-1">
+                          <p className={cn("text-[10px] font-bold leading-tight truncate", colors.text)}>{booking.title}</p>
+                          {booking.status === "confirmed" && <CheckCircle2 className={cn("w-2.5 h-2.5 shrink-0", colors.text)} />}
                         </div>
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          {booking.contact?.name ?? "No contact"} · {booking.durationMinutes} min · {booking.taskCount} linked task{booking.taskCount === 1 ? "" : "s"}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className={cn("w-1 h-1 rounded-full", colors.dot)} />
+                          <p className="text-[9px] text-muted-foreground truncate font-medium">{booking.company?.name || "No Company"}</p>
+                        </div>
+                        {height > 40 && (
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <div className="flex -space-x-1">
+                              {booking.assignedUserSummary.users.slice(0, 2).map((u, i) => (
+                                <div key={i} className="w-3.5 h-3.5 rounded-full bg-background border border-border flex items-center justify-center text-[7px] font-bold">
+                                  {u.initials}
+                                </div>
+                              ))}
+                            </div>
+                            <p className="text-[8px] text-muted-foreground font-medium">{format(parseISO(booking.scheduledFor), "h:mm a")}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
-          )}
-        </section>
-
-        <aside className="rounded-xl border border-border bg-card p-4">
-          <div className="mb-4 flex items-center gap-2">
-            <Clock className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Booking Detail</h2>
           </div>
-          {!selectedBookingId ? (
-            <EmptyState description="Select a booking from the weekly list to inspect its trace, tasks, and workflow runs." title="No booking selected" />
-          ) : null}
-          {selectedBookingId && bookingDetailQuery.isLoading ? <LoadingState label="Loading booking detail..." /> : null}
-          {selectedBookingId && bookingDetailQuery.error ? (
-            <ErrorState
-              description={bookingDetailQuery.error instanceof Error ? bookingDetailQuery.error.message : "Unable to load the booking detail."}
-              onRetry={() => bookingDetailQuery.refetch()}
-              title="Booking detail unavailable"
-            />
-          ) : null}
-          {bookingDetailQuery.data ? (
-            <div className="space-y-4">
-              <div>
-                <p className="text-lg font-semibold text-foreground">{bookingDetailQuery.data.booking.title}</p>
-                <p className="text-sm text-muted-foreground">
-                  {formatDateTime(bookingDetailQuery.data.booking.scheduledFor)} · {bookingDetailQuery.data.booking.company?.name ?? "No company"}
-                </p>
-                <p className="mt-1 text-sm text-muted-foreground">{bookingDetailQuery.data.booking.description ?? "No booking description was provided."}</p>
-              </div>
+        </div>
 
-              {nextBookingStatuses[bookingDetailQuery.data.booking.status].length > 0 ? (
+        {/* Sidebar: Capacity & Details */}
+        <div className="w-80 flex flex-col gap-4 shrink-0 min-h-0">
+          {/* Capacity Card */}
+          <div className="bg-card border border-border rounded-xl p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Team Capacity</h3>
+              <TrendingUp className="w-3.5 h-3.5 text-muted-foreground" />
+            </div>
+            <div className="space-y-4">
+              {capacityData?.assignedUsers.slice(0, 4).map((u, i) => {
+                const cap = getCapacity(u.totalDurationMinutes);
+                return (
+                  <div key={i} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="font-semibold text-foreground">{u.user.name}</span>
+                      <span className={cn("font-bold", cap.level === "overloaded" ? "text-destructive" : "text-muted-foreground")}>
+                        {Math.round(cap.pct)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+                      <div className={cn("h-full transition-all duration-500", capacityBarColor[cap.level])} style={{ width: `${cap.pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+              {!capacityData && <LoadingCards count={3} />}
+            </div>
+          </div>
+
+          {/* Detail Panel */}
+          <div className="flex-1 bg-card border border-border rounded-xl flex flex-col shadow-sm min-h-0">
+            {!selectedBookingId ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+                <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center mb-3">
+                  <CalendarDays className="w-6 h-6 text-muted-foreground/40" />
+                </div>
+                <p className="text-sm font-semibold text-foreground">No Selection</p>
+                <p className="text-xs text-muted-foreground mt-1">Select a booking to view details and manage status.</p>
+              </div>
+            ) : isDetailLoading ? (
+              <div className="p-6 space-y-6">
                 <div className="space-y-2">
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Update Status</p>
-                  <div className="flex flex-wrap gap-2">
-                    {nextBookingStatuses[bookingDetailQuery.data.booking.status].map((status) => (
-                      <Button
-                        key={status}
-                        disabled={updateStatusMutation.isPending}
-                        onClick={() => updateStatusMutation.mutate(status)}
-                        size="sm"
-                        variant="outline"
-                      >
-                        {labelize(status)}
-                      </Button>
-                    ))}
+                  <div className="h-4 w-3/4 bg-secondary animate-pulse rounded" />
+                  <div className="h-3 w-1/2 bg-secondary animate-pulse rounded" />
+                </div>
+                <LoadingCards count={3} />
+              </div>
+            ) : detailData ? (
+              <div className="flex-1 flex flex-col min-h-0">
+                <div className="p-5 border-b border-border shrink-0">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h3 className="text-sm font-bold text-foreground leading-tight">{detailData.booking.title}</h3>
+                    <button onClick={() => setSelectedBookingId(null)} className="p-1 hover:bg-secondary rounded-md transition-colors">
+                      <X className="w-3.5 h-3.5 text-muted-foreground" />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider", statusConfig[detailData.booking.status]?.cls || "bg-secondary text-muted-foreground")}>
+                      {detailData.booking.status}
+                    </span>
+                    {detailData.booking.priority && (
+                      <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider", priorityConfig[detailData.booking.priority]?.cls)}>
+                        {detailData.booking.priority}
+                      </span>
+                    )}
                   </div>
                 </div>
-              ) : null}
 
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">Linked Tasks</p>
-                {bookingDetailQuery.data.tasks.length === 0 ? (
-                  <EmptyState description="No tasks are currently linked to this booking." title="No linked tasks" />
-                ) : (
-                  <div className="space-y-2">
-                    {bookingDetailQuery.data.tasks.map((task) => (
-                      <div key={task.id} className="rounded-lg border border-border/60 bg-background/30 px-4 py-3">
-                        <p className="text-sm font-medium text-foreground">{task.title}</p>
-                        <p className="text-xs text-muted-foreground">{labelize(task.status)} · {labelize(task.priority)}</p>
-                      </div>
-                    ))}
+                <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
+                  {/* Primary Info */}
+                  <div className="grid grid-cols-2 gap-y-4 gap-x-2">
+                    <DetailRow icon={Briefcase} label="Company" value={detailData.booking.company?.name || "None"} highlight />
+                    <DetailRow icon={Users} label="Contact" value={detailData.booking.contact?.name || "None"} />
+                    <DetailRow icon={CalendarDays} label="Date" value={format(parseISO(detailData.booking.scheduledFor), "MMM d, yyyy")} />
+                    <DetailRow icon={Clock} label="Time" value={format(parseISO(detailData.booking.scheduledFor), "h:mm a")} />
                   </div>
-                )}
-              </div>
 
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">Workflow Runs</p>
-                {bookingDetailQuery.data.triggeredWorkflowRuns.length === 0 ? (
-                  <EmptyState description="No workflow runs are linked to this booking yet." title="No workflow runs" />
-                ) : (
-                  <div className="space-y-2">
-                    {bookingDetailQuery.data.triggeredWorkflowRuns.map((run) => (
-                      <div key={run.id} className="rounded-lg border border-border/60 bg-background/30 px-4 py-3">
-                        <p className="text-sm font-medium text-foreground">{run.workflow?.label ?? "Workflow run"}</p>
-                        <p className="text-xs text-muted-foreground">{labelize(run.status)}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                  {/* Description */}
+                  {detailData.booking.description && (
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <StickyNote className="w-3 h-3" />
+                        Notes
+                      </h4>
+                      <p className="text-xs text-foreground/80 leading-relaxed bg-secondary/30 p-3 rounded-lg border border-border/50 italic">
+                        "{detailData.booking.description}"
+                      </p>
+                    </div>
+                  )}
 
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">Trace</p>
-                {bookingDetailQuery.data.trace.length === 0 ? (
-                  <EmptyState description="Trace events will appear here as the booking changes and workflows run." title="No trace events" />
-                ) : (
-                  <div className="space-y-2">
-                    {bookingDetailQuery.data.trace.map((item) => (
-                      <div key={item.id} className="rounded-lg border border-border/60 bg-background/30 px-4 py-3">
-                        <p className="text-sm font-medium text-foreground">{item.title}</p>
-                        <p className="text-xs text-muted-foreground">{item.detail}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(item.occurredAt)}</p>
-                      </div>
-                    ))}
+                  {/* Team */}
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                      <UserPlus className="w-3 h-3" />
+                      Assigned Team
+                    </h4>
+                    <div className="space-y-2">
+                      {detailData.booking.assignedUserSummary.users.map((u, i) => (
+                        <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-secondary/40 border border-border/50">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary">
+                              {u.initials}
+                            </div>
+                            <span className="text-xs font-medium text-foreground">{u.name}</span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">Primary</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                )}
+
+                  {/* Linked Tasks */}
+                  {detailData.linkedTasks.length > 0 && (
+                    <div className="space-y-3">
+                      <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Linked Tasks
+                      </h4>
+                      <div className="space-y-2">
+                        {detailData.linkedTasks.map((t) => (
+                          <div key={t.id} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer group border border-transparent hover:border-border">
+                            <Circle className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                            <span className="text-xs text-foreground/80 group-hover:text-foreground transition-colors truncate flex-1">{t.title}</span>
+                            <ArrowRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="p-4 border-t border-border bg-secondary/20 shrink-0">
+                  <div className="grid grid-cols-2 gap-2">
+                    {detailData.booking.status === "pending" && (
+                      <button
+                        onClick={() => handleStatusUpdate("confirmed")}
+                        disabled={updateStatus.isPending}
+                        className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+                      >
+                        {updateStatus.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                        Confirm Booking
+                      </button>
+                    )}
+                    {detailData.booking.status === "confirmed" && (
+                      <button
+                        onClick={() => handleStatusUpdate("completed")}
+                        disabled={updateStatus.isPending}
+                        className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-[hsl(var(--success))] text-white hover:opacity-90 transition-all"
+                      >
+                        {updateStatus.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                        Mark Completed
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleStatusUpdate("cancelled")}
+                      disabled={updateStatus.isPending}
+                      className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-secondary text-foreground hover:bg-surface-3 transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleStatusUpdate("no_show")}
+                      disabled={updateStatus.isPending}
+                      className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-secondary text-foreground hover:bg-surface-3 transition-all"
+                    >
+                      No-show
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
-          ) : null}
-        </aside>
+            ) : null}
+          </div>
+        </div>
       </div>
+
+      {isCreateOpen && <CreateBookingDialog onClose={() => setIsCreateOpen(false)} />}
     </div>
+  );
+}
+
+function Briefcase(props: any) {
+  return (
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+      <rect width="20" height="14" x="2" y="6" rx="2" />
+    </svg>
+  );
+}
+
+function Users(props: any) {
+  return (
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
   );
 }

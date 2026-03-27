@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-
 import { handleRoute, parseJsonBody } from "@/server/api/route";
-import { requireOrganizationContext, ValidationError } from "@/server/organizations/context";
+import { requireOrganizationContext } from "@/server/organizations/context";
 import {
-  assignContactOwner,
-  assignContactOwnerInputSchema,
-  getContactById,
   updateContactStage,
   updateContactStageInputSchema,
+  assignContactOwner,
+  assignContactOwnerInputSchema,
 } from "@/server/services/contacts";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
@@ -21,64 +19,44 @@ interface RouteContext {
   };
 }
 
-const patchContactInputSchema = z.object({
-  ownerProfileId: z.string().uuid().optional(),
-  stage: z.enum(["lead", "qualified", "active", "closed"]).optional(),
-});
-
-export async function GET(_request: Request, context: RouteContext): Promise<NextResponse> {
-  return handleRoute(async () => {
-    const supabase = createSupabaseServerClient();
-    const organization = await requireOrganizationContext(supabase, context.params.organizationId);
-    const data = await getContactById(
-      {
-        actorProfileId: organization.user.id,
-        organizationId: organization.organizationId,
-        supabase,
-      },
-      context.params.contactId,
-    );
-
-    return NextResponse.json({ data });
-  });
-}
+const patchContactInputSchema = z.union([
+  z.object({ action: z.literal("updateStage"), stage: z.enum(["lead", "qualified", "active", "closed"]) }),
+  z.object({ action: z.literal("assignOwner"), ownerProfileId: z.string().uuid() }),
+]);
 
 export async function PATCH(request: Request, context: RouteContext): Promise<NextResponse> {
   return handleRoute(async () => {
     const supabase = createSupabaseServerClient();
     const organization = await requireOrganizationContext(supabase, context.params.organizationId);
-    const input = await parseJsonBody(request, patchContactInputSchema);
-    const serviceContext = {
-      actorProfileId: organization.user.id,
-      organizationId: organization.organizationId,
-      supabase,
-    };
+    const body = await parseJsonBody(request, patchContactInputSchema);
 
-    if (input.stage && input.ownerProfileId) {
-      throw new ValidationError("PATCH contact accepts either stage or ownerProfileId, not both.");
-    }
-
-    if (input.stage) {
+    if (body.action === "updateStage") {
       const data = await updateContactStage(
-        serviceContext,
-        updateContactStageInputSchema.parse({ contactId: context.params.contactId, stage: input.stage }),
-      );
-
-      return NextResponse.json({ data });
-    }
-
-    if (input.ownerProfileId) {
-      const data = await assignContactOwner(
-        serviceContext,
-        assignContactOwnerInputSchema.parse({
+        {
+          actorProfileId: organization.user.id,
+          organizationId: organization.organizationId,
+          supabase,
+        },
+        updateContactStageInputSchema.parse({
           contactId: context.params.contactId,
-          ownerProfileId: input.ownerProfileId,
+          stage: body.stage,
         }),
       );
-
       return NextResponse.json({ data });
     }
 
-    throw new ValidationError("PATCH contact requires stage or ownerProfileId.");
+    // assignOwner
+    const data = await assignContactOwner(
+      {
+        actorProfileId: organization.user.id,
+        organizationId: organization.organizationId,
+        supabase,
+      },
+      assignContactOwnerInputSchema.parse({
+        contactId: context.params.contactId,
+        ownerProfileId: body.ownerProfileId,
+      }),
+    );
+    return NextResponse.json({ data });
   });
 }

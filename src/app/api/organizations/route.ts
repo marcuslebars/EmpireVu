@@ -1,39 +1,36 @@
 import { NextResponse } from "next/server";
-
-import { handleRoute, parseJsonBody } from "@/server/api/route";
-import { createOrganization, createOrganizationInputSchema } from "@/server/services/organizations";
+import { handleRoute } from "@/server/api/route";
 import { createSupabaseServerClient } from "@/server/supabase/server";
+import { getAuthenticatedUser } from "@/server/organizations/context";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request): Promise<NextResponse> {
+export async function GET(): Promise<NextResponse> {
   return handleRoute(async () => {
     const supabase = createSupabaseServerClient();
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    const user = await getAuthenticatedUser(supabase);
 
-    if (userError || !user) {
-      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    // Fetch organizations the user is a member of
+    const { data: memberships, error: membershipError } = await supabase
+      .from("organization_memberships")
+      .select(`
+        organization_id,
+        organizations (
+          id,
+          name,
+          slug
+        )
+      `)
+      .eq("profile_id", user.id);
+
+    if (membershipError) {
+      throw membershipError;
     }
 
-    const { data: profile, error: profileError } = await (supabase.from("profiles") as any)
-      .select("id")
-      .eq("id", user.id)
-      .maybeSingle();
+    const organizations = memberships
+      .map((m: any) => m.organizations)
+      .filter(Boolean);
 
-    if (profileError) {
-      throw profileError;
-    }
-
-    if (!profile) {
-      return NextResponse.json({ error: "Profile not found." }, { status: 404 });
-    }
-
-    const input = await parseJsonBody(request, createOrganizationInputSchema);
-    const data = await createOrganization(supabase, user.id, profile.id, input);
-
-    return NextResponse.json({ data }, { status: 201 });
+    return NextResponse.json({ data: organizations });
   });
 }

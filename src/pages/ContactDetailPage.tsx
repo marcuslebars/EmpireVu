@@ -1,359 +1,523 @@
-import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Calendar, CheckSquare, DollarSign, Workflow } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  ArrowLeft,
+  Phone,
+  Mail,
+  Calendar,
+  CheckCircle2,
+  DollarSign,
+  MessageSquare,
+  Plus,
+  Edit3,
+  MoreHorizontal,
+  TrendingUp,
+  AlertTriangle,
+  ArrowRight,
+  Clock,
+  Star,
+  Zap,
+  Activity,
+  Circle,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useOrg } from "@/lib/org-context";
+import { useContactDetail } from "@/lib/api-hooks";
+import { LoadingCards, ErrorBanner, EmptyState, SkeletonStatCard } from "@/components/ui/StateViews";
+import { formatCentsCompact, formatCents, formatDate, relativeTime } from "@/lib/format";
+import type { ContactDetailResponse } from "@/lib/api-client";
 
-import { Button } from "@/components/ui/button";
-import { EmptyState, ErrorState, LoadingState } from "@/components/system/AsyncState";
-import { useAppContext } from "@/lib/app-context";
-import { apiRequest, toQueryString } from "@/lib/api";
-import { formatCurrency, formatDateTime } from "@/lib/formatters";
+// ─── Styling maps ─────────────────────────────────────────────────────────────
 
-interface ContactDetailResponse {
-  contact: {
-    company: { id: string; name: string } | null;
-    createdAt: string;
-    email: string | null;
-    id: string;
-    metadata: Record<string, unknown>;
-    name: string;
-    notes: string | null;
-    owner: { id: string; name: string } | null;
-    phone: string | null;
-    stage: "lead" | "qualified" | "active" | "closed";
-  };
-  financialSummary: {
-    pipelineValueCents: number | null;
-    realizedRevenueCents: number;
-    upcomingRevenueCents: number;
-  };
-  linkedBookings: Array<{
-    company: { id: string; name: string } | null;
-    durationMinutes: number;
-    id: string;
-    scheduledFor: string;
-    status: string;
-    taskCount: number;
-    title: string;
-  }>;
-  linkedTasks: Array<{
-    assignee: { name: string } | null;
-    dueAt: string | null;
-    id: string;
-    isOverdue: boolean;
-    priority: string;
-    status: string;
-    title: string;
-  }>;
-  nextAction: {
-    detail: string;
-    label: string;
-    type: string;
-  };
-  timeline: Array<{
-    detail: string;
-    id: string;
-    kind: string;
-    occurredAt: string;
-    status: string | null;
-    title: string;
-  }>;
-  workflowTraces: Array<{
-    completedAt: string | null;
-    createdAt: string;
-    failureReason: string | null;
-    id: string;
-    status: string;
-    workflow: { id: string; label: string } | null;
-  }>;
+const stageConfig: Record<string, { bg: string; text: string }> = {
+  lead: { bg: "bg-muted", text: "text-muted-foreground" },
+  qualified: { bg: "bg-primary/15", text: "text-primary" },
+  active: { bg: "bg-emerald-500/15", text: "text-emerald-400" },
+  closed: { bg: "bg-violet-500/15", text: "text-violet-400" },
+};
+
+const stageLabel: Record<string, string> = {
+  lead: "Lead",
+  qualified: "Qualified",
+  active: "Active",
+  closed: "Closed",
+};
+
+const actionTypeConfig: Record<string, { bg: string; text: string; border: string; icon: typeof Zap }> = {
+  urgent: { bg: "bg-red-500/10", text: "text-red-400", border: "border-red-500/20", icon: AlertTriangle },
+  action: { bg: "bg-primary/10", text: "text-primary", border: "border-primary/20", icon: ArrowRight },
+  wait: { bg: "bg-amber-500/10", text: "text-amber-400", border: "border-amber-500/20", icon: Clock },
+  done: { bg: "bg-emerald-500/10", text: "text-emerald-400", border: "border-emerald-500/20", icon: Star },
+};
+
+const priorityConfig: Record<string, { bg: string; text: string }> = {
+  urgent: { bg: "bg-red-500/15", text: "text-red-400" },
+  high: { bg: "bg-red-500/15", text: "text-red-400" },
+  medium: { bg: "bg-amber-500/15", text: "text-amber-400" },
+  low: { bg: "bg-muted", text: "text-muted-foreground" },
+};
+
+const taskStatusConfig: Record<string, { bg: string; text: string }> = {
+  todo: { bg: "bg-muted", text: "text-muted-foreground" },
+  in_progress: { bg: "bg-primary/15", text: "text-primary" },
+  completed: { bg: "bg-emerald-500/15", text: "text-emerald-400" },
+  blocked: { bg: "bg-red-500/15", text: "text-red-400" },
+};
+
+const bookingStatusConfig: Record<string, { bg: string; text: string }> = {
+  confirmed: { bg: "bg-primary/15", text: "text-primary" },
+  pending: { bg: "bg-amber-500/15", text: "text-amber-400" },
+  completed: { bg: "bg-emerald-500/15", text: "text-emerald-400" },
+  conflict: { bg: "bg-red-500/15", text: "text-red-400" },
+};
+
+// ─── Loaded detail view ───────────────────────────────────────────────────────
+
+function ContactDetailContent({ detail }: { detail: ContactDetailResponse }) {
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState("activity");
+
+  const { contact, financialSummary, linkedBookings, linkedTasks, nextAction, timeline, workflowTraces } = detail;
+
+  const sc = stageConfig[contact.stage] ?? stageConfig.lead;
+  const ac = actionTypeConfig[nextAction.type];
+  const isHighValue = (financialSummary.pipelineValueCents ?? 0) >= 2_500_000;
+
+  const openTasks = linkedTasks.filter((t) => t.status !== "completed").length;
+  const doneTasks = linkedTasks.filter((t) => t.status === "completed").length;
+
+  const tabs = [
+    { key: "activity", label: "Activity" },
+    { key: "bookings", label: "Bookings", count: linkedBookings.length },
+    { key: "tasks", label: "Tasks", count: linkedTasks.length },
+    { key: "financials", label: "Financials" },
+    { key: "workflows", label: "Workflows", count: workflowTraces.length },
+    { key: "notes", label: "Notes" },
+  ];
+
+  return (
+    <div className="max-w-[1200px] mx-auto space-y-5">
+      {/* Back + Header */}
+      <div className="opacity-0 animate-fade-in">
+        <button
+          onClick={() => navigate("/crm")}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4 active:scale-[0.97]"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to CRM
+        </button>
+
+        <div className="bg-card border border-border rounded-xl p-5">
+          <div className="flex items-start justify-between">
+            <div className="flex items-start gap-4">
+              <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center text-base font-bold relative bg-primary/15 text-primary")}>
+                {contact.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
+                {isHighValue && (
+                  <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-400 flex items-center justify-center">
+                    <Star className="w-2 h-2 text-amber-950" />
+                  </div>
+                )}
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-foreground">{contact.name}</h1>
+                <div className="flex items-center gap-3 mt-1.5">
+                  {contact.company && (
+                    <span className="text-[11px] font-medium px-2 py-0.5 rounded-md inline-flex items-center gap-1.5 bg-primary/15 text-primary">
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                      {contact.company.name}
+                    </span>
+                  )}
+                  <span className={cn("text-[11px] font-medium px-2 py-0.5 rounded-md", sc.bg, sc.text)}>
+                    {stageLabel[contact.stage] ?? contact.stage}
+                  </span>
+                  {financialSummary.pipelineValueCents != null && (
+                    <span className="text-sm font-bold text-foreground tabular-nums">
+                      {formatCentsCompact(financialSummary.pipelineValueCents)}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                  {contact.email && (
+                    <span className="flex items-center gap-1.5"><Mail className="w-3 h-3" />{contact.email}</span>
+                  )}
+                  {contact.phone && (
+                    <span className="flex items-center gap-1.5"><Phone className="w-3 h-3" />{contact.phone}</span>
+                  )}
+                  {contact.owner && (
+                    <span className="flex items-center gap-1.5"><TrendingUp className="w-3 h-3" />Owner: {contact.owner.name}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors active:scale-[0.97]">
+                <Edit3 className="w-3 h-3" />
+                Edit
+              </button>
+              <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground">
+                <MoreHorizontal className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Next Action Banner */}
+          {ac && (
+            <div className={cn("flex items-center gap-3 mt-4 p-3 rounded-lg border", ac.bg, ac.border)}>
+              <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center", ac.bg)}>
+                <ac.icon className={cn("w-4 h-4", ac.text)} />
+              </div>
+              <div className="flex-1">
+                <p className={cn("text-sm font-semibold", ac.text)}>Next: {nextAction.label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{nextAction.detail}</p>
+              </div>
+              <button className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-colors active:scale-[0.97]", ac.bg, ac.text, "hover:opacity-80")}>
+                Take Action →
+              </button>
+            </div>
+          )}
+
+          {/* Stats */}
+          <div className="grid grid-cols-4 gap-3 mt-4 pt-4 border-t border-border/50">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                <DollarSign className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Total Revenue</p>
+                <p className="text-base font-bold text-foreground tabular-nums">
+                  {formatCentsCompact(financialSummary.realizedRevenueCents)}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Calendar className="w-4 h-4 text-primary" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Bookings</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-base font-bold text-foreground tabular-nums">{linkedBookings.length}</p>
+                  {linkedBookings.filter((b) => b.status !== "completed").length > 0 && (
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-primary/10 text-primary">
+                      {linkedBookings.filter((b) => b.status !== "completed").length} upcoming
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                <CheckCircle2 className="w-4 h-4 text-violet-400" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Tasks</p>
+                <p className="text-base font-bold text-foreground tabular-nums">{openTasks} open · {doneTasks} done</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                <TrendingUp className="w-4 h-4 text-amber-400" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Owner</p>
+                <p className="text-base font-bold text-foreground">{contact.owner?.name ?? "—"}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="opacity-0 animate-fade-in" style={{ animationDelay: "80ms" }}>
+        <div className="flex items-center gap-1 border-b border-border">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={cn(
+                "px-4 py-2.5 text-sm font-medium transition-colors relative",
+                activeTab === tab.key ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <span className="flex items-center gap-1.5">
+                {tab.label}
+                {tab.count !== undefined && (
+                  <span className="text-[10px] bg-secondary px-1.5 py-0.5 rounded-md tabular-nums">{tab.count}</span>
+                )}
+              </span>
+              {activeTab === tab.key && (
+                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary rounded-full" />
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tab Content */}
+      <div className="opacity-0 animate-fade-in" style={{ animationDelay: "120ms" }}>
+        {/* Activity */}
+        {activeTab === "activity" && (
+          <div className="bg-card border border-border rounded-xl p-5">
+            {timeline.length === 0 ? (
+              <EmptyState title="No activity yet" description="Events will appear here as they occur." />
+            ) : (
+              <div className="space-y-0">
+                {timeline.map((item, i) => (
+                  <div key={item.id} className="flex gap-3 relative">
+                    {i < timeline.length - 1 && (
+                      <div className="absolute left-[15px] top-9 bottom-0 w-px bg-border/50" />
+                    )}
+                    <div className="w-8 h-8 rounded-lg bg-card border border-border flex items-center justify-center shrink-0 z-10 text-primary">
+                      <Activity className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="pb-5 flex-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-foreground">{item.title}</p>
+                        <p className="text-[10px] text-muted-foreground/60">{relativeTime(item.occurredAt)}</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">{item.detail}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Bookings */}
+        {activeTab === "bookings" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">{linkedBookings.length} bookings</h3>
+              <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]">
+                <Plus className="w-3 h-3" />
+                New Booking
+              </button>
+            </div>
+            {linkedBookings.length === 0 ? (
+              <EmptyState title="No bookings" description="No bookings linked to this contact." />
+            ) : (
+              <div className="bg-card border border-border rounded-xl overflow-hidden">
+                {linkedBookings.map((b, i) => {
+                  const bsc = bookingStatusConfig[b.status] ?? bookingStatusConfig.pending;
+                  return (
+                    <div
+                      key={b.id}
+                      className={cn(
+                        "flex items-center justify-between px-4 py-3 hover:bg-secondary/30 transition-colors cursor-pointer",
+                        i < linkedBookings.length - 1 && "border-b border-border/40"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center", bsc.bg)}>
+                          <Calendar className={cn("w-3.5 h-3.5", bsc.text)} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">{b.title}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatDate(b.scheduledFor, "MMM d, yyyy · h:mm a")}
+                            {b.assignedUserSummary.primary && ` · ${b.assignedUserSummary.primary.name}`}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {b.revenueCents != null && (
+                          <span className="text-sm font-semibold text-foreground tabular-nums">{formatCents(b.revenueCents)}</span>
+                        )}
+                        <span className={cn("text-[10px] font-medium px-2 py-0.5 rounded-md", bsc.bg, bsc.text)}>
+                          {b.status}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tasks */}
+        {activeTab === "tasks" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">{linkedTasks.length} tasks</h3>
+              <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]">
+                <Plus className="w-3 h-3" />
+                New Task
+              </button>
+            </div>
+            {linkedTasks.length === 0 ? (
+              <EmptyState title="No tasks" description="No tasks linked to this contact." />
+            ) : (
+              <div className="bg-card border border-border rounded-xl overflow-hidden">
+                {linkedTasks.map((t, i) => {
+                  const pc = priorityConfig[t.priority] ?? priorityConfig.low;
+                  const tsc = taskStatusConfig[t.status] ?? taskStatusConfig.todo;
+                  return (
+                    <div
+                      key={t.id}
+                      className={cn(
+                        "flex items-center justify-between px-4 py-3 hover:bg-secondary/30 transition-colors cursor-pointer",
+                        i < linkedTasks.length - 1 && "border-b border-border/40"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        {t.status === "completed" ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <Circle className="w-4 h-4 text-muted-foreground" />
+                        )}
+                        <div>
+                          <p className={cn("text-sm font-medium", t.status === "completed" ? "text-muted-foreground line-through" : "text-foreground")}>
+                            {t.title}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {t.assignee?.name ?? "Unassigned"}
+                            {t.dueAt && ` · Due ${formatDate(t.dueAt, "MMM d")}`}
+                            {t.isOverdue && <span className="text-destructive ml-1">· Overdue</span>}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={cn("text-[10px] font-medium px-2 py-0.5 rounded-md", pc.bg, pc.text)}>{t.priority}</span>
+                        <span className={cn("text-[10px] font-medium px-2 py-0.5 rounded-md", tsc.bg, tsc.text)}>{t.status}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Financials */}
+        {activeTab === "financials" && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-card border border-border rounded-xl p-4">
+                <p className="text-xs text-muted-foreground">Total Revenue</p>
+                <p className="text-xl font-bold text-foreground tabular-nums mt-1">
+                  {formatCentsCompact(financialSummary.realizedRevenueCents)}
+                </p>
+              </div>
+              <div className="bg-card border border-border rounded-xl p-4">
+                <p className="text-xs text-muted-foreground">Pipeline Value</p>
+                <p className="text-xl font-bold text-foreground tabular-nums mt-1">
+                  {financialSummary.pipelineValueCents != null ? formatCentsCompact(financialSummary.pipelineValueCents) : "—"}
+                </p>
+              </div>
+              <div className="bg-card border border-border rounded-xl p-4">
+                <p className="text-xs text-muted-foreground">Upcoming Revenue</p>
+                <p className="text-xl font-bold text-foreground tabular-nums mt-1">
+                  {formatCentsCompact(financialSummary.upcomingRevenueCents)}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Workflows */}
+        {activeTab === "workflows" && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-foreground">{workflowTraces.length} triggered workflows</h3>
+            {workflowTraces.length === 0 ? (
+              <EmptyState title="No workflows triggered" description="Workflows linked to this contact will appear here." />
+            ) : (
+              <div className="space-y-3">
+                {workflowTraces.map((run) => (
+                  <div key={run.id} className="bg-card border border-border rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-[hsl(var(--accent-violet))]/10 flex items-center justify-center">
+                          <Zap className="w-3.5 h-3.5 text-[hsl(var(--accent-violet))]" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">{run.workflow?.label ?? "Workflow"}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {run.status}
+                            {run.completedAt && ` · Completed ${relativeTime(run.completedAt)}`}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">{relativeTime(run.createdAt)}</span>
+                    </div>
+                    {run.failureReason && (
+                      <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-2.5 mt-2">
+                        <p className="text-xs text-destructive">{run.failureReason}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Notes */}
+        {activeTab === "notes" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">Internal Notes</h3>
+              <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]">
+                <Plus className="w-3 h-3" />
+                Add Note
+              </button>
+            </div>
+            {contact.notes ? (
+              <div className="bg-card border border-border rounded-xl p-4">
+                <p className="text-sm text-muted-foreground leading-relaxed">{contact.notes}</p>
+              </div>
+            ) : (
+              <EmptyState title="No notes" description="Add internal notes about this contact." />
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
-interface OrganizationMemberOption {
-  email: string;
-  id: string;
-  name: string;
-  role: string;
-}
-
-const stages = ["lead", "qualified", "active", "closed"] as const;
-
-function labelize(value: string): string {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
+// ─── Page wrapper ─────────────────────────────────────────────────────────────
 
 export default function ContactDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const { activeCompanyId, activeOrganizationId } = useAppContext();
-  const [selectedOwnerId, setSelectedOwnerId] = useState("");
+  const { organizationId } = useOrg();
 
-  const detailQuery = useQuery({
-    enabled: Boolean(id),
-    queryKey: ["org", activeOrganizationId, "crm", "detail", id, activeCompanyId ?? "all"],
-    queryFn: () =>
-      apiRequest<ContactDetailResponse>(
-        `/api/organizations/${activeOrganizationId}/ui/crm/contacts/${id}${toQueryString({
-          companyId: activeCompanyId,
-        })}`,
-      ),
-  });
-  const membersQuery = useQuery({
-    queryKey: ["org", activeOrganizationId, "members"],
-    queryFn: () => apiRequest<OrganizationMemberOption[]>(`/api/organizations/${activeOrganizationId}/members`),
-  });
-  const updateStageMutation = useMutation({
-    mutationFn: (stage: ContactDetailResponse["contact"]["stage"]) =>
-      apiRequest(`/api/organizations/${activeOrganizationId}/contacts/${id}`, {
-        body: JSON.stringify({ stage }),
-        method: "PATCH",
-      }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["org", activeOrganizationId, "crm"] }),
-        queryClient.invalidateQueries({ queryKey: ["org", activeOrganizationId, "crm", "detail", id] }),
-        queryClient.invalidateQueries({ queryKey: ["org", activeOrganizationId, "dashboard"] }),
-      ]);
-    },
-  });
-  const assignOwnerMutation = useMutation({
-    mutationFn: (ownerProfileId: string) =>
-      apiRequest(`/api/organizations/${activeOrganizationId}/contacts/${id}`, {
-        body: JSON.stringify({ ownerProfileId }),
-        method: "PATCH",
-      }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["org", activeOrganizationId, "crm"] }),
-        queryClient.invalidateQueries({ queryKey: ["org", activeOrganizationId, "crm", "detail", id] }),
-        queryClient.invalidateQueries({ queryKey: ["org", activeOrganizationId, "dashboard"] }),
-      ]);
-    },
-  });
+  const { data, isLoading, isError, refetch } = useContactDetail(organizationId, id ?? null);
 
-  if (!id) {
-    return <ErrorState description="The selected contact could not be identified from the route." title="Invalid contact route" />;
-  }
-
-  if (detailQuery.isLoading) {
-    return <LoadingState label="Loading contact detail..." />;
-  }
-
-  if (detailQuery.error) {
+  if (isLoading) {
     return (
-      <ErrorState
-        description={detailQuery.error instanceof Error ? detailQuery.error.message : "Unable to load contact detail."}
-        onRetry={() => detailQuery.refetch()}
-        title="Contact detail unavailable"
-      />
+      <div className="max-w-[1200px] mx-auto space-y-5">
+        <button
+          onClick={() => navigate("/crm")}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to CRM
+        </button>
+        <div className="space-y-4">
+          <SkeletonStatCard />
+          <LoadingCards count={4} />
+        </div>
+      </div>
     );
   }
 
-  const detail = detailQuery.data;
-  const memberOptions = membersQuery.data ?? [];
-
-  useEffect(() => {
-    setSelectedOwnerId(detail.contact.owner?.id ?? "");
-  }, [detail.contact.owner?.id]);
-
-  return (
-    <div className="mx-auto max-w-[1200px] space-y-5">
-      <button className="flex items-center gap-2 text-sm text-muted-foreground" onClick={() => navigate("/crm")}>
-        <ArrowLeft className="h-4 w-4" />
-        Back to CRM
-      </button>
-
-      <div className="rounded-xl border border-border bg-card p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">{detail.contact.name}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {detail.contact.company?.name ?? "No company"}
-              {detail.contact.owner?.name ? ` · Owner: ${detail.contact.owner.name}` : " · No owner assigned"}
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2 text-sm text-muted-foreground">
-              <span>{detail.contact.email ?? "No email"}</span>
-              <span>{detail.contact.phone ?? "No phone"}</span>
-              <span>Created {formatDateTime(detail.contact.createdAt)}</span>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">Stage</p>
-            <div className="flex flex-wrap gap-2">
-              {stages.map((stage) => (
-                <Button
-                  key={stage}
-                  disabled={detail.contact.stage === stage || updateStageMutation.isPending}
-                  onClick={() => updateStageMutation.mutate(stage)}
-                  size="sm"
-                  variant={detail.contact.stage === stage ? "default" : "outline"}
-                >
-                  {labelize(stage)}
-                </Button>
-              ))}
-            </div>
-            {updateStageMutation.error ? (
-              <p className="text-sm text-destructive">
-                {updateStageMutation.error instanceof Error ? updateStageMutation.error.message : "Unable to update the contact stage."}
-              </p>
-            ) : null}
-            <div className="space-y-2 pt-2">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">Owner</p>
-              {membersQuery.isLoading ? <p className="text-xs text-muted-foreground">Loading owners...</p> : null}
-              {membersQuery.error ? <p className="text-xs text-destructive">{membersQuery.error instanceof Error ? membersQuery.error.message : "Unable to load organization members."}</p> : null}
-              {!membersQuery.isLoading && !membersQuery.error ? (
-                <div className="flex items-center gap-2">
-                  <select
-                    className="min-w-[220px] rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none"
-                    value={selectedOwnerId}
-                    onChange={(event) => {
-                      const nextOwnerId = event.target.value;
-                      setSelectedOwnerId(nextOwnerId);
-
-                      if (!nextOwnerId || nextOwnerId === detail.contact.owner?.id) {
-                        return;
-                      }
-
-                      assignOwnerMutation.mutate(nextOwnerId);
-                    }}
-                  >
-                    <option value="">Select owner</option>
-                    {memberOptions.map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {member.name}
-                      </option>
-                    ))}
-                  </select>
-                  {assignOwnerMutation.isPending ? <span className="text-xs text-muted-foreground">Saving...</span> : null}
-                </div>
-              ) : null}
-              {assignOwnerMutation.error ? (
-                <p className="text-sm text-destructive">
-                  {assignOwnerMutation.error instanceof Error ? assignOwnerMutation.error.message : "Unable to assign the contact owner."}
-                </p>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-4">
-          <div className="rounded-lg bg-secondary/60 p-4">
-            <p className="text-xs text-muted-foreground">Pipeline Value</p>
-            <p className="mt-2 text-xl font-semibold text-foreground">{formatCurrency(detail.financialSummary.pipelineValueCents)}</p>
-          </div>
-          <div className="rounded-lg bg-secondary/60 p-4">
-            <p className="text-xs text-muted-foreground">Realized Revenue</p>
-            <p className="mt-2 text-xl font-semibold text-foreground">{formatCurrency(detail.financialSummary.realizedRevenueCents)}</p>
-          </div>
-          <div className="rounded-lg bg-secondary/60 p-4">
-            <p className="text-xs text-muted-foreground">Upcoming Revenue</p>
-            <p className="mt-2 text-xl font-semibold text-foreground">{formatCurrency(detail.financialSummary.upcomingRevenueCents)}</p>
-          </div>
-          <div className="rounded-lg bg-secondary/60 p-4">
-            <p className="text-xs text-muted-foreground">Next Action</p>
-            <p className="mt-2 text-sm font-medium text-foreground">{detail.nextAction.label}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{detail.nextAction.detail}</p>
-          </div>
-        </div>
+  if (isError || !data) {
+    return (
+      <div className="max-w-[1200px] mx-auto space-y-5">
+        <button
+          onClick={() => navigate("/crm")}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to CRM
+        </button>
+        <ErrorBanner message="Failed to load contact details." onRetry={() => refetch()} />
       </div>
+    );
+  }
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="space-y-4">
-          <section className="rounded-xl border border-border bg-card p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold text-foreground">Linked Bookings</h2>
-            </div>
-            {detail.linkedBookings.length === 0 ? (
-              <EmptyState description="This contact has no linked bookings yet." title="No bookings" />
-            ) : (
-              <div className="space-y-3">
-                {detail.linkedBookings.map((booking) => (
-                  <div key={booking.id} className="rounded-lg border border-border/60 bg-background/30 px-4 py-3">
-                    <p className="text-sm font-medium text-foreground">{booking.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatDateTime(booking.scheduledFor)} · {labelize(booking.status)} · {booking.taskCount} linked task{booking.taskCount === 1 ? "" : "s"}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="rounded-xl border border-border bg-card p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <CheckSquare className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold text-foreground">Linked Tasks</h2>
-            </div>
-            {detail.linkedTasks.length === 0 ? (
-              <EmptyState description="This contact has no linked tasks yet." title="No tasks" />
-            ) : (
-              <div className="space-y-3">
-                {detail.linkedTasks.map((task) => (
-                  <div key={task.id} className="rounded-lg border border-border/60 bg-background/30 px-4 py-3">
-                    <p className="text-sm font-medium text-foreground">{task.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {labelize(task.status)} · {labelize(task.priority)} · {task.assignee?.name ?? "Unassigned"}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(task.dueAt)}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
-
-        <div className="space-y-4">
-          <section className="rounded-xl border border-border bg-card p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <Workflow className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold text-foreground">Workflow Runs</h2>
-            </div>
-            {detail.workflowTraces.length === 0 ? (
-              <EmptyState description="No workflow runs are linked to this contact yet." title="No workflow runs" />
-            ) : (
-              <div className="space-y-3">
-                {detail.workflowTraces.map((run) => (
-                  <div key={run.id} className="rounded-lg border border-border/60 bg-background/30 px-4 py-3">
-                    <p className="text-sm font-medium text-foreground">{run.workflow?.label ?? "Workflow run"}</p>
-                    <p className="text-xs text-muted-foreground">{labelize(run.status)} · {formatDateTime(run.createdAt)}</p>
-                    {run.failureReason ? <p className="mt-1 text-sm text-destructive">{run.failureReason}</p> : null}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="rounded-xl border border-border bg-card p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <DollarSign className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold text-foreground">Timeline</h2>
-            </div>
-            {detail.timeline.length === 0 ? (
-              <EmptyState description="Activity will appear here as this contact changes over time." title="No timeline events" />
-            ) : (
-              <div className="space-y-3">
-                {detail.timeline.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-border/60 bg-background/30 px-4 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-medium text-foreground">{item.title}</p>
-                      <span className="text-xs text-muted-foreground">{formatDateTime(item.occurredAt)}</span>
-                    </div>
-                    <p className="mt-1 text-sm text-muted-foreground">{item.detail}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
-      </div>
-
-      {detail.contact.notes ? (
-        <section className="rounded-xl border border-border bg-card p-5">
-          <h2 className="text-sm font-semibold text-foreground">Notes</h2>
-          <p className="mt-3 text-sm text-muted-foreground">{detail.contact.notes}</p>
-        </section>
-      ) : null}
-    </div>
-  );
+  return <ContactDetailContent detail={data} />;
 }

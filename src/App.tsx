@@ -22,7 +22,14 @@ import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 import { Navigate, Outlet } from "react-router-dom";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 2,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 function LoadingScreen() {
   return (
