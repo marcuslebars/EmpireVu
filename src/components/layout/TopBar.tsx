@@ -12,8 +12,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAppContext } from "@/lib/app-context";
-import { useAuth } from "@/lib/auth-context";
+import { useOrg } from "@/lib/org-context";
+import { useOrganizations, useCompanies } from "@/lib/api-hooks";
 
 const companyColors = [
   "hsl(215 100% 55%)",
@@ -120,18 +120,7 @@ function Dropdown({
 
 function UserMenu() {
   const [open, setOpen] = useState(false);
-  const { profile, signOut } = useAuth();
-  const initials = (profile?.fullName ?? profile?.email ?? "U")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("") || "U";
-
-  const handleSignOut = async () => {
-    setOpen(false);
-    await signOut();
-  };
+  const initials = "U";
 
   return (
     <div className="relative">
@@ -146,12 +135,8 @@ function UserMenu() {
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute top-full right-0 mt-1.5 w-64 bg-popover border border-border rounded-xl shadow-2xl shadow-black/30 z-50 py-2 animate-scale-in">
             <div className="px-4 py-2 border-b border-border">
-              <p className="text-sm font-medium truncate">
-                {profile?.fullName || "User"}
-              </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {profile?.email}
-              </p>
+              <p className="text-sm font-medium truncate">User</p>
+              <p className="text-xs text-muted-foreground truncate">user@example.com</p>
             </div>
             <div className="py-1">
               <button
@@ -162,7 +147,10 @@ function UserMenu() {
                 <span>Profile Settings</span>
               </button>
               <button
-                onClick={handleSignOut}
+                onClick={() => {
+                  setOpen(false);
+                  window.location.href = "/signin";
+                }}
                 className="w-full text-left px-4 py-2 text-sm hover:bg-secondary transition-colors flex items-center gap-2.5 text-destructive"
               >
                 <LogOut className="w-4 h-4" />
@@ -177,17 +165,13 @@ function UserMenu() {
 }
 
 export function TopBar() {
-  const {
-    activeCompanyId,
-    activeOrganizationId,
-    companies,
-    organizations,
-    setActiveCompanyId,
-    setActiveOrganizationId,
-  } = useAppContext();
+  const { organizationId, companyId, setOrganizationId, setCompanyId } = useOrg();
+  const { data: orgs, isLoading: isLoadingOrgs } = useOrganizations();
+  const { data: companies, isLoading: isLoadingCompanies } = useCompanies(organizationId);
 
   const companyItems = useMemo(() => {
     const base = [{ id: "all", name: "All Companies", color: "hsl(215 100% 55%)" }];
+    if (!companies) return base;
     return [
       ...base,
       ...companies.map((c, i) => ({
@@ -198,7 +182,7 @@ export function TopBar() {
     ];
   }, [companies]);
 
-  const organizationItems = useMemo(() => organizations || [], [organizations]);
+  const organizationItems = useMemo(() => orgs || [], [orgs]);
 
   return (
     <header className="h-14 border-b border-border bg-background/90 backdrop-blur-xl sticky top-0 z-30 flex items-center justify-between px-5 gap-4">
@@ -208,17 +192,19 @@ export function TopBar() {
           label="Organization"
           icon={Building2}
           items={organizationItems}
-          selected={activeOrganizationId}
-          onSelect={setActiveOrganizationId}
+          selected={organizationId}
+          onSelect={setOrganizationId}
+          isLoading={isLoadingOrgs}
         />
         <span className="text-border select-none">/</span>
         <Dropdown
           label="Company"
           icon={Briefcase}
           items={companyItems}
-          selected={activeCompanyId ?? "all"}
-          onSelect={(companyId) => setActiveCompanyId(companyId === "all" ? null : companyId)}
+          selected={companyId}
+          onSelect={setCompanyId}
           showDot
+          isLoading={isLoadingCompanies}
         />
       </div>
 
