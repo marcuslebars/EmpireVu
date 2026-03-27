@@ -18,6 +18,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Nex
   return handleRoute(async () => {
     const supabase = createSupabaseServerClient();
     const organization = await requireOrganizationContext(supabase, context.params.organizationId);
+    const url = new URL(_request.url);
 
     const data = await getBookingDetailView(
       {
@@ -26,6 +27,9 @@ export async function GET(_request: Request, context: RouteContext): Promise<Nex
         supabase,
       },
       context.params.bookingId,
+      {
+        companyId: url.searchParams.get("companyId"),
+      },
     );
 
     return NextResponse.json({ data });

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { Inserts, Tables } from "@/server/db/database.types";
 import { toIsoDate } from "@/server/db/helpers";
+import { createActivityEvent } from "@/server/services/activity-events";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import {
   assertBookingInOrganization,
@@ -160,6 +161,20 @@ export async function updateBookingStatus(
   }
 
   const updated = data as Tables<"bookings">;
+
+  await createActivityEvent(context, {
+    companyId: updated.company_id,
+    entityId: updated.id,
+    entityType: "booking",
+    eventType: "booking.status_changed",
+    metadata: {
+      bookingId: updated.id,
+      previousStatus: existing.status,
+      status: updated.status,
+    },
+    relatedEntityId: updated.contact_id,
+    relatedEntityType: updated.contact_id ? "contact" : null,
+  });
 
   if (existing.status !== "completed" && updated.status === "completed") {
     await emitActivityEventAndDispatch(context, {

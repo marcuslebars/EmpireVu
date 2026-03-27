@@ -31,6 +31,9 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
         page: parsePage(url.searchParams.get("page")),
         pageSize: parseLimit(url.searchParams.get("pageSize") ?? url.searchParams.get("limit")),
       },
+      {
+        companyId: url.searchParams.get("companyId"),
+      },
     );
 
     return NextResponse.json({ data });

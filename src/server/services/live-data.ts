@@ -1,8 +1,16 @@
 import type { Json, Tables } from "@/server/db/database.types";
 import { ValidationError } from "@/server/organizations/context";
 import { listComments } from "@/server/services/comments";
+import {
+  getWorkflowEventJobsHealthSummary,
+  isWorkflowEventJobRetryEligible,
+  listWorkflowEventJobs,
+} from "@/server/services/workflow-event-jobs";
 import { getContactTrace, getBookingTrace, getTaskTrace } from "@/server/services/traces";
-import type { TenantServiceContext } from "@/server/services/shared";
+import {
+  assertCompanyInOrganization,
+  type TenantServiceContext,
+} from "@/server/services/shared";
 
 type TraceEntityType = "contact" | "booking" | "task";
 type NextActionType = "urgent" | "action" | "wait" | "done";
@@ -366,17 +374,32 @@ export interface WorkflowDetailResponse {
 }
 
 export interface WorkflowJobsListResponse {
+  summary: {
+    completedRecentCount: number;
+    failedCount: number;
+    pendingCount: number;
+    runningCount: number;
+    suspiciousRunningCount: number;
+  };
   rows: PaginatedResult<{
     activityEvent: EntityReferenceSummary | null;
+    activityEventId: string;
     attemptCount: number;
     availableAt: string;
     company: CompanySummary | null;
+    companyId: string | null;
     completedAt: string | null;
+    claimedAt: string | null;
+    failureReason: string | null;
     id: string;
     lastAttemptedAt: string | null;
     lastError: string | null;
+    organizationId: string;
+    remainingAttempts: number;
     retryEligible: boolean;
     status: Tables<"workflow_event_jobs">["status"];
+    updatedAt: string;
+    workerId: string | null;
   }>;
 }
 
@@ -451,6 +474,30 @@ function getInitials(name: string): string {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("") || "NA";
+}
+
+function titleize(value: string): string {
+  return value.replace(/[._]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function matchesCompanyScope(companyId: string | null | undefined, activeCompanyId: string | null | undefined): boolean {
+  if (!activeCompanyId) {
+    return true;
+  }
+
+  return companyId === activeCompanyId;
+}
+
+function assertCompanyScope(
+  entityLabel: string,
+  companyId: string | null | undefined,
+  activeCompanyId: string | null | undefined,
+): void {
+  if (matchesCompanyScope(companyId, activeCompanyId)) {
+    return;
+  }
+
+  throw new ValidationError(`${entityLabel} is not available in the active company scope.`);
 }
 
 function toUserSummary(profile: Tables<"profiles"> | null | undefined): UserSummary | null {
@@ -896,6 +943,137 @@ function summarizeRevenueFromEvents(events: Tables<"activity_events">[]): { toda
   return { todayCents, weekCents };
 }
 
+function buildActivityEventTraceSummary(activityEvent: Tables<"activity_events">): {
+  detail: string;
+  metadata: Record<string, Json>;
+  title: string;
+} {
+  const metadata = toJsonRecord(activityEvent.metadata_json);
+  const stage = typeof (metadata.stage_changed_to ?? metadata.stage) === "string"
+    ? String(metadata.stage_changed_to ?? metadata.stage)
+    : null;
+  const status = typeof metadata.status === "string" ? metadata.status : null;
+
+  switch (activityEvent.event_type) {
+    case "contact.created":
+      return {
+        detail: "A contact record was added to the CRM.",
+        metadata,
+        title: "Contact created",
+      };
+    case "contact.stage_changed":
+      return {
+        detail: stage ? `Moved to ${titleize(stage)}.` : "The contact stage changed.",
+        metadata,
+        title: "Contact stage changed",
+      };
+    case "contact.owner_assigned":
+      return {
+        detail: "A contact owner was assigned.",
+        metadata,
+        title: "Contact owner assigned",
+      };
+    case "booking.created":
+      return {
+        detail: "A booking was created.",
+        metadata,
+        title: "Booking created",
+      };
+    case "booking.status_changed":
+      return {
+        detail: status ? `Booking is now ${titleize(status)}.` : "The booking status changed.",
+        metadata,
+        title: "Booking status changed",
+      };
+    case "booking.completed":
+      return {
+        detail: "The booking was completed and is eligible for workflow automation.",
+        metadata,
+        title: "Booking completed",
+      };
+    case "task.created":
+      return {
+        detail: "A task was created.",
+        metadata,
+        title: "Task created",
+      };
+    case "task.status_changed":
+      return {
+        detail: status ? `Task is now ${titleize(status)}.` : "The task status changed.",
+        metadata,
+        title: "Task status changed",
+      };
+    case "task.completed":
+      return {
+        detail: "The task was completed and is eligible for workflow automation.",
+        metadata,
+        title: "Task completed",
+      };
+    case "task.assignee_assigned":
+      return {
+        detail: "A task assignee was assigned.",
+        metadata,
+        title: "Task assignee assigned",
+      };
+    case "workflow.executed":
+      return {
+        detail: "A workflow run completed for this trace.",
+        metadata: {
+          ...metadata,
+          origin: "workflow",
+        },
+        title: "Workflow executed",
+      };
+    default:
+      return {
+        detail: titleize(activityEvent.event_type),
+        metadata,
+        title: titleize(activityEvent.event_type),
+      };
+  }
+}
+
+function buildWorkflowRunTraceSummary(workflowRun: Tables<"workflow_runs">): {
+  detail: string;
+  metadata: Record<string, Json>;
+  title: string;
+} {
+  const metadata = {
+    actionsExecutedCount: workflowRun.actions_executed_count,
+    createdTasksCount: workflowRun.created_tasks_count,
+    origin: "workflow",
+    timeSavedSeconds: workflowRun.time_saved_seconds,
+  } satisfies Record<string, Json>;
+
+  if (workflowRun.status === "failed") {
+    return {
+      detail: workflowRun.failure_reason ?? "The workflow run failed.",
+      metadata,
+      title: "Workflow run failed",
+    };
+  }
+
+  const details: string[] = [];
+
+  if (workflowRun.actions_executed_count > 0) {
+    details.push(`${workflowRun.actions_executed_count} action${workflowRun.actions_executed_count === 1 ? "" : "s"} executed`);
+  }
+
+  if (workflowRun.created_tasks_count > 0) {
+    details.push(`${workflowRun.created_tasks_count} task${workflowRun.created_tasks_count === 1 ? "" : "s"} created`);
+  }
+
+  if (workflowRun.time_saved_seconds > 0) {
+    details.push(`${workflowRun.time_saved_seconds}s estimated time saved`);
+  }
+
+  return {
+    detail: details.length > 0 ? details.join(" - ") : "Workflow run completed.",
+    metadata,
+    title: workflowRun.status === "running" ? "Workflow run in progress" : "Workflow run completed",
+  };
+}
+
 async function getNormalizedTraceForEntity(
   context: TenantServiceContext,
   entityType: TraceEntityType,
@@ -976,48 +1154,46 @@ async function getNormalizedTraceForEntity(
   return traceItems.map((item) => {
     if (item.kind === "activity_event") {
       const activityEvent = item.data as Tables<"activity_events">;
+      const summary = buildActivityEventTraceSummary(activityEvent);
 
       return {
         actor: toActorSummary(profilesMap.get(activityEvent.actor_user_id ?? "")),
         company: toCompanySummary(companiesMap.get(activityEvent.company_id ?? "")),
-        detail: activityEvent.event_type,
+        detail: summary.detail,
         entity: activityEvent.entity_id
           ? entityReferenceMap.get(`${activityEvent.entity_type}:${activityEvent.entity_id}`) ?? null
           : null,
         id: item.id,
         kind: item.kind,
-        metadata: toJsonRecord(activityEvent.metadata_json),
+        metadata: summary.metadata,
         occurredAt: item.occurredAt,
         relatedEntity: activityEvent.related_entity_id && activityEvent.related_entity_type
           ? entityReferenceMap.get(`${activityEvent.related_entity_type}:${activityEvent.related_entity_id}`) ?? null
           : null,
         status: null,
-        title: activityEvent.event_type,
+        title: summary.title,
       } satisfies TraceRecord;
     }
 
     if (item.kind === "workflow_run") {
       const workflowRun = item.data as Tables<"workflow_runs">;
       const workflow = workflowsMap.get(workflowRun.workflow_id);
+      const summary = buildWorkflowRunTraceSummary(workflowRun);
 
       return {
         actor: null,
         company: toCompanySummary(companiesMap.get(workflowRun.company_id ?? "")),
-        detail: workflowRun.failure_reason ?? `${workflowRun.actions_executed_count} actions executed`,
+        detail: summary.detail,
         entity: workflow ? { id: workflow.id, label: workflow.name, type: "workflow" } : null,
         id: item.id,
         kind: item.kind,
-        metadata: {
-          actionsExecutedCount: workflowRun.actions_executed_count,
-          createdTasksCount: workflowRun.created_tasks_count,
-          timeSavedSeconds: workflowRun.time_saved_seconds,
-        },
+        metadata: summary.metadata,
         occurredAt: item.occurredAt,
         relatedEntity: workflowRun.trigger_event_id
           ? entityReferenceMap.get(`activity_event:${workflowRun.trigger_event_id}`) ?? null
           : null,
         status: workflowRun.status,
-        title: workflow ? workflow.name : "Workflow run",
+        title: workflow ? `${workflow.name} - ${summary.title}` : summary.title,
       } satisfies TraceRecord;
     }
 
@@ -1027,11 +1203,15 @@ async function getNormalizedTraceForEntity(
       return {
         actor: toActorSummary(profilesMap.get(task.created_by ?? "")),
         company: toCompanySummary(companiesMap.get(task.company_id ?? "")),
-        detail: task.description ?? task.status,
+        detail: task.description ?? `Task is ${titleize(task.status)}.`,
         entity: { id: task.id, label: task.title, type: "task" },
         id: item.id,
         kind: item.kind,
-        metadata: { priority: task.priority, status: task.status },
+        metadata: {
+          origin: task.workflow_id ? "workflow" : "system",
+          priority: task.priority,
+          status: task.status,
+        },
         occurredAt: item.occurredAt,
         relatedEntity: task.contact_id
           ? entityReferenceMap.get(`contact:${task.contact_id}`) ?? null
@@ -1049,7 +1229,7 @@ async function getNormalizedTraceForEntity(
       return {
         actor: toActorSummary(profilesMap.get(booking.created_by ?? "")),
         company: toCompanySummary(companiesMap.get(booking.company_id ?? "")),
-        detail: booking.description ?? booking.status,
+        detail: booking.description ?? `Booking is ${titleize(booking.status)}.`,
         entity: { id: booking.id, label: booking.title, type: "booking" },
         id: item.id,
         kind: item.kind,
@@ -1099,7 +1279,11 @@ async function buildContactSummaryMap(
   );
 }
 
-export async function getDashboardSummary(context: TenantServiceContext): Promise<DashboardSummary> {
+export async function getDashboardSummary(
+  context: TenantServiceContext,
+  input: { companyId?: string | null } = {},
+): Promise<DashboardSummary> {
+  await assertCompanyInOrganization(context, input.companyId);
   const [tasks, bookings, contacts, workflows, workflowJobs, activityEvents] = await Promise.all([
     listAllRows(context, "tasks"),
     listAllRows(context, "bookings"),
@@ -1111,19 +1295,25 @@ export async function getDashboardSummary(context: TenantServiceContext): Promis
   const now = new Date();
   const todayStart = startOfUtcDay(now);
   const todayEnd = endOfUtcDay(now);
+  const scopedTasks = tasks.filter((task) => matchesCompanyScope(task.company_id, input.companyId));
+  const scopedBookings = bookings.filter((booking) => matchesCompanyScope(booking.company_id, input.companyId));
+  const scopedContacts = contacts.filter((contact) => matchesCompanyScope(contact.company_id, input.companyId));
+  const scopedWorkflows = workflows.filter((workflow) => matchesCompanyScope(workflow.company_id, input.companyId));
+  const scopedWorkflowJobs = workflowJobs.filter((job) => matchesCompanyScope(job.company_id, input.companyId));
+  const scopedActivityEvents = activityEvents.filter((event) => matchesCompanyScope(event.company_id, input.companyId));
 
   return {
-    activeWorkflowCount: workflows.filter((workflow) => workflow.status === "active").length,
-    failedWorkflowJobCount: workflowJobs.filter((job) => job.status === "failed").length,
-    newLeadCount: contacts.filter((contact) => contact.stage === "lead").length,
-    overdueTaskCount: tasks.filter((task) => isTaskOverdue(task, now)).length,
-    revenueSnapshot: summarizeRevenueFromEvents(activityEvents.filter((event) => event.entity_type === "booking")),
-    todayBookingCount: bookings.filter((booking) => {
+    activeWorkflowCount: scopedWorkflows.filter((workflow) => workflow.status === "active").length,
+    failedWorkflowJobCount: scopedWorkflowJobs.filter((job) => job.status === "failed").length,
+    newLeadCount: scopedContacts.filter((contact) => contact.stage === "lead").length,
+    overdueTaskCount: scopedTasks.filter((task) => isTaskOverdue(task, now)).length,
+    revenueSnapshot: summarizeRevenueFromEvents(scopedActivityEvents.filter((event) => event.entity_type === "booking")),
+    todayBookingCount: scopedBookings.filter((booking) => {
       const scheduled = new Date(booking.scheduled_for);
       return scheduled >= todayStart && scheduled <= todayEnd;
     }).length,
-    upcomingBookingCount: bookings.filter((booking) => new Date(booking.scheduled_for) > now).length,
-    urgentTaskCount: tasks.filter((task) => task.priority === "urgent" && task.status !== "completed").length,
+    upcomingBookingCount: scopedBookings.filter((booking) => new Date(booking.scheduled_for) > now).length,
+    urgentTaskCount: scopedTasks.filter((task) => task.priority === "urgent" && task.status !== "completed").length,
   };
 }
 
@@ -1160,19 +1350,25 @@ export async function getDashboardActivityFeed(
   };
 }
 
-export async function getAutomationImpact(context: TenantServiceContext): Promise<AutomationImpactSummary> {
+export async function getAutomationImpact(
+  context: TenantServiceContext,
+  input: { companyId?: string | null } = {},
+): Promise<AutomationImpactSummary> {
+  await assertCompanyInOrganization(context, input.companyId);
   const [workflowRuns, workflowJobs] = await Promise.all([
     listAllRows(context, "workflow_runs"),
     listAllRows(context, "workflow_event_jobs"),
   ]);
-  const totalWorkflowRuns = workflowRuns.length;
-  const successfulRuns = workflowRuns.filter((run) => run.status === "completed").length;
+  const scopedWorkflowRuns = workflowRuns.filter((run) => matchesCompanyScope(run.company_id, input.companyId));
+  const scopedWorkflowJobs = workflowJobs.filter((job) => matchesCompanyScope(job.company_id, input.companyId));
+  const totalWorkflowRuns = scopedWorkflowRuns.length;
+  const successfulRuns = scopedWorkflowRuns.filter((run) => run.status === "completed").length;
 
   return {
-    estimatedTimeSavedSeconds: workflowRuns.reduce((sum, run) => sum + run.time_saved_seconds, 0),
-    failedJobsCount: workflowJobs.filter((job) => job.status === "failed").length,
+    estimatedTimeSavedSeconds: scopedWorkflowRuns.reduce((sum, run) => sum + run.time_saved_seconds, 0),
+    failedJobsCount: scopedWorkflowJobs.filter((job) => job.status === "failed").length,
     successRate: totalWorkflowRuns === 0 ? 0 : Number(((successfulRuns / totalWorkflowRuns) * 100).toFixed(1)),
-    tasksAutoCreated: workflowRuns.reduce((sum, run) => sum + run.created_tasks_count, 0),
+    tasksAutoCreated: scopedWorkflowRuns.reduce((sum, run) => sum + run.created_tasks_count, 0),
     totalWorkflowRuns,
   };
 }
@@ -1288,7 +1484,9 @@ export async function getCalendarView(
 export async function getBookingDetailView(
   context: TenantServiceContext,
   bookingId: string,
+  input: { companyId?: string | null } = {},
 ): Promise<BookingDetailResponse> {
+  await assertCompanyInOrganization(context, input.companyId);
   const [bookings, tasks, contacts, companies, workflowRuns] = await Promise.all([
     listAllRows(context, "bookings"),
     listAllRows(context, "tasks"),
@@ -1301,6 +1499,8 @@ export async function getBookingDetailView(
   if (!booking) {
     throw new ValidationError("Booking not found.");
   }
+
+  assertCompanyScope("Booking", booking.company_id, input.companyId);
 
   const companiesMap = new Map(companies.map((company) => [company.id, company]));
   const contactsMap = new Map(contacts.map((contact) => [contact.id, contact]));
@@ -1522,7 +1722,9 @@ export async function getCRMContactsView(
 export async function getCRMContactDetailView(
   context: TenantServiceContext,
   contactId: string,
+  input: { companyId?: string | null } = {},
 ): Promise<ContactDetailResponse> {
+  await assertCompanyInOrganization(context, input.companyId);
   const [contacts, bookings, tasks, companies] = await Promise.all([
     listAllRows(context, "contacts"),
     listAllRows(context, "bookings"),
@@ -1534,6 +1736,8 @@ export async function getCRMContactDetailView(
   if (!contact) {
     throw new ValidationError("Contact not found.");
   }
+
+  assertCompanyScope("Contact", contact.company_id, input.companyId);
 
   const companiesMap = new Map(companies.map((company) => [company.id, company]));
   const contactBookings = bookings.filter((booking) => booking.contact_id === contact.id);
@@ -1680,7 +1884,9 @@ export async function getTasksListView(
 export async function getTaskDetailView(
   context: TenantServiceContext,
   taskId: string,
+  input: { companyId?: string | null } = {},
 ): Promise<TaskDetailResponse> {
+  await assertCompanyInOrganization(context, input.companyId);
   const [tasks, contacts, bookings, companies] = await Promise.all([
     listAllRows(context, "tasks"),
     listAllRows(context, "contacts"),
@@ -1692,6 +1898,8 @@ export async function getTaskDetailView(
   if (!task) {
     throw new ValidationError("Task not found.");
   }
+
+  assertCompanyScope("Task", task.company_id, input.companyId);
 
   const companiesMap = new Map(companies.map((company) => [company.id, company]));
   const contactsMap = new Map(contacts.map((contact) => [contact.id, contact]));
@@ -1827,7 +2035,9 @@ export async function getWorkflowDetailView(
   context: TenantServiceContext,
   workflowId: string,
   pagination: PaginationInput,
+  input: { companyId?: string | null } = {},
 ): Promise<WorkflowDetailResponse> {
+  await assertCompanyInOrganization(context, input.companyId);
   const [workflows, companies, workflowRuns, workflowEventJobs, activityEvents] = await Promise.all([
     listAllRows(context, "workflows"),
     listAllRows(context, "companies"),
@@ -1840,6 +2050,8 @@ export async function getWorkflowDetailView(
   if (!workflow) {
     throw new ValidationError("Workflow not found.");
   }
+
+  assertCompanyScope("Workflow", workflow.company_id, input.companyId);
 
   const companiesMap = new Map(companies.map((company) => [company.id, company]));
   const relatedRuns = workflowRuns
@@ -1900,28 +2112,23 @@ export async function getWorkflowJobsListView(
   context: TenantServiceContext,
   input: PaginationInput & {
     companyId?: string | null;
+    recentFailuresOnly?: boolean;
     status?: Tables<"workflow_event_jobs">["status"] | null;
   },
 ): Promise<WorkflowJobsListResponse> {
-  const [workflowEventJobs, companies, activityEvents] = await Promise.all([
-    listAllRows(context, "workflow_event_jobs"),
+  const [workflowEventJobs, companies, activityEvents, summary] = await Promise.all([
+    listWorkflowEventJobs(context, {
+      companyId: input.companyId,
+      recentFailuresOnly: input.recentFailuresOnly,
+      status: input.status,
+    }),
     listAllRows(context, "companies"),
     listAllRows(context, "activity_events"),
+    getWorkflowEventJobsHealthSummary(context, { companyId: input.companyId }),
   ]);
   const companiesMap = new Map(companies.map((company) => [company.id, company]));
   const activityEventMap = new Map(activityEvents.map((activityEvent) => [activityEvent.id, activityEvent]));
   const rows = workflowEventJobs
-    .filter((job) => {
-      if (input.companyId && job.company_id !== input.companyId) {
-        return false;
-      }
-
-      if (input.status && job.status !== input.status) {
-        return false;
-      }
-
-      return true;
-    })
     .sort((left, right) => right.created_at.localeCompare(left.created_at))
     .map((job) => ({
       activityEvent: activityEventMap.get(job.activity_event_id)
@@ -1931,18 +2138,27 @@ export async function getWorkflowJobsListView(
             type: "activity_event",
           }
         : null,
+      activityEventId: job.activity_event_id,
       attemptCount: job.attempt_count,
       availableAt: job.available_at,
       company: toCompanySummary(companiesMap.get(job.company_id ?? "")),
+      companyId: job.company_id,
+      claimedAt: job.locked_at,
       completedAt: job.completed_at,
+      failureReason: job.last_error,
       id: job.id,
       lastAttemptedAt: job.last_attempted_at,
       lastError: job.last_error,
-      retryEligible: job.status === "failed",
+      organizationId: job.organization_id,
+      remainingAttempts: Math.max(job.max_attempts - job.attempt_count, 0),
+      retryEligible: isWorkflowEventJobRetryEligible(job),
       status: job.status,
+      updatedAt: job.updated_at,
+      workerId: job.locked_by,
     }));
 
   return {
+    summary,
     rows: paginateItems(rows, input),
   };
 }

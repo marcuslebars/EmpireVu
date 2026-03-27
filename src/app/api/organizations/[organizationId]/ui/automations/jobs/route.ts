@@ -30,6 +30,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
         companyId: url.searchParams.get("companyId"),
         page: parsePage(url.searchParams.get("page")),
         pageSize: parseLimit(url.searchParams.get("pageSize") ?? url.searchParams.get("limit")),
+        recentFailuresOnly: url.searchParams.get("recentFailures") === "true",
         status: status as "pending" | "running" | "completed" | "failed" | null,
       },
     );

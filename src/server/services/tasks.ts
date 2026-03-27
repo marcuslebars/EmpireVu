@@ -93,7 +93,7 @@ export async function listTasks(
 export async function createTask(
   context: TenantServiceContext,
   input: CreateTaskInput,
-  _options: TaskMutationOptions = {},
+  options: TaskMutationOptions = {},
 ): Promise<Tables<"tasks">> {
   await Promise.all([
     assertCompanyInOrganization(context, input.companyId),
@@ -120,7 +120,7 @@ export async function createTask(
 
   const data = await insertRow(context, "tasks", payload);
 
-  await createActivityEvent(context, {
+  await emitActivityEventAndDispatch(context, {
     companyId: data.company_id,
     entityId: data.id,
     entityType: "task",
@@ -132,6 +132,8 @@ export async function createTask(
     },
     relatedEntityId: data.contact_id ?? data.booking_id,
     relatedEntityType: data.contact_id ? "contact" : data.booking_id ? "booking" : null,
+  }, {
+    dispatchAsync: options.dispatchWorkflow !== false,
   });
 
   return data;
@@ -181,6 +183,21 @@ export async function updateTaskStatus(
 
   const updated = data as Tables<"tasks">;
 
+  await createActivityEvent(context, {
+    companyId: updated.company_id,
+    entityId: updated.id,
+    entityType: "task",
+    eventType: "task.status_changed",
+    metadata: {
+      previousStatus: existing.status,
+      priority: updated.priority,
+      status: updated.status,
+      taskId: updated.id,
+    },
+    relatedEntityId: updated.contact_id ?? updated.booking_id,
+    relatedEntityType: updated.contact_id ? "contact" : updated.booking_id ? "booking" : null,
+  });
+
   if (existing.status !== "completed" && updated.status === "completed") {
     await emitActivityEventAndDispatch(context, {
       companyId: updated.company_id,
@@ -208,8 +225,13 @@ export async function assignTaskUser(
   input: AssignTaskUserInput,
   _options: TaskMutationOptions = {},
 ): Promise<Tables<"tasks">> {
+  const existing = await getTaskById(context, input.taskId);
+
+  if (existing.assigned_to_profile_id === input.assignedToProfileId) {
+    return existing;
+  }
+
   await Promise.all([
-    assertTaskInOrganization(context, input.taskId),
     assertProfileInOrganization(context, input.assignedToProfileId),
   ]);
 
@@ -224,5 +246,21 @@ export async function assignTaskUser(
     throw error;
   }
 
-  return data as Tables<"tasks">;
+  const updated = data as Tables<"tasks">;
+
+  await createActivityEvent(context, {
+    companyId: updated.company_id,
+    entityId: updated.id,
+    entityType: "task",
+    eventType: "task.assignee_assigned",
+    metadata: {
+      assignedToProfileId: updated.assigned_to_profile_id,
+      previousAssignedToProfileId: existing.assigned_to_profile_id,
+      taskId: updated.id,
+    },
+    relatedEntityId: updated.contact_id ?? updated.booking_id,
+    relatedEntityType: updated.contact_id ? "contact" : updated.booking_id ? "booking" : null,
+  });
+
+  return updated;
 }

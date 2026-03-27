@@ -1,392 +1,447 @@
+import { useQuery } from "@tanstack/react-query";
 import {
-  Calendar,
-  CheckSquare,
-  Users,
-  DollarSign,
   Activity,
   AlertTriangle,
+  Calendar,
+  CheckSquare,
   Clock,
+  Users,
+  Workflow,
   Zap,
-  TrendingUp,
-  CreditCard,
-  FileText,
-  Phone,
-  UserPlus,
-  Mail,
-  AlertCircle,
-  CircleDot,
-  ChevronRight,
 } from "lucide-react";
-import { DashboardCard, StatCard } from "@/components/ui/DashboardCard";
-import { cn } from "@/lib/utils";
-import GlobalActivityFeed, { globalEvents, SystemTraceChain } from "@/components/system/GlobalActivityFeed";
 
-// Company color mapping for multi-company awareness
-const companyColors: Record<string, string> = {
-  "A1 Marine Care": "hsl(195 80% 50%)",
-  RankLocal: "hsl(152 60% 48%)",
-  MarineMecca: "hsl(38 92% 55%)",
-  Vitatee: "hsl(280 70% 58%)",
-};
+import { EmptyState, ErrorState, LoadingState } from "@/components/system/AsyncState";
+import { useAppContext } from "@/lib/app-context";
+import { apiRequest, toQueryString } from "@/lib/api";
+import { formatCompactCurrency, formatDateTime, formatRelativeTime } from "@/lib/formatters";
 
-function CompanyTag({ name }: { name: string }) {
-  const color = companyColors[name];
-  return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-      <span
-        className="w-1.5 h-1.5 rounded-full shrink-0"
-        style={{ background: color }}
-      />
-      {name}
-    </span>
-  );
+interface DashboardSummaryResponse {
+  activeWorkflowCount: number;
+  failedWorkflowJobCount: number;
+  newLeadCount: number;
+  overdueTaskCount: number;
+  revenueSnapshot: {
+    todayCents: number;
+    weekCents: number;
+  };
+  todayBookingCount: number;
+  upcomingBookingCount: number;
+  urgentTaskCount: number;
 }
 
-// --- DATA ---
+interface DashboardActivityItem {
+  company: { id: string; name: string } | null;
+  entity: { id: string; label: string; type: string } | null;
+  eventType: string;
+  id: string;
+  metadata: Record<string, unknown>;
+  occurredAt: string;
+  relatedEntity: { id: string; label: string; type: string } | null;
+}
 
-const urgentItems = [
-  { title: "Invoice batch #847 overdue by 2 days", company: "A1 Marine Care", type: "overdue", icon: AlertCircle },
-  { title: "Vessel inspection deadline tomorrow", company: "MarineMecca", type: "deadline", icon: Clock },
-  { title: "3 unresponsive leads — follow-up required", company: "RankLocal", type: "action", icon: Phone },
-  { title: "Server costs exceeded budget threshold", company: "Vitatee", type: "alert", icon: AlertTriangle },
-];
+interface AutomationImpactResponse {
+  estimatedTimeSavedSeconds: number;
+  failedJobsCount: number;
+  successRate: number;
+  tasksAutoCreated: number;
+  totalWorkflowRuns: number;
+}
 
-const scheduleItems = [
-  { time: "09:00", title: "Team Standup", company: "A1 Marine Care", type: "meeting" },
-  { time: "10:30", title: "Client onboarding call", company: "RankLocal", type: "call" },
-  { time: "13:00", title: "Vessel inspection review", company: "MarineMecca", type: "task" },
-  { time: "15:00", title: "Product sprint review", company: "Vitatee", type: "meeting" },
-  { time: "16:30", title: "Sprint planning", company: "A1 Marine Care", type: "meeting" },
-];
+interface TaskRow {
+  assignee: { initials: string; name: string } | null;
+  company: { id: string; name: string } | null;
+  dueAt: string | null;
+  id: string;
+  isOverdue: boolean;
+  priority: string;
+  status: string;
+  title: string;
+}
 
-const tasks = [
-  { title: "Review invoice batch #847", priority: "high", assignee: "MR", company: "A1 Marine Care" },
-  { title: "Update SEO campaign report", priority: "medium", assignee: "KL", company: "RankLocal" },
-  { title: "Approve new supplier contract", priority: "high", assignee: "JD", company: "MarineMecca" },
-  { title: "Schedule product photoshoot", priority: "low", assignee: "AS", company: "Vitatee" },
-];
+interface TaskListResponse {
+  rows: {
+    items: TaskRow[];
+  };
+}
 
-const leads = [
-  { name: "Horizon Maritime Ltd", value: "$24,500", stage: "Qualified", days: 3, company: "A1 Marine Care" },
-  { name: "Pacific Digital Agency", value: "$8,200", stage: "Proposal", days: 1, company: "RankLocal" },
-  { name: "CoastGuard Supplies", value: "$15,800", stage: "Negotiation", days: 5, company: "MarineMecca" },
-];
+interface BookingRow {
+  company: { id: string; name: string } | null;
+  contact: { id: string; name: string } | null;
+  id: string;
+  scheduledFor: string;
+  status: string;
+  taskCount: number;
+  title: string;
+}
 
-const teamMembers = [
-  { initials: "JD", name: "James Donovan", status: "online", role: "CEO", task: "Reviewing contracts" },
-  { initials: "MR", name: "Marcus Reeves", status: "online", role: "Operations", task: "Vessel inspection" },
-  { initials: "KL", name: "Kira Lam", status: "busy", role: "Marketing", task: "SEO report" },
-  { initials: "AS", name: "Aisha Shah", status: "online", role: "Product", task: "Sprint planning" },
-  { initials: "TH", name: "Tom Hargrove", status: "offline", role: "Finance", task: "" },
-];
+interface CalendarViewResponse {
+  bookings: {
+    items: BookingRow[];
+  };
+}
 
-const priorityColors: Record<string, string> = {
-  high: "bg-destructive",
-  medium: "bg-warning",
-  low: "bg-muted-foreground",
-};
+interface CRMRow {
+  company: { id: string; name: string } | null;
+  id: string;
+  name: string;
+  nextAction: {
+    label: string;
+    type: string;
+  };
+  stage: string;
+}
 
-const statusConfig: Record<string, { color: string; label: string }> = {
-  online: { color: "bg-success", label: "Available" },
-  busy: { color: "bg-warning", label: "Busy" },
-  offline: { color: "bg-muted-foreground", label: "Offline" },
-};
+interface CRMContactsResponse {
+  rows: {
+    items: CRMRow[];
+  };
+}
 
-/* System health summary */
-const systemStats = [
-  { label: "Workflows Active", value: "5", icon: Zap, color: "text-[hsl(var(--accent-violet))]" },
-  { label: "Tasks Auto-Created Today", value: "8", icon: CheckSquare, color: "text-[hsl(var(--success))]" },
-  { label: "Automations Triggered", value: "14", icon: Activity, color: "text-primary" },
-];
+function secondsToHours(seconds: number): string {
+  return `${(seconds / 3600).toFixed(1)}h`;
+}
+
+function titleize(value: string): string {
+  return value.replace(/[._]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
 
 export default function Dashboard() {
+  const { activeCompanyId, activeOrganizationId, organizations } = useAppContext();
+  const companyQuery = activeCompanyId ? { companyId: activeCompanyId } : {};
+  const summaryQuery = useQuery({
+    queryKey: ["org", activeOrganizationId, "dashboard", "summary", activeCompanyId ?? "all"],
+    queryFn: () =>
+      apiRequest<DashboardSummaryResponse>(
+        `/api/organizations/${activeOrganizationId}/ui/dashboard/summary${toQueryString(companyQuery)}`,
+      ),
+  });
+  const activityQuery = useQuery({
+    queryKey: ["org", activeOrganizationId, "dashboard", "activity", activeCompanyId ?? "all"],
+    queryFn: () => apiRequest<{ items: DashboardActivityItem[] }>(
+      `/api/organizations/${activeOrganizationId}/ui/dashboard/activity${toQueryString({
+        ...companyQuery,
+        limit: 6,
+        page: 1,
+      })}`,
+    ),
+  });
+  const automationQuery = useQuery({
+    queryKey: ["org", activeOrganizationId, "dashboard", "automation-impact", activeCompanyId ?? "all"],
+    queryFn: () =>
+      apiRequest<AutomationImpactResponse>(
+        `/api/organizations/${activeOrganizationId}/ui/dashboard/automation-impact${toQueryString(companyQuery)}`,
+      ),
+  });
+  const tasksQuery = useQuery({
+    queryKey: ["org", activeOrganizationId, "tasks", "dashboard", activeCompanyId ?? "all"],
+    queryFn: () => apiRequest<TaskListResponse>(
+      `/api/organizations/${activeOrganizationId}/ui/tasks${toQueryString({
+        ...companyQuery,
+        limit: 5,
+        page: 1,
+        status: "todo",
+      })}`,
+    ),
+  });
+  const bookingsQuery = useQuery({
+    queryKey: ["org", activeOrganizationId, "calendar", "dashboard", activeCompanyId ?? "all"],
+    queryFn: () => apiRequest<CalendarViewResponse>(
+      `/api/organizations/${activeOrganizationId}/ui/calendar${toQueryString({
+        ...companyQuery,
+        limit: 5,
+        page: 1,
+      })}`,
+    ),
+  });
+  const crmQuery = useQuery({
+    queryKey: ["org", activeOrganizationId, "crm", "dashboard", activeCompanyId ?? "all"],
+    queryFn: () => apiRequest<CRMContactsResponse>(
+      `/api/organizations/${activeOrganizationId}/ui/crm/contacts${toQueryString({
+        ...companyQuery,
+        limit: 5,
+        page: 1,
+      })}`,
+    ),
+  });
+
+  if (summaryQuery.isLoading) {
+    return <LoadingState label="Loading dashboard metrics..." />;
+  }
+
+  if (summaryQuery.error) {
+    return (
+      <ErrorState
+        description={summaryQuery.error instanceof Error ? summaryQuery.error.message : "Unable to load the dashboard."}
+        onRetry={() => summaryQuery.refetch()}
+        title="Dashboard unavailable"
+      />
+    );
+  }
+
+  const summary = summaryQuery.data;
+  const activityItems = activityQuery.data?.items ?? [];
+  const taskItems = tasksQuery.data?.rows.items ?? [];
+  const bookingItems = bookingsQuery.data?.bookings.items ?? [];
+  const crmItems = crmQuery.data?.rows.items ?? [];
+  const activeOrganization = organizations.find((organization) => organization.id === activeOrganizationId);
+
   return (
-    <div className="max-w-[1440px] mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between opacity-0 animate-fade-in">
+    <div className="mx-auto max-w-[1400px] space-y-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Command Center
-          </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Thinker Holdings · All Companies · Thursday, Mar 21
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Command Center</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {activeOrganization?.name ?? "Active organization"}
+            {activeCompanyId ? " - Company scope applied" : " - All companies"}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary text-xs font-medium text-muted-foreground">
-            <CircleDot className="w-3 h-3 text-success" />
-            <span>4 companies active</span>
-          </div>
+        <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+          Metrics and operational lists now reflect live organization data.
         </div>
       </div>
 
-      {/* ═══ TIER 1: URGENT / NEEDS ATTENTION ═══ */}
-      <section className="space-y-4 opacity-0 animate-fade-in" style={{ animationDelay: "60ms" }}>
-        <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse-soft" />
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-            Needs Attention
-          </h2>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          {urgentItems.map((item, i) => (
-            <div
-              key={i}
-              className="flex items-start gap-3 p-4 rounded-xl bg-card border border-destructive/15 hover:border-destructive/30 transition-all duration-200 cursor-pointer group"
-            >
-              <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-destructive/10 text-destructive shrink-0 group-hover:bg-destructive/15 transition-colors">
-                <item.icon className="w-4 h-4" />
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-foreground font-medium leading-snug">{item.title}</p>
-                <CompanyTag name={item.company} />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {[
+          {
+            icon: CheckSquare,
+            label: "Overdue Tasks",
+            value: summary.overdueTaskCount,
+          },
+          {
+            icon: Calendar,
+            label: "Upcoming Bookings",
+            value: summary.upcomingBookingCount,
+          },
+          {
+            icon: Users,
+            label: "Lead Contacts",
+            value: summary.newLeadCount,
+          },
+          {
+            icon: Workflow,
+            label: "Failed Queue Jobs",
+            value: summary.failedWorkflowJobCount,
+          },
+        ].map((item) => (
+          <div key={item.label} className="rounded-xl border border-border bg-card p-4">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-secondary p-2 text-primary">
+                <item.icon className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">{item.label}</p>
+                <p className="text-2xl font-semibold text-foreground">{item.value}</p>
               </div>
             </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Stats row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 opacity-0 animate-fade-in" style={{ animationDelay: "120ms" }}>
-        <StatCard label="Open Tasks" value="47" change="12% from last week" positive={false} icon={<CheckSquare className="w-3.5 h-3.5" />} />
-        <StatCard label="New Leads" value="23" change="8% this week" positive icon={<Users className="w-3.5 h-3.5" />} />
-        <StatCard label="Revenue (MTD)" value="$128.4K" change="15.2% vs last month" positive icon={<TrendingUp className="w-3.5 h-3.5" />} />
-        <StatCard label="Active Issues" value="6" change="2 resolved today" positive icon={<AlertTriangle className="w-3.5 h-3.5" />} />
+          </div>
+        ))}
       </div>
 
-      {/* ═══ SYSTEM ACTIVITY FEED ═══ */}
-      <section className="space-y-4 opacity-0 animate-fade-in" style={{ animationDelay: "150ms" }}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Activity className="w-3.5 h-3.5 text-primary" />
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-              System Activity
-            </h2>
-            <span className="text-[9px] font-bold text-primary bg-primary/10 rounded-full w-4 h-4 flex items-center justify-center">{globalEvents.length}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            {systemStats.map((s, i) => (
-              <div key={i} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                <s.icon className={cn("w-3 h-3", s.color)} />
-                <span className="font-semibold text-foreground tabular-nums">{s.value}</span>
-                <span>{s.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <DashboardCard
-          title="Live Activity Feed"
-          icon={<Zap className="w-3.5 h-3.5" />}
-          action={<button className="text-xs text-primary hover:underline font-medium">View all</button>}
-        >
-          <GlobalActivityFeed maxItems={5} showTrace />
-        </DashboardCard>
-      </section>
-
-      {/* ═══ TIER 2: OPERATIONAL OVERVIEW ═══ */}
-      <section className="space-y-4 opacity-0 animate-fade-in" style={{ animationDelay: "210ms" }}>
-        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-          Operations
-        </h2>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Schedule */}
-          <DashboardCard
-            title="Today's Schedule"
-            icon={<Clock className="w-3.5 h-3.5" />}
-            badge={scheduleItems.length}
-            action={<button className="text-xs text-primary hover:underline font-medium">View all</button>}
-          >
-            <div className="space-y-0.5">
-              {scheduleItems.map((item, i) => (
-                <div key={i} className="flex items-start gap-3 px-2.5 py-2.5 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer">
-                  <span className="text-xs font-mono text-muted-foreground mt-0.5 w-11 shrink-0">{item.time}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground truncate leading-snug">{item.title}</p>
-                    <CompanyTag name={item.company} />
-                  </div>
-                  <div className={cn(
-                    "w-1.5 h-1.5 rounded-full mt-2 shrink-0",
-                    item.type === "meeting" ? "bg-primary" : item.type === "call" ? "bg-accent" : "bg-success"
-                  )} />
-                </div>
-              ))}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="rounded-xl border border-border bg-card p-5 lg:col-span-2">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">System Activity</h2>
+              <p className="text-xs text-muted-foreground">Recent activity events across the active scope.</p>
             </div>
-          </DashboardCard>
-
-          {/* Tasks */}
-          <DashboardCard
-            title="Open Tasks"
-            icon={<CheckSquare className="w-3.5 h-3.5" />}
-            badge={tasks.length}
-            action={<button className="text-xs text-primary hover:underline font-medium">View all</button>}
-          >
-            <div className="space-y-0.5">
-              {tasks.map((task, i) => (
-                <div key={i} className="flex items-center gap-3 px-2.5 py-2.5 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer">
-                  <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", priorityColors[task.priority])} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground truncate leading-snug">{task.title}</p>
-                    <CompanyTag name={task.company} />
-                  </div>
-                  <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center text-[10px] font-semibold text-secondary-foreground shrink-0">
-                    {task.assignee}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </DashboardCard>
-
-          {/* Team Availability */}
-          <DashboardCard
-            title="Team"
-            icon={<Users className="w-3.5 h-3.5" />}
-            variant="elevated"
-            action={<button className="text-xs text-primary hover:underline font-medium">Manage</button>}
-          >
-            <div className="space-y-0.5">
-              {teamMembers.map((m, i) => (
-                <div key={i} className="flex items-center gap-3 px-2.5 py-2.5 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer">
-                  <div className="relative">
-                    <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-[11px] font-semibold text-secondary-foreground">
-                      {m.initials}
+            <Activity className="h-4 w-4 text-primary" />
+          </div>
+          {activityQuery.isLoading ? <LoadingState label="Loading recent activity..." /> : null}
+          {activityQuery.error ? (
+            <ErrorState
+              description={activityQuery.error instanceof Error ? activityQuery.error.message : "Unable to load recent activity."}
+              onRetry={() => activityQuery.refetch()}
+              title="Activity unavailable"
+            />
+          ) : null}
+          {!activityQuery.isLoading && !activityQuery.error && activityItems.length === 0 ? (
+            <EmptyState
+              description="New activity events will appear here as contacts, bookings, tasks, and workflows change."
+              title="No activity yet"
+            />
+          ) : null}
+          {!activityQuery.isLoading && !activityQuery.error && activityItems.length > 0 ? (
+            <div className="space-y-3">
+              {activityItems.map((item) => (
+                <div key={item.id} className="rounded-lg border border-border/60 bg-background/40 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{titleize(item.eventType)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {item.entity?.label ?? item.relatedEntity?.label ?? "System event"}
+                        {item.company?.name ? ` · ${item.company.name}` : ""}
+                      </p>
                     </div>
-                    <div className={cn(
-                      "absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-card",
-                      statusConfig[m.status].color
-                    )} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm text-foreground font-medium">{m.name}</p>
-                      <span className={cn(
-                        "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none",
-                        m.status === "online" ? "bg-success/15 text-success"
-                          : m.status === "busy" ? "bg-warning/15 text-warning"
-                          : "bg-muted text-muted-foreground"
-                      )}>
-                        {statusConfig[m.status].label}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {m.task || m.role}
-                    </p>
+                    <span className="text-xs text-muted-foreground">{formatRelativeTime(item.occurredAt)}</span>
                   </div>
                 </div>
               ))}
             </div>
-          </DashboardCard>
+          ) : null}
         </div>
-      </section>
 
-      {/* ═══ TIER 3: INSIGHTS / PASSIVE ═══ */}
-      <section className="space-y-4 opacity-0 animate-fade-in" style={{ animationDelay: "270ms" }}>
-        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-          Insights
-        </h2>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Leads */}
-          <DashboardCard
-            title="New Leads"
-            icon={<UserPlus className="w-3.5 h-3.5" />}
-            badge={leads.length}
-            className="lg:col-span-1"
-            action={<button className="text-xs text-primary hover:underline font-medium">View all</button>}
-          >
-            <div className="space-y-0.5">
-              {leads.map((lead, i) => (
-                <div key={i} className="flex items-center gap-3 px-2.5 py-2.5 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground font-medium truncate">{lead.name}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <CompanyTag name={lead.company} />
-                      <span className="text-[11px] text-muted-foreground/60">·</span>
-                      <span className="text-[11px] text-muted-foreground/60">{lead.stage}</span>
-                    </div>
-                  </div>
-                  <span className="text-sm font-semibold text-foreground tabular-nums">{lead.value}</span>
-                </div>
-              ))}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Automation Impact</h2>
+              <p className="text-xs text-muted-foreground">Queue and workflow health for internal operations.</p>
             </div>
-          </DashboardCard>
-
-          {/* Automation Impact */}
-          <DashboardCard
-            title="Automation Impact"
-            icon={<Zap className="w-3.5 h-3.5" />}
-            className="lg:col-span-2"
-            variant="elevated"
-          >
-            <div className="grid grid-cols-3 gap-3 mb-4">
-              <div className="bg-secondary/40 rounded-lg p-3 text-center">
-                <p className="text-lg font-bold text-foreground tabular-nums">47</p>
-                <p className="text-[10px] text-muted-foreground">Tasks auto-created</p>
-              </div>
-              <div className="bg-secondary/40 rounded-lg p-3 text-center">
-                <p className="text-lg font-bold text-[hsl(var(--success))] tabular-nums">12.4h</p>
-                <p className="text-[10px] text-muted-foreground">Time saved (est.)</p>
-              </div>
-              <div className="bg-secondary/40 rounded-lg p-3 text-center">
-                <p className="text-lg font-bold text-[hsl(var(--accent-violet))] tabular-nums">98.2%</p>
-                <p className="text-[10px] text-muted-foreground">Success rate</p>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Recent Chains</p>
-              {globalEvents.filter(e => e.trace).slice(0, 2).map((evt) => (
-                <div key={evt.id} className="bg-secondary/30 rounded-lg p-3">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Zap className="w-3 h-3 text-[hsl(var(--accent-violet))]" />
-                    <span className="text-xs font-medium text-foreground">{evt.detail}</span>
-                    <span className="text-[9px] text-muted-foreground ml-auto">{evt.timestamp}</span>
-                  </div>
-                  <div className="flex items-center gap-1 flex-wrap">
-                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-primary/10 text-primary">{evt.title}</span>
-                    {evt.trace!.map((step, si) => (
-                      <div key={step.id} className="flex items-center gap-1">
-                        <ChevronRight className="w-2.5 h-2.5 text-muted-foreground/40" />
-                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-secondary text-foreground/70">{step.title}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </DashboardCard>
-        </div>
-      </section>
-
-      {/* Quick Actions */}
-      <section className="opacity-0 animate-fade-in" style={{ animationDelay: "330ms" }}>
-        <div className="p-5 rounded-xl bg-[hsl(var(--card-elevated))] border border-border shadow-md shadow-black/10">
-          <div className="flex items-center gap-2.5 mb-4">
-            <span className="flex items-center justify-center w-7 h-7 rounded-md bg-primary/10 text-primary">
-              <Zap className="w-3.5 h-3.5" />
-            </span>
-            <h3 className="text-sm font-semibold text-foreground tracking-tight">Quick Actions</h3>
+            <Zap className="h-4 w-4 text-primary" />
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: "New Booking", icon: Calendar, primary: true },
-              { label: "New Task", icon: CheckSquare, primary: false },
-              { label: "Add Lead", icon: UserPlus, primary: false },
-              { label: "Create Invoice", icon: FileText, primary: false },
-            ].map((action, i) => (
-              <button
-                key={i}
-                className={cn(
-                  "flex items-center gap-2.5 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-150 active:scale-[0.97]",
-                  action.primary
-                    ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-md shadow-primary/20"
-                    : "bg-secondary hover:bg-surface-3 text-foreground"
-                )}
-              >
-                <action.icon className="w-4 h-4" />
-                {action.label}
-              </button>
-            ))}
-          </div>
+          {automationQuery.isLoading ? <LoadingState label="Loading workflow impact..." /> : null}
+          {automationQuery.error ? (
+            <ErrorState
+              description={automationQuery.error instanceof Error ? automationQuery.error.message : "Unable to load automation impact."}
+              onRetry={() => automationQuery.refetch()}
+              title="Automation impact unavailable"
+            />
+          ) : null}
+          {automationQuery.data ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg bg-secondary/60 p-3">
+                <p className="text-xs text-muted-foreground">Workflow Runs</p>
+                <p className="text-lg font-semibold text-foreground">{automationQuery.data.totalWorkflowRuns}</p>
+              </div>
+              <div className="rounded-lg bg-secondary/60 p-3">
+                <p className="text-xs text-muted-foreground">Success Rate</p>
+                <p className="text-lg font-semibold text-foreground">{automationQuery.data.successRate}%</p>
+              </div>
+              <div className="rounded-lg bg-secondary/60 p-3">
+                <p className="text-xs text-muted-foreground">Tasks Auto-Created</p>
+                <p className="text-lg font-semibold text-foreground">{automationQuery.data.tasksAutoCreated}</p>
+              </div>
+              <div className="rounded-lg bg-secondary/60 p-3">
+                <p className="text-xs text-muted-foreground">Time Saved</p>
+                <p className="text-lg font-semibold text-foreground">{secondsToHours(automationQuery.data.estimatedTimeSavedSeconds)}</p>
+              </div>
+            </div>
+          ) : null}
         </div>
-      </section>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-foreground">Open Tasks</h2>
+            <AlertTriangle className="h-4 w-4 text-primary" />
+          </div>
+          {tasksQuery.isLoading ? <LoadingState label="Loading open tasks..." /> : null}
+          {tasksQuery.error ? (
+            <ErrorState
+              description={tasksQuery.error instanceof Error ? tasksQuery.error.message : "Unable to load tasks."}
+              onRetry={() => tasksQuery.refetch()}
+              title="Tasks unavailable"
+            />
+          ) : null}
+          {!tasksQuery.isLoading && !tasksQuery.error && taskItems.length === 0 ? (
+            <EmptyState description="Tasks created by users and workflows will appear here." title="No open tasks" />
+          ) : null}
+          {!tasksQuery.isLoading && !tasksQuery.error && taskItems.length > 0 ? (
+            <div className="space-y-3">
+              {taskItems.map((task) => (
+                <div key={task.id} className="rounded-lg border border-border/60 bg-background/30 px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{task.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {task.company?.name ?? "No company"}
+                        {task.assignee?.name ? ` · ${task.assignee.name}` : " · Unassigned"}
+                      </p>
+                    </div>
+                    <span className={`text-xs ${task.isOverdue ? "text-destructive" : "text-muted-foreground"}`}>
+                      {task.dueAt ? formatDateTime(task.dueAt) : "No due date"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-foreground">Upcoming Bookings</h2>
+            <Clock className="h-4 w-4 text-primary" />
+          </div>
+          {bookingsQuery.isLoading ? <LoadingState label="Loading bookings..." /> : null}
+          {bookingsQuery.error ? (
+            <ErrorState
+              description={bookingsQuery.error instanceof Error ? bookingsQuery.error.message : "Unable to load bookings."}
+              onRetry={() => bookingsQuery.refetch()}
+              title="Bookings unavailable"
+            />
+          ) : null}
+          {!bookingsQuery.isLoading && !bookingsQuery.error && bookingItems.length === 0 ? (
+            <EmptyState description="Upcoming bookings will appear once the organization starts scheduling work." title="No bookings scheduled" />
+          ) : null}
+          {!bookingsQuery.isLoading && !bookingsQuery.error && bookingItems.length > 0 ? (
+            <div className="space-y-3">
+              {bookingItems.map((booking) => (
+                <div key={booking.id} className="rounded-lg border border-border/60 bg-background/30 px-4 py-3">
+                  <p className="text-sm font-medium text-foreground">{booking.title}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDateTime(booking.scheduledFor)}
+                    {booking.company?.name ? ` · ${booking.company.name}` : ""}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {booking.contact?.name ?? "No linked contact"} · {booking.taskCount} linked task{booking.taskCount === 1 ? "" : "s"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-foreground">CRM Focus</h2>
+            <Users className="h-4 w-4 text-primary" />
+          </div>
+          {crmQuery.isLoading ? <LoadingState label="Loading CRM pipeline..." /> : null}
+          {crmQuery.error ? (
+            <ErrorState
+              description={crmQuery.error instanceof Error ? crmQuery.error.message : "Unable to load CRM contacts."}
+              onRetry={() => crmQuery.refetch()}
+              title="CRM unavailable"
+            />
+          ) : null}
+          {!crmQuery.isLoading && !crmQuery.error && crmItems.length === 0 ? (
+            <EmptyState description="New contacts will appear here once the CRM starts receiving data." title="No contacts yet" />
+          ) : null}
+          {!crmQuery.isLoading && !crmQuery.error && crmItems.length > 0 ? (
+            <div className="space-y-3">
+              {crmItems.map((contact) => (
+                <div key={contact.id} className="rounded-lg border border-border/60 bg-background/30 px-4 py-3">
+                  <p className="text-sm font-medium text-foreground">{contact.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {contact.company?.name ?? "No company"} · {titleize(contact.stage)}
+                  </p>
+                  <p className="mt-1 text-xs text-primary">Next: {contact.nextAction.label}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">Revenue Today</p>
+          <p className="mt-2 text-xl font-semibold text-foreground">{formatCompactCurrency(summary.revenueSnapshot.todayCents)}</p>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">Revenue This Week</p>
+          <p className="mt-2 text-xl font-semibold text-foreground">{formatCompactCurrency(summary.revenueSnapshot.weekCents)}</p>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">Today&apos;s Bookings</p>
+          <p className="mt-2 text-xl font-semibold text-foreground">{summary.todayBookingCount}</p>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">Urgent Tasks</p>
+          <p className="mt-2 text-xl font-semibold text-foreground">{summary.urgentTaskCount}</p>
+        </div>
+      </div>
     </div>
   );
 }

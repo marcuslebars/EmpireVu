@@ -7,17 +7,19 @@ import {
   Building2,
   Briefcase,
   Check,
+  LogOut,
+  User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAppContext } from "@/lib/app-context";
+import { useAuth } from "@/lib/auth-context";
 
-const organizations = [{ id: "1", name: "Thinker Holdings" }];
-
-const companies = [
-  { id: "all", name: "All Companies", color: "hsl(215 100% 55%)" },
-  { id: "1", name: "A1 Marine Care", color: "hsl(195 80% 50%)" },
-  { id: "2", name: "RankLocal", color: "hsl(152 60% 48%)" },
-  { id: "3", name: "MarineMecca", color: "hsl(38 92% 55%)" },
-  { id: "4", name: "Vitatee", color: "hsl(280 70% 58%)" },
+const companyColors = [
+  "hsl(215 100% 55%)",
+  "hsl(195 80% 50%)",
+  "hsl(152 60% 48%)",
+  "hsl(38 92% 55%)",
+  "hsl(280 70% 58%)",
 ];
 
 function Dropdown({
@@ -97,9 +99,85 @@ function Dropdown({
   );
 }
 
+function UserMenu() {
+  const [open, setOpen] = useState(false);
+  const { profile, signOut } = useAuth();
+  const initials = (profile?.fullName ?? profile?.email ?? "U")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("") || "U";
+
+  const handleSignOut = async () => {
+    setOpen(false);
+    await signOut();
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-xs font-bold text-primary-foreground ring-2 ring-border hover:ring-primary/40 transition-all duration-150"
+      >
+        {initials}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute top-full right-0 mt-1.5 w-64 bg-popover border border-border rounded-xl shadow-2xl shadow-black/30 z-50 py-2 animate-scale-in">
+            <div className="px-4 py-2 border-b border-border">
+              <p className="text-sm font-medium truncate">
+                {profile?.fullName || "User"}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {profile?.email}
+              </p>
+            </div>
+            <div className="py-1">
+              <button
+                onClick={() => setOpen(false)}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-secondary transition-colors flex items-center gap-2.5"
+              >
+                <User className="w-4 h-4" />
+                <span>Profile Settings</span>
+              </button>
+              <button
+                onClick={handleSignOut}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-secondary transition-colors flex items-center gap-2.5 text-destructive"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function TopBar() {
-  const [org, setOrg] = useState("1");
-  const [company, setCompany] = useState("all");
+  const {
+    activeCompanyId,
+    activeOrganizationId,
+    companies,
+    organizations,
+    setActiveCompanyId,
+    setActiveOrganizationId,
+  } = useAppContext();
+  const companyItems = [
+    { id: "all", name: "All Companies", color: companyColors[0] },
+    ...companies.map((company, index) => ({
+      id: company.id,
+      name: company.name,
+      color: companyColors[(index + 1) % companyColors.length],
+    })),
+  ];
+  const organizationItems = organizations.map((organization) => ({
+    id: organization.id,
+    name: organization.name,
+  }));
 
   return (
     <header className="h-14 border-b border-border bg-background/90 backdrop-blur-xl sticky top-0 z-30 flex items-center justify-between px-5 gap-4">
@@ -108,17 +186,17 @@ export function TopBar() {
         <Dropdown
           label="Organization"
           icon={Building2}
-          items={organizations}
-          selected={org}
-          onSelect={setOrg}
+          items={organizationItems}
+          selected={activeOrganizationId}
+          onSelect={setActiveOrganizationId}
         />
         <span className="text-border select-none">/</span>
         <Dropdown
           label="Company"
           icon={Briefcase}
-          items={companies}
-          selected={company}
-          onSelect={setCompany}
+          items={companyItems}
+          selected={activeCompanyId ?? "all"}
+          onSelect={(companyId) => setActiveCompanyId(companyId === "all" ? null : companyId)}
           showDot
         />
       </div>
@@ -150,9 +228,7 @@ export function TopBar() {
           <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-destructive ring-2 ring-background" />
         </button>
 
-        <button className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-xs font-bold text-primary-foreground ml-1 ring-2 ring-border hover:ring-primary/40 transition-all duration-150">
-          JD
-        </button>
+        <UserMenu />
       </div>
     </header>
   );

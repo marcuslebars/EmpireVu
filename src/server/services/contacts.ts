@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { Inserts, Tables } from "@/server/db/database.types";
+import { createActivityEvent } from "@/server/services/activity-events";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import {
   assertCompanyInOrganization,
@@ -188,8 +189,13 @@ export async function assignContactOwner(
   input: AssignContactOwnerInput,
   _options: ContactMutationOptions = {},
 ): Promise<Tables<"contacts">> {
+  const existing = await getContactById(context, input.contactId);
+
+  if (existing.owner_profile_id === input.ownerProfileId) {
+    return existing;
+  }
+
   await Promise.all([
-    assertContactInOrganization(context, input.contactId),
     assertProfileInOrganization(context, input.ownerProfileId),
   ]);
 
@@ -204,5 +210,19 @@ export async function assignContactOwner(
     throw error;
   }
 
-  return data as Tables<"contacts">;
+  const updated = data as Tables<"contacts">;
+
+  await createActivityEvent(context, {
+    companyId: updated.company_id,
+    entityId: updated.id,
+    entityType: "contact",
+    eventType: "contact.owner_assigned",
+    metadata: {
+      contactId: updated.id,
+      ownerProfileId: updated.owner_profile_id,
+      previousOwnerProfileId: existing.owner_profile_id,
+    },
+  });
+
+  return updated;
 }

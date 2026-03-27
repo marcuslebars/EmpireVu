@@ -38,7 +38,71 @@ export type EnqueueWorkflowEventJobInput = z.infer<typeof enqueueWorkflowEventJo
 export interface ListWorkflowEventJobsOptions {
   companyId?: string | null;
   limit?: number;
+  recentFailuresOnly?: boolean;
   status?: Tables<"workflow_event_jobs">["status"] | null;
+}
+
+export interface WorkflowEventJobsHealthSummary {
+  completedRecentCount: number;
+  failedCount: number;
+  pendingCount: number;
+  runningCount: number;
+  suspiciousRunningCount: number;
+}
+
+export function isWorkflowEventJobRetryEligible(
+  workflowEventJob: Pick<Tables<"workflow_event_jobs">, "status">,
+): boolean {
+  return workflowEventJob.status === "failed";
+}
+
+export function buildWorkflowEventJobRetryUpdate(timestamp = nowIso()): Pick<
+  Tables<"workflow_event_jobs">,
+  | "attempt_count"
+  | "available_at"
+  | "completed_at"
+  | "last_attempted_at"
+  | "last_error"
+  | "locked_at"
+  | "locked_by"
+  | "started_at"
+  | "status"
+> {
+  return {
+    attempt_count: 0,
+    available_at: timestamp,
+    completed_at: null,
+    last_attempted_at: null,
+    last_error: null,
+    locked_at: null,
+    locked_by: null,
+    started_at: null,
+    status: "pending",
+  };
+}
+
+export function buildWorkflowEventJobsHealthSummary(
+  jobs: Tables<"workflow_event_jobs">[],
+  options: { now?: Date; staleAfterSeconds?: number } = {},
+): WorkflowEventJobsHealthSummary {
+  const staleThreshold = new Date(
+    (options.now ?? new Date()).getTime() - Math.max(options.staleAfterSeconds ?? 900, 1) * 1000,
+  ).toISOString();
+  const recentCompletionThreshold = new Date(
+    (options.now ?? new Date()).getTime() - 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  return {
+    completedRecentCount: jobs.filter(
+      (job) => job.status === "completed" && (job.completed_at ?? job.updated_at) >= recentCompletionThreshold,
+    ).length,
+    failedCount: jobs.filter((job) => job.status === "failed").length,
+    pendingCount: jobs.filter((job) => job.status === "pending").length,
+    runningCount: jobs.filter((job) => job.status === "running").length,
+    suspiciousRunningCount: jobs.filter(
+      (job) => job.status === "running" && Boolean(job.locked_at) && (job.locked_at ?? "") <= staleThreshold,
+    ).length,
+  };
 }
 
 export async function listWorkflowEventJobs(
@@ -61,6 +125,11 @@ export async function listWorkflowEventJobs(
     query = query.eq("status", options.status);
   }
 
+  if (options.recentFailuresOnly) {
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    query = query.eq("status", "failed").gte("updated_at", since);
+  }
+
   if (options.limit) {
     query = query.limit(options.limit);
   }
@@ -72,6 +141,17 @@ export async function listWorkflowEventJobs(
   }
 
   return data ?? [];
+}
+
+export async function getWorkflowEventJobsHealthSummary(
+  context: TenantServiceContext,
+  options: { companyId?: string | null; staleAfterSeconds?: number } = {},
+): Promise<WorkflowEventJobsHealthSummary> {
+  await assertCompanyInOrganization(context, options.companyId);
+
+  const jobs = await listWorkflowEventJobs(context, { companyId: options.companyId });
+
+  return buildWorkflowEventJobsHealthSummary(jobs, options);
 }
 
 export async function getWorkflowEventJobById(
@@ -153,19 +233,13 @@ export async function retryWorkflowEventJob(
 ): Promise<Tables<"workflow_event_jobs">> {
   const existing = await getWorkflowEventJobById(context, workflowEventJobId);
 
-  if (existing.status !== "failed") {
+  if (!isWorkflowEventJobRetryEligible(existing)) {
     throw new ValidationError("Only failed workflow event jobs can be retried.");
   }
 
+  const retryUpdate = buildWorkflowEventJobRetryUpdate();
   const { data, error } = await (context.supabase.from("workflow_event_jobs") as any)
-    .update({
-      available_at: nowIso(),
-      completed_at: null,
-      last_error: null,
-      locked_at: null,
-      locked_by: null,
-      status: "pending",
-    })
+    .update(retryUpdate)
     .eq("organization_id", context.organizationId)
     .eq("id", workflowEventJobId)
     .select("*")

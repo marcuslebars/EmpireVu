@@ -17,12 +17,18 @@ export async function GET(_request: Request, context: RouteContext): Promise<Nex
   return handleRoute(async () => {
     const supabase = createSupabaseServerClient();
     const organization = await requireOrganizationContext(supabase, context.params.organizationId);
+    const url = new URL(_request.url);
 
-    const data = await getDashboardSummary({
-      actorProfileId: organization.user.id,
-      organizationId: organization.organizationId,
-      supabase,
-    });
+    const data = await getDashboardSummary(
+      {
+        actorProfileId: organization.user.id,
+        organizationId: organization.organizationId,
+        supabase,
+      },
+      {
+        companyId: url.searchParams.get("companyId"),
+      },
+    );
 
     return NextResponse.json({ data });
   });
