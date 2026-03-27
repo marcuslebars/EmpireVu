@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
+import { OrgProvider } from "@/lib/org-context";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AppContextProvider } from "@/lib/app-context";
 import SignInPage from "./pages/SignInPage";
@@ -41,29 +42,31 @@ function LoadingScreen() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/signin" element={<SignInPage />} />
-            <Route path="/onboarding" element={<OnboardingPage />} />
-            <Route element={<AppLayout />}>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/calendar" element={<CalendarPage />} />
-              <Route path="/tasks" element={<TasksPage />} />
-              <Route path="/crm" element={<CRMPage />} />
-              <Route path="/crm/:id" element={<ContactDetailPage />} />
-              <Route path="/projects" element={<ProjectsPage />} />
-              <Route path="/automations" element={<AutomationsPage />} />
-              <Route path="/files" element={<FilesPage />} />
-              <Route path="/team" element={<TeamPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-            </Route>
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+      <OrgProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/signin" element={<SignInPage />} />
+              <Route path="/onboarding" element={<OnboardingPage />} />
+              <Route element={<AppLayout />}>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/calendar" element={<CalendarPage />} />
+                <Route path="/tasks" element={<TasksPage />} />
+                <Route path="/crm" element={<CRMPage />} />
+                <Route path="/crm/:id" element={<ContactDetailPage />} />
+                <Route path="/projects" element={<ProjectsPage />} />
+                <Route path="/automations" element={<AutomationsPage />} />
+                <Route path="/files" element={<FilesPage />} />
+                <Route path="/team" element={<TeamPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+              </Route>
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </OrgProvider>
     </QueryClientProvider>
   );
 }
