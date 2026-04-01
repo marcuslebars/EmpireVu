@@ -75,12 +75,12 @@ function CreateTaskDialog({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<"todo" | "in_progress" | "blocked" | "completed">("todo");
   const [dueAt, setDueAt] = useState("");
   const [companyId, setCompanyId] = useState(
-    ctxCompanyId !== "all" ? ctxCompanyId : ""
+    ctxCompanyId != null ? ctxCompanyId : ""
   );
 
   // Set initial company if available and not already set
   useMemo(() => {
-    if (companies && companies.length > 0 && !companyId && ctxCompanyId === "all") {
+    if (companies && companies.length > 0 && !companyId && ctxCompanyId === null) {
       setCompanyId(companies[0].id);
     }
   }, [companies, companyId, ctxCompanyId]);
@@ -298,7 +298,7 @@ export default function TasksPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   const params = useMemo(() => ({
-    companyId: companyId === "all" ? undefined : companyId,
+    companyId: companyId || undefined,
     search: search || undefined,
   }), [companyId, search]);
 
@@ -306,7 +306,7 @@ export default function TasksPage() {
   const { data: detail, isLoading: isDetailLoading } = useTaskDetail(organizationId, selectedTaskId);
   const updateStatus = useUpdateTaskStatus(organizationId, selectedTaskId || "");
 
-  const taskList = tasks ?? [];
+  const taskList = tasks?.rows?.items ?? [];
 
   const handleStatusUpdate = async (status: TaskStatus) => {
     if (!selectedTaskId) return;
@@ -406,9 +406,6 @@ export default function TasksPage() {
                       </td>
                       <td className="px-4 py-3">
                         <p className="text-sm font-semibold text-foreground leading-tight">{task.title}</p>
-                        {task.description && (
-                          <p className="text-[10px] text-muted-foreground truncate max-w-[200px] mt-0.5">{task.description}</p>
-                        )}
                       </td>
                       <td className="px-4 py-3">
                         <StatusDropdown taskId={task.id} currentStatus={task.status} />
@@ -490,7 +487,7 @@ export default function TasksPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Company</p>
-                    <p className="text-xs font-medium text-foreground">{detail.task.company?.name || "None"}</p>
+                    <p className="text-xs font-medium text-foreground">{detail.linkedEntities.company?.name || "None"}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Due Date</p>
@@ -500,9 +497,9 @@ export default function TasksPage() {
                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Assigned To</p>
                     <div className="flex items-center gap-1.5">
                       <div className="w-4 h-4 rounded-full bg-primary/10 flex items-center justify-center text-[8px] font-bold text-primary">
-                        {detail.task.assignedUser?.initials || "—"}
+                        {detail.task.assignee?.initials || "—"}
                       </div>
-                      <span className="text-xs font-medium text-foreground">{detail.task.assignedUser?.name || "Unassigned"}</span>
+                      <span className="text-xs font-medium text-foreground">{detail.task.assignee?.name || "Unassigned"}</span>
                     </div>
                   </div>
                   <div className="space-y-1">
@@ -551,16 +548,16 @@ export default function TasksPage() {
                     <Zap className="w-3 h-3 text-[hsl(var(--accent-violet))]" />
                   </div>
                   <div className="space-y-4 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-border">
-                    {detail.timeline.length === 0 ? (
+                    {detail.trace.length === 0 ? (
                       <p className="text-[10px] text-muted-foreground italic pl-8">No activity recorded yet.</p>
                     ) : (
-                      detail.timeline.map((item, i) => (
+                      detail.trace.map((item, i) => (
                         <div key={i} className="relative pl-8">
                           <div className="absolute left-0 top-1 w-6 h-6 rounded-full bg-card border border-border flex items-center justify-center z-10">
                             <div className="w-1.5 h-1.5 rounded-full bg-primary" />
                           </div>
                           <div className="space-y-0.5">
-                            <p className="text-xs font-medium text-foreground">{item.label}</p>
+                            <p className="text-xs font-medium text-foreground">{item.title}</p>
                             <p className="text-[10px] text-muted-foreground">{relativeTime(item.occurredAt)}</p>
                           </div>
                         </div>

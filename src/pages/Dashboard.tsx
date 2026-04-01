@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Calendar,
   CheckSquare,
@@ -12,13 +13,18 @@ import {
   Activity,
   CircleDot,
   ChevronRight,
+  Building2,
+  AlertCircle,
 } from "lucide-react";
 import { DashboardCard, StatCard } from "@/components/ui/DashboardCard";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-import { 
-  useDashboardSummary, 
-  useDashboardActivity, 
+import { useAuth } from "@/lib/auth-context";
+import {
+  useDashboardSummary,
+  useDashboardActivity,
   useAutomationImpact,
   useOrganizations,
   useCompanies
@@ -26,7 +32,74 @@ import {
 import { SkeletonStatCard, SkeletonCard, ErrorBanner, EmptyState, LoadingCards } from "@/components/ui/StateViews";
 import { relativeTime, formatCentsCompact, formatSeconds, formatPercent } from "@/lib/format";
 import type { DashboardActivityItem } from "@/lib/api-client";
-import { useNavigate } from "react-router-dom";
+
+function NoOrgContextState() {
+  const navigate = useNavigate();
+  const { status } = useAuth();
+  const { requiresOnboarding } = useOrg();
+
+  return (
+    <div className="max-w-[1440px] mx-auto space-y-6">
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
+          <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+            <Building2 className="w-8 h-8 text-muted-foreground" />
+          </div>
+          <div className="text-center space-y-2">
+            <h2 className="text-xl font-semibold">Workspace Not Ready</h2>
+            <p className="text-muted-foreground max-w-md">
+              {status === "unauthenticated" ? (
+                "Please sign in to access your workspace."
+              ) : requiresOnboarding ? (
+                "You need to complete onboarding before accessing the dashboard."
+              ) : (
+                "Your organization context is invalid. Please try refreshing the page."
+              )}
+            </p>
+          </div>
+          <div className="flex gap-3">
+            {status === "authenticated" && requiresOnboarding && (
+              <Button onClick={() => navigate("/onboarding")}>
+                Complete Onboarding
+              </Button>
+            )}
+            {status === "unauthenticated" && (
+              <Button onClick={() => navigate("/signin")}>
+                Sign In
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => window.location.reload()}>
+              Refresh Page
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function DashboardErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div className="max-w-[1440px] mx-auto space-y-6">
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
+          <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
+            <AlertCircle className="w-8 h-8 text-destructive" />
+          </div>
+          <div className="text-center space-y-2">
+            <h2 className="text-xl font-semibold">Dashboard Load Failed</h2>
+            <p className="text-muted-foreground max-w-md">{message}</p>
+          </div>
+          {onRetry && (
+            <Button variant="outline" onClick={onRetry}>
+              Retry
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 // ─── Event type config ───────────────────────────────────────────────────────
 
@@ -90,8 +163,12 @@ function ActivityFeedItem({ item }: { item: DashboardActivityItem }) {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { organizationId, companyId } = useOrg();
-  const activityParams = companyId !== "all" ? { companyId, limit: 10 } : { limit: 10 };
+  const { organizationId, companyId, isValid } = useOrg();
+  const activityParams = companyId != null ? { companyId, limit: 10 } : { limit: 10 };
+
+  if (!isValid) {
+    return <NoOrgContextState />;
+  }
 
   const summary = useDashboardSummary(organizationId);
   const activity = useDashboardActivity(organizationId, activityParams);
@@ -99,12 +176,20 @@ export default function Dashboard() {
   const { data: orgs } = useOrganizations();
   const { data: companies } = useCompanies(organizationId);
 
+  if (summary.isError && summary.error instanceof Error && summary.error.message.includes("401")) {
+    return <DashboardErrorState message="Authentication required. Please sign in again." />;
+  }
+
+  if (summary.isError && summary.error instanceof Error && summary.error.message.includes("403")) {
+    return <DashboardErrorState message="You don't have access to this organization." />;
+  }
+
   const s = summary.data;
   const imp = impact.data;
   const activityItems = activity.data ?? [];
 
   const currentOrgName = orgs?.find(o => o.id === organizationId)?.name ?? "Organization";
-  const currentCompanyName = companyId === "all" ? "All Companies" : (companies?.find(c => c.id === companyId)?.name ?? "Filtered");
+  const currentCompanyName = !companyId ? "All Companies" : (companies?.find(c => c.id === companyId)?.name ?? "Filtered");
 
   return (
     <div className="max-w-[1440px] mx-auto space-y-6">

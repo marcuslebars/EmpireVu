@@ -1,26 +1,44 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Loader2, AlertCircle, Info } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
+import { supabase, getSupabaseConfigDiagnostic } from "@/lib/supabase";
 
 export default function SignInPage() {
+  const navigate = useNavigate();
+  const { signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [configStatus, setConfigStatus] = useState<{ isConfigured: boolean; url: string | null; keySource: string | null } | null>(null);
+
+  useEffect(() => {
+    const status = getSupabaseConfigDiagnostic();
+    setConfigStatus(status);
+    console.log("[SignInPage] Supabase config:", status);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setMessage(null);
+
+    setError(null);
     setIsLoading(true);
 
-    // Simulate sign in - actual auth will be re-enabled later
-    setTimeout(() => {
-      setMessage("Sign in is temporarily disabled. Please refresh after auth is configured.");
+    const result = await signIn(email, password);
+
+    if (result.error) {
+      setError(result.error);
       setIsLoading(false);
-    }, 1000);
+      return;
+    }
+
+    setIsLoading(false);
   };
 
   return (
@@ -38,13 +56,23 @@ export default function SignInPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {configStatus && configStatus.isConfigured && (
+            <Alert className="mb-4 bg-muted/50 border-muted">
+              <Info className="h-4 w-4" />
+              <AlertDescription className="text-xs text-muted-foreground">
+                Auth config: {configStatus.keySource} (URL: {configStatus.url ? "set" : "not set"})
+              </AlertDescription>
+            </Alert>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            {message && (
-              <div className="p-3 rounded-lg bg-muted text-muted-foreground text-sm">
-                {message}
-              </div>
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
-            
+
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -58,7 +86,7 @@ export default function SignInPage() {
                 autoComplete="email"
               />
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <Input
@@ -73,7 +101,11 @@ export default function SignInPage() {
               />
             </div>
 
-            <Button type="submit" className="w-full" disabled={isLoading}>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={isLoading}
+            >
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -84,6 +116,13 @@ export default function SignInPage() {
               )}
             </Button>
           </form>
+
+          <div className="mt-4 text-center text-sm text-muted-foreground">
+            Don&apos;t have an account?{" "}
+            <Link to="/signup" className="text-primary hover:underline">
+              Create account
+            </Link>
+          </div>
         </CardContent>
       </Card>
     </div>

@@ -296,7 +296,7 @@ export default function CalendarPage() {
   const params = useMemo(() => ({
     start: weekStart.toISOString(),
     end: weekEnd.toISOString(),
-    companyId: companyId === "all" ? undefined : companyId,
+    companyId: companyId || undefined,
   }), [weekStart, weekEnd, companyId]);
 
   const { data: calendarData, isLoading, isError, refetch } = useCalendarView(organizationId, params);
@@ -313,8 +313,10 @@ export default function CalendarPage() {
 
   const handleStatusUpdate = async (status: string) => {
     if (!selectedBookingId) return;
+    const validStatuses = ["pending", "confirmed", "completed", "cancelled"] as const;
+    if (!validStatuses.includes(status as typeof validStatuses[number])) return;
     try {
-      await updateStatus.mutateAsync(status);
+      await updateStatus.mutateAsync(status as "pending" | "confirmed" | "completed" | "cancelled");
       toast.success(`Booking marked as ${status}`);
     } catch {
       toast.error("Failed to update status");
@@ -484,7 +486,7 @@ export default function CalendarPage() {
               <TrendingUp className="w-3.5 h-3.5 text-muted-foreground" />
             </div>
             <div className="space-y-4">
-              {capacityData?.assignedUsers.slice(0, 4).map((u, i) => {
+              {capacityData?.users.slice(0, 4).map((u, i) => {
                 const cap = getCapacity(u.totalDurationMinutes);
                 return (
                   <div key={i} className="space-y-1.5">
@@ -535,11 +537,6 @@ export default function CalendarPage() {
                     <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider", statusConfig[detailData.booking.status]?.cls || "bg-secondary text-muted-foreground")}>
                       {detailData.booking.status}
                     </span>
-                    {detailData.booking.priority && (
-                      <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider", priorityConfig[detailData.booking.priority]?.cls)}>
-                        {detailData.booking.priority}
-                      </span>
-                    )}
                   </div>
                 </div>
 
@@ -566,35 +563,37 @@ export default function CalendarPage() {
                   )}
 
                   {/* Team */}
-                  <div className="space-y-3">
-                    <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                      <UserPlus className="w-3 h-3" />
-                      Assigned Team
-                    </h4>
-                    <div className="space-y-2">
-                      {detailData.booking.assignedUserSummary.users.map((u, i) => (
-                        <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-secondary/40 border border-border/50">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary">
-                              {u.initials}
+                  {detailData.booking && "assignedUserSummary" in detailData.booking && (detailData.booking as { assignedUserSummary?: { users: { initials: string; name: string }[] } }).assignedUserSummary && (
+                    <div className="space-y-3">
+                      <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <UserPlus className="w-3 h-3" />
+                        Assigned Team
+                      </h4>
+                      <div className="space-y-2">
+                        {((detailData.booking as { assignedUserSummary?: { users: { initials: string; name: string }[] } }).assignedUserSummary?.users ?? []).map((u, i) => (
+                          <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-secondary/40 border border-border/50">
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary">
+                                {u.initials}
+                              </div>
+                              <span className="text-xs font-medium text-foreground">{u.name}</span>
                             </div>
-                            <span className="text-xs font-medium text-foreground">{u.name}</span>
+                            <span className="text-[10px] text-muted-foreground">Primary</span>
                           </div>
-                          <span className="text-[10px] text-muted-foreground">Primary</span>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Linked Tasks */}
-                  {detailData.linkedTasks.length > 0 && (
+                  {detailData.tasks.length > 0 && (
                     <div className="space-y-3">
                       <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                         <CheckCircle2 className="w-3 h-3" />
                         Linked Tasks
                       </h4>
                       <div className="space-y-2">
-                        {detailData.linkedTasks.map((t) => (
+                        {detailData.tasks.map((t) => (
                           <div key={t.id} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer group border border-transparent hover:border-border">
                             <Circle className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                             <span className="text-xs text-foreground/80 group-hover:text-foreground transition-colors truncate flex-1">{t.title}</span>

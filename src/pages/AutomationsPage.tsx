@@ -78,8 +78,8 @@ function WorkflowDetailPanel({
   const { organizationId } = useOrg();
   const { data, isLoading, isError, refetch } = useWorkflowDetail(organizationId, workflowId);
 
-  const runNow = useRunWorkflowNow(organizationId, workflowId);
-  const runTest = useRunWorkflowTest(organizationId, workflowId);
+  const runNow = useRunWorkflowNow(organizationId);
+  const runTest = useRunWorkflowTest(organizationId);
   const retryJob = useRetryWorkflowJob(organizationId);
 
   const workflow = data?.workflow;
@@ -89,6 +89,7 @@ function WorkflowDetailPanel({
   const handleRunNow = async () => {
     try {
       await runNow.mutateAsync({
+        workflowId,
         event: {
           entityType: workflow?.triggerType ?? "manual",
           eventType: workflow?.triggerType ?? "manual",
@@ -104,6 +105,7 @@ function WorkflowDetailPanel({
   const handleRunTest = async () => {
     try {
       await runTest.mutateAsync({
+        workflowId,
         dryRun: true,
         sampleEvent: {
           entityType: workflow?.triggerType ?? "manual",
@@ -289,15 +291,15 @@ export default function AutomationsPage() {
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
 
   const params = useMemo(() => ({
-    companyId: companyId === "all" ? undefined : companyId,
+    companyId: companyId || undefined,
     search: search || undefined,
   }), [companyId, search]);
 
   const { data: workflows, isLoading, isError, refetch } = useWorkflows(organizationId, params);
-  const { data: impact } = useAutomationImpact(organizationId, params);
-  const runNow = useRunWorkflowNow(organizationId, ""); // Dummy ID for card action
+  const { data: impact } = useAutomationImpact(organizationId);
+  const runNow = useRunWorkflowNow(organizationId); // Org-level mutation hook
 
-  const workflowList = workflows ?? [];
+  const workflowList = workflows?.rows?.items ?? [];
 
   const handleQuickRun = async (id: string, triggerType: string) => {
     try {
@@ -328,8 +330,8 @@ export default function AutomationsPage() {
       {/* Impact Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
-          { label: "Time Saved", value: formatSeconds(impact?.totalTimeSavedSeconds ?? 0), icon: Clock, color: "text-[hsl(var(--accent-blue))]" },
-          { label: "Tasks Automated", value: (impact?.totalTasksAutomated ?? 0).toLocaleString(), icon: Zap, color: "text-[hsl(var(--accent-violet))]" },
+          { label: "Time Saved", value: formatSeconds(impact?.estimatedTimeSavedSeconds ?? 0), icon: Clock, color: "text-[hsl(var(--accent-blue))]" },
+          { label: "Tasks Automated", value: (impact?.tasksAutoCreated ?? 0).toLocaleString(), icon: Zap, color: "text-[hsl(var(--accent-violet))]" },
           { label: "Success Rate", value: formatPercent(impact?.successRate ?? 0), icon: CheckCircle2, color: "text-[hsl(var(--success))]" },
           { label: "Active Workflows", value: workflowList.filter(w => w.status === "active").length.toString(), icon: Play, color: "text-primary" },
         ].map((stat, i) => (
@@ -415,11 +417,11 @@ export default function AutomationsPage() {
                 </div>
                 <div className="flex items-center justify-between text-[10px]">
                   <span className="text-muted-foreground font-medium">Last Run</span>
-                  <span className="text-foreground font-bold">{workflow.lastRunAt ? relativeTime(workflow.lastRunAt) : "Never"}</span>
+                  <span className="text-foreground font-bold">{workflow.recentRunSummary.lastRunAt ? relativeTime(workflow.recentRunSummary.lastRunAt) : "Never"}</span>
                 </div>
                 <div className="flex items-center justify-between text-[10px]">
                   <span className="text-muted-foreground font-medium">Success Rate</span>
-                  <span className="text-[hsl(var(--success))] font-bold">{formatPercent(workflow.successRate)}</span>
+                  <span className="text-[hsl(var(--success))] font-bold">{formatPercent(workflow.metrics.successRate)}</span>
                 </div>
               </div>
 

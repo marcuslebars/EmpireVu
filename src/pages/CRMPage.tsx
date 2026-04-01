@@ -270,14 +270,14 @@ export default function CRMPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   const params = useMemo(() => ({
-    companyId: companyId === "all" ? undefined : companyId,
+    companyId: companyId || undefined,
     search: search || undefined,
   }), [companyId, search]);
 
   const { data: contacts, isLoading, isError, refetch } = useCRMContacts(organizationId, params);
-  const updateStage = useUpdateContactStage(organizationId, ""); // Dummy ID for hook, will override in call
+  const updateStage = useUpdateContactStage(organizationId, "");
 
-  const contactList = contacts ?? [];
+  const contactList = contacts?.rows?.items ?? [];
 
   const kanbanColumns = useMemo(() => {
     const cols: Record<string, CRMContactRow[]> = {
@@ -293,12 +293,11 @@ export default function CRMPage() {
   }, [contactList]);
 
   const handleStageChange = async (contactId: string, newStage: string) => {
+    const validStages = ["lead", "qualified", "active", "closed"] as const;
+    if (!validStages.includes(newStage as typeof validStages[number])) return;
     try {
-      // We need a way to call the mutation with a specific ID
-      // The current hook is per-contact, but we can use the client directly or refactor the hook
-      // For now, let's assume the hook can be used this way or we refactor it
       toast.promise(
-        updateStage.mutateAsync({ contactId, stage: newStage }),
+        updateStage.mutateAsync(newStage as "lead" | "qualified" | "active" | "closed"),
         {
           loading: "Updating stage...",
           success: "Stage updated",
@@ -471,7 +470,7 @@ export default function CRMPage() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <p className="text-xs font-bold text-foreground">{formatCentsCompact(contact.totalValueCents)}</p>
+                    <p className="text-xs font-bold text-foreground">{formatCentsCompact(contact.pipelineValueCents ?? 0)}</p>
                   </td>
                   <td className="px-4 py-3 text-right">
                     <ChevronRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity inline-block" />
@@ -535,11 +534,11 @@ function ContactCard({
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
             <Calendar className="w-3 h-3" />
-            <span>{relativeTime(contact.lastActivityAt)}</span>
+            <span>{relativeTime(contact.lastActivity?.occurredAt ?? "")}</span>
           </div>
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
             <DollarSign className="w-3 h-3" />
-            <span className="font-bold text-foreground">{formatCentsCompact(contact.totalValueCents)}</span>
+            <span className="font-bold text-foreground">{formatCentsCompact(contact.pipelineValueCents ?? 0)}</span>
           </div>
         </div>
       </div>

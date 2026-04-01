@@ -159,7 +159,7 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
   }
 
   if (authStatus === "unauthenticated" || !value) {
-    return <LoadingState label="Loading workspace context..." />;
+    return null;
   }
 
   if (companiesQuery.error) {
