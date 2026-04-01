@@ -724,3 +724,204 @@ export function fetchOrganizations(): Promise<OrganizationSummary[]> {
 export function fetchCompanies(orgId: string): Promise<CompanySummary[]> {
   return apiFetch(`/api/organizations/${orgId}/companies`);
 }
+
+// ─── Internal Ops ─────────────────────────────────────────────────────────────
+
+export interface OpsJobDetailResponse {
+  data: {
+    id: string;
+    activityEventId: string;
+    attemptCount: number;
+    availableAt: string;
+    companyId: string | null;
+    companyName: string | null;
+    completedAt: string | null;
+    createdAt: string;
+    lastAttemptedAt: string | null;
+    lastError: string | null;
+    lockedAt: string | null;
+    lockedBy: string | null;
+    maxAttempts: number;
+    organizationId: string;
+    startedAt: string | null;
+    status: string;
+    updatedAt: string;
+    activityEventType: string | null;
+    retryEligible: boolean;
+    remainingAttempts: number;
+  };
+}
+
+export interface OpsRunDetailResponse {
+  data: {
+    id: string;
+    workflowId: string;
+    workflowName: string | null;
+    companyId: string | null;
+    companyName: string | null;
+    status: string;
+    startedAt: string | null;
+    completedAt: string | null;
+    actionsExecutedCount: number;
+    createdTasksCount: number;
+    timeSavedSeconds: number;
+    failureReason: string | null;
+    createdAt: string;
+    triggerEventId: string | null;
+    logs: Array<{
+      actionType?: string;
+      at: string;
+      details?: Record<string, unknown>;
+      level: "debug" | "error" | "info" | "warn";
+      message: string;
+    }>;
+  };
+}
+
+export interface OpsContactRow {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  stage: string;
+  companyId: string | null;
+  companyName: string | null;
+  ownerId: string | null;
+  ownerName: string | null;
+  ownerEmail: string | null;
+  createdAt: string;
+}
+
+export interface OpsTaskRow {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  dueAt: string | null;
+  companyId: string | null;
+  companyName: string | null;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  assigneeEmail: string | null;
+  createdAt: string;
+  isOverdue: boolean;
+}
+
+export interface OpsBookingRow {
+  id: string;
+  title: string;
+  status: string;
+  scheduledFor: string;
+  durationMinutes: number;
+  companyId: string | null;
+  companyName: string | null;
+  contactId: string | null;
+  contactName: string | null;
+  description: string | null;
+  createdAt: string;
+  createdBy: string | null;
+}
+
+export interface OpsProfileRow {
+  id: string;
+  email: string;
+  fullName: string | null;
+}
+
+export function fetchOpsJobDetail(
+  orgId: string,
+  jobId: string,
+): Promise<OpsJobDetailResponse["data"]> {
+  return apiFetch(`/api/organizations/${orgId}/ops/jobs/${jobId}`);
+}
+
+export function fetchOpsRunDetail(
+  orgId: string,
+  runId: string,
+): Promise<OpsRunDetailResponse["data"]> {
+  return apiFetch(`/api/organizations/${orgId}/ops/workflow-runs/${runId}`);
+}
+
+export function fetchOpsContacts(
+  orgId: string,
+  params: { limit?: number } = {},
+): Promise<OpsContactRow[]> {
+  const searchParams = new URLSearchParams();
+  if (params.limit) searchParams.set("limit", String(params.limit));
+  const query = searchParams.toString();
+  return apiFetch(`/api/organizations/${orgId}/ops/contacts${query ? `?${query}` : ""}`);
+}
+
+export function fetchOpsTasks(
+  orgId: string,
+  params: { limit?: number } = {},
+): Promise<OpsTaskRow[]> {
+  const searchParams = new URLSearchParams();
+  if (params.limit) searchParams.set("limit", String(params.limit));
+  const query = searchParams.toString();
+  return apiFetch(`/api/organizations/${orgId}/ops/tasks${query ? `?${query}` : ""}`);
+}
+
+export function fetchOpsBookings(
+  orgId: string,
+  params: { limit?: number } = {},
+): Promise<OpsBookingRow[]> {
+  const searchParams = new URLSearchParams();
+  if (params.limit) searchParams.set("limit", String(params.limit));
+  const query = searchParams.toString();
+  return apiFetch(`/api/organizations/${orgId}/ops/bookings${query ? `?${query}` : ""}`);
+}
+
+export function fetchOpsProfiles(
+  orgId: string,
+): Promise<OpsProfileRow[]> {
+  return apiFetch(`/api/organizations/${orgId}/ops/profiles`);
+}
+
+export function fetchOpsWorkflowRuns(
+  orgId: string,
+  params: { status?: string; companyId?: string; workflowId?: string; limit?: number } = {},
+): Promise<Array<{
+  id: string;
+  workflowId: string;
+  workflowName: string | null;
+  companyId: string | null;
+  companyName: string | null;
+  status: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  actionsExecutedCount: number;
+  createdTasksCount: number;
+  timeSavedSeconds: number;
+  failureReason: string | null;
+  createdAt: string;
+  triggerEventId: string | null;
+}>> {
+  const searchParams = new URLSearchParams();
+  if (params.status) searchParams.set("status", params.status);
+  if (params.companyId) searchParams.set("companyId", params.companyId);
+  if (params.workflowId) searchParams.set("workflowId", params.workflowId);
+  if (params.limit) searchParams.set("limit", String(params.limit));
+  const query = searchParams.toString();
+  return apiFetch(`/api/organizations/${orgId}/ops/workflow-runs${query ? `?${query}` : ""}`);
+}
+
+export interface OpsJobsHealthResponse {
+  data: {
+    completedRecentCount: number;
+    failedCount: number;
+    pendingCount: number;
+    runningCount: number;
+    suspiciousRunningCount: number;
+  };
+}
+
+export function fetchOpsJobsHealth(
+  orgId: string,
+  params: { companyId?: string } = {},
+): Promise<OpsJobsHealthResponse["data"]> {
+  const searchParams = new URLSearchParams();
+  if (params.companyId) searchParams.set("companyId", params.companyId);
+  const query = searchParams.toString();
+  return apiFetch(`/api/organizations/${orgId}/ops/jobs-health${query ? `?${query}` : ""}`);
+}
