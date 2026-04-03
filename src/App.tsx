@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate, useLocation } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { AuthProvider } from "@/lib/auth-context";
 import { OrgProvider } from "@/lib/org-context";
+import { ErrorBoundary } from "@/components/system/ErrorBoundary";
+import { ProtectedRoute, AuthRedirect } from "@/components/system/ProtectedRoute";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AppDiagnosticsPage } from "@/pages/AppDiagnosticsPage";
 import { OpsPage } from "@/pages/OpsPage";
@@ -50,33 +52,121 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <Sonner />
-            <BrowserRouter>
-              <Routes>
-                <Route path="/signin" element={<SignInPage />} />
-                <Route path="/signup" element={<SignUpPage />} />
-                <Route path="/onboarding" element={<OnboardingPage />} />
-                <Route path="/internal/diagnostics" element={<AppDiagnosticsPage />} />
-                <Route path="/internal/ops" element={<OpsPage />} />
-                <Route element={<AppLayout />}>
-                  <Route path="/" element={<Dashboard />} />
-                  <Route path="/calendar" element={<CalendarPage />} />
-                  <Route path="/tasks" element={<TasksPage />} />
-                  <Route path="/crm" element={<CRMPage />} />
-                  <Route path="/crm/:id" element={<ContactDetailPage />} />
-                  <Route path="/projects" element={<ProjectsPage />} />
-                  <Route path="/automations" element={<AutomationsPage />} />
-                  <Route path="/files" element={<FilesPage />} />
-                  <Route path="/team" element={<TeamPage />} />
-                  <Route path="/settings" element={<SettingsPage />} />
-                </Route>
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
+            <ErrorBoundary>
+              <BrowserRouter>
+                <Routes>
+                  <Route path="/signin" element={<SignInPageWrapper />} />
+                  <Route path="/signup" element={<SignUpPageWrapper />} />
+                  <Route path="/onboarding" element={<OnboardingPageWrapper />} />
+                  <Route path="/internal/diagnostics" element={<AppDiagnosticsPage />} />
+                  <Route path="/internal/ops" element={<OpsPageWrapper />} />
+                  <Route element={<AppLayout />}>
+                    <Route
+                      path="/"
+                      element={
+                        <ProtectedRoute>
+                          <Dashboard />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/calendar"
+                      element={
+                        <ProtectedRoute>
+                          <CalendarPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/tasks"
+                      element={
+                        <ProtectedRoute>
+                          <TasksPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/crm"
+                      element={
+                        <ProtectedRoute>
+                          <CRMPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/crm/:id"
+                      element={
+                        <ProtectedRoute>
+                          <ContactDetailPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/projects"
+                      element={
+                        <ProtectedRoute>
+                          <ProjectsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/automations"
+                      element={
+                        <ProtectedRoute>
+                          <AutomationsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/files"
+                      element={
+                        <ProtectedRoute>
+                          <FilesPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/team"
+                      element={
+                        <ProtectedRoute>
+                          <TeamPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/settings"
+                      element={
+                        <ProtectedRoute>
+                          <SettingsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                  </Route>
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </BrowserRouter>
+            </ErrorBoundary>
           </TooltipProvider>
         </OrgProvider>
       </AuthProvider>
     </QueryClientProvider>
   );
+}
+
+function SignInPageWrapper() {
+  return <SignInPage />;
+}
+
+function SignUpPageWrapper() {
+  return <SignUpPage />;
+}
+
+function OnboardingPageWrapper() {
+  return <OnboardingPage />;
+}
+
+function OpsPageWrapper() {
+  return <OpsPage />;
 }
 
 export default App;

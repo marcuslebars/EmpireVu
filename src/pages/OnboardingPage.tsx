@@ -32,14 +32,12 @@ export default function OnboardingPage() {
       setOrganizationId(firstOrg.id);
       navigate("/", { replace: true });
     }
+    if (status === "unauthenticated") {
+      navigate("/signin", { replace: true });
+    }
   }, [status, session, setOrganizationId, navigate]);
 
-  if (status === "unauthenticated") {
-    navigate("/signin");
-    return null;
-  }
-
-  if (status === "loading") {
+  if (status === "loading" || status === "unauthenticated") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/50 p-4">
         <Card className="w-full max-w-md">

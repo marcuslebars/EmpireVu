@@ -170,7 +170,7 @@ export function TopBar() {
   const { data: companies, isLoading: isLoadingCompanies } = useCompanies(organizationId);
 
   const companyItems = useMemo(() => {
-    const base = [{ id: "all", name: "All Companies", color: "hsl(215 100% 55%)" }];
+    const base = [{ id: "__all__", name: "All Companies", color: "hsl(215 100% 55%)" }];
     if (!companies) return base;
     return [
       ...base,
@@ -183,6 +183,11 @@ export function TopBar() {
   }, [companies]);
 
   const organizationItems = useMemo(() => orgs || [], [orgs]);
+
+  const selectedCompanyId = companyId ?? "__all__";
+  const handleCompanySelect = (id: string) => {
+    setCompanyId(id === "__all__" ? null : id);
+  };
 
   return (
     <header className="h-14 border-b border-border bg-background/90 backdrop-blur-xl sticky top-0 z-30 flex items-center justify-between px-5 gap-4">
@@ -201,8 +206,8 @@ export function TopBar() {
           label="Company"
           icon={Briefcase}
           items={companyItems}
-          selected={companyId}
-          onSelect={setCompanyId}
+          selected={selectedCompanyId}
+          onSelect={handleCompanySelect}
           showDot
           isLoading={isLoadingCompanies}
         />

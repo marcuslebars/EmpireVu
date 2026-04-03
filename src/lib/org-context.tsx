@@ -98,9 +98,13 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     queryClient.invalidateQueries();
   }, [queryClient]);
 
-  const setCompanyId = useCallback((id: string) => {
+  const setCompanyId = useCallback((id: string | null) => {
     setCompanyState(id);
-    STORAGE_KEYS.setCompanyId(id);
+    if (id !== null) {
+      STORAGE_KEYS.setCompanyId(id);
+    } else {
+      localStorage.removeItem(COMPANY_STORAGE_KEY);
+    }
     queryClient.invalidateQueries();
   }, [queryClient]);
 
