@@ -24,7 +24,10 @@ import FilesPage from "./pages/FilesPage";
 import TeamPage from "./pages/TeamPage";
 import SettingsPage from "./pages/SettingsPage";
 import NotFound from "./pages/NotFound";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertTriangle, Bug, ChevronDown, ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,18 +47,177 @@ function LoadingScreen({ message = "Loading Syncoree..." }: { message?: string }
   );
 }
 
-function AppBootstrap() {
+const ORG_STORAGE_KEY = "syncoree_org_id";
+
+function getEffectiveOrgId(session: { activeOrganizationId: string | null; organizations: Array<{ id: string }> } | null): string {
+  if (!session) return "";
+  if (session.activeOrganizationId) return session.activeOrganizationId;
+  if (session.organizations?.length > 0) return session.organizations[0].id;
+  return "";
+}
+
+function BootstrapDiagnostics({
+  authStatus,
+  session,
+  bootstrapPhase,
+}: {
+  authStatus: string;
+  session: { activeOrganizationId: string | null; organizations: Array<{ id: string; name: string }> } | null;
+  bootstrapPhase: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const effectiveOrgId = getEffectiveOrgId(session);
+  const storedOrgId = typeof window !== "undefined" ? localStorage.getItem(ORG_STORAGE_KEY) : null;
+
+  const canProceedToApp = authStatus === "authenticated" && effectiveOrgId !== "";
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 p-4">
+      <Card className="w-full max-w-md border-primary/50">
+        <CardContent className="pt-6">
+          <div className="flex flex-col items-center text-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+              <Bug className="w-6 h-6 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-xl font-semibold text-foreground mb-1">Bootstrap Diagnostics</h1>
+              <p className="text-sm text-muted-foreground">
+                Internal view — shows auth and org context state
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3 text-left">
+            <div className="flex justify-between items-center py-1 border-b border-border">
+              <span className="text-sm text-muted-foreground">Bootstrap Phase</span>
+              <span className="text-sm font-mono font-medium">{bootstrapPhase}</span>
+            </div>
+            <div className="flex justify-between items-center py-1 border-b border-border">
+              <span className="text-sm text-muted-foreground">Auth Status</span>
+              <span className={`text-sm font-mono font-medium ${authStatus === "authenticated" ? "text-green-500" : authStatus === "loading" ? "text-yellow-500" : "text-red-500"}`}>
+                {authStatus}
+              </span>
+            </div>
+            <div className="flex justify-between items-center py-1 border-b border-border">
+              <span className="text-sm text-muted-foreground">Session Active Org ID</span>
+              <span className="text-sm font-mono font-medium truncate max-w-[180px]">
+                {session?.activeOrganizationId ?? <span className="text-muted-foreground">(null)</span>}
+              </span>
+            </div>
+            <div className="flex justify-between items-center py-1 border-b border-border">
+              <span className="text-sm text-muted-foreground">localStorage Org ID</span>
+              <span className="text-sm font-mono font-medium truncate max-w-[180px]">
+                {storedOrgId ?? <span className="text-muted-foreground">(none)</span>}
+              </span>
+            </div>
+            <div className="flex justify-between items-center py-1 border-b border-border">
+              <span className="text-sm text-muted-foreground">Effective Org ID</span>
+              <span className={`text-sm font-mono font-medium ${effectiveOrgId ? "text-green-500" : "text-red-500"}`}>
+                {effectiveOrgId || <span className="text-muted-foreground">(none)</span>}
+              </span>
+            </div>
+            <div className="flex justify-between items-center py-1 border-b border-border">
+              <span className="text-sm text-muted-foreground">Session Orgs Count</span>
+              <span className="text-sm font-mono font-medium">
+                {session?.organizations?.length ?? 0}
+              </span>
+            </div>
+            <div className="flex justify-between items-center py-1">
+              <span className="text-sm text-muted-foreground">Can Proceed to App</span>
+              <span className={`text-sm font-mono font-medium ${canProceedToApp ? "text-green-500" : "text-red-500"}`}>
+                {canProceedToApp ? "YES" : "NO"}
+              </span>
+            </div>
+          </div>
+
+          {expanded && session?.organizations && session.organizations.length > 0 && (
+            <div className="mt-4 p-3 rounded-lg bg-muted">
+              <p className="text-xs font-medium text-muted-foreground mb-2">Organizations in session:</p>
+              <div className="space-y-1">
+                {session.organizations.map(org => (
+                  <div key={org.id} className="flex justify-between text-xs font-mono">
+                    <span>{org.id}</span>
+                    {org.name && <span className="text-muted-foreground">{org.name}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4 flex justify-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setExpanded(!expanded)}
+            >
+              {expanded ? <ChevronDown className="w-4 h-4 mr-1" /> : <ChevronRight className="w-4 h-4 mr-1" />}
+              {expanded ? "Hide" : "Show"} Details
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ImpossibleStateFallback({ phase }: { phase: string }) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4">
+      <Card className="w-full max-w-md border-destructive/50">
+        <CardContent className="pt-6">
+          <div className="flex flex-col items-center text-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+              <AlertTriangle className="w-6 h-6 text-destructive" />
+            </div>
+            <div>
+              <h1 className="text-xl font-semibold text-foreground mb-1">Syncoree failed to load</h1>
+              <p className="text-sm text-muted-foreground">
+                An unexpected bootstrap state was reached: {phase}
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button onClick={() => window.location.reload()}>
+                <Loader2 className="w-4 h-4 mr-2" />
+                Reload
+              </Button>
+              <Button variant="outline" onClick={() => { localStorage.clear(); window.location.href = "/signin"; }}>
+                Clear Data & Sign In
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function AppBootstrapInner() {
   const { status: authStatus, session } = useAuth();
+
+  console.log("[AppBootstrap] Render:", {
+    authStatus,
+    hasSession: Boolean(session),
+    activeOrgId: session?.activeOrganizationId,
+    orgCount: session?.organizations?.length,
+    storedOrgId: typeof window !== "undefined" ? localStorage.getItem(ORG_STORAGE_KEY) : null,
+  });
 
   if (authStatus === "loading") {
     return <LoadingScreen />;
   }
 
   if (authStatus === "unauthenticated") {
+    console.log("[AppBootstrap] Unauthenticated -> redirect to /signin");
     return <Navigate to="/signin" replace />;
   }
 
-  if (authStatus === "authenticated" && !session?.activeOrganizationId && !session?.organizations?.length) {
+  const effectiveOrgId = getEffectiveOrgId(session);
+  const hasOrgContext = effectiveOrgId !== "";
+
+  console.log("[AppBootstrap] Effective org ID:", effectiveOrgId, "| Has org context:", hasOrgContext);
+
+  if (!hasOrgContext) {
+    console.log("[AppBootstrap] No valid org context -> redirect to /onboarding");
     return <Navigate to="/onboarding" replace />;
   }
 
@@ -155,18 +317,83 @@ function AppBootstrap() {
   );
 }
 
+function AppBootstrapWithDiagnostics() {
+  const { status: authStatus, session } = useAuth();
+
+  const getPhase = () => {
+    if (authStatus === "loading") return "AUTH_LOADING";
+    if (authStatus === "unauthenticated") return "UNAUTHENTICATED";
+    if (!session) return "SESSION_NULL";
+    const effectiveOrgId = getEffectiveOrgId(session);
+    if (!effectiveOrgId) return "NO_ORG_CONTEXT";
+    return "READY_TO_RENDER";
+  };
+
+  const phase = getPhase();
+  const showDiagnostics = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debug_bootstrap");
+  const isImpossibleState = authStatus === "authenticated" && !session;
+  const isFullyReady = authStatus === "authenticated" && session && getEffectiveOrgId(session) !== "";
+
+  if (isImpossibleState) {
+    console.error("[AppBootstrap] IMPOSSIBLE STATE: authenticated but session is null!");
+    return <ImpossibleStateFallback phase="AUTHENTICATED_BUT_SESSION_NULL" />;
+  }
+
+  if (showDiagnostics && !isFullyReady) {
+    return (
+      <BootstrapDiagnostics
+        authStatus={authStatus}
+        session={session}
+        bootstrapPhase={phase}
+      />
+    );
+  }
+
+  return <AppBootstrapInner />;
+}
+
+function AppBootstrap() {
+  return (
+    <ErrorBoundary
+      fallback={
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4">
+          <Card className="w-full max-w-md border-destructive/50">
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-destructive" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-semibold text-foreground mb-1">Syncoree failed to load</h1>
+                  <p className="text-sm text-muted-foreground">
+                    An error occurred during bootstrap. Try reloading.
+                  </p>
+                </div>
+                <Button onClick={() => window.location.reload()}>
+                  <Loader2 className="w-4 h-4 mr-2" />
+                  Reload
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <AppBootstrapWithDiagnostics />
+    </ErrorBoundary>
+  );
+}
+
 function App() {
   return (
     <BrowserRouter>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <ErrorBoundary>
-            <TooltipProvider>
-              <Toaster />
-              <Sonner />
-              <AppBootstrap />
-            </TooltipProvider>
-          </ErrorBoundary>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <AppBootstrap />
+          </TooltipProvider>
         </AuthProvider>
       </QueryClientProvider>
     </BrowserRouter>
