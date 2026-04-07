@@ -13,6 +13,10 @@ import { OpsPage } from "@/pages/OpsPage";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
 import OAuthConsentPage from "./pages/OAuthConsentPage";
+import OAuthCallbackPage from "./pages/OAuthCallbackPage";
+import PhoneAuthPage from "./pages/PhoneAuthPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import UpdatePasswordPage from "./pages/UpdatePasswordPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import Dashboard from "./pages/Dashboard";
 import CalendarPage from "./pages/CalendarPage";
@@ -228,6 +232,10 @@ function AppBootstrapInner() {
         <Route path="/signin" element={<SignInPageWrapper />} />
         <Route path="/signup" element={<SignUpPageWrapper />} />
         <Route path="/oauth/consent" element={<OAuthConsentPageWrapper />} />
+        <Route path="/oauth/callback" element={<OAuthCallbackPageWrapper />} />
+        <Route path="/phone-auth" element={<PhoneAuthPageWrapper />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPageWrapper />} />
+        <Route path="/update-password" element={<UpdatePasswordPageWrapper />} />
         <Route path="/onboarding" element={<OnboardingPageWrapper />} />
         <Route path="/internal/diagnostics" element={<AppDiagnosticsPage />} />
         <Route path="/internal/ops" element={<OpsPageWrapper />} />
@@ -416,6 +424,22 @@ function OnboardingPageWrapper() {
 
 function OAuthConsentPageWrapper() {
   return <OAuthConsentPage />;
+}
+
+function OAuthCallbackPageWrapper() {
+  return <OAuthCallbackPage />;
+}
+
+function PhoneAuthPageWrapper() {
+  return <PhoneAuthPage />;
+}
+
+function ForgotPasswordPageWrapper() {
+  return <ForgotPasswordPage />;
+}
+
+function UpdatePasswordPageWrapper() {
+  return <UpdatePasswordPage />;
 }
 
 function OpsPageWrapper() {

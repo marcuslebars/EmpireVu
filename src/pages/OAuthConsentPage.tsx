@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Loader2, AlertCircle, CheckCircle, Shield, ArrowLeft } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 
 export default function OAuthConsentPage() {
   const navigate = useNavigate();
@@ -11,6 +12,7 @@ export default function OAuthConsentPage() {
   const [isProcessing, setIsProcessing] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [provider] = useState(searchParams.get("provider") || "the application");
+  const { status } = useAuth();
 
   useEffect(() => {
     const errorParam = searchParams.get("error");
@@ -27,12 +29,15 @@ export default function OAuthConsentPage() {
 
     if (code) {
       console.log("[OAuthConsent] Received auth code, processing...");
+    }
+
+    if (status === "authenticated") {
       setIsProcessing(false);
-    } else {
-      setError("No authorization code received");
+    } else if (status === "unauthenticated") {
+      setError("Authentication failed. Please try again.");
       setIsProcessing(false);
     }
-  }, [searchParams]);
+  }, [searchParams, status]);
 
   const handleDecline = () => {
     navigate("/signin", { replace: true });

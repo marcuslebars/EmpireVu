@@ -5,16 +5,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, AlertCircle, Info } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { Loader2, AlertCircle, Info, Mail, Phone, Chrome } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
-import { supabase, getSupabaseConfigDiagnostic } from "@/lib/supabase";
+import { getSupabaseConfigDiagnostic } from "@/lib/supabase";
 
 export default function SignInPage() {
   const navigate = useNavigate();
-  const { signIn } = useAuth();
+  const { signIn, signInWithOAuth } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isOAuthLoading, setIsOAuthLoading] = useState(false);
+  const [oauthError, setOauthError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [configStatus, setConfigStatus] = useState<{ isConfigured: boolean; url: string | null; keySource: string | null } | null>(null);
 
@@ -41,6 +44,19 @@ export default function SignInPage() {
     setIsLoading(false);
   };
 
+  const handleOAuthSignIn = async (provider: "google" | "github" | "apple") => {
+    setOauthError(null);
+    setIsOAuthLoading(true);
+
+    const result = await signInWithOAuth(provider);
+
+    if (result.error) {
+      setOauthError(result.error);
+      setIsOAuthLoading(false);
+      return;
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/50 p-4">
       <Card className="w-full max-w-md">
@@ -55,7 +71,7 @@ export default function SignInPage() {
             Enter your credentials to access your workspace
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           {configStatus && configStatus.isConfigured && (
             <Alert className="mb-4 bg-muted/50 border-muted">
               <Info className="h-4 w-4" />
@@ -64,6 +80,40 @@ export default function SignInPage() {
               </AlertDescription>
             </Alert>
           )}
+
+          {oauthError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{oauthError}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="grid gap-2">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => handleOAuthSignIn("google")}
+              disabled={isOAuthLoading || !configStatus?.isConfigured}
+            >
+              {isOAuthLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Chrome className="mr-2 h-4 w-4" />
+              )}
+              Continue with Google
+            </Button>
+          </div>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <Separator className="w-full" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">
+                Or continue with
+              </span>
+            </div>
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
@@ -88,7 +138,15 @@ export default function SignInPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                <Link
+                  to="/forgot-password"
+                  className="text-xs text-primary hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <Input
                 id="password"
                 type="password"
@@ -112,10 +170,25 @@ export default function SignInPage() {
                   Signing in...
                 </>
               ) : (
-                "Sign In"
+                <>
+                  <Mail className="mr-2 h-4 w-4" />
+                  Sign In with Email
+                </>
               )}
             </Button>
           </form>
+
+          <div className="flex gap-3 justify-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate("/phone-auth")}
+              disabled={!configStatus?.isConfigured}
+            >
+              <Phone className="mr-1 h-4 w-4" />
+              Sign in with Phone
+            </Button>
+          </div>
 
           <div className="mt-4 text-center text-sm text-muted-foreground">
             Don&apos;t have an account?{" "}

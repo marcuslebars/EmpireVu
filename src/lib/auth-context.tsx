@@ -16,6 +16,7 @@ type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 interface User {
   id: string;
   email?: string;
+  phone?: string;
 }
 
 interface SessionContextResponse {
@@ -32,6 +33,11 @@ interface AuthContextValue {
   session: SessionContextResponse | null;
   profile: SessionContextResponse["profile"];
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  signInWithOAuth: (provider: "google" | "github" | "apple") => Promise<{ error: string | null }>;
+  signInWithPhone: (phone: string) => Promise<{ error: string | null; sessionId?: string }>;
+  verifyOtp: (phone: string, token: string) => Promise<{ error: string | null }>;
+  resetPassword: (email: string) => Promise<{ error: string | null }>;
+  updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   isLoading: boolean;
 }
@@ -114,6 +120,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clearAuthState, syncOrgContext]);
 
+  const navigateAfterAuth = useCallback(async (context: SessionContextResponse | null) => {
+    if (context && context.organizations.length > 0) {
+      console.log("[AuthContext] User has organizations, navigating to dashboard");
+      navigate("/");
+    } else if (context) {
+      console.log("[AuthContext] User has no organizations, navigating to onboarding");
+      navigate("/onboarding");
+    } else {
+      console.log("[AuthContext] No context, navigating to signin");
+      navigate("/signin");
+    }
+  }, [navigate]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -150,7 +169,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               "| Email:",
               supabaseSession.user.email
             );
-            await fetchSessionContext({ id: supabaseSession.user.id, email: supabaseSession.user.email });
+            await fetchSessionContext({ 
+              id: supabaseSession.user.id, 
+              email: supabaseSession.user.email,
+              phone: supabaseSession.user.phone 
+            });
           } else {
             console.log("[AuthContext] AUTH BOOTSTRAP: No existing session found - user is unauthenticated");
             setStatus("unauthenticated");
@@ -179,7 +202,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearAuthState();
         navigate("/signin");
       } else if (supabaseSession?.user) {
-        await fetchSessionContext({ id: supabaseSession.user.id, email: supabaseSession.user.email });
+        await fetchSessionContext({ 
+          id: supabaseSession.user.id, 
+          email: supabaseSession.user.email,
+          phone: supabaseSession.user.phone 
+        });
       }
     });
 
@@ -213,13 +240,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.user) {
         console.log("[AuthContext] Sign in successful for user:", data.user.id);
         const context = await fetchSessionContext(data.user);
-        if (context && context.organizations.length > 0) {
-          console.log("[AuthContext] User has organizations, navigating to dashboard");
-          navigate("/");
-        } else if (context) {
-          console.log("[AuthContext] User has no organizations, navigating to onboarding");
-          navigate("/onboarding");
-        }
+        await navigateAfterAuth(context);
       }
 
       return { error: null };
@@ -227,7 +248,172 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("[AuthContext] Sign in exception:", err);
       return { error: err instanceof Error ? err.message : "Sign in failed" };
     }
-  }, [fetchSessionContext, navigate]);
+  }, [fetchSessionContext, navigateAfterAuth]);
+
+  const signInWithOAuth = useCallback(async (provider: "google" | "github" | "apple"): Promise<{ error: string | null }> => {
+    try {
+      const configDiagnostic = getSupabaseConfigDiagnostic();
+
+      if (!configDiagnostic.isConfigured || !supabase) {
+        return {
+          error: "Authentication is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY environment variables."
+        };
+      }
+
+      console.log("[AuthContext] Starting OAuth sign in with:", provider);
+
+      const redirectUrl = `${window.location.origin}/oauth/callback`;
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: redirectUrl,
+          queryParams: {
+            prompt: "select_account",
+          },
+        },
+      });
+
+      if (error) {
+        console.error("[AuthContext] OAuth sign in error:", error.message);
+        return { error: error.message };
+      }
+
+      if (data.url) {
+        console.log("[AuthContext] OAuth redirect to:", data.url);
+        window.location.href = data.url;
+      }
+
+      return { error: null };
+    } catch (err) {
+      console.error("[AuthContext] OAuth sign in exception:", err);
+      return { error: err instanceof Error ? err.message : "OAuth sign in failed" };
+    }
+  }, []);
+
+  const signInWithPhone = useCallback(async (phone: string): Promise<{ error: string | null; sessionId?: string }> => {
+    try {
+      const configDiagnostic = getSupabaseConfigDiagnostic();
+
+      if (!configDiagnostic.isConfigured || !supabase) {
+        return { error: "Authentication is not configured." };
+      }
+
+      console.log("[AuthContext] Sending OTP to:", phone);
+
+      const { data, error } = await supabase.auth.signInWithOtp({
+        phone,
+        options: {
+          channel: "sms",
+        },
+      });
+
+      if (error) {
+        console.error("[AuthContext] Phone sign in error:", error.message);
+        return { error: error.message };
+      }
+
+      console.log("[AuthContext] OTP sent successfully");
+      return { error: null };
+    } catch (err) {
+      console.error("[AuthContext] Phone sign in exception:", err);
+      return { error: err instanceof Error ? err.message : "Failed to send OTP" };
+    }
+  }, []);
+
+  const verifyOtp = useCallback(async (phone: string, token: string): Promise<{ error: string | null }> => {
+    try {
+      const configDiagnostic = getSupabaseConfigDiagnostic();
+
+      if (!configDiagnostic.isConfigured || !supabase) {
+        return { error: "Authentication is not configured." };
+      }
+
+      console.log("[AuthContext] Verifying OTP for:", phone);
+
+      const { data, error } = await supabase.auth.verifyOtp({
+        phone,
+        token,
+        type: "sms",
+      });
+
+      if (error) {
+        console.error("[AuthContext] OTP verification error:", error.message);
+        return { error: error.message };
+      }
+
+      if (data.user) {
+        console.log("[AuthContext] OTP verification successful for user:", data.user.id);
+        const context = await fetchSessionContext({ 
+          id: data.user.id, 
+          email: data.user.email,
+          phone: data.user.phone 
+        });
+        await navigateAfterAuth(context);
+      }
+
+      return { error: null };
+    } catch (err) {
+      console.error("[AuthContext] OTP verification exception:", err);
+      return { error: err instanceof Error ? err.message : "OTP verification failed" };
+    }
+  }, [fetchSessionContext, navigateAfterAuth]);
+
+  const resetPassword = useCallback(async (email: string): Promise<{ error: string | null }> => {
+    try {
+      const configDiagnostic = getSupabaseConfigDiagnostic();
+
+      if (!configDiagnostic.isConfigured || !supabase) {
+        return { error: "Authentication is not configured." };
+      }
+
+      console.log("[AuthContext] Sending password reset to:", email);
+
+      const redirectUrl = `${window.location.origin}/auth/callback`;
+
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: redirectUrl,
+      });
+
+      if (error) {
+        console.error("[AuthContext] Password reset error:", error.message);
+        return { error: error.message };
+      }
+
+      console.log("[AuthContext] Password reset email sent");
+      return { error: null };
+    } catch (err) {
+      console.error("[AuthContext] Password reset exception:", err);
+      return { error: err instanceof Error ? err.message : "Password reset failed" };
+    }
+  }, []);
+
+  const updatePassword = useCallback(async (newPassword: string): Promise<{ error: string | null }> => {
+    try {
+      const configDiagnostic = getSupabaseConfigDiagnostic();
+
+      if (!configDiagnostic.isConfigured || !supabase) {
+        return { error: "Authentication is not configured." };
+      }
+
+      console.log("[AuthContext] Updating password");
+
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (error) {
+        console.error("[AuthContext] Password update error:", error.message);
+        return { error: error.message };
+      }
+
+      console.log("[AuthContext] Password updated successfully");
+      return { error: null };
+    } catch (err) {
+      console.error("[AuthContext] Password update exception:", err);
+      return { error: err instanceof Error ? err.message : "Password update failed" };
+    }
+  }, []);
 
   const signOut = useCallback(async () => {
     console.log("[AuthContext] Signing out");
@@ -244,9 +430,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     session,
     profile: session?.profile ?? null,
     signIn,
+    signInWithOAuth,
+    signInWithPhone,
+    verifyOtp,
+    resetPassword,
+    updatePassword,
     signOut,
     isLoading: status === "loading",
-  }), [status, user, session, signIn, signOut]);
+  }), [status, user, session, signIn, signInWithOAuth, signInWithPhone, verifyOtp, resetPassword, updatePassword, signOut]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
