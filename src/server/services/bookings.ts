@@ -149,12 +149,14 @@ export async function updateBookingStatus(
     return existing;
   }
 
-  const { data, error } = await (context.supabase.from("bookings") as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (context.supabase.from("bookings") as any)
     .update({ status: input.status })
     .eq("organization_id", context.organizationId)
     .eq("id", input.bookingId)
     .select("*")
     .single();
+  const { data, error } = await query;
 
   if (error) {
     throw error;

@@ -35,7 +35,8 @@ export async function createOrganization(
     throw new Error("An organization with this slug already exists.");
   }
 
-  const { data: organization, error: organizationError } = await (supabase.from("organizations") as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (supabase as any).from("organizations")
     .insert({
       created_by: userId,
       name: input.name,
@@ -43,6 +44,7 @@ export async function createOrganization(
     })
     .select("*")
     .single();
+  const { data: organization, error: organizationError } = await query as { data: Tables<"organizations"> | null; error: null };
 
   if (organizationError) {
     throw organizationError;
@@ -52,22 +54,26 @@ export async function createOrganization(
     throw new Error("Organization creation failed.");
   }
 
-  const { error: membershipError } = await (supabase.from("organization_memberships") as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const insertQuery = (supabase as any).from("organization_memberships")
     .insert({
       organization_id: organization.id,
       profile_id: profileId,
       role: "owner",
     });
+  const { error: membershipError } = await insertQuery as { error: null };
 
   if (membershipError) {
     throw membershipError;
   }
 
-  const orgId = (organization as any).id as string;
+  const orgId = organization.id;
 
-  const { error: profileError } = await (supabase.from("profiles") as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updateQuery = (supabase as any).from("profiles")
     .update({ default_organization_id: orgId })
     .eq("id", profileId);
+  const { error: profileError } = await updateQuery as { error: null };
 
   if (profileError) {
     console.error("Failed to set default organization:", profileError);

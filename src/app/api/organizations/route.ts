@@ -5,12 +5,22 @@ import { getAuthenticatedUser } from "@/server/organizations/context";
 
 export const dynamic = "force-dynamic";
 
+interface OrganizationRow {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+interface MembershipRow {
+  organization_id: string;
+  organizations: OrganizationRow | null;
+}
+
 export async function GET(): Promise<NextResponse> {
   return handleRoute(async () => {
     const supabase = createSupabaseServerClient();
     const user = await getAuthenticatedUser(supabase);
 
-    // Fetch organizations the user is a member of
     const { data: memberships, error: membershipError } = await supabase
       .from("organization_memberships")
       .select(`
@@ -27,9 +37,9 @@ export async function GET(): Promise<NextResponse> {
       throw membershipError;
     }
 
-    const organizations = memberships
-      .map((m: any) => m.organizations)
-      .filter(Boolean);
+    const organizations = (memberships as MembershipRow[] | null)
+      ?.map((m) => m.organizations)
+      .filter((org): org is OrganizationRow => org !== null) ?? [];
 
     return NextResponse.json({ data: organizations });
   });

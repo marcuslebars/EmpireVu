@@ -12,6 +12,7 @@ import {
   useWorkflowDetail,
   useAutomationImpact,
   useRunWorkflowNow,
+  useTriggerWorkflow,
   useRunWorkflowTest,
   useRetryWorkflowJob,
   useCompanies,
@@ -78,8 +79,8 @@ function WorkflowDetailPanel({
   const { organizationId } = useOrg();
   const { data, isLoading, isError, refetch } = useWorkflowDetail(organizationId, workflowId);
 
-  const runNow = useRunWorkflowNow(organizationId);
-  const runTest = useRunWorkflowTest(organizationId);
+  const runNow = useRunWorkflowNow(organizationId, workflowId);
+  const runTest = useRunWorkflowTest(organizationId, workflowId);
   const retryJob = useRetryWorkflowJob(organizationId);
 
   const workflow = data?.workflow;
@@ -89,7 +90,6 @@ function WorkflowDetailPanel({
   const handleRunNow = async () => {
     try {
       await runNow.mutateAsync({
-        workflowId,
         event: {
           entityType: workflow?.triggerType ?? "manual",
           eventType: workflow?.triggerType ?? "manual",
@@ -105,7 +105,6 @@ function WorkflowDetailPanel({
   const handleRunTest = async () => {
     try {
       await runTest.mutateAsync({
-        workflowId,
         dryRun: true,
         sampleEvent: {
           entityType: workflow?.triggerType ?? "manual",
@@ -297,13 +296,13 @@ export default function AutomationsPage() {
 
   const { data: workflows, isLoading, isError, refetch } = useWorkflows(organizationId, params);
   const { data: impact } = useAutomationImpact(organizationId);
-  const runNow = useRunWorkflowNow(organizationId); // Org-level mutation hook
+  const triggerWorkflow = useTriggerWorkflow(organizationId);
 
   const workflowList = workflows?.rows?.items ?? [];
 
   const handleQuickRun = async (id: string, triggerType: string) => {
     try {
-      await runNow.mutateAsync({
+      await triggerWorkflow.mutateAsync({
         workflowId: id,
         event: { entityType: triggerType, eventType: triggerType },
       });

@@ -83,11 +83,13 @@ export function EmptyState({
   icon: Icon = Inbox,
   title = "No results",
   description,
+  action,
   className,
 }: {
   icon?: React.ElementType;
   title?: string;
   description?: string;
+  action?: { label: string; onClick: () => void };
   className?: string;
 }) {
   return (
@@ -98,6 +100,14 @@ export function EmptyState({
       <p className="text-sm font-medium text-foreground">{title}</p>
       {description && (
         <p className="text-xs text-muted-foreground mt-1 max-w-xs">{description}</p>
+      )}
+      {action && (
+        <button
+          onClick={action.onClick}
+          className="mt-3 flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+        >
+          {action.label}
+        </button>
       )}
     </div>
   );

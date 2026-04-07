@@ -148,12 +148,14 @@ export async function updateContactStage(
     return existing;
   }
 
-  const { data, error } = await (context.supabase.from("contacts") as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (context.supabase.from("contacts") as any)
     .update({ stage: input.stage })
     .eq("organization_id", context.organizationId)
     .eq("id", input.contactId)
     .select("*")
     .single();
+  const { data, error } = await query;
 
   if (error) {
     throw error;
@@ -199,12 +201,14 @@ export async function assignContactOwner(
     assertProfileInOrganization(context, input.ownerProfileId),
   ]);
 
-  const { data, error } = await (context.supabase.from("contacts") as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (context.supabase.from("contacts") as any)
     .update({ owner_profile_id: input.ownerProfileId })
     .eq("organization_id", context.organizationId)
     .eq("id", input.contactId)
     .select("*")
     .single();
+  const { data, error } = await query;
 
   if (error) {
     throw error;

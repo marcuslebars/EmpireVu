@@ -12,12 +12,14 @@ export interface TenantServiceContext {
 
 export type CommentEntityType = Tables<"comments">["entity_type"];
 
+type SupabaseQueryBuilder = ReturnType<AppSupabaseClient['from']>;
+
 export async function insertRow<T extends TableName>(
   context: TenantServiceContext,
   table: T,
   payload: Inserts<T>,
 ): Promise<Tables<T>> {
-  const { data, error } = await (context.supabase.from(table) as any)
+  const { data, error } = await (context.supabase.from(table) as unknown as SupabaseQueryBuilder)
     .insert(payload)
     .select("*")
     .single();

@@ -331,6 +331,18 @@ export function useRunWorkflowNow(orgId: string, workflowId: string) {
   });
 }
 
+export function useTriggerWorkflow(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ workflowId, event }: { workflowId: string; event: RunWorkflowNowInput["event"] }) =>
+      runWorkflowNow(orgId, workflowId, { event }),
+    onSuccess: (_, { workflowId }) => {
+      void qc.invalidateQueries({ queryKey: ["automations", "workflow", orgId, workflowId] });
+      void qc.invalidateQueries({ queryKey: ["automations", "workflows", orgId] });
+    },
+  });
+}
+
 export function useRunWorkflowTest(orgId: string, workflowId: string) {
   const qc = useQueryClient();
   return useMutation({

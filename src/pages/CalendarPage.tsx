@@ -655,7 +655,7 @@ export default function CalendarPage() {
   );
 }
 
-function Briefcase(props: any) {
+function Briefcase(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg
       {...props}
@@ -675,7 +675,7 @@ function Briefcase(props: any) {
   );
 }
 
-function Users(props: any) {
+function Users(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg
       {...props}

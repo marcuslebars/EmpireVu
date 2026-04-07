@@ -166,15 +166,15 @@ export default function Dashboard() {
   const { organizationId, companyId, isValid } = useOrg();
   const activityParams = companyId != null ? { companyId, limit: 10 } : { limit: 10 };
 
-  if (!isValid) {
-    return <NoOrgContextState />;
-  }
-
   const summary = useDashboardSummary(organizationId);
   const activity = useDashboardActivity(organizationId, activityParams);
   const impact = useAutomationImpact(organizationId);
   const { data: orgs } = useOrganizations();
   const { data: companies } = useCompanies(organizationId);
+
+  if (!isValid) {
+    return <NoOrgContextState />;
+  }
 
   if (summary.isError && summary.error instanceof Error && summary.error.message.includes("401")) {
     return <DashboardErrorState message="Authentication required. Please sign in again." />;
@@ -364,7 +364,7 @@ export default function Dashboard() {
               { label: "New Booking", icon: Calendar, primary: true, path: "/calendar" },
               { label: "New Task", icon: CheckSquare, primary: false, path: "/tasks" },
               { label: "Add Lead", icon: UserPlus, primary: false, path: "/crm" },
-              { label: "Create Invoice", icon: FileText, primary: false, path: "/dashboard" },
+              { label: "Settings", icon: FileText, primary: false, path: "/settings" },
             ].map((action, i) => (
               <button
                 key={i}

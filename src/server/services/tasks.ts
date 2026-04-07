@@ -170,12 +170,14 @@ export async function updateTaskStatus(
     return existing;
   }
 
-  const { data, error } = await (context.supabase.from("tasks") as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (context.supabase.from("tasks") as any)
     .update({ status: input.status })
     .eq("organization_id", context.organizationId)
     .eq("id", input.taskId)
     .select("*")
     .single();
+  const { data, error } = await query;
 
   if (error) {
     throw error;
@@ -235,12 +237,14 @@ export async function assignTaskUser(
     assertProfileInOrganization(context, input.assignedToProfileId),
   ]);
 
-  const { data, error } = await (context.supabase.from("tasks") as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (context.supabase.from("tasks") as any)
     .update({ assigned_to_profile_id: input.assignedToProfileId })
     .eq("organization_id", context.organizationId)
     .eq("id", input.taskId)
     .select("*")
     .single();
+  const { data, error } = await query;
 
   if (error) {
     throw error;

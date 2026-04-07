@@ -135,12 +135,14 @@ export async function updateWorkflowRun(
   workflowRunId: string,
   input: Updates<"workflow_runs">,
 ): Promise<Tables<"workflow_runs">> {
-  const { data, error } = await (context.supabase.from("workflow_runs") as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (context.supabase.from("workflow_runs") as any)
     .update(input)
     .eq("organization_id", context.organizationId)
     .eq("id", workflowRunId)
     .select("*")
     .single();
+  const { data, error } = await query;
 
   if (error) {
     throw error;

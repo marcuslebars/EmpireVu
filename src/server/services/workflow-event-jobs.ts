@@ -238,15 +238,21 @@ export async function retryWorkflowEventJob(
   }
 
   const retryUpdate = buildWorkflowEventJobRetryUpdate();
-  const { data, error } = await (context.supabase.from("workflow_event_jobs") as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (context.supabase.from("workflow_event_jobs") as any)
     .update(retryUpdate)
     .eq("organization_id", context.organizationId)
     .eq("id", workflowEventJobId)
     .select("*")
     .single();
+  const { data, error } = await query;
 
   if (error) {
     throw error;
+  }
+
+  if (!data) {
+    throw new Error("Workflow event job retry update returned no data");
   }
 
   return data as Tables<"workflow_event_jobs">;
@@ -262,6 +268,7 @@ export async function claimWorkflowEventJobs(
   supabase: AdminSupabaseClient,
   options: ClaimWorkflowEventJobsOptions,
 ): Promise<Tables<"workflow_event_jobs">[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await ((supabase as any).rpc("claim_workflow_event_jobs", {
     p_limit: options.limit ?? 10,
     p_stale_after_seconds: options.staleAfterSeconds ?? 900,
@@ -279,7 +286,8 @@ export async function completeWorkflowEventJob(
   supabase: AdminSupabaseClient,
   workflowEventJobId: string,
 ): Promise<Tables<"workflow_event_jobs">> {
-  const { data, error } = await (supabase.from("workflow_event_jobs") as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (supabase.from("workflow_event_jobs") as any)
     .update({
       completed_at: nowIso(),
       last_error: null,
@@ -290,9 +298,14 @@ export async function completeWorkflowEventJob(
     .eq("id", workflowEventJobId)
     .select("*")
     .single();
+  const { data, error } = await query;
 
   if (error) {
     throw error;
+  }
+
+  if (!data) {
+    throw new Error("Complete workflow event job returned no data");
   }
 
   return data as Tables<"workflow_event_jobs">;
@@ -303,7 +316,8 @@ export async function failWorkflowEventJob(
   workflowEventJobId: string,
   failureReason: string,
 ): Promise<Tables<"workflow_event_jobs">> {
-  const { data, error } = await (supabase.from("workflow_event_jobs") as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (supabase.from("workflow_event_jobs") as any)
     .update({
       completed_at: nowIso(),
       last_error: failureReason,
@@ -314,9 +328,14 @@ export async function failWorkflowEventJob(
     .eq("id", workflowEventJobId)
     .select("*")
     .single();
+  const { data, error } = await query;
 
   if (error) {
     throw error;
+  }
+
+  if (!data) {
+    throw new Error("Fail workflow event job returned no data");
   }
 
   return data as Tables<"workflow_event_jobs">;
