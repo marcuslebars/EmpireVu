@@ -43,6 +43,7 @@ export function useDashboardSummary(orgId: string) {
   return useQuery({
     queryKey: ["dashboard", "summary", orgId],
     queryFn: () => fetchDashboardSummary(orgId),
+    enabled: Boolean(orgId),
     staleTime: 30_000,
   });
 }
@@ -54,6 +55,7 @@ export function useDashboardActivity(
   return useQuery({
     queryKey: ["dashboard", "activity", orgId, params],
     queryFn: () => fetchDashboardActivity(orgId, params),
+    enabled: Boolean(orgId),
     staleTime: 15_000,
   });
 }
@@ -62,6 +64,7 @@ export function useAutomationImpact(orgId: string) {
   return useQuery({
     queryKey: ["dashboard", "automation-impact", orgId],
     queryFn: () => fetchAutomationImpact(orgId),
+    enabled: Boolean(orgId),
     staleTime: 30_000,
   });
 }
@@ -75,6 +78,7 @@ export function useCalendarView(
   return useQuery({
     queryKey: ["calendar", "view", orgId, params],
     queryFn: () => fetchCalendarView(orgId, params),
+    enabled: Boolean(orgId),
     staleTime: 20_000,
   });
 }
@@ -86,6 +90,7 @@ export function useCalendarCapacity(
   return useQuery({
     queryKey: ["calendar", "capacity", orgId, params],
     queryFn: () => fetchCalendarCapacity(orgId, params),
+    enabled: Boolean(orgId),
     staleTime: 20_000,
   });
 }
@@ -116,6 +121,7 @@ export function useCRMContacts(
   return useQuery({
     queryKey: ["crm", "contacts", orgId, params],
     queryFn: () => fetchCRMContacts(orgId, params),
+    enabled: Boolean(orgId),
     staleTime: 20_000,
   });
 }
@@ -147,6 +153,7 @@ export function useTasks(
   return useQuery({
     queryKey: ["tasks", "list", orgId, params],
     queryFn: () => fetchTasks(orgId, params),
+    enabled: Boolean(orgId),
     staleTime: 20_000,
   });
 }
@@ -176,6 +183,7 @@ export function useWorkflows(
   return useQuery({
     queryKey: ["automations", "workflows", orgId, params],
     queryFn: () => fetchWorkflows(orgId, params),
+    enabled: Boolean(orgId),
     staleTime: 20_000,
   });
 }
@@ -196,6 +204,7 @@ export function useWorkflowJobs(
   return useQuery({
     queryKey: ["automations", "jobs", orgId, params],
     queryFn: () => fetchWorkflowJobs(orgId, params),
+    enabled: Boolean(orgId),
     staleTime: 20_000,
   });
 }
@@ -210,7 +219,7 @@ export function useTrace(
   return useQuery({
     queryKey: ["trace", orgId, entityType, entityId],
     queryFn: () => fetchTrace(orgId, entityType!, entityId!),
-    enabled: Boolean(entityType && entityId),
+    enabled: Boolean(orgId && entityType && entityId),
     staleTime: 10_000,
   });
 }
@@ -380,6 +389,7 @@ export function useCompanies(orgId: string) {
   return useQuery({
     queryKey: ["companies", orgId],
     queryFn: () => fetchCompanies(orgId),
+    enabled: Boolean(orgId),
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }
