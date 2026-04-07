@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, Navigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -46,131 +46,130 @@ function LoadingScreen({ message = "Loading Syncoree..." }: { message?: string }
 
 function AppBootstrap() {
   const { status: authStatus, session } = useAuth();
-  const location = useLocation();
 
   if (authStatus === "loading") {
     return <LoadingScreen />;
   }
 
   if (authStatus === "unauthenticated") {
-    return <Navigate to="/signin" state={{ from: location }} replace />;
+    return <Navigate to="/signin" replace />;
   }
 
   if (authStatus === "authenticated" && !session?.activeOrganizationId && !session?.organizations?.length) {
-    return <Navigate to="/onboarding" state={{ from: location }} replace />;
+    return <Navigate to="/onboarding" replace />;
   }
 
   return (
     <OrgProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/signin" element={<SignInPageWrapper />} />
-          <Route path="/signup" element={<SignUpPageWrapper />} />
-          <Route path="/onboarding" element={<OnboardingPageWrapper />} />
-          <Route path="/internal/diagnostics" element={<AppDiagnosticsPage />} />
-          <Route path="/internal/ops" element={<OpsPageWrapper />} />
-          <Route element={<AppLayout />}>
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/calendar"
-              element={
-                <ProtectedRoute>
-                  <CalendarPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/tasks"
-              element={
-                <ProtectedRoute>
-                  <TasksPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/crm"
-              element={
-                <ProtectedRoute>
-                  <CRMPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/crm/:id"
-              element={
-                <ProtectedRoute>
-                  <ContactDetailPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/projects"
-              element={
-                <ProtectedRoute>
-                  <ProjectsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/automations"
-              element={
-                <ProtectedRoute>
-                  <AutomationsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/files"
-              element={
-                <ProtectedRoute>
-                  <FilesPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/team"
-              element={
-                <ProtectedRoute>
-                  <TeamPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <ProtectedRoute>
-                  <SettingsPage />
-                </ProtectedRoute>
-              }
-            />
-          </Route>
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
+      <Routes>
+        <Route path="/signin" element={<SignInPageWrapper />} />
+        <Route path="/signup" element={<SignUpPageWrapper />} />
+        <Route path="/onboarding" element={<OnboardingPageWrapper />} />
+        <Route path="/internal/diagnostics" element={<AppDiagnosticsPage />} />
+        <Route path="/internal/ops" element={<OpsPageWrapper />} />
+        <Route element={<AppLayout />}>
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/calendar"
+            element={
+              <ProtectedRoute>
+                <CalendarPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/tasks"
+            element={
+              <ProtectedRoute>
+                <TasksPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/crm"
+            element={
+              <ProtectedRoute>
+                <CRMPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/crm/:id"
+            element={
+              <ProtectedRoute>
+                <ContactDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/projects"
+            element={
+              <ProtectedRoute>
+                <ProjectsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/automations"
+            element={
+              <ProtectedRoute>
+                <AutomationsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/files"
+            element={
+              <ProtectedRoute>
+                <FilesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/team"
+            element={
+              <ProtectedRoute>
+                <TeamPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <SettingsPage />
+              </ProtectedRoute>
+            }
+          />
+        </Route>
+        <Route path="*" element={<NotFound />} />
+      </Routes>
     </OrgProvider>
   );
 }
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <ErrorBoundary>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <AppBootstrap />
-          </TooltipProvider>
-        </ErrorBoundary>
-      </AuthProvider>
-    </QueryClientProvider>
+    <BrowserRouter>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <ErrorBoundary>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <AppBootstrap />
+            </TooltipProvider>
+          </ErrorBoundary>
+        </AuthProvider>
+      </QueryClientProvider>
+    </BrowserRouter>
   );
 }
 
