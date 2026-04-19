@@ -4,15 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, AlertCircle, Info, Mail, Phone, Chrome } from "lucide-react";
+import { Loader2, AlertCircle, Mail, Phone, Chrome } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { getSupabaseConfigDiagnostic } from "@/lib/supabase";
 
 export default function SignInPage() {
   console.log("[SignInPage] Component rendering/mounting");
-  
+
   const navigate = useNavigate();
   const { signIn, signInWithOAuth } = useAuth();
   const [email, setEmail] = useState("");
@@ -21,7 +21,7 @@ export default function SignInPage() {
   const [isOAuthLoading, setIsOAuthLoading] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [configStatus, setConfigStatus] = useState<{ isConfigured: boolean; url: string | null; keySource: string | null } | null>(null);
+  const [configStatus, setConfigStatus] = useState<{ isConfigured: boolean } | null>(null);
 
   useEffect(() => {
     console.log("[SignInPage] useEffect fired - page mounted");
@@ -32,9 +32,9 @@ export default function SignInPage() {
   }, []);
 
   console.log("[SignInPage] Rendering form UI");
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     setError(null);
     setIsLoading(true);
 
@@ -63,40 +63,109 @@ export default function SignInPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">S</span>
-            </div>
-            <CardTitle className="text-2xl">Syncoree</CardTitle>
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-[420px]">
+        <div className="flex items-center justify-center gap-3 mb-8">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
+            <span className="text-primary-foreground font-bold text-lg">S</span>
           </div>
-          <CardDescription>
-            Enter your credentials to access your workspace
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {configStatus && configStatus.isConfigured && (
-            <Alert className="mb-4 bg-muted/50 border-muted">
-              <Info className="h-4 w-4" />
-              <AlertDescription className="text-xs text-muted-foreground">
-                Auth config: {configStatus.keySource} (URL: {configStatus.url ? "set" : "not set"})
-              </AlertDescription>
-            </Alert>
-          )}
+          <span className="text-2xl font-semibold tracking-tight text-foreground">Syncoree</span>
+        </div>
 
-          {oauthError && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{oauthError}</AlertDescription>
-            </Alert>
-          )}
+        <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-xl shadow-black/10">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-xl font-semibold tracking-tight">Welcome back</CardTitle>
+            <CardDescription className="text-muted-foreground">
+              Sign in to your workspace
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {error && (
+              <Alert variant="destructive" className="py-3">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-          <div className="grid gap-2">
+            {oauthError && (
+              <Alert variant="destructive" className="py-3">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{oauthError}</AlertDescription>
+              </Alert>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-sm font-medium">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={isLoading}
+                  autoComplete="email"
+                  className="h-11"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password" className="text-sm font-medium">Password</Label>
+                  <Link
+                    to="/forgot-password"
+                    className="text-sm text-primary hover:text-primary/90 transition-colors"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  disabled={isLoading}
+                  autoComplete="current-password"
+                  className="h-11"
+                />
+              </div>
+
+              <Button
+                type="submit"
+                className="w-full h-11 text-base font-medium"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  <>
+                    <Mail className="mr-2 h-4 w-4" />
+                    Sign in with email
+                  </>
+                )}
+              </Button>
+            </form>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <Separator className="w-full" />
+              </div>
+              <div className="relative flex justify-center">
+                <span className="bg-card px-3 text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                  or continue with
+                </span>
+              </div>
+            </div>
+
             <Button
               variant="outline"
-              className="w-full"
+              className="w-full h-11 text-base font-medium"
               onClick={() => handleOAuthSignIn("google")}
               disabled={isOAuthLoading || !configStatus?.isConfigured}
             >
@@ -107,102 +176,29 @@ export default function SignInPage() {
               )}
               Continue with Google
             </Button>
-          </div>
 
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <Separator className="w-full" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">
-                Or continue with
-              </span>
-            </div>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                disabled={isLoading}
-                autoComplete="email"
-              />
+            <div className="flex items-center justify-center pt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate("/phone-auth")}
+                disabled={!configStatus?.isConfigured}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Phone className="mr-2 h-4 w-4" />
+                Sign in with phone
+              </Button>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
-                <Link
-                  to="/forgot-password"
-                  className="text-xs text-primary hover:underline"
-                >
-                  Forgot password?
-                </Link>
-              </div>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                disabled={isLoading}
-                autoComplete="current-password"
-              />
+            <div className="pt-4 text-center text-sm text-muted-foreground border-t border-border/50">
+              Don&apos;t have an account?{" "}
+              <Link to="/signup" className="text-primary font-medium hover:text-primary/90 transition-colors">
+                Create account
+              </Link>
             </div>
-
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Signing in...
-                </>
-              ) : (
-                <>
-                  <Mail className="mr-2 h-4 w-4" />
-                  Sign In with Email
-                </>
-              )}
-            </Button>
-          </form>
-
-          <div className="flex gap-3 justify-center">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate("/phone-auth")}
-              disabled={!configStatus?.isConfigured}
-            >
-              <Phone className="mr-1 h-4 w-4" />
-              Sign in with Phone
-            </Button>
-          </div>
-
-          <div className="mt-4 text-center text-sm text-muted-foreground">
-            Don&apos;t have an account?{" "}
-            <Link to="/signup" className="text-primary hover:underline">
-              Create account
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

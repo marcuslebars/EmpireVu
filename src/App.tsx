@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { OrgProvider } from "@/lib/org-context";
-import { ErrorBoundary } from "@/components/system/ErrorBoundary";
+import { ErrorBoundary, GlobalErrorHandler } from "@/components/system/ErrorBoundary";
 import { ProtectedRoute, AuthRedirect } from "@/components/system/ProtectedRoute";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AppDiagnosticsPage } from "@/pages/AppDiagnosticsPage";
@@ -205,6 +205,11 @@ function AppBootstrapInner({ children }: { children?: React.ReactNode }) {
     activeOrgId: session?.activeOrganizationId,
     orgCount: session?.organizations?.length,
     storedOrgId: typeof window !== "undefined" ? localStorage.getItem(ORG_STORAGE_KEY) : null,
+    sessionData: session ? {
+      hasOrgId: Boolean(session.activeOrganizationId),
+      orgCount: session.organizations?.length ?? 0,
+      hasUser: Boolean(session.user?.id),
+    } : null,
   });
 
   if (authStatus === "loading") {
@@ -214,6 +219,20 @@ function AppBootstrapInner({ children }: { children?: React.ReactNode }) {
   if (authStatus === "unauthenticated") {
     console.log("[AppBootstrap] Unauthenticated -> showing signin route");
     return children;
+  }
+
+  if (authStatus === "authenticated" && !session) {
+    console.error("[AppBootstrap] IMPOSSIBLE STATE: authenticated but session is null!");
+    return <Navigate to="/signin" replace />;
+  }
+
+  if (authStatus === "authenticated" && session) {
+    console.log("[AppBootstrap] SESSION CONTEXT:", JSON.stringify({
+      activeOrgId: session.activeOrganizationId,
+      orgCount: session.organizations?.length ?? 0,
+      userId: session.user?.id,
+      profile: session.profile ? { id: session.profile.id, email: session.profile.email } : null,
+    }, null, 2));
   }
 
   const effectiveOrgId = getEffectiveOrgId(session);
@@ -399,15 +418,17 @@ function AppBootstrap() {
 function App() {
   return (
     <BrowserRouter>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <AppBootstrap />
-          </TooltipProvider>
-        </AuthProvider>
-      </QueryClientProvider>
+      <GlobalErrorHandler>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <AppBootstrap />
+            </TooltipProvider>
+          </AuthProvider>
+        </QueryClientProvider>
+      </GlobalErrorHandler>
     </BrowserRouter>
   );
 }
@@ -446,31 +467,234 @@ function SignInPageWrapper() {
 }
 
 function SignUpPageWrapper() {
-  return <SignUpPage />;
+  console.log("[SignUpPageWrapper] Route matched: /signup");
+  return (
+    <ErrorBoundary
+      fallback={
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4 p-4">
+          <Card className="w-full max-w-md border-destructive/50">
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-destructive" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-semibold text-foreground mb-1">Sign-up screen failed</h1>
+                  <p className="text-sm text-muted-foreground">
+                    An error occurred while loading.
+                  </p>
+                </div>
+                <Button onClick={() => window.location.reload()}>
+                  <Loader2 className="w-4 h-4 mr-2" />
+                  Retry
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <SignUpPage />
+    </ErrorBoundary>
+  );
 }
 
 function OnboardingPageWrapper() {
-  return <OnboardingPage />;
+  console.log("[OnboardingPageWrapper] Route matched: /onboarding");
+  return (
+    <ErrorBoundary
+      fallback={
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4 p-4">
+          <Card className="w-full max-w-md border-destructive/50">
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-destructive" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-semibold text-foreground mb-1">Onboarding failed to load</h1>
+                  <p className="text-sm text-muted-foreground">
+                    An error occurred during setup.
+                  </p>
+                </div>
+                <Button onClick={() => window.location.reload()}>
+                  <Loader2 className="w-4 h-4 mr-2" />
+                  Retry
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <OnboardingPage />
+    </ErrorBoundary>
+  );
 }
 
 function OAuthConsentPageWrapper() {
-  return <OAuthConsentPage />;
+  console.log("[OAuthConsentPageWrapper] Route matched: /oauth/consent");
+  return (
+    <ErrorBoundary
+      fallback={
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4 p-4">
+          <Card className="w-full max-w-md border-destructive/50">
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-destructive" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-semibold text-foreground mb-1">Authorization failed</h1>
+                  <p className="text-sm text-muted-foreground">
+                    An error occurred during OAuth.
+                  </p>
+                </div>
+                <Button onClick={() => window.location.reload()}>
+                  <Loader2 className="w-4 h-4 mr-2" />
+                  Retry
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <OAuthConsentPage />
+    </ErrorBoundary>
+  );
 }
 
 function OAuthCallbackPageWrapper() {
-  return <OAuthCallbackPage />;
+  console.log("[OAuthCallbackPageWrapper] Route matched: /oauth/callback");
+  return (
+    <ErrorBoundary
+      fallback={
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4 p-4">
+          <Card className="w-full max-w-md border-destructive/50">
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-destructive" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-semibold text-foreground mb-1">Authentication failed</h1>
+                  <p className="text-sm text-muted-foreground">
+                    An error occurred during callback.
+                  </p>
+                </div>
+                <Button onClick={() => window.location.href = "/signin"}>
+                  <Loader2 className="w-4 h-4 mr-2" />
+                  Go to Sign In
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <OAuthCallbackPage />
+    </ErrorBoundary>
+  );
 }
 
 function PhoneAuthPageWrapper() {
-  return <PhoneAuthPage />;
+  console.log("[PhoneAuthPageWrapper] Route matched: /phone-auth");
+  return (
+    <ErrorBoundary
+      fallback={
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4 p-4">
+          <Card className="w-full max-w-md border-destructive/50">
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-destructive" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-semibold text-foreground mb-1">Phone auth failed</h1>
+                  <p className="text-sm text-muted-foreground">
+                    An error occurred while loading.
+                  </p>
+                </div>
+                <Button onClick={() => window.location.reload()}>
+                  <Loader2 className="w-4 h-4 mr-2" />
+                  Retry
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <PhoneAuthPage />
+    </ErrorBoundary>
+  );
 }
 
 function ForgotPasswordPageWrapper() {
-  return <ForgotPasswordPage />;
+  console.log("[ForgotPasswordPageWrapper] Route matched: /forgot-password");
+  return (
+    <ErrorBoundary
+      fallback={
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4 p-4">
+          <Card className="w-full max-w-md border-destructive/50">
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-destructive" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-semibold text-foreground mb-1">Reset password failed</h1>
+                  <p className="text-sm text-muted-foreground">
+                    An error occurred while loading.
+                  </p>
+                </div>
+                <Button onClick={() => window.location.reload()}>
+                  <Loader2 className="w-4 h-4 mr-2" />
+                  Retry
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <ForgotPasswordPage />
+    </ErrorBoundary>
+  );
 }
 
 function UpdatePasswordPageWrapper() {
-  return <UpdatePasswordPage />;
+  console.log("[UpdatePasswordPageWrapper] Route matched: /update-password");
+  return (
+    <ErrorBoundary
+      fallback={
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4 p-4">
+          <Card className="w-full max-w-md border-destructive/50">
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-destructive" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-semibold text-foreground mb-1">Update password failed</h1>
+                  <p className="text-sm text-muted-foreground">
+                    An error occurred while loading.
+                  </p>
+                </div>
+                <Button onClick={() => window.location.href = "/signin"}>
+                  <Loader2 className="w-4 h-4 mr-2" />
+                  Go to Sign In
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <UpdatePasswordPage />
+    </ErrorBoundary>
+  );
 }
 
 function OpsPageWrapper() {

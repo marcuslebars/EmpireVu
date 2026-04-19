@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, AlertCircle, CheckCircle, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 
@@ -34,97 +34,110 @@ export default function ForgotPasswordPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/50 p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-6">
-            <div className="flex flex-col items-center text-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-green-500" />
-              </div>
-              <div>
-                <h2 className="text-xl font-semibold">Check Your Email</h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  We&apos;ve sent a password reset link to <strong>{email}</strong>
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="w-full max-w-[420px]">
+          <div className="flex items-center justify-center gap-3 mb-8">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
+              <span className="text-primary-foreground font-bold text-lg">S</span>
+            </div>
+            <span className="text-2xl font-semibold tracking-tight text-foreground">Syncoree</span>
+          </div>
+
+          <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-xl shadow-black/10">
+            <CardContent className="pt-8 pb-8">
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-14 h-14 rounded-full bg-green-500/10 flex items-center justify-center">
+                  <CheckCircle className="w-7 h-7 text-green-500" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold tracking-tight">Check your email</h2>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    We&apos;ve sent a password reset link to{" "}
+                    <span className="font-medium text-foreground">{email}</span>
+                  </p>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Click the link to reset your password. It expires in 1 hour.
                 </p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Click the link in the email to reset your password. The link will expire in 1 hour.
-              </p>
-            </div>
 
-            <div className="mt-6 space-y-3">
-              <div className="flex gap-3">
-                <Button variant="outline" className="flex-1" asChild>
+              <div className="mt-8">
+                <Button variant="outline" className="w-full h-11" asChild>
                   <Link to="/signin">
                     <ArrowLeft className="w-4 h-4 mr-2" />
-                    Back to Sign In
+                    Back to sign in
                   </Link>
                 </Button>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">S</span>
-            </div>
-            <CardTitle className="text-2xl">Syncoree</CardTitle>
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-[420px]">
+        <div className="flex items-center justify-center gap-3 mb-8">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
+            <span className="text-primary-foreground font-bold text-lg">S</span>
           </div>
-          <CardDescription>
-            Enter your email to receive a password reset link
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <span className="text-2xl font-semibold tracking-tight text-foreground">Syncoree</span>
+        </div>
+
+        <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-xl shadow-black/10">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-xl font-semibold tracking-tight">Reset your password</CardTitle>
+            <CardDescription className="text-muted-foreground">
+              Enter your email and we&apos;ll send you a reset link
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
             {error && (
-              <Alert variant="destructive">
+              <Alert variant="destructive" className="py-3">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                disabled={isLoading}
-                autoComplete="email"
-              />
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-sm font-medium">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={isLoading}
+                  autoComplete="email"
+                  className="h-11"
+                />
+              </div>
+
+              <Button type="submit" className="w-full h-11 text-base font-medium" disabled={isLoading}>
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending link...
+                  </>
+                ) : (
+                  "Send reset link"
+                )}
+              </Button>
+            </form>
+
+            <div className="pt-4 text-center text-sm text-muted-foreground border-t border-border/50">
+              Remember your password?{" "}
+              <Link to="/signin" className="text-primary font-medium hover:text-primary/90 transition-colors">
+                Sign in
+              </Link>
             </div>
-
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sending Reset Link...
-                </>
-              ) : (
-                "Send Reset Link"
-              )}
-            </Button>
-          </form>
-
-          <div className="mt-4 text-center text-sm text-muted-foreground">
-            Remember your password?{" "}
-            <Link to="/signin" className="text-primary hover:underline">
-              Sign in
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

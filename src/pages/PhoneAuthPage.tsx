@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, AlertCircle, ArrowLeft, Phone } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 
@@ -91,116 +91,125 @@ export default function PhoneAuthPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">S</span>
-            </div>
-            <CardTitle className="text-2xl">Syncoree</CardTitle>
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-[420px]">
+        <div className="flex items-center justify-center gap-3 mb-8">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
+            <span className="text-primary-foreground font-bold text-lg">S</span>
           </div>
-          <CardDescription>
-            {mode === "phone" ? "Sign in with your phone number" : "Enter the verification code"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {error && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+          <span className="text-2xl font-semibold tracking-tight text-foreground">Syncoree</span>
+        </div>
 
-          {mode === "phone" ? (
-            <form onSubmit={handlePhoneSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone Number</Label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-xl shadow-black/10">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-xl font-semibold tracking-tight">
+              {mode === "phone" ? "Sign in with phone" : "Enter verification code"}
+            </CardTitle>
+            <CardDescription className="text-muted-foreground">
+              {mode === "phone"
+                ? "We'll send you a code via SMS"
+                : `Code sent to ${phone}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {error && (
+              <Alert variant="destructive" className="py-3">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {mode === "phone" ? (
+              <form onSubmit={handlePhoneSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="phone" className="text-sm font-medium">Phone Number</Label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="phone"
+                      type="tel"
+                      placeholder="(555) 123-4567"
+                      value={phone}
+                      onChange={(e) => setPhone(formatPhone(e.target.value))}
+                      required
+                      disabled={isLoading}
+                      autoComplete="tel"
+                      className="pl-10 h-11"
+                    />
+                  </div>
+                </div>
+
+                <Button type="submit" className="w-full h-11 text-base font-medium" disabled={isLoading}>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Sending code...
+                    </>
+                  ) : (
+                    "Send verification code"
+                  )}
+                </Button>
+              </form>
+            ) : (
+              <form onSubmit={handleOtpSubmit} className="space-y-4">
+                <div className="space-y-3">
+                  <Label htmlFor="otp" className="text-sm font-medium">Verification Code</Label>
                   <Input
-                    id="phone"
-                    type="tel"
-                    placeholder="(555) 123-4567"
-                    value={phone}
-                    onChange={(e) => setPhone(formatPhone(e.target.value))}
+                    id="otp"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="000000"
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
                     required
                     disabled={isLoading}
-                    autoComplete="tel"
-                    className="pl-10"
+                    autoComplete="one-time-code"
+                    className="text-center text-2xl tracking-[0.5em] font-mono h-14"
+                    maxLength={6}
                   />
+                  <p className="text-xs text-muted-foreground text-center">
+                    Enter the 6-digit code sent to your phone
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  We&apos;ll send you a verification code via SMS
-                </p>
-              </div>
 
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Sending Code...
-                  </>
-                ) : (
-                  "Send Verification Code"
-                )}
+                <Button type="submit" className="w-full h-11 text-base font-medium" disabled={isLoading}>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Verifying...
+                    </>
+                  ) : (
+                    "Verify & sign in"
+                  )}
+                </Button>
+
+                <div className="text-center">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handlePhoneSubmit}
+                    disabled={isLoading}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Resend code
+                  </Button>
+                </div>
+              </form>
+            )}
+
+            <div className="pt-4 flex items-center justify-between text-sm border-t border-border/50">
+              <Button variant="ghost" size="sm" onClick={handleBack} className="text-muted-foreground hover:text-foreground">
+                <ArrowLeft className="w-4 h-4 mr-1" />
+                {mode === "otp" ? "Change number" : "Back"}
               </Button>
-            </form>
-          ) : (
-            <form onSubmit={handleOtpSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="otp">Verification Code</Label>
-                <Input
-                  id="otp"
-                  type="text"
-                  placeholder="Enter 6-digit code"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  required
-                  disabled={isLoading}
-                  autoComplete="one-time-code"
-                  className="text-center text-lg tracking-widest font-mono"
-                  maxLength={6}
-                />
-                <p className="text-xs text-muted-foreground text-center">
-                  Code sent to {phone}
-                </p>
-              </div>
-
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Verifying...
-                  </>
-                ) : (
-                  "Verify & Sign In"
-                )}
-              </Button>
-
-              <Button
-                type="button"
-                variant="ghost"
-                className="w-full"
-                onClick={handlePhoneSubmit}
-                disabled={isLoading}
-              >
-                Resend Code
-              </Button>
-            </form>
-          )}
-
-          <div className="mt-4 flex items-center justify-between text-sm">
-            <Button variant="ghost" size="sm" onClick={handleBack}>
-              <ArrowLeft className="w-4 h-4 mr-1" />
-              {mode === "otp" ? "Change Number" : "Back"}
-            </Button>
-            <Link to="/signin" className="text-muted-foreground hover:text-foreground">
-              Sign in with email
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
+              <Link to="/signin" className="text-primary hover:text-primary/90 transition-colors">
+                Sign in with email
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

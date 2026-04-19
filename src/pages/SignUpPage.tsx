@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Loader2, AlertCircle, CheckCircle, Chrome } from "lucide-react";
 import { supabase, getSupabaseConfigDiagnostic } from "@/lib/supabase";
@@ -20,7 +20,7 @@ export default function SignUpPage() {
   const [isOAuthLoading, setIsOAuthLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [configStatus, setConfigStatus] = useState<{ isConfigured: boolean; url: string | null; keySource: string | null } | null>(null);
+  const [configStatus, setConfigStatus] = useState<{ isConfigured: boolean } | null>(null);
 
   useEffect(() => {
     const status = getSupabaseConfigDiagnostic();
@@ -37,7 +37,7 @@ export default function SignUpPage() {
     e.preventDefault();
 
     if (!configStatus?.isConfigured) {
-      setError("Supabase is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY environment variables.");
+      setError("Authentication is not available. Please contact support.");
       return;
     }
 
@@ -95,74 +95,74 @@ export default function SignUpPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/50 p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-6">
-            <div className="flex flex-col items-center text-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-green-500" />
-              </div>
-              <div>
-                <h2 className="text-xl font-semibold">Check your email</h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  We&apos;ve sent a confirmation link to <strong>{email}</strong>.
-                  Please click the link to activate your account, then sign in.
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="w-full max-w-[420px]">
+          <div className="flex items-center justify-center gap-3 mb-8">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
+              <span className="text-primary-foreground font-bold text-lg">S</span>
+            </div>
+            <span className="text-2xl font-semibold tracking-tight text-foreground">Syncoree</span>
+          </div>
+
+          <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-xl shadow-black/10">
+            <CardContent className="pt-8 pb-8">
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-14 h-14 rounded-full bg-green-500/10 flex items-center justify-center">
+                  <CheckCircle className="w-7 h-7 text-green-500" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold tracking-tight">Check your email</h2>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    We&apos;ve sent a confirmation link to{" "}
+                    <span className="font-medium text-foreground">{email}</span>
+                  </p>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Click the link to activate your account, then sign in.
                 </p>
               </div>
-            </div>
 
-            <div className="mt-4 text-center text-sm text-muted-foreground">
-              Already have an account?{" "}
-              <Link to="/signin" className="text-primary hover:underline">
-                Sign in
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
+              <div className="mt-8 pt-6 border-t border-border/50 text-center text-sm text-muted-foreground">
+                Already have an account?{" "}
+                <Link to="/signin" className="text-primary font-medium hover:text-primary/90 transition-colors">
+                  Sign in
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">S</span>
-            </div>
-            <CardTitle className="text-2xl">Syncoree</CardTitle>
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-[420px]">
+        <div className="flex items-center justify-center gap-3 mb-8">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
+            <span className="text-primary-foreground font-bold text-lg">S</span>
           </div>
-          <CardDescription>
-            Create your account to get started
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {configStatus && !configStatus.isConfigured && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Authentication Disabled</AlertTitle>
-              <AlertDescription className="space-y-1">
-                <p>Supabase environment variables are not configured.</p>
-                <p className="text-xs font-mono">
-                  Missing: {!configStatus.url ? "VITE_SUPABASE_URL" : null}{" "}
-                  {!configStatus.keySource ? "VITE_SUPABASE_PUBLISHABLE_KEY" : null}
-                </p>
-              </AlertDescription>
-            </Alert>
-          )}
+          <span className="text-2xl font-semibold tracking-tight text-foreground">Syncoree</span>
+        </div>
 
-          {error && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+        <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-xl shadow-black/10">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-xl font-semibold tracking-tight">Create your account</CardTitle>
+            <CardDescription className="text-muted-foreground">
+              Get started with Syncoree
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {error && (
+              <Alert variant="destructive" className="py-3">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-          <div className="grid gap-2">
             <Button
               variant="outline"
-              className="w-full"
+              className="w-full h-11 text-base font-medium"
               onClick={() => handleOAuthSignUp("google")}
               disabled={isOAuthLoading || !configStatus?.isConfigured}
             >
@@ -173,86 +173,89 @@ export default function SignUpPage() {
               )}
               Continue with Google
             </Button>
-          </div>
 
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <Separator className="w-full" />
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <Separator className="w-full" />
+              </div>
+              <div className="relative flex justify-center">
+                <span className="bg-card px-3 text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                  or create with email
+                </span>
+              </div>
             </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">
-                Or create with
-              </span>
-            </div>
-          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-sm font-medium">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={isLoading || !configStatus?.isConfigured}
+                  autoComplete="email"
+                  className="h-11"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="password" className="text-sm font-medium">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Create a password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  disabled={isLoading || !configStatus?.isConfigured}
+                  autoComplete="new-password"
+                  className="h-11"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword" className="text-sm font-medium">Confirm Password</Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  placeholder="Confirm your password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  disabled={isLoading || !configStatus?.isConfigured}
+                  autoComplete="new-password"
+                  className="h-11"
+                />
+              </div>
+
+              <Button
+                type="submit"
+                className="w-full h-11 text-base font-medium"
                 disabled={isLoading || !configStatus?.isConfigured}
-                autoComplete="email"
-              />
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Creating account...
+                  </>
+                ) : (
+                  "Create account"
+                )}
+              </Button>
+            </form>
+
+            <div className="pt-4 text-center text-sm text-muted-foreground border-t border-border/50">
+              Already have an account?{" "}
+              <Link to="/signin" className="text-primary font-medium hover:text-primary/90 transition-colors">
+                Sign in
+              </Link>
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Create a password (min 6 characters)"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                disabled={isLoading || !configStatus?.isConfigured}
-                autoComplete="new-password"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm Password</Label>
-              <Input
-                id="confirmPassword"
-                type="password"
-                placeholder="Confirm your password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-                disabled={isLoading || !configStatus?.isConfigured}
-                autoComplete="new-password"
-              />
-            </div>
-
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isLoading || !configStatus?.isConfigured}
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating account...
-                </>
-              ) : (
-                "Create Account"
-              )}
-            </Button>
-          </form>
-
-          <div className="mt-4 text-center text-sm text-muted-foreground">
-            Already have an account?{" "}
-            <Link to="/signin" className="text-primary hover:underline">
-              Sign in
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

@@ -27,10 +27,12 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (status === "authenticated" && session && session.organizations.length > 0) {
-      const firstOrg = session.organizations[0];
-      setOrganizationId(firstOrg.id);
-      navigate("/", { replace: true });
+    if (status === "authenticated" && session && (session.organizations?.length ?? 0) > 0) {
+      const firstOrg = session.organizations?.[0];
+      if (firstOrg) {
+        setOrganizationId(firstOrg.id);
+        navigate("/", { replace: true });
+      }
     }
     if (status === "unauthenticated") {
       navigate("/signin", { replace: true });
@@ -102,7 +104,7 @@ export default function OnboardingPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`/api/organizations/${session.activeOrganizationId}/companies`, {
+      const response = await fetch(`/api/organizations/${session?.activeOrganizationId}/companies`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
