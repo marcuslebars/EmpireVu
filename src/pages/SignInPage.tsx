@@ -11,6 +11,8 @@ import { useAuth } from "@/lib/auth-context";
 import { getSupabaseConfigDiagnostic } from "@/lib/supabase";
 
 export default function SignInPage() {
+  console.log("[SignInPage] Component rendering/mounting");
+  
   const navigate = useNavigate();
   const { signIn, signInWithOAuth } = useAuth();
   const [email, setEmail] = useState("");
@@ -22,11 +24,14 @@ export default function SignInPage() {
   const [configStatus, setConfigStatus] = useState<{ isConfigured: boolean; url: string | null; keySource: string | null } | null>(null);
 
   useEffect(() => {
+    console.log("[SignInPage] useEffect fired - page mounted");
     const status = getSupabaseConfigDiagnostic();
     setConfigStatus(status);
     console.log("[SignInPage] Supabase config:", status);
+    return () => console.log("[SignInPage] Component unmounting");
   }, []);
 
+  console.log("[SignInPage] Rendering form UI");
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
