@@ -23,13 +23,16 @@ export default function UpdatePasswordPage() {
     const errorParam = searchParams.get("error");
     const tokenHash = searchParams.get("token_hash");
     const type = searchParams.get("type");
+    // Supabase (@supabase/ssr) uses the PKCE flow, so recovery links arrive with
+    // a `code` param; older links use `token_hash` + `type=recovery`. Accept either.
+    const code = searchParams.get("code");
 
     if (errorParam) {
       setTokenError("This password reset link has expired or is invalid. Please request a new one.");
       return;
     }
 
-    if (!tokenHash || type !== "recovery") {
+    if (!code && (!tokenHash || type !== "recovery")) {
       setTokenError("Invalid password reset link. Please use the link from your email.");
     }
   }, [searchParams]);
@@ -62,10 +65,15 @@ export default function UpdatePasswordPage() {
   };
 
   useEffect(() => {
-    if (status === "unauthenticated" && !tokenError) {
+    // Don't bounce to sign-in while a recovery link is still being processed — the
+    // PKCE code exchange briefly reports "unauthenticated" before the session lands.
+    const hasRecoveryParam =
+      searchParams.get("code") ||
+      (searchParams.get("token_hash") && searchParams.get("type") === "recovery");
+    if (status === "unauthenticated" && !tokenError && !hasRecoveryParam) {
       navigate("/signin");
     }
-  }, [status, tokenError, navigate]);
+  }, [status, tokenError, navigate, searchParams]);
 
   if (tokenError) {
     return (

@@ -239,14 +239,14 @@ export function useCreateContact(orgId: string) {
   });
 }
 
-export function useUpdateContactStage(orgId: string, contactId: string) {
+export function useUpdateContactStage(orgId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (stage: "lead" | "qualified" | "active" | "closed") =>
+    mutationFn: ({ contactId, stage }: { contactId: string; stage: "lead" | "qualified" | "active" | "closed" }) =>
       updateContactStage(orgId, contactId, stage),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       void qc.invalidateQueries({ queryKey: ["crm", "contacts", orgId] });
-      void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
+      void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, variables.contactId] });
     },
   });
 }

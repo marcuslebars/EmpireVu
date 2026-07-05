@@ -275,7 +275,7 @@ export default function CRMPage() {
   }), [companyId, search]);
 
   const { data: contacts, isLoading, isError, refetch } = useCRMContacts(organizationId, params);
-  const updateStage = useUpdateContactStage(organizationId, "");
+  const updateStage = useUpdateContactStage(organizationId);
 
   const contactList = contacts?.rows?.items ?? [];
 
@@ -297,7 +297,7 @@ export default function CRMPage() {
     if (!validStages.includes(newStage as typeof validStages[number])) return;
     try {
       toast.promise(
-        updateStage.mutateAsync(newStage as "lead" | "qualified" | "active" | "closed"),
+        updateStage.mutateAsync({ contactId, stage: newStage as "lead" | "qualified" | "active" | "closed" }),
         {
           loading: "Updating stage...",
           success: "Stage updated",
