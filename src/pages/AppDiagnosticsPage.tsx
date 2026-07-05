@@ -82,7 +82,7 @@ export function AppDiagnosticsPage() {
     <div className="min-h-screen bg-muted/30 p-8">
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Syncoree Diagnostics</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Hubcos Diagnostics</h1>
           <p className="text-muted-foreground mt-1">
             Internal diagnostics panel for debugging production issues
           </p>
@@ -203,12 +203,12 @@ export function AppDiagnosticsPage() {
                 const keys: Array<{ key: string; value: string }> = [];
                 for (let i = 0; i < localStorage.length; i++) {
                   const key = localStorage.key(i);
-                  if (key && key.startsWith("syncoree")) {
+                  if (key && key.startsWith("hubcos")) {
                     keys.push({ key, value: localStorage.getItem(key) || "" });
                   }
                 }
                 if (keys.length === 0) {
-                  return <span className="text-muted-foreground">No syncoree localStorage keys found</span>;
+                  return <span className="text-muted-foreground">No hubcos localStorage keys found</span>;
                 }
                 return keys.map(({ key, value }) => (
                   <div key={key} className="flex gap-2">

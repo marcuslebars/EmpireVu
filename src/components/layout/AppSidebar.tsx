@@ -45,7 +45,7 @@ export function AppSidebar() {
           </div>
           {!collapsed && (
             <span className="font-semibold text-foreground tracking-tight text-[15px]">
-              Syncoree
+              Hubcos
             </span>
           )}
         </div>

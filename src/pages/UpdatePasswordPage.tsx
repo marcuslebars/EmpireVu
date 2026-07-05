@@ -75,7 +75,7 @@ export default function UpdatePasswordPage() {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
               <span className="text-primary-foreground font-bold text-lg">S</span>
             </div>
-            <span className="text-2xl font-semibold tracking-tight text-foreground">Syncoree</span>
+            <span className="text-2xl font-semibold tracking-tight text-foreground">Hubcos</span>
           </div>
 
           <Card className="border-destructive/50 bg-card/50 backdrop-blur-sm shadow-xl shadow-black/10">
@@ -113,7 +113,7 @@ export default function UpdatePasswordPage() {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
               <span className="text-primary-foreground font-bold text-lg">S</span>
             </div>
-            <span className="text-2xl font-semibold tracking-tight text-foreground">Syncoree</span>
+            <span className="text-2xl font-semibold tracking-tight text-foreground">Hubcos</span>
           </div>
 
           <Card className="borderBorder/50 bg-card/50 backdrop-blur-sm shadow-xl shadow-black/10">
@@ -147,7 +147,7 @@ export default function UpdatePasswordPage() {
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
             <span className="text-primary-foreground font-bold text-lg">S</span>
           </div>
-          <span className="text-2xl font-semibold tracking-tight text-foreground">Syncoree</span>
+          <span className="text-2xl font-semibold tracking-tight text-foreground">Hubcos</span>
         </div>
 
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-xl shadow-black/10">

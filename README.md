@@ -1,42 +1,57 @@
-# Welcome to your Lovable project
+# Hubcos
 
-TODO: Document your project here
+The central hub for my companies — the CRM and **central lead record** for the A1 family (A1 Marine Care, A1 Marine Storage, A1 Coatings) and my productivity/scheduling workspace across them.
 
-## Backend foundation
+Multi-tenant on Supabase/Postgres: one organization → many companies → contacts / bookings / tasks, with an activity-event trace backbone and a DB-backed workflow automation engine.
 
-This repository now includes a Supabase and Next-compatible backend foundation for Syncoree.
+> Renamed from **Syncoree**. See `docs/HUBCOS_AUDIT.md` for the full Phase 0 audit (live-vs-mock inventory, backend surface, workflow engine, architecture decision, and the completion plan).
 
-### Structure
+## Architecture
 
-- `supabase/migrations`: PostgreSQL schema and Row Level Security migrations
-- `supabase/seed.sql`: deterministic tenant seed data for Thinker Holdings
-- `src/server/db`: type-safe database types and shared helpers
-- `src/server/organizations`: organization membership and auth context resolution
-- `src/server/services`: multi-tenant service layer for companies, contacts, bookings, tasks, workflows, workflow runs, comments, traces, and activity events
-- `src/app/api/organizations/[organizationId]/*`: Next.js route handlers for core entities, comments, companies, and workflow runs
-- `src/app/api/organizations/[organizationId]/ui/*`: frontend-ready live-data routes for dashboard, calendar, CRM, tasks, automations, and unified trace views
-- `docs/backend-schema-audit.md`: hardening notes for schema integrity, traceability, and RLS performance
+- **Frontend** — Vite + React SPA (React Router), `src/pages` + `src/components`, calling the API at `/api/*`.
+- **API** — Next.js 14 route handlers under `src/app/api/organizations/[organizationId]/*` (bare entity CRUD, a `/ui/*` denormalized read-model layer for the app, and internal `/ops/*` routes).
+- **Data** — Supabase/Postgres with Row Level Security on every business table; `src/server/services` is the multi-tenant service layer; `src/server/db` holds types and helpers.
+- **Automation** — `src/server/services/workflow-engine` executes workflows off `activity_events`; `workflow_event_jobs` is the DB-backed queue and `src/server/workers/workflow-event-worker.ts` is the Railway polling worker.
 
-### Environment variables
+> **Deployment is being consolidated to a single origin** (the web runtime serves both the API and the built SPA) so Supabase cookie auth stays same-origin, with the worker as its own service. See `docs/HUBCOS_RUNBOOK.md` (added in Phase 5) for the deploy topology and env.
 
-Set these before using the server routes:
+## Structure
 
+- `supabase/migrations` — Postgres schema + RLS migrations
+- `supabase/seed.sql` — tenant seed data
+- `src/server/services` — multi-tenant service layer (companies, contacts, bookings, tasks, comments, activity events, workflows + runs, traces, live-data read-models)
+- `src/server/organizations/context.ts` — auth + org-membership resolution for every route
+- `src/app/api/.../ui/*` — frontend-ready live-data routes (dashboard, calendar, CRM, tasks, automations, trace)
+- `src/lib` — SPA API client/hooks, auth + org context
+- `docs/` — audit, schema notes, runbook
+
+## Environment variables
+
+Client (Vite, build-time):
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+- `VITE_API_BASE_URL` (leave empty for same-origin once consolidated)
+
+Server + worker:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY` for the async workflow worker
+- `SUPABASE_SERVICE_ROLE_KEY` — **worker only**; never used in a request path (RLS-bypassing)
 
-### Scripts
+## Scripts
 
-- `npm run dev`: existing Vite frontend
-- `npm run dev:next`: Next.js server runtime for API routes
-- `npm run build:next`: Next.js production build
-- `npm run typecheck`: TypeScript validation for the shared codebase
-- `npm run worker:workflow-events`: Railway-friendly polling worker for async workflow event processing
+- `npm run dev` — Vite frontend
+- `npm run dev:next` — Next.js API runtime
+- `npm run build` / `npm run build:next` — SPA / API production builds
+- `npm run typecheck` — TypeScript validation
+- `npm run test` — Vitest suite
+- `npm run worker:workflow-events` — the async workflow worker (Railway)
 
-### Notes
+## Package manager
 
-- Every organization-scoped business table includes `organization_id`.
-- `organization_memberships` is the base access rule for RLS.
-- `workflow_runs` and `activity_events` are the workflow trace backbone, and `workflow_event_jobs` is the v1 database-backed queue for background execution.
-- `contacts` and `bookings` are company-scoped by design, and tasks/comments/events inherit or validate company scope against linked records.
-- `src/server/services/live-data.ts` provides normalized read models over the existing service layer without changing the schema or workflow engine.
+This project uses **npm** (`package-lock.json`). The previous bun/pnpm lockfiles were removed to avoid resolution drift.
+
+## Notes
+
+- Every organization-scoped table carries `organization_id`; `organization_memberships` is the base RLS rule.
+- `contacts` and `bookings` are company-scoped; tasks/comments/events validate company scope against linked records.
+- `workflow_runs` + `activity_events` are the trace backbone; `workflow_event_jobs` is the v1 queue.

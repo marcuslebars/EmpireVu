@@ -25,8 +25,8 @@ export interface ValidOrgContext {
 
 const OrgContext = createContext<ValidOrgContext | null>(null);
 
-const ORG_STORAGE_KEY = "syncoree_org_id";
-const COMPANY_STORAGE_KEY = "syncoree_company_id";
+const ORG_STORAGE_KEY = "hubcos_org_id";
+const COMPANY_STORAGE_KEY = "hubcos_company_id";
 
 const STORAGE_KEYS = {
   clearAll: () => {

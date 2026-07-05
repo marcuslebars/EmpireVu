@@ -136,7 +136,7 @@ export default function OnboardingPage() {
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <span className="text-primary-foreground font-bold text-sm">S</span>
             </div>
-            <CardTitle className="text-2xl">Syncoree</CardTitle>
+            <CardTitle className="text-2xl">Hubcos</CardTitle>
           </div>
           <CardDescription>
             {step === "org" && "Create your organization to get started"}
@@ -165,7 +165,7 @@ export default function OnboardingPage() {
                   autoFocus
                 />
                 <p className="text-xs text-muted-foreground">
-                  This is your company or team name in Syncoree
+                  This is your company or team name in Hubcos
                 </p>
               </div>
               <Button type="submit" className="w-full" disabled={isLoading}>

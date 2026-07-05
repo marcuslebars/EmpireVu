@@ -1,6 +1,6 @@
 /**
  * Reusable loading, empty, and error state components.
- * Designed to be subtle and consistent with the Syncoree design system.
+ * Designed to be subtle and consistent with the Hubcos design system.
  */
 
 import { AlertTriangle, RefreshCw, Inbox } from "lucide-react";

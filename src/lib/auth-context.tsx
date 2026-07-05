@@ -44,16 +44,16 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const ORG_STORAGE_KEY = "syncoree_org_id";
-const COMPANY_STORAGE_KEY = "syncoree_company_id";
+const ORG_STORAGE_KEY = "hubcos_org_id";
+const COMPANY_STORAGE_KEY = "hubcos_company_id";
 
-function getAllSyncoreeStorageKeys(): string[] {
+function getAllHubcosStorageKeys(): string[] {
   if (typeof window === "undefined") return [];
   const keys: string[] = [ORG_STORAGE_KEY, COMPANY_STORAGE_KEY];
-  keys.push("syncoree.activeOrganizationId");
+  keys.push("hubcos.activeOrganizationId");
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key && key.startsWith("syncoree.activeCompanyId.")) {
+    if (key && key.startsWith("hubcos.activeCompanyId.")) {
       keys.push(key);
     }
   }
@@ -62,7 +62,7 @@ function getAllSyncoreeStorageKeys(): string[] {
 
 function clearAllAppStorage(): void {
   if (typeof window === "undefined") return;
-  const keys = getAllSyncoreeStorageKeys();
+  const keys = getAllHubcosStorageKeys();
   keys.forEach((key) => localStorage.removeItem(key));
 }
 

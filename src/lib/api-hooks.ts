@@ -1,5 +1,5 @@
 /**
- * React Query hooks for all Syncoree UI endpoints.
+ * React Query hooks for all Hubcos UI endpoints.
  * Each hook is typed, deduped, and cached via @tanstack/react-query.
  */
 

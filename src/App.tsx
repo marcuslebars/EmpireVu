@@ -12,7 +12,6 @@ import { AppDiagnosticsPage } from "@/pages/AppDiagnosticsPage";
 import { OpsPage } from "@/pages/OpsPage";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
-import OAuthConsentPage from "./pages/OAuthConsentPage";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage";
 import PhoneAuthPage from "./pages/PhoneAuthPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
@@ -43,7 +42,7 @@ const queryClient = new QueryClient({
   },
 });
 
-function LoadingScreen({ message = "Loading Syncoree..." }: { message?: string }) {
+function LoadingScreen({ message = "Loading Hubcos..." }: { message?: string }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4">
       <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -52,7 +51,7 @@ function LoadingScreen({ message = "Loading Syncoree..." }: { message?: string }
   );
 }
 
-const ORG_STORAGE_KEY = "syncoree_org_id";
+const ORG_STORAGE_KEY = "hubcos_org_id";
 
 function getEffectiveOrgId(session: { activeOrganizationId: string | null; organizations: Array<{ id: string }> } | null): string {
   if (!session) return "";
@@ -175,7 +174,7 @@ function ImpossibleStateFallback({ phase }: { phase: string }) {
               <AlertTriangle className="w-6 h-6 text-destructive" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-foreground mb-1">Syncoree failed to load</h1>
+              <h1 className="text-xl font-semibold text-foreground mb-1">Hubcos failed to load</h1>
               <p className="text-sm text-muted-foreground">
                 An unexpected bootstrap state was reached: {phase}
               </p>
@@ -288,7 +287,6 @@ function AppRoutes() {
     <Routes>
       <Route path="/signin" element={<SignInPageWrapper />} />
       <Route path="/signup" element={<SignUpPageWrapper />} />
-      <Route path="/oauth/consent" element={<OAuthConsentPageWrapper />} />
       <Route path="/oauth/callback" element={<OAuthCallbackPageWrapper />} />
       <Route path="/phone-auth" element={<PhoneAuthPageWrapper />} />
       <Route path="/forgot-password" element={<ForgotPasswordPageWrapper />} />
@@ -395,7 +393,7 @@ function AppBootstrap() {
                   <AlertTriangle className="w-6 h-6 text-destructive" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-semibold text-foreground mb-1">Syncoree failed to load</h1>
+                  <h1 className="text-xl font-semibold text-foreground mb-1">Hubcos failed to load</h1>
                   <p className="text-sm text-muted-foreground">
                     An error occurred during bootstrap. Try reloading.
                   </p>
@@ -532,38 +530,6 @@ function OnboardingPageWrapper() {
   );
 }
 
-function OAuthConsentPageWrapper() {
-  console.log("[OAuthConsentPageWrapper] Route matched: /oauth/consent");
-  return (
-    <ErrorBoundary
-      fallback={
-        <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4 p-4">
-          <Card className="w-full max-w-md border-destructive/50">
-            <CardContent className="pt-6">
-              <div className="flex flex-col items-center text-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
-                  <AlertTriangle className="w-6 h-6 text-destructive" />
-                </div>
-                <div>
-                  <h1 className="text-xl font-semibold text-foreground mb-1">Authorization failed</h1>
-                  <p className="text-sm text-muted-foreground">
-                    An error occurred during OAuth.
-                  </p>
-                </div>
-                <Button onClick={() => window.location.reload()}>
-                  <Loader2 className="w-4 h-4 mr-2" />
-                  Retry
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      }
-    >
-      <OAuthConsentPage />
-    </ErrorBoundary>
-  );
-}
 
 function OAuthCallbackPageWrapper() {
   console.log("[OAuthCallbackPageWrapper] Route matched: /oauth/callback");
