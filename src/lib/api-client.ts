@@ -725,6 +725,20 @@ export function fetchCompanies(orgId: string): Promise<CompanySummary[]> {
   return apiFetch(`/api/organizations/${orgId}/companies`);
 }
 
+export interface CreateCompanyInput {
+  name: string;
+  stage?: "prospect" | "active" | "paused" | "archived";
+  website?: string | null;
+  notes?: string | null;
+}
+
+export function createCompany(orgId: string, input: CreateCompanyInput): Promise<CompanySummary> {
+  return apiFetch(`/api/organizations/${orgId}/companies`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 // ─── Internal Ops ─────────────────────────────────────────────────────────────
 
 export interface OpsJobDetailResponse {

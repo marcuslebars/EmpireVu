@@ -15,6 +15,7 @@ import {
   Star,
   X,
   Loader2,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -23,7 +24,8 @@ import {
   useCRMContacts, 
   useCreateContact, 
   useUpdateContactStage,
-  useCompanies
+  useCompanies,
+  useCreateCompany
 } from "@/lib/api-hooks";
 import { SkeletonRow, ErrorBanner, EmptyState } from "@/components/ui/StateViews";
 import { formatCentsCompact, relativeTime } from "@/lib/format";
@@ -203,6 +205,9 @@ function CreateContactDialog({
                 className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
               >
                 {!companies && <option>Loading companies...</option>}
+                {companies && companies.length === 0 && (
+                  <option value="">No companies yet — use “New Company”</option>
+                )}
                 {companies?.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
@@ -260,6 +265,110 @@ function CreateContactDialog({
   );
 }
 
+// ─── Create Company Dialog ────────────────────────────────────────────────────
+
+function NewCompanyDialog({ onClose }: { onClose: () => void }) {
+  const { organizationId } = useOrg();
+  const createCompany = useCreateCompany(organizationId);
+
+  const [name, setName] = useState("");
+  const [stage, setStage] = useState<"prospect" | "active" | "paused" | "archived">("active");
+  const [website, setWebsite] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    try {
+      await createCompany.mutateAsync({
+        name: name.trim(),
+        stage,
+        website: website.trim() || null,
+      });
+      toast.success("Company created");
+      onClose();
+    } catch {
+      toast.error("Failed to create company. Please try again.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-card border border-border rounded-2xl w-[460px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">New Company</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Add a company under this organization</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Name <span className="text-destructive">*</span></label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              placeholder="A1 Marine Storage"
+              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Stage</label>
+              <select
+                value={stage}
+                onChange={(e) => setStage(e.target.value as typeof stage)}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+              >
+                <option value="prospect">Prospect</option>
+                <option value="active">Active</option>
+                <option value="paused">Paused</option>
+                <option value="archived">Archived</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Website</label>
+              <input
+                type="url"
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+                placeholder="https://…"
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={createCompany.isPending || !name.trim()}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]"
+            >
+              {createCompany.isPending ? (
+                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</>
+              ) : (
+                "Create Company"
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── CRM Page ─────────────────────────────────────────────────────────────────
 
 export default function CRMPage() {
@@ -268,6 +377,7 @@ export default function CRMPage() {
   const [view, setView] = useState<"kanban" | "list">("kanban");
   const [search, setSearch] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isCompanyOpen, setIsCompanyOpen] = useState(false);
 
   const params = useMemo(() => ({
     companyId: companyId || undefined,
@@ -338,6 +448,13 @@ export default function CRMPage() {
               <List className="w-4 h-4" />
             </button>
           </div>
+          <button
+            onClick={() => setIsCompanyOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-secondary text-foreground hover:bg-secondary/80 transition-all active:scale-[0.97]"
+          >
+            <Building2 className="w-4 h-4" />
+            New Company
+          </button>
           <button
             onClick={() => setIsCreateOpen(true)}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-md shadow-primary/20 active:scale-[0.97]"
@@ -483,6 +600,7 @@ export default function CRMPage() {
       )}
 
       {isCreateOpen && <CreateContactDialog onClose={() => setIsCreateOpen(false)} />}
+      {isCompanyOpen && <NewCompanyDialog onClose={() => setIsCompanyOpen(false)} />}
     </div>
   );
 }

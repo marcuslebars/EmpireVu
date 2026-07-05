@@ -375,7 +375,7 @@ export function useRetryWorkflowJob(orgId: string) {
 
 // ─── Organizations & Companies ───────────────────────────────────────────────
 
-import { fetchOrganizations, fetchCompanies } from "./api-client";
+import { fetchOrganizations, fetchCompanies, createCompany, type CreateCompanyInput } from "./api-client";
 
 export function useOrganizations() {
   return useQuery({
@@ -391,5 +391,15 @@ export function useCompanies(orgId: string) {
     queryFn: () => fetchCompanies(orgId),
     enabled: Boolean(orgId),
     staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+export function useCreateCompany(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateCompanyInput) => createCompany(orgId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["companies", orgId] });
+    },
   });
 }
