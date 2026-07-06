@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "source": "a1marinestorage-contact",
+  "sourceSite": "a1marinestorage",
+  "formType": "contact",
+  "receivedAt": "2026-07-06T17:30:00.000Z",
+  "contact": {
+    "name": "Pat Quinn",
+    "phone": "(705) 555-0166"
+  },
+  "message": "Do you store sailboats over winter?",
+  "asset": {
+    "makeModel": "Catalina 27",
+    "lengthFt": 27,
+    "type": "sailboat"
+  }
+}

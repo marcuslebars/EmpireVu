@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "source": "a1marinecare-booking",
+  "sourceSite": "a1marinecare",
+  "formType": "booking",
+  "receivedAt": "2026-07-06T16:00:00.000Z",
+  "contact": {
+    "name": "Dana Fisher",
+    "email": "dana@example.com",
+    "phone": "705-555-0143"
+  },
+  "message": "Spring detailing before launch.",
+  "asset": {
+    "lengthFt": 22,
+    "type": "bowrider",
+    "marina": "Queen's Cove"
+  },
+  "meta": {
+    "site": "a1marinecare.ca",
+    "page": "/book",
+    "preferredDate": "2026-05-01",
+    "preferredTime": "09:00"
+  }
+}

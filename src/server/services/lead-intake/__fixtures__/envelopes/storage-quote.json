@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "source": "a1marinestorage",
+  "sourceSite": "a1marinestorage",
+  "formType": "quote",
+  "receivedAt": "2026-07-06T15:20:00.000Z",
+  "contact": {
+    "name": "Marcus Reed",
+    "email": "marcus@example.com",
+    "phone": "705-555-0199"
+  },
+  "message": "Winter Ready package for a 24ft pontoon.",
+  "lineItems": [
+    { "description": "Shrink Wrap (24ft)", "quantity": 1, "unitPriceCents": 41400 },
+    { "description": "Pontoon hull surcharge", "quantity": 1, "unitPriceCents": 5000 },
+    { "description": "Winterization — I/O", "quantity": 1, "unitPriceCents": 27500 }
+  ],
+  "asset": {
+    "makeModel": "2019 Sylvan Mirage",
+    "lengthFt": 24,
+    "type": "pontoon",
+    "marina": "Bayfield"
+  },
+  "meta": {
+    "site": "a1marinestorage.ca",
+    "page": "/calculator",
+    "utm": { "utm_source": "google", "utm_campaign": "fall-storage" }
+  }
+}

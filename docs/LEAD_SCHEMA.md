@@ -114,6 +114,14 @@ On each valid lead, before creating a new contact:
 
 **Winter Jobber adapter** is expected to use this contact record as the unified customer seed: on export, **match → existing Jobber client**; **no match → create a Jobber client**. The `contacts` normalized keys (email + last-10 phone) are the join key.
 
+## Golden fixtures & drift protection
+
+The canonical samples in `src/server/services/lead-intake/__fixtures__/envelopes/` (one per `formType`, plus edge cases — Jobber line items with a hull surcharge, and a phone-only contact) are the shared contract. `src/test/lead-fixtures.test.ts` validates them against this schema (`leadEnvelopeSchema`), so **the docs and the tests cannot disagree**. Each spoke repo commits the *same* fixtures and adds a test asserting its forwarder's output matches them exactly — so the two per-repo forwarders (Care `crm-webhook.ts`, Storage `lead-pipeline.ts`) cannot drift from each other or from this schema without a red test.
+
+## Shared-module graduation rule
+
+The spoke forwarders are intentionally **mirrored per-repo** (not a shared package) while there are two live consumers. **When A1 Coatings becomes the third consumer, graduate the forwarder into a versioned git-dependency package** — the same three-consumers rule used for `@a1/pricing-engine` — so there is one shared module instead of three copies.
+
 ## Versioning
 
 Bump `schemaVersion` for breaking changes; the intake keeps accepting older versions (older payloads are still valid envelopes). Never repurpose a field's meaning within a version.

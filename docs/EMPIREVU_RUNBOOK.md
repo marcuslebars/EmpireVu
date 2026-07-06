@@ -76,4 +76,43 @@ Merge to `main` only when all three pass.
 
 ---
 
-_To be appended: **Phase 2** (lead-intake endpoint, HMAC secret var, Resend sender domain + SPF/DKIM to verify), **Phase 5** (full end-to-end matrix and the cutover criteria for retiring the legacy `leads.a1marinecare.ca` hub to fallback)._
+## Phase 2 — Lead intake (`POST /api/intake`)
+
+Public HMAC-authed intake for the canonical lead envelope (see `docs/LEAD_SCHEMA.md`). Never drops a lead: writes `raw_leads` first, then parses valid envelopes into contacts/activity/bookings, matches customers, and emails a notification — all best-effort after the durable write.
+
+### Env vars to add (web service)
+
+| Var | Purpose |
+|---|---|
+| `LEAD_INTAKE_SECRET` | HMAC key for `X-EmpireVu-Signature`. **Shared with the spokes** — generate one strong secret and set it here and in Care + Storage. |
+| `LEAD_INTAKE_ORG_SLUG` | Org the intake writes to (default `a1-group`). Must match the org seeded in Phase 3. |
+| `LEAD_NOTIFY_EMAIL` | Where lead notifications are sent (your Google Workspace address). |
+| `LEAD_FROM_EMAIL` | Resend sender, e.g. `EmpireVu Leads <leads@a1marinecare.ca>` (default). |
+
+### DNS — Resend sender domain
+
+`LEAD_FROM_EMAIL`'s domain must be verified in Resend (SPF + DKIM). `a1marinecare.ca` is likely already verified for the legacy hub; if you send from a new domain, add the SPF `TXT` and DKIM `CNAME`/`TXT` records Resend shows for that domain before relying on delivery.
+
+### Migration
+
+Apply `supabase/migrations/20260706120000_add_raw_leads.sql` (adds `raw_leads` + a contacts phone index) via your Supabase migration step.
+
+### Smoke test (after deploy, before wiring the spokes)
+
+Sign the body with `LEAD_INTAKE_SECRET` and POST it:
+
+```bash
+BODY='{"schemaVersion":1,"source":"a1marinestorage-contact","sourceSite":"a1marinestorage","formType":"contact","receivedAt":"2026-07-06T14:00:00.000Z","contact":{"name":"Smoke Test","email":"smoke@example.com"}}'
+SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$LEAD_INTAKE_SECRET" | awk '{print $2}')"
+curl -s -X POST https://<empirevu-domain>/api/intake \
+  -H "content-type: application/json" -H "x-empirevu-signature: $SIG" -d "$BODY"
+# expect: 200 {"ok":true,"leadId":"lead_..."}  + a notification email  + a raw_leads row
+```
+- Bad/missing signature → `401` and **no write**. Missing secret → `503`.
+- Garbage body with a valid signature → `200`, stored raw + flagged, notification marked "needs attention".
+
+> **Sequencing:** deploy EmpireVu (this branch) with the vars above **before** wiring the spokes, so the spoke branches point at a real, tested endpoint. Give me the intake URL + confirm `LEAD_INTAKE_SECRET` and I'll build the Care + Storage dual-send.
+
+---
+
+_To be appended: **Phase 5** (full end-to-end matrix and the cutover criteria for retiring the legacy `leads.a1marinecare.ca` hub to fallback)._

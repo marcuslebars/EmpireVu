@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "source": "a1marinecare-contact",
+  "sourceSite": "a1marinecare",
+  "formType": "contact",
+  "receivedAt": "2026-07-06T14:03:00.000Z",
+  "contact": {
+    "name": "Jane Boater",
+    "email": "jane@example.com",
+    "phone": "+1 705-555-0101"
+  },
+  "message": "Looking for a full exterior detail on my 28ft cruiser.",
+  "asset": {
+    "makeModel": "2015 Cruisers 28",
+    "lengthFt": 28,
+    "type": "cruiser",
+    "marina": "Queen's Cove"
+  },
+  "meta": {
+    "site": "a1marinecare.ca",
+    "page": "/contact"
+  }
+}
