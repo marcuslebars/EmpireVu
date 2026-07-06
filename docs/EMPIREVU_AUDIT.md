@@ -1,6 +1,6 @@
-# Hubcos Audit — Phase 0 (Syncoree → Hubcos)
+# EmpireVu Audit — Phase 0 (Syncoree → EmpireVu)
 
-**Repo:** `syncoree` (to be renamed Hubcos) · **Date:** 2026-07-05 · **Status:** audit only, **no code changed**.
+**Repo:** `syncoree` (to be renamed EmpireVu) · **Date:** 2026-07-05 · **Status:** audit only, **no code changed**.
 
 **Method:** five parallel read-only audits (mission pages, secondary/auth pages, backend API + service surface, workflow engine + worker, auth/security/architecture) cross-checked against the Supabase migrations and seed. Every claim below is traceable to `file:line` in the source.
 
@@ -108,7 +108,7 @@ Three route tiers under `src/app/api/organizations/[organizationId]/`:
 
 **Alternative (keep hybrid, two origins):** viable but carries the cookie/CORS/`SameSite` burden and the uncommitted-topology risk — more moving parts and more ways to silently break auth. Not recommended.
 
-**⚠️ Open question (stop-and-ask):** how is Hubcos deployed **today**? Nothing is committed, so I can't tell if it's already two Railway services, one, or not deployed yet. The consolidation plan above assumes we can define the prod topology cleanly; if there's an existing Railway setup I must not disrupt, I need its shape before Phase 1.
+**⚠️ Open question (stop-and-ask):** how is EmpireVu deployed **today**? Nothing is committed, so I can't tell if it's already two Railway services, one, or not deployed yet. The consolidation plan above assumes we can define the prod topology cleanly; if there's an existing Railway setup I must not disrupt, I need its shape before Phase 1.
 
 ---
 
@@ -135,7 +135,7 @@ Effort: **S** ≤ half-day · **M** ~1–2 days · **L** ~3–5 days.
 | # | Item | Phase | Effort |
 |---|---|---|---|
 | 1 | **Architecture: consolidate to single-origin** (Next serves API + SPA) + worker service; commit the deploy config | 1 | M |
-| 2 | Rename Syncoree→Hubcos (package/UI/README/seed); delete dead `Index.tsx`; remove legacy `app-context.tsx` if unused | 1 | S |
+| 2 | Rename Syncoree→EmpireVu (package/UI/README/seed); delete dead `Index.tsx`; remove legacy `app-context.tsx` if unused | 1 | S |
 | 3 | Fix foundation bugs blocking the loop: CRM empty-`contactId` stage bug; auth recovery redirect (`/auth/callback`) | 1 | S |
 | 4 | **Add create-company UI** (unblocks contact creation for a fresh org) | 1 | S–M |
 | 5 | **Test baseline**: existing green + typecheck + core-loop smoke test (create contact → CRM list → activity event) | 1 | M |
@@ -143,11 +143,11 @@ Effort: **S** ≤ half-day · **M** ~1–2 days · **L** ~3–5 days.
 | 7 | **Intake endpoint** (HMAC-authed, never-drop): parse → contacts + activity_events (+ bookings for `formType:booking`); `raw_leads` table for invalid/unknown with `schemaValid:false`; always notify + return success | 2 | L |
 | 8 | **Customer matching** (normalized email + last-10 phone) → link to contact + cross-company activity event; cross-brand flag; degrade gracefully | 2 | M |
 | 9 | **Notification: add Resend** + `send_email` workflow action (or direct intake send — decision below); brand-prefixed subject, lead ID, returning-customer enrichment, line items; email failure never fails intake | 2 | M |
-| 10 | **Spoke fan-out (additive)**: extend shared `lead-pipeline` (storage repo) to multi-destination; bring Care's `crm-webhook.ts` onto it; dual-send legacy hub **+** Hubcos in both sites; legacy behavior byte-identical | 2 | M–L |
+| 10 | **Spoke fan-out (additive)**: extend shared `lead-pipeline` (storage repo) to multi-destination; bring Care's `crm-webhook.ts` onto it; dual-send legacy hub **+** EmpireVu in both sites; legacy behavior byte-identical | 2 | M–L |
 | 11 | **Reseed A1 family**: org "A1 Group" + A1 Marine Care / A1 Marine Storage / A1 Coatings; me as owner; verify company scoping end-to-end | 3 | S |
 | 12 | **Finish mission write-side UI**: ContactDetail buttons, Tasks comment box (needs comment client/hook), Calendar `no_show`/views, company filter + cross-brand flags | 4 | M |
 | 13 | **Honest non-mission pages**: stub-empty or de-nav Files/Projects/Team; make Settings honest | 4 | S |
-| 14 | **E2E matrix + `docs/HUBCOS_RUNBOOK.md`** incl. cutover criteria | 5 | M |
+| 14 | **E2E matrix + `docs/EMPIREVU_RUNBOOK.md`** incl. cutover criteria | 5 | M |
 
 ### CAN WAIT
 - `live-data.ts` in-memory joins → SQL views/RPC (perf at scale).
@@ -163,7 +163,7 @@ Effort: **S** ≤ half-day · **M** ~1–2 days · **L** ~3–5 days.
 
 ## Appendix — lead envelope → Supabase mapping (Phase 2 preview)
 
-| Envelope field | Hubcos destination |
+| Envelope field | EmpireVu destination |
 |---|---|
 | `source` (brand-form tag), `sourceSite` (**required**) | `contacts.metadata_json` / `activity_events.metadata_json`; drives company routing |
 | `formType` (quote·contact·booking) | activity `event_type`; `booking` also creates a `bookings` row |

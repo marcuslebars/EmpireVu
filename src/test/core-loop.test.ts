@@ -5,7 +5,7 @@
  * This runs at unit speed against an in-memory fake Supabase (no live DB) and a
  * spied dispatch, so it verifies the service WIRING — not Postgres, RLS, or the
  * real workflow worker. The full DB-backed E2E matrix lives in Phase 5
- * (see docs/HUBCOS_RUNBOOK.md once written).
+ * (see docs/EMPIREVU_RUNBOOK.md once written).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

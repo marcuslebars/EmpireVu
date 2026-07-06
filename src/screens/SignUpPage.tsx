@@ -101,7 +101,7 @@ export default function SignUpPage() {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
               <span className="text-primary-foreground font-bold text-lg">S</span>
             </div>
-            <span className="text-2xl font-semibold tracking-tight text-foreground">Hubcos</span>
+            <span className="text-2xl font-semibold tracking-tight text-foreground">EmpireVu</span>
           </div>
 
           <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-xl shadow-black/10">
@@ -142,14 +142,14 @@ export default function SignUpPage() {
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
             <span className="text-primary-foreground font-bold text-lg">S</span>
           </div>
-          <span className="text-2xl font-semibold tracking-tight text-foreground">Hubcos</span>
+          <span className="text-2xl font-semibold tracking-tight text-foreground">EmpireVu</span>
         </div>
 
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-xl shadow-black/10">
           <CardHeader className="pb-4">
             <CardTitle className="text-xl font-semibold tracking-tight">Create your account</CardTitle>
             <CardDescription className="text-muted-foreground">
-              Get started with Hubcos
+              Get started with EmpireVu
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">

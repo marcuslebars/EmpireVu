@@ -1,5 +1,5 @@
 /**
- * Centralized API client for Hubcos UI endpoints.
+ * Centralized API client for EmpireVu UI endpoints.
  * All requests are organization-scoped under:
  *   /api/organizations/:organizationId/ui/...
  */

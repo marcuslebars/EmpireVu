@@ -44,16 +44,16 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const ORG_STORAGE_KEY = "hubcos_org_id";
-const COMPANY_STORAGE_KEY = "hubcos_company_id";
+const ORG_STORAGE_KEY = "empirevu_org_id";
+const COMPANY_STORAGE_KEY = "empirevu_company_id";
 
-function getAllHubcosStorageKeys(): string[] {
+function getAllEmpireVuStorageKeys(): string[] {
   if (typeof window === "undefined") return [];
   const keys: string[] = [ORG_STORAGE_KEY, COMPANY_STORAGE_KEY];
-  keys.push("hubcos.activeOrganizationId");
+  keys.push("empirevu.activeOrganizationId");
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key && key.startsWith("hubcos.activeCompanyId.")) {
+    if (key && key.startsWith("empirevu.activeCompanyId.")) {
       keys.push(key);
     }
   }
@@ -62,7 +62,7 @@ function getAllHubcosStorageKeys(): string[] {
 
 function clearAllAppStorage(): void {
   if (typeof window === "undefined") return;
-  const keys = getAllHubcosStorageKeys();
+  const keys = getAllEmpireVuStorageKeys();
   keys.forEach((key) => localStorage.removeItem(key));
 }
 

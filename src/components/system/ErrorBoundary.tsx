@@ -112,7 +112,7 @@ function ErrorFallbackScreen({
               <AlertTriangle className="w-6 h-6 text-destructive" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-foreground mb-1">Hubcos failed to load</h1>
+              <h1 className="text-xl font-semibold text-foreground mb-1">EmpireVu failed to load</h1>
               <p className="text-sm text-muted-foreground">{userMessage}</p>
             </div>
             {error && (

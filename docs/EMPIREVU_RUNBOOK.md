@@ -1,4 +1,4 @@
-# Hubcos Runbook
+# EmpireVu Runbook
 
 > Living document. This revision covers the **single-origin consolidation + Railway deploy** (Phase 1). Lead intake (Phase 2) and cutover criteria (Phase 5) will be appended.
 
@@ -62,7 +62,7 @@ Merge to `main` only when all three pass.
 
 ## Post-deploy smoke test
 
-1. `GET /` → the Hubcos SPA loads (200).
+1. `GET /` → the EmpireVu SPA loads (200).
 2. Deep-link `GET /crm` → SPA loads (not 404) — confirms the SPA fallback rewrite.
 3. `GET /api/session/context` **unauthenticated** → `401 {"error":"Authentication is required."}` (must be **401, not 500** — 500 means the publishable-key env is wrong).
 4. Sign in (Google or email) → dashboard renders live data.
