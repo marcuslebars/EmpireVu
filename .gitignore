@@ -13,6 +13,10 @@ dist-ssr
 .next
 *.local
 
+# Vite SPA build copied into public/ for Next single-origin serving
+/public/index.html
+/public/assets
+
 # Env
 .env
 .env*.local
