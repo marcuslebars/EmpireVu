@@ -54,7 +54,7 @@ const STORAGE_KEYS = {
 
 export function OrgProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const { status: authStatus } = useAuth();
+  const { status: authStatus, session } = useAuth();
 
   const [organizationId, setOrgState] = useState<string>("");
   const [companyId, setCompanyState] = useState<string | null>(null);
@@ -63,7 +63,14 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     if (authStatus === "authenticated") {
       const storedOrg = localStorage.getItem(ORG_STORAGE_KEY);
       const storedCompany = localStorage.getItem(COMPANY_STORAGE_KEY);
-      setOrgState(storedOrg || "");
+      // Fall back to the session's org (active org, else first membership) when
+      // localStorage is empty, so a user who has an organization server-side (e.g.
+      // seeded) lands in the app instead of onboarding on a fresh browser.
+      const derivedOrg = storedOrg || session?.activeOrganizationId || session?.organizations?.[0]?.id || "";
+      if (derivedOrg && !storedOrg) {
+        localStorage.setItem(ORG_STORAGE_KEY, derivedOrg);
+      }
+      setOrgState(derivedOrg);
       setCompanyState(storedCompany);
     } else if (authStatus === "unauthenticated") {
       setOrgState("");
@@ -71,7 +78,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       STORAGE_KEYS.clearAll();
       queryClient.clear();
     }
-  }, [authStatus, queryClient]);
+  }, [authStatus, session, queryClient]);
 
   const isValid = organizationId.length > 0;
   const requiresOnboarding = !isValid;

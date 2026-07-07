@@ -239,9 +239,12 @@ function AppBootstrapInner({ children }: { children?: React.ReactNode }) {
 
   console.log("[AppBootstrap] Effective org ID:", effectiveOrgId, "| Has org context:", hasOrgContext);
 
+  // No org yet? Still render the routes (wrapped in OrgProvider). ProtectedRoute sends
+  // protected pages to /onboarding, and the standalone /onboarding route renders there.
+  // (Previously this returned a bare <Navigate/> with no <Routes> mounted, so nothing
+  // rendered at all -> black screen for any user without an organization.)
   if (!hasOrgContext) {
-    console.log("[AppBootstrap] No valid org context -> redirect to /onboarding");
-    return <Navigate to="/onboarding" replace />;
+    console.log("[AppBootstrap] No valid org context -> rendering routes; ProtectedRoute handles onboarding");
   }
 
   return <OrgProvider>{children}</OrgProvider>;
