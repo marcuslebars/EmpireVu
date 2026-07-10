@@ -1,118 +1,134 @@
 # EmpireVu Runbook
 
-> Living document. This revision covers the **single-origin consolidation + Railway deploy** (Phase 1). Lead intake (Phase 2) and cutover criteria (Phase 5) will be appended.
+> Living document, updated with what the **first production deploy actually required**. All commands are **PowerShell** (Windows). Spoke fan-out (Phase 2) and cutover (Phase 5) are appended as they land.
 
-## Architecture (post-consolidation)
+## Architecture
+- One Railway **web service**: Next 14 serves the API (`/api/*`) **and** the built Vite SPA on one origin (cookies / RLS / CORS "just work").
+- One **worker service** (to create — not deployed yet): the workflow-event poller.
+- **Data**: Supabase/Postgres (external managed; no Railway volume).
 
-- **One Railway web service**: Next 14 serves BOTH the API (`/api/*` route handlers) **and** the built Vite SPA (static, same origin). Same-origin means the Supabase auth cookie works with no CORS/`SameSite` gymnastics.
-- **One worker service** (to create — not deployed yet): the workflow-event poller.
-- **Data**: Supabase/Postgres (external managed service — no Railway volume needed).
+## Builder & run — Railway uses **Railpack**, and you MUST pin build + start
+⚠️ **The trap we hit (biggest gotcha):** Railpack (Railway's current builder — Nixpacks is deprecated) auto-detects a **static Vite SPA**, builds `dist/`, and serves it via **Caddy** with SPA-fallback. The result is silent and nasty: `GET /` looks fine, but **every `/api/*` route returns the SPA's `index.html`** — the Next server never runs, so the whole API (including `/api/intake`) is dead.
 
-## Build & start (Nixpacks defaults — no custom commands required)
+**The fix (committed as `railway.json` at the repo root):**
+```json
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build":  { "builder": "RAILPACK", "buildCommand": "npm run build" },
+  "deploy": { "startCommand": "npm run start", "restartPolicyType": "ON_FAILURE" }
+}
+```
+- `buildCommand` = `npm run build` (vite build → copy SPA into `public/` → `next build`).
+- `startCommand` = `npm run start` (`next start` — the Node server serving API + SPA, binding Railway's `$PORT`).
+- **Confirm after deploy:** the *runtime* logs show **`▲ Next.js … Ready`**, NOT Caddy access lines (`logger":"http.log.access.log0"`). Caddy lines = the override didn't take (check `railway.json` is on `main`).
 
-- **Build**: `npm run build` → `vite build` (SPA → `dist/`) → copies `dist/` into `public/` → `next build`.
-- **Start**: `npm start` → `next start` (binds Railway's `$PORT` automatically).
-- The `build` and `start` scripts now do the right thing, so **Nixpacks defaults work** — you do not need custom build/start commands. (Previously there was no `start` script, so the single service could not start cleanly.)
-
-## Environment variables
-
-### Web service — final set
-
+## Environment variables (web service)
 | Var | Purpose |
 |---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase URL (server) |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase anon/publishable key (server). `env.ts` now accepts this name. |
-| `VITE_SUPABASE_URL` | Supabase URL (client, baked at build) |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase anon key (client, baked at build) |
-| `VITE_GOOGLE_CLIENT_ID` | Google OAuth client id (client, baked at build) |
-| `RESEND_API_KEY` | Email — used by Phase 2 lead notifications |
-| `PORT` | **Auto-set by Railway — do not set manually** |
+| `NEXT_PUBLIC_SUPABASE_URL` / `VITE_SUPABASE_URL` | Supabase project URL (server / client-baked) |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` / `VITE_SUPABASE_PUBLISHABLE_KEY` | anon/publishable key (`env.ts` reads `PUBLISHABLE_KEY ?? ANON_KEY`) |
+| `VITE_GOOGLE_CLIENT_ID` | Google OAuth client id (client-baked) |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Keep on the web service** — `/api/intake` uses the service role (the one sanctioned exception). *(This corrects an earlier note about moving it to the worker — the intake needs it here.)* |
+| `RESEND_API_KEY` | Email (lead notifications) |
+| `LEAD_INTAKE_SECRET` | HMAC key for `X-EmpireVu-Signature`; **shared** with the spokes |
+| `LEAD_INTAKE_ORG_SLUG` | Org the intake writes to (`a1-group`) |
+| `LEAD_NOTIFY_EMAIL` | Lead-notification recipient |
+| `LEAD_FROM_EMAIL` | Resend sender (default `leads@a1marinecare.ca`) |
+| `PORT` | **Auto-set by Railway — never set manually** |
 
-### Remove (obsolete after consolidation)
+**Remove (obsolete after consolidation):** `VITE_API_BASE_URL`, `VITE_NEXT_SERVER_ORIGIN` — the SPA is same-origin now; if left set they break the SPA→API calls.
 
-| Var | Why |
-|---|---|
-| `VITE_API_BASE_URL` | Was the two-origin SPA→API base URL. Now same-origin — the client defaults to same-origin when this is unset. **Remove it**; if left pointing cross-origin it will break the SPA's `/api` calls and cookie auth. |
-| `VITE_NEXT_SERVER_ORIGIN` | Vite dev-proxy target (local dev only). Not used by the production build. **Remove** from Railway (keep locally in `.env` if you run `npm run dev` + `npm run dev:next` separately). |
-
-### Move to the worker service (remove from web)
-
-| Var | Why |
-|---|---|
-| `SUPABASE_SERVICE_ROLE_KEY` | RLS-bypassing. Used **only** by the worker — no web/API route constructs the admin client (verified in the audit). Keep it on the worker service and remove it from the web service to shrink the secret's blast radius. |
+## Fresh Supabase project bootstrap
+When pointing the service at a **new** Supabase project:
+1. **Apply the full schema** — every file in `supabase/migrations/*.sql`, in order, in the SQL Editor. Assemble them into one paste-ready file:
+   ```powershell
+   $mig = "C:\Users\marcu\Downloads\syncoree\supabase\migrations"
+   $out = "$env:USERPROFILE\Downloads\supabase-full-schema.sql"
+   (Get-ChildItem "$mig\*.sql" | Sort-Object Name | ForEach-Object { "-- ===== $($_.Name) =====`r`n" + (Get-Content $_.FullName -Raw) }) -join "`r`n`r`n" | Set-Content -Path $out -Encoding UTF8
+   notepad $out
+   ```
+   Verify: `select count(*) from raw_leads;` returns `0` (a number, not an error).
+2. **Repoint the 5 Supabase env vars** (URL + publishable + service_role, client + server) to the new project (Supabase → Project Settings → API). `VITE_*` are baked at build, so set them before the deploy.
+3. **Auth**: configure Authentication → Providers (Google) + Site URL/redirect = your Railway domain before CRM login works. *(Not needed for `/api/intake` or for viewing rows in the Supabase Table Editor.)*
+4. **No org until Phase 3** — a fresh project has no org, so a valid lead is stored + emailed but flagged "needs attention" with no contact created until `a1-group` is seeded.
 
 ## Worker service (to create)
+Second Railway service, same repo. Start `npm run worker:workflow-events`. Env: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (+ optional `WORKFLOW_EVENT_WORKER_POLL_MS`/`_BATCH_SIZE`/`_STALE_AFTER_SECONDS`/`_ID`). No volume. Until it runs, workflow jobs queue but don't execute — fine, since intake writes + notifies directly.
 
-A second Railway service from the same repo:
+## Deploy discipline (auto-deploy on push to `main`)
+Every merge to `main` is a production deploy. Gate on the feature branch first (run separately):
+```powershell
+npm run typecheck
+npm run test
+npm run build
+```
+Merge only when all three pass. (Next's build-time typecheck is intentionally off — `npm run typecheck` is the authoritative gate.)
 
-- **Start command**: `npm run worker:workflow-events` (`tsx src/server/workers/workflow-event-worker.ts`).
-- **Env**: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. Optional tuning: `WORKFLOW_EVENT_WORKER_POLL_MS` (default 2000), `WORKFLOW_EVENT_WORKER_BATCH_SIZE` (10), `WORKFLOW_EVENT_WORKER_STALE_AFTER_SECONDS` (900), `WORKFLOW_EVENT_WORKER_ID`.
-- **No volume**; all state lives in Supabase (`workflow_event_jobs`).
-- Until it exists, workflow jobs are enqueued but not executed. That is fine for Phase 1–2: lead intake writes contacts + activity events + sends notification directly; workflow automation is additive.
+## Post-deploy smoke (PowerShell)
+```powershell
+$base = "https://syncoree.com"
+# 1) SPA serves
+(Invoke-WebRequest "$base/" -UseBasicParsing).StatusCode
+# 2) API + Supabase env wired: unauth MUST be 401
+try { Invoke-RestMethod "$base/api/session/context" | Out-Null; "200 (unexpected)" } catch { $_.Exception.Response.StatusCode.value__ }
+```
+- `1) → 200` and `2) → 401` = healthy.
+- **`2) → 200`** = static/Caddy build (Next isn't running) → fix `railway.json`.
+- **`2) → 500`** = Supabase env wrong (URL or publishable key).
+- ⚠️ `GET /` = 200 alone is **not** proof — a Caddy static build also 200s at `/`. The `/api/session/context` = 401 check is the real one.
 
-## Deploy discipline (IMPORTANT — auto-deploy is on)
+Then run the intake matrix (Phase 2 below).
 
-The web service **auto-deploys on push to `main`**, so every merge to `main` is a production deploy. **Run the gate on the feature branch BEFORE merging**, never after:
+## Deploy gotchas captured
+- **Railpack → static Caddy** (above) — `railway.json` pins build + start. *The* thing to remember.
+- **`SUPABASE_SERVICE_ROLE_KEY` stays on the web service** — the intake uses it.
+- **Fresh Supabase project** — apply full schema + repoint env + reconfigure auth.
+- **Onboarding black screen** — a user with no org hit a bare `<Navigate>` that mounted no `<Routes>`, so nothing rendered. Fixed: `AppBootstrapInner` renders the routes; `OrgProvider` derives the org from the session (commit `52d9956`).
+- **`env.ts`** reads `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+- **Middleware** is session-refresh only (no redirects); `/api/*` excluded, so intake is never session-gated. Server-side boundary proven by `src/test/auth-boundary.test.ts`.
+- **SPA dir** renamed `src/pages` → `src/screens` (Next reserves `pages/`).
 
-1. `npm run typecheck` — the authoritative type gate (whole codebase at its chosen strictness). *Note: Next's own build-time typecheck is intentionally disabled (`next.config.mjs`), because Next forces `strictNullChecks` on and surfaces pre-existing latent issues unrelated to serving; `npm run typecheck` is the real gate.*
-2. `npm run test` — must be green.
-3. `npm run build` — must succeed.
-
-Merge to `main` only when all three pass.
-
-## Post-deploy smoke test
-
-1. `GET /` → the EmpireVu SPA loads (200).
-2. Deep-link `GET /crm` → SPA loads (not 404) — confirms the SPA fallback rewrite.
-3. `GET /api/session/context` **unauthenticated** → `401 {"error":"Authentication is required."}` (must be **401, not 500** — 500 means the publishable-key env is wrong).
-4. Sign in (Google or email) → dashboard renders live data.
-5. Create a company → create a contact → it appears in CRM (core loop).
-
-## Decisions / gotchas captured this phase
-
-- **Middleware is session-refresh only** and does not redirect. Route protection is enforced **server-side** (`requireOrganizationContext` → 401/403), proven by `src/test/auth-boundary.test.ts` (unauth → 401, non-member → 403, zero data). The matcher excludes `/api/*`, so the Phase 2 HMAC intake webhook is never subject to session auth — it will authenticate with the shared intake secret in the route itself.
-- **Env-name fix**: `env.ts` reads `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? NEXT_PUBLIC_SUPABASE_ANON_KEY`. Before this, the server threw "Missing NEXT_PUBLIC_SUPABASE_ANON_KEY" and every API route 500'd against the Railway env set.
-- **SPA route directory** was renamed `src/pages` → `src/screens` to avoid Next's reserved Pages-Router directory (Next was trying to build the SPA's pages as server routes).
+## Backup
+All data — including `raw_leads` — lives in Supabase. Rely on Supabase's automated daily backups (Project → Database → Backups); for an extra copy, `pg_dump` the project weekly.
 
 ---
 
 ## Phase 2 — Lead intake (`POST /api/intake`)
+Public HMAC-authed intake for the canonical envelope (`docs/LEAD_SCHEMA.md`). Never drops a lead: `raw_leads` written first, then (best-effort) parsed → contacts/activity/bookings + customer matching + Resend notification.
 
-Public HMAC-authed intake for the canonical lead envelope (see `docs/LEAD_SCHEMA.md`). Never drops a lead: writes `raw_leads` first, then parses valid envelopes into contacts/activity/bookings, matches customers, and emails a notification — all best-effort after the durable write.
+**Migration:** `20260706120000_add_raw_leads.sql` — included in the full-schema bootstrap above.
 
-### Env vars to add (web service)
+**Resend DNS:** `LEAD_FROM_EMAIL`'s domain must be **Verified** in Resend (SPF + DKIM), or intake returns 200 but the email silently never sends. `a1marinecare.ca` is already verified for the legacy hub.
 
-| Var | Purpose |
-|---|---|
-| `LEAD_INTAKE_SECRET` | HMAC key for `X-EmpireVu-Signature`. **Shared with the spokes** — generate one strong secret and set it here and in Care + Storage. |
-| `LEAD_INTAKE_ORG_SLUG` | Org the intake writes to (default `a1-group`). Must match the org seeded in Phase 3. |
-| `LEAD_NOTIFY_EMAIL` | Where lead notifications are sent (your Google Workspace address). |
-| `LEAD_FROM_EMAIL` | Resend sender, e.g. `EmpireVu Leads <leads@a1marinecare.ca>` (default). |
+**Smoke test (PowerShell — the secret is read from a session env var you set; it never appears in the script):**
+```powershell
+# session-only; paste your value:
+$env:LEAD_INTAKE_SECRET = '<your secret>'
 
-### DNS — Resend sender domain
-
-`LEAD_FROM_EMAIL`'s domain must be verified in Resend (SPF + DKIM). `a1marinecare.ca` is likely already verified for the legacy hub; if you send from a new domain, add the SPF `TXT` and DKIM `CNAME`/`TXT` records Resend shows for that domain before relying on delivery.
-
-### Migration
-
-Apply `supabase/migrations/20260706120000_add_raw_leads.sql` (adds `raw_leads` + a contacts phone index) via your Supabase migration step.
-
-### Smoke test (after deploy, before wiring the spokes)
-
-Sign the body with `LEAD_INTAKE_SECRET` and POST it:
-
-```bash
-BODY='{"schemaVersion":1,"source":"a1marinestorage-contact","sourceSite":"a1marinestorage","formType":"contact","receivedAt":"2026-07-06T14:00:00.000Z","contact":{"name":"Smoke Test","email":"smoke@example.com"}}'
-SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$LEAD_INTAKE_SECRET" | awk '{print $2}')"
-curl -s -X POST https://<empirevu-domain>/api/intake \
-  -H "content-type: application/json" -H "x-empirevu-signature: $SIG" -d "$BODY"
-# expect: 200 {"ok":true,"leadId":"lead_..."}  + a notification email  + a raw_leads row
+$base = "https://syncoree.com"
+function Send-Intake($body, $sigOverride) {
+  $bytes = [Text.Encoding]::UTF8.GetBytes($body)
+  if ($sigOverride) { $sig = $sigOverride }
+  else {
+    $h = [System.Security.Cryptography.HMACSHA256]::new([Text.Encoding]::UTF8.GetBytes($env:LEAD_INTAKE_SECRET))
+    $sig = "sha256=" + (($h.ComputeHash($bytes) | ForEach-Object { $_.ToString("x2") }) -join "")
+  }
+  try   { $r = Invoke-WebRequest "$base/api/intake" -Method Post -Body $bytes -ContentType "application/json" -Headers @{ "x-empirevu-signature" = $sig } -UseBasicParsing; "STATUS $($r.StatusCode) $($r.Content)" }
+  catch { "STATUS $($_.Exception.Response.StatusCode.value__) $(if ($_.ErrorDetails) { $_.ErrorDetails.Message })" }
+}
+$valid   = '{"schemaVersion":1,"source":"a1marinestorage-contact","sourceSite":"a1marinestorage","formType":"contact","receivedAt":"2026-07-10T12:00:00.000Z","contact":{"name":"Smoke Valid","email":"smoke+valid@example.com"}}'
+$garbage = '{"totally":"invalid"}'
+"CASE 1 valid ->   " + (Send-Intake $valid   $null)             # expect 200
+"CASE 2 bad sig -> " + (Send-Intake $valid   "sha256=deadbeef") # expect 401, no write
+"CASE 3 garbage -> " + (Send-Intake $garbage $null)            # expect 200, raw + needs-attention email
 ```
-- Bad/missing signature → `401` and **no write**. Missing secret → `503`.
-- Garbage body with a valid signature → `200`, stored raw + flagged, notification marked "needs attention".
-
-> **Sequencing:** deploy EmpireVu (this branch) with the vars above **before** wiring the spokes, so the spoke branches point at a real, tested endpoint. Give me the intake URL + confirm `LEAD_INTAKE_SECRET` and I'll build the Care + Storage dual-send.
+Verify in Supabase:
+```sql
+select lead_id, source_site, schema_valid, needs_attention, created_at
+from raw_leads order by created_at desc limit 5;
+```
+Two new rows (CASE 1 `schema_valid=true`, CASE 3 `false`), **none** for CASE 2, and two emails at `LEAD_NOTIFY_EMAIL` (CASE 3 marked "needs attention").
 
 ---
 
-_To be appended: **Phase 5** (full end-to-end matrix and the cutover criteria for retiring the legacy `leads.a1marinecare.ca` hub to fallback)._
+_Appended as they land: **Phase 2 spoke fan-out** (Care + Storage dual-send to intake, alongside the legacy hub); **Phase 5** (full end-to-end matrix + cutover criteria to retire the legacy `leads.a1marinecare.ca` hub to fallback)._
