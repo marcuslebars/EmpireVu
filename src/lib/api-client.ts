@@ -86,12 +86,15 @@ export function fetchDashboardSummary(orgId: string): Promise<DashboardSummary> 
   return apiFetch(`/api/organizations/${orgId}/ui/dashboard/summary`);
 }
 
-export function fetchDashboardActivity(
+export async function fetchDashboardActivity(
   orgId: string,
   params: { companyId?: string; limit?: number } = {},
 ): Promise<DashboardActivityItem[]> {
   const url = buildUrl(`/api/organizations/${orgId}/ui/dashboard/activity`, params);
-  return apiFetch(url);
+  // The endpoint returns a paginated envelope ({ items, pagination }), not a
+  // bare array — unwrap items so callers get the array they expect.
+  const result = await apiFetch<{ items: DashboardActivityItem[] }>(url);
+  return result?.items ?? [];
 }
 
 export function fetchAutomationImpact(orgId: string): Promise<AutomationImpact> {

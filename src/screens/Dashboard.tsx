@@ -186,7 +186,7 @@ export default function Dashboard() {
 
   const s = summary.data;
   const imp = impact.data;
-  const activityItems = activity.data ?? [];
+  const activityItems = Array.isArray(activity.data) ? activity.data : [];
 
   const currentOrgName = orgs?.find(o => o.id === organizationId)?.name ?? "Organization";
   const currentCompanyName = !companyId ? "All Companies" : (companies?.find(c => c.id === companyId)?.name ?? "Filtered");
