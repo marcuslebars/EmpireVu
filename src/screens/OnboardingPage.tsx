@@ -16,6 +16,23 @@ interface CreateOrgInput {
   slug?: string;
 }
 
+type ApiPayload = { error?: string; data?: { id?: string } } | null;
+
+/**
+ * Read a response body as JSON without throwing on an empty / non-JSON body
+ * (e.g. a 405 or 500 with no body). Lets callers surface the real HTTP status
+ * instead of a cryptic "Unexpected end of JSON input".
+ */
+async function readJsonSafely(response: Response): Promise<ApiPayload> {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as ApiPayload;
+  } catch {
+    return null;
+  }
+}
+
 export default function OnboardingPage() {
   const navigate = useNavigate();
   const { session, status } = useAuth();
@@ -73,10 +90,13 @@ export default function OnboardingPage() {
         body: JSON.stringify(input),
       });
 
-      const payload = await response.json();
+      const payload = await readJsonSafely(response);
 
       if (!response.ok) {
-        throw new Error(payload.error || "Failed to create organization");
+        throw new Error(payload?.error || `Failed to create organization (HTTP ${response.status})`);
+      }
+      if (!payload?.data?.id) {
+        throw new Error("The server returned an unexpected response while creating the organization.");
       }
 
       setOrganizationId(payload.data.id);
@@ -111,10 +131,10 @@ export default function OnboardingPage() {
         body: JSON.stringify({ name: companyName.trim(), stage: "prospect" }),
       });
 
-      const payload = await response.json();
+      const payload = await readJsonSafely(response);
 
       if (!response.ok) {
-        throw new Error(payload.error || "Failed to create company");
+        throw new Error(payload?.error || `Failed to create company (HTTP ${response.status})`);
       }
 
       setStep("complete");

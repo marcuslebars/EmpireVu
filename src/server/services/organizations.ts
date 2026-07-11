@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { Tables } from "@/server/db/database.types";
 import { slugify } from "@/server/db/helpers";
+import { ValidationError } from "@/server/organizations/context";
 import type { createSupabaseServerClient } from "@/server/supabase/server";
 
 type AppSupabaseClient = ReturnType<typeof createSupabaseServerClient>;
@@ -44,9 +45,15 @@ export async function createOrganization(
     })
     .select("*")
     .single();
-  const { data: organization, error: organizationError } = await query as { data: Tables<"organizations"> | null; error: null };
+  const { data: organization, error: organizationError } = await query as { data: Tables<"organizations"> | null; error: { code?: string } | null };
 
   if (organizationError) {
+    // The pre-check above can't see orgs the caller isn't a member of (RLS), so a
+    // slug that collides with someone else's org reaches the DB unique constraint.
+    // Map that to a friendly 400 instead of a raw 500.
+    if (organizationError.code === "23505") {
+      throw new ValidationError("An organization with this slug already exists.");
+    }
     throw organizationError;
   }
 

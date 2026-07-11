@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { handleRoute } from "@/server/api/route";
+import { handleRoute, parseJsonBody } from "@/server/api/route";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 import { getAuthenticatedUser } from "@/server/organizations/context";
+import { createOrganization, createOrganizationInputSchema } from "@/server/services/organizations";
 
 export const dynamic = "force-dynamic";
 
@@ -42,5 +43,18 @@ export async function GET(): Promise<NextResponse> {
       .filter((org): org is OrganizationRow => org !== null) ?? [];
 
     return NextResponse.json({ data: organizations });
+  });
+}
+
+export async function POST(request: Request): Promise<NextResponse> {
+  return handleRoute(async () => {
+    const supabase = createSupabaseServerClient();
+    const user = await getAuthenticatedUser(supabase);
+    const input = await parseJsonBody(request, createOrganizationInputSchema);
+
+    // profiles.id === auth.users.id, so the authenticated user id doubles as the profile id.
+    const organization = await createOrganization(supabase, user.id, user.id, input);
+
+    return NextResponse.json({ data: organization }, { status: 201 });
   });
 }
