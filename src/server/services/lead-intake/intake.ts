@@ -100,10 +100,13 @@ async function insertRawLead(
   if (error) throw error;
 }
 
-/** Org-wide match on normalized email OR phone-last-10. */
+/** Match on normalized email OR phone-last-10, scoped to the lead's brand (company).
+ *  Leads are attributed to the brand whose form they came from, so the same person
+ *  is a separate contact under each brand they contact. */
 async function findExistingContact(
   admin: AdminClient,
   orgId: string,
+  companyId: string,
   contact: { email?: string; phone?: string },
 ): Promise<{ id: string; company_id: string | null } | null> {
   const email = normalizeEmail(contact.email);
@@ -114,6 +117,7 @@ async function findExistingContact(
       .from("contacts")
       .select("id, company_id")
       .eq("organization_id", orgId)
+      .eq("company_id", companyId)
       .eq("email", email)
       .limit(1);
     if (data && data[0]) return data[0];
@@ -126,6 +130,7 @@ async function findExistingContact(
       .from("contacts")
       .select("id, company_id, phone")
       .eq("organization_id", orgId)
+      .eq("company_id", companyId)
       .not("phone", "is", null)
       .limit(2000);
     const hit = (data ?? []).find((c) => normalizePhoneLast10(c.phone) === phone10);
@@ -135,15 +140,62 @@ async function findExistingContact(
   return null;
 }
 
+/** Names of OTHER brands (companies) in the org where this same email/phone already
+ *  exists — a cross-brand overlap flag, without merging the per-brand contacts. */
+async function findCrossBrandBrands(
+  admin: AdminClient,
+  orgId: string,
+  companyId: string,
+  contact: { email?: string; phone?: string },
+): Promise<string[]> {
+  const email = normalizeEmail(contact.email);
+  const phone10 = normalizePhoneLast10(contact.phone);
+  const otherCompanyIds = new Set<string>();
+
+  if (email) {
+    const { data } = await admin
+      .from("contacts")
+      .select("company_id")
+      .eq("organization_id", orgId)
+      .eq("email", email);
+    for (const c of data ?? []) {
+      if (c.company_id && c.company_id !== companyId) otherCompanyIds.add(c.company_id);
+    }
+  }
+
+  if (phone10) {
+    const { data } = await admin
+      .from("contacts")
+      .select("company_id, phone")
+      .eq("organization_id", orgId)
+      .not("phone", "is", null)
+      .limit(2000);
+    for (const c of data ?? []) {
+      if (c.company_id && c.company_id !== companyId && normalizePhoneLast10(c.phone) === phone10) {
+        otherCompanyIds.add(c.company_id);
+      }
+    }
+  }
+
+  if (otherCompanyIds.size === 0) return [];
+
+  const { data: companies } = await admin
+    .from("companies")
+    .select("id, name")
+    .eq("organization_id", orgId)
+    .in("id", [...otherCompanyIds]);
+  return (companies ?? []).map((c) => c.name as string);
+}
+
+/** Prior lead touches for this contact within its own brand (returning-customer info). */
 async function buildReturning(
   admin: AdminClient,
   orgId: string,
   contactId: string,
-  newCompanyId: string | null,
 ): Promise<ReturningInfo> {
   const { data } = await admin
     .from("activity_events")
-    .select("event_type, company_id, occurred_at, metadata_json")
+    .select("event_type, occurred_at, metadata_json")
     .eq("organization_id", orgId)
     .eq("entity_id", contactId)
     .like("event_type", "lead.%")
@@ -151,21 +203,20 @@ async function buildReturning(
     .limit(10);
 
   const priors = data ?? [];
-  const crossBrand = priors.some((e) => e.company_id && e.company_id !== newCompanyId);
   const summaries = priors.map((e) => {
     const meta = (e.metadata_json ?? {}) as AsRecord;
     const brand = typeof meta.sourceSite === "string" ? meta.sourceSite : "?";
     const type = e.event_type.replace("lead.", "");
     return `${brand} ${type} (${(e.occurred_at ?? "").slice(0, 10)})`;
   });
-  return { priorCount: priors.length, priorSummaries: summaries, crossBrand };
+  return { priorCount: priors.length, priorSummaries: summaries };
 }
 
 /** Parse a valid envelope into contacts + activity (+ booking). Best-effort. */
 async function parseIntoRecords(
   admin: AdminClient,
   args: { orgId: string; companyId: string; envelope: LeadEnvelope; leadId: string },
-): Promise<{ contactId: string; matched: boolean; returning: ReturningInfo | null }> {
+): Promise<{ contactId: string; matched: boolean; returning: ReturningInfo | null; crossBrandBrands: string[] }> {
   const { orgId, companyId, envelope, leadId } = args;
   const ctx = {
     organizationId: orgId,
@@ -173,7 +224,10 @@ async function parseIntoRecords(
     supabase: admin,
   } as unknown as TenantServiceContext;
 
-  const existing = await findExistingContact(admin, orgId, envelope.contact);
+  // Match only within THIS brand (the form's company); the same person can be a
+  // separate contact per brand. Cross-brand overlap is surfaced as a flag, not a merge.
+  const existing = await findExistingContact(admin, orgId, companyId, envelope.contact);
+  const crossBrandBrands = await findCrossBrandBrands(admin, orgId, companyId, envelope.contact);
 
   let contactId: string;
   let matched = false;
@@ -182,7 +236,7 @@ async function parseIntoRecords(
   if (existing) {
     matched = true;
     contactId = existing.id;
-    returning = await buildReturning(admin, orgId, contactId, companyId);
+    returning = await buildReturning(admin, orgId, contactId);
   } else {
     const { firstName, lastName } = splitName(envelope.contact.name);
     const created = await createContact(
@@ -207,16 +261,11 @@ async function parseIntoRecords(
     contactId = created.id;
   }
 
-  // Activity events + bookings are DB-trigger-scoped to the CONTACT's company.
-  // For a matched cross-brand contact (same person, a different A1 brand), the
-  // contact's company differs from this lead's — use the contact's so the
-  // trigger ("... must match the ... contact company") passes. The lead's real
-  // brand is preserved in the activity metadata (sourceSite).
-  const contactCompanyId = existing ? existing.company_id : companyId;
-
+  // The contact is always in this lead's company (matched within-brand or newly
+  // created here), so activity + bookings scope cleanly to `companyId`.
   // Record the lead touch (for both new and returning contacts).
   await createActivityEvent(ctx, {
-    companyId: contactCompanyId,
+    companyId,
     entityType: "contact",
     entityId: contactId,
     eventType: `lead.${envelope.formType}`,
@@ -229,6 +278,7 @@ async function parseIntoRecords(
       lineItems: envelope.lineItems ?? null,
       asset: envelope.asset ?? null,
       matched,
+      crossBrandBrands,
     },
     occurredAt: envelope.receivedAt,
   });
@@ -239,7 +289,7 @@ async function parseIntoRecords(
       await createBooking(
         ctx,
         {
-          companyId: contactCompanyId ?? companyId,
+          companyId,
           contactId,
           title: `Lead booking — ${envelope.source}`,
           description: envelope.message ?? null,
@@ -250,7 +300,7 @@ async function parseIntoRecords(
     }
   }
 
-  return { contactId, matched, returning };
+  return { contactId, matched, returning, crossBrandBrands };
 }
 
 /**
@@ -289,10 +339,12 @@ export async function handleLeadIntake(rawBody: string, parsedBody: unknown): Pr
 
   // (2) Enrichment — never fails the request.
   let returning: ReturningInfo | null = null;
+  let crossBrandBrands: string[] = [];
   if (parse.valid && envelope && orgId && companyId) {
     try {
       const enriched = await parseIntoRecords(admin, { orgId, companyId, envelope, leadId });
       returning = enriched.returning;
+      crossBrandBrands = enriched.crossBrandBrands;
       await admin
         .from("raw_leads")
         .update({ contact_id: enriched.contactId, matched: enriched.matched, needs_attention: false })
@@ -330,6 +382,7 @@ export async function handleLeadIntake(rawBody: string, parsedBody: unknown): Pr
       message: envelope?.message ?? null,
       lineItems: envelope?.lineItems ?? null,
       returning,
+      crossBrandBrands,
     });
   } catch (err) {
     console.error("[intake] notification failed:", err);

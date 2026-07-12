@@ -5,7 +5,6 @@ import type { LeadLineItem } from "./envelope";
 export interface ReturningInfo {
   priorCount: number;
   priorSummaries: string[];
-  crossBrand: boolean;
 }
 
 export interface NotifyLead {
@@ -19,6 +18,8 @@ export interface NotifyLead {
   message: string | null;
   lineItems: LeadLineItem[] | null;
   returning: ReturningInfo | null;
+  /** Other A1 brands where this same person already exists (cross-brand overlap). */
+  crossBrandBrands: string[];
 }
 
 function buildText(lead: NotifyLead): string {
@@ -40,12 +41,12 @@ function buildText(lead: NotifyLead): string {
       parts.push(`  - ${li.quantity} × ${li.description} @ ${money(li.unitPriceCents)}`);
     }
   }
-  if (lead.returning) {
-    parts.push(
-      "",
-      `↩ RETURNING CONTACT — ${lead.returning.priorCount} prior lead(s)${lead.returning.crossBrand ? " — CROSS-BRAND, handle as a warm lead" : ""}`,
-    );
+  if (lead.returning && lead.returning.priorCount > 0) {
+    parts.push("", `↩ RETURNING CONTACT — ${lead.returning.priorCount} prior ${lead.sourceSite ?? "brand"} lead(s)`);
     for (const s of lead.returning.priorSummaries) parts.push(`  - ${s}`);
+  }
+  if (lead.crossBrandBrands.length) {
+    parts.push("", `⚑ ALSO A CUSTOMER OF: ${lead.crossBrandBrands.join(", ")} — cross-brand, handle as a warm lead`);
   }
   if (!lead.schemaValid) {
     parts.push("", "⚠ NEEDS ATTENTION — this payload did not match the lead schema and was stored raw. Review it in raw_leads.");
@@ -66,7 +67,8 @@ export async function sendLeadNotification(lead: NotifyLead): Promise<boolean> {
   const who = lead.contact.name || lead.contact.email || lead.contact.phone || "Unknown";
   const markers = [
     !lead.schemaValid ? "⚠ NEEDS ATTENTION" : null,
-    lead.returning?.crossBrand ? "↩ CROSS-BRAND" : lead.returning ? "↩ RETURNING" : null,
+    lead.crossBrandBrands.length ? "⚑ CROSS-BRAND" : null,
+    lead.returning && lead.returning.priorCount > 0 ? "↩ RETURNING" : null,
   ]
     .filter(Boolean)
     .join(" ");
