@@ -42,6 +42,7 @@ function createFakeAdmin(seed: Record<string, Row[]>) {
           if (o === "eq") return r[c] === v;
           if (o === "notNull") return r[c] != null;
           if (o === "like") return new RegExp(`^${String(v).replace(/%/g, ".*")}$`).test(String(r[c] ?? ""));
+          if (o === "in") return Array.isArray(v) && v.includes(r[c]);
           return true;
         }),
       );
@@ -65,6 +66,7 @@ function createFakeAdmin(seed: Record<string, Row[]>) {
       select() { return b; },
       eq(c: string, v: unknown) { filters.push([c, "eq", v]); return b; },
       not(c: string) { filters.push([c, "notNull", null]); return b; },
+      in(c: string, v: unknown) { filters.push([c, "in", v]); return b; },
       like(c: string, v: unknown) { filters.push([c, "like", v]); return b; },
       order() { return b; },
       limit() { return b; },
@@ -138,24 +140,37 @@ describe("intake — never drop", () => {
     expect(fake.store.activity_events.some((e) => e.event_type === "lead.contact")).toBe(true);
   });
 
-  it("returning contact -> matched, no duplicate, activity scoped to the contact's company (cross-brand)", async () => {
-    // Existing contact belongs to A1 Marine Care; the incoming lead is A1 Marine
-    // Storage (cross-brand). The lead's activity event MUST be written under the
-    // contact's company (co-care), not the lead's brand company (co-storage), or
-    // the set_activity_event_scope DB trigger rejects it and enrichment fails
-    // ("Activity event company_id must match the primary entity company.").
-    fake.store.contacts.push({ id: "c-existing", organization_id: "org-a1", company_id: "co-care", email: "jane@example.com", phone: null });
-    fake.store.activity_events.push({ id: "e1", organization_id: "org-a1", company_id: "co-care", entity_id: "c-existing", event_type: "lead.contact", occurred_at: "2026-06-01T00:00:00.000Z", metadata_json: { sourceSite: "a1marinecare" } });
-    const env = validEnvelope();
+  it("returning within the same brand -> matched, no duplicate", async () => {
+    // Jane already exists as an A1 Marine Storage contact; a new Storage lead
+    // matches her (within-brand) instead of creating a duplicate.
+    fake.store.contacts.push({ id: "c-storage", organization_id: "org-a1", company_id: "co-storage", email: "jane@example.com", phone: null });
+    const env = validEnvelope(); // storage lead
     const res = await handleLeadIntake(JSON.stringify(env), env);
     expect(res.ok).toBe(true);
     expect(fake.store.contacts).toHaveLength(1); // matched, not duplicated
     expect(fake.store.raw_leads[0].matched).toBe(true);
-    expect(fake.store.raw_leads[0].contact_id).toBe("c-existing");
-    // The regression this guards: the new lead activity is scoped to the contact's
-    // company, and enrichment completed (not flagged).
+    expect(fake.store.raw_leads[0].contact_id).toBe("c-storage");
     const newActivity = fake.store.activity_events.find((e) => e.metadata_json?.leadId);
-    expect(newActivity?.company_id).toBe("co-care");
+    expect(newActivity?.company_id).toBe("co-storage");
+  });
+
+  it("cross-brand: a lead is attributed to ITS brand (separate contact) + flags the overlap", async () => {
+    // Jane is already an A1 Marine CARE contact. The incoming lead is A1 Marine
+    // STORAGE — it must NOT attach to the Care contact. It creates a separate
+    // Storage contact (attributed to the form's brand), scopes its activity to
+    // Storage, and flags that she is also a Care customer.
+    fake.store.contacts.push({ id: "c-care", organization_id: "org-a1", company_id: "co-care", email: "jane@example.com", phone: null });
+    const env = validEnvelope(); // sourceSite a1marinestorage -> co-storage
+    const res = await handleLeadIntake(JSON.stringify(env), env);
+    expect(res.ok).toBe(true);
+    expect(fake.store.contacts).toHaveLength(2); // separate per-brand contacts
+    const storageContact = fake.store.contacts.find((c) => c.company_id === "co-storage");
+    expect(storageContact).toBeTruthy();
+    expect(fake.store.raw_leads[0].matched).toBe(false); // new for this brand
+    expect(fake.store.raw_leads[0].contact_id).toBe(storageContact!.id);
+    const newActivity = fake.store.activity_events.find((e) => e.metadata_json?.leadId);
+    expect(newActivity?.company_id).toBe("co-storage"); // scoped to the lead's brand
+    expect(newActivity?.metadata_json?.crossBrandBrands).toEqual(["A1 Marine Care"]);
     expect(fake.store.raw_leads[0].needs_attention).toBe(false);
   });
 });
