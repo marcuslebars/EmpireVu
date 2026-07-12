@@ -331,11 +331,16 @@ export default function TasksPage() {
   const [search, setSearch] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const params = useMemo(() => ({
     companyId: companyId || undefined,
     search: search || undefined,
-  }), [companyId, search]);
+    status: statusFilter || undefined,
+    priority: priorityFilter || undefined,
+  }), [companyId, search, statusFilter, priorityFilter]);
 
   const { data: tasks, isLoading, isError, refetch } = useTasks(organizationId, params);
   const { data: detail, isLoading: isDetailLoading } = useTaskDetail(organizationId, selectedTaskId);
@@ -382,10 +387,66 @@ export default function TasksPage() {
             className="w-full bg-card border border-border rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
           />
         </div>
-        <button className="flex items-center gap-2 px-3 py-2 rounded-xl bg-secondary text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
-          <Filter className="w-3.5 h-3.5" />
-          Filter
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => setFilterOpen((v) => !v)}
+            className={cn(
+              "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-colors",
+              statusFilter || priorityFilter ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Filter className="w-3.5 h-3.5" />
+            Filter
+            {(statusFilter || priorityFilter) && (
+              <span className="ml-0.5 text-[10px] font-bold bg-primary text-primary-foreground rounded-full w-4 h-4 flex items-center justify-center">
+                {(statusFilter ? 1 : 0) + (priorityFilter ? 1 : 0)}
+              </span>
+            )}
+          </button>
+          {filterOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
+              <div className="absolute top-full right-0 mt-1 w-52 bg-popover border border-border rounded-lg shadow-xl z-50 p-3 space-y-3 animate-scale-in">
+                <div>
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1 block">Status</label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="w-full px-2 py-1.5 text-xs bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                  >
+                    <option value="">All statuses</option>
+                    <option value="todo">To Do</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="blocked">Blocked</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1 block">Priority</label>
+                  <select
+                    value={priorityFilter}
+                    onChange={(e) => setPriorityFilter(e.target.value)}
+                    className="w-full px-2 py-1.5 text-xs bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                  >
+                    <option value="">All priorities</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </div>
+                {(statusFilter || priorityFilter) && (
+                  <button
+                    onClick={() => { setStatusFilter(""); setPriorityFilter(""); }}
+                    className="w-full text-xs text-muted-foreground hover:text-foreground py-1"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 flex gap-6 min-h-0">
