@@ -7,6 +7,8 @@ import {
   updateContactStageInputSchema,
   assignContactOwner,
   assignContactOwnerInputSchema,
+  updateContactNotes,
+  updateContactNotesInputSchema,
 } from "@/server/services/contacts";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
@@ -22,6 +24,7 @@ interface RouteContext {
 const patchContactInputSchema = z.union([
   z.object({ action: z.literal("updateStage"), stage: z.enum(["lead", "qualified", "active", "closed"]) }),
   z.object({ action: z.literal("assignOwner"), ownerProfileId: z.string().uuid() }),
+  z.object({ action: z.literal("updateNotes"), notes: z.string().max(5000).nullable() }),
 ]);
 
 export async function PATCH(request: Request, context: RouteContext): Promise<NextResponse> {
@@ -45,16 +48,31 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
       return NextResponse.json({ data });
     }
 
-    // assignOwner
-    const data = await assignContactOwner(
+    if (body.action === "assignOwner") {
+      const data = await assignContactOwner(
+        {
+          actorProfileId: organization.user.id,
+          organizationId: organization.organizationId,
+          supabase,
+        },
+        assignContactOwnerInputSchema.parse({
+          contactId: context.params.contactId,
+          ownerProfileId: body.ownerProfileId,
+        }),
+      );
+      return NextResponse.json({ data });
+    }
+
+    // updateNotes
+    const data = await updateContactNotes(
       {
         actorProfileId: organization.user.id,
         organizationId: organization.organizationId,
         supabase,
       },
-      assignContactOwnerInputSchema.parse({
+      updateContactNotesInputSchema.parse({
         contactId: context.params.contactId,
-        ownerProfileId: body.ownerProfileId,
+        notes: body.notes,
       }),
     );
     return NextResponse.json({ data });
