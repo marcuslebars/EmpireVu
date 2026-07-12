@@ -752,6 +752,22 @@ export function updateWorkflowStatus(
   });
 }
 
+export interface CreateWorkflowInput {
+  name: string;
+  triggerEvent: string;
+  definition?: Record<string, unknown>;
+  description?: string | null;
+  status?: "draft" | "active" | "paused" | "archived";
+  companyId?: string | null;
+}
+
+export function createWorkflow(orgId: string, input: CreateWorkflowInput): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/workflows`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 // ─── Organizations & Companies ───────────────────────────────────────────────
 
 export interface OrganizationSummary {
