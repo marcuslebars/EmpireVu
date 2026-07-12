@@ -38,6 +38,13 @@ export const assignContactOwnerInputSchema = z.object({
 
 export type AssignContactOwnerInput = z.infer<typeof assignContactOwnerInputSchema>;
 
+export const updateContactNotesInputSchema = z.object({
+  contactId: z.string().uuid(),
+  notes: z.string().max(5000).nullable(),
+});
+
+export type UpdateContactNotesInput = z.infer<typeof updateContactNotesInputSchema>;
+
 interface ContactMutationOptions {
   dispatchWorkflow?: boolean;
 }
@@ -229,4 +236,26 @@ export async function assignContactOwner(
   });
 
   return updated;
+}
+
+export async function updateContactNotes(
+  context: TenantServiceContext,
+  input: UpdateContactNotesInput,
+): Promise<Tables<"contacts">> {
+  await assertContactInOrganization(context, input.contactId);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (context.supabase.from("contacts") as any)
+    .update({ notes: input.notes })
+    .eq("organization_id", context.organizationId)
+    .eq("id", input.contactId)
+    .select("*")
+    .single();
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return data as Tables<"contacts">;
 }

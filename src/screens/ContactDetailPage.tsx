@@ -25,7 +25,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateBooking } from "@/lib/api-hooks";
+import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateBooking, useUpdateContactNotes } from "@/lib/api-hooks";
 import { toast } from "@/components/ui/sonner";
 import { LoadingCards, ErrorBanner, EmptyState, SkeletonStatCard } from "@/components/ui/StateViews";
 import { formatCentsCompact, formatCents, formatDate, relativeTime } from "@/lib/format";
@@ -307,6 +307,46 @@ function CreateBookingDialog({
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+// ─── Editable internal notes ──────────────────────────────────────────────────
+
+function ContactNotes({ orgId, contactId, initialNotes }: { orgId: string; contactId: string; initialNotes: string | null }) {
+  const updateNotes = useUpdateContactNotes(orgId, contactId);
+  const [notes, setNotes] = useState(initialNotes ?? "");
+  const dirty = notes !== (initialNotes ?? "");
+
+  const handleSave = async () => {
+    try {
+      await updateNotes.mutateAsync(notes.trim() ? notes : null);
+      toast.success("Notes saved");
+    } catch {
+      toast.error("Failed to save notes. Please try again.");
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-foreground">Internal Notes</h3>
+        <button
+          onClick={handleSave}
+          disabled={!dirty || updateNotes.isPending}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {updateNotes.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+          Save Notes
+        </button>
+      </div>
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        rows={8}
+        placeholder="Add internal notes about this contact — call summaries, preferences, context…"
+        className="w-full px-3 py-2.5 text-sm bg-card border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-y leading-relaxed"
+      />
     </div>
   );
 }
@@ -721,22 +761,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
 
         {/* Notes */}
         {activeTab === "notes" && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground">Internal Notes</h3>
-              <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]">
-                <Plus className="w-3 h-3" />
-                Add Note
-              </button>
-            </div>
-            {contact.notes ? (
-              <div className="bg-card border border-border rounded-xl p-4">
-                <p className="text-sm text-muted-foreground leading-relaxed">{contact.notes}</p>
-              </div>
-            ) : (
-              <EmptyState title="No notes" description="Add internal notes about this contact." />
-            )}
-          </div>
+          <ContactNotes orgId={orgId} contactId={contact.id} initialNotes={contact.notes} />
         )}
       </div>
 

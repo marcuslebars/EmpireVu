@@ -22,6 +22,7 @@ import {
   createContact,
   updateContactStage,
   assignContactOwner,
+  updateContactNotes,
   createBooking,
   updateBookingStatus,
   createTask,
@@ -256,6 +257,16 @@ export function useAssignContactOwner(orgId: string, contactId: string) {
   return useMutation({
     mutationFn: (ownerProfileId: string) =>
       assignContactOwner(orgId, contactId, ownerProfileId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
+    },
+  });
+}
+
+export function useUpdateContactNotes(orgId: string, contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (notes: string | null) => updateContactNotes(orgId, contactId, notes),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
     },

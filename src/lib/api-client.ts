@@ -581,6 +581,17 @@ export function assignContactOwner(
   });
 }
 
+export function updateContactNotes(
+  orgId: string,
+  contactId: string,
+  notes: string | null,
+): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "updateNotes", notes }),
+  });
+}
+
 // Booking mutations
 
 export interface CreateBookingInput {
