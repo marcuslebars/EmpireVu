@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-import { useContactDetail } from "@/lib/api-hooks";
+import { useContactDetail, useUpdateContactStage } from "@/lib/api-hooks";
 import { LoadingCards, ErrorBanner, EmptyState, SkeletonStatCard } from "@/components/ui/StateViews";
 import { formatCentsCompact, formatCents, formatDate, relativeTime } from "@/lib/format";
 import type { ContactDetailResponse } from "@/lib/api-client";
@@ -42,6 +42,8 @@ const stageLabel: Record<string, string> = {
   active: "Active",
   closed: "Closed",
 };
+
+const pipelineStageOrder = ["lead", "qualified", "active", "closed"] as const;
 
 const actionTypeConfig: Record<string, { bg: string; text: string; border: string; icon: typeof Zap }> = {
   urgent: { bg: "bg-red-500/10", text: "text-red-400", border: "border-red-500/20", icon: AlertTriangle },
@@ -73,9 +75,10 @@ const bookingStatusConfig: Record<string, { bg: string; text: string }> = {
 
 // ─── Loaded detail view ───────────────────────────────────────────────────────
 
-function ContactDetailContent({ detail }: { detail: ContactDetailResponse }) {
+function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse; orgId: string }) {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("activity");
+  const updateStage = useUpdateContactStage(orgId);
 
   const { contact, financialSummary, linkedBookings, linkedTasks, nextAction, timeline, workflowTraces } = detail;
 
@@ -127,9 +130,26 @@ function ContactDetailContent({ detail }: { detail: ContactDetailResponse }) {
                       {contact.company.name}
                     </span>
                   )}
-                  <span className={cn("text-[11px] font-medium px-2 py-0.5 rounded-md", sc.bg, sc.text)}>
-                    {stageLabel[contact.stage] ?? contact.stage}
-                  </span>
+                  <select
+                    value={contact.stage}
+                    disabled={updateStage.isPending}
+                    onChange={(e) =>
+                      updateStage.mutate({
+                        contactId: contact.id,
+                        stage: e.target.value as "lead" | "qualified" | "active" | "closed",
+                      })
+                    }
+                    className={cn(
+                      "text-[11px] font-medium px-2 py-0.5 rounded-md border-none focus:ring-0 cursor-pointer disabled:opacity-60",
+                      sc.bg,
+                      sc.text,
+                    )}
+                    aria-label="Change stage"
+                  >
+                    {pipelineStageOrder.map((s) => (
+                      <option key={s} value={s}>{stageLabel[s]}</option>
+                    ))}
+                  </select>
                   {financialSummary.pipelineValueCents != null && (
                     <span className="text-sm font-bold text-foreground tabular-nums">
                       {formatCentsCompact(financialSummary.pipelineValueCents)}
@@ -519,5 +539,5 @@ export default function ContactDetailPage() {
     );
   }
 
-  return <ContactDetailContent detail={data} />;
+  return <ContactDetailContent detail={data} orgId={organizationId} />;
 }
