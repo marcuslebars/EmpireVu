@@ -19,10 +19,14 @@ import {
   Zap,
   Activity,
   Circle,
+  X,
+  Loader2,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-import { useContactDetail, useUpdateContactStage } from "@/lib/api-hooks";
+import { useContactDetail, useUpdateContactStage, useCreateTask } from "@/lib/api-hooks";
+import { toast } from "@/components/ui/sonner";
 import { LoadingCards, ErrorBanner, EmptyState, SkeletonStatCard } from "@/components/ui/StateViews";
 import { formatCentsCompact, formatCents, formatDate, relativeTime } from "@/lib/format";
 import type { ContactDetailResponse } from "@/lib/api-client";
@@ -73,11 +77,126 @@ const bookingStatusConfig: Record<string, { bg: string; text: string }> = {
   conflict: { bg: "bg-red-500/15", text: "text-red-400" },
 };
 
+// ─── Create Task Dialog (contact-scoped) ──────────────────────────────────────
+
+function CreateTaskDialog({
+  orgId,
+  companyId,
+  contactId,
+  onClose,
+}: {
+  orgId: string;
+  companyId: string | null;
+  contactId: string;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const createTask = useCreateTask(orgId);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState<"low" | "medium" | "high" | "urgent">("medium");
+  const [dueAt, setDueAt] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    try {
+      await createTask.mutateAsync({
+        title: title.trim(),
+        description: description.trim() || null,
+        priority,
+        companyId,
+        contactId,
+        dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+      });
+      await qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
+      toast.success("Task created");
+      onClose();
+    } catch {
+      toast.error("Failed to create task. Please try again.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-card border border-border rounded-2xl w-[460px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-base font-semibold text-foreground">New Task</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Title <span className="text-destructive">*</span></label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+              autoFocus
+              placeholder="e.g., Follow up with this contact"
+              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Priority</label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as typeof priority)}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Due Date</label>
+              <input
+                type="date"
+                value={dueAt}
+                onChange={(e) => setDueAt(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Description</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              placeholder="Any additional details..."
+              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={createTask.isPending || !title.trim()}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]"
+            >
+              {createTask.isPending ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</>) : "Create Task"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Loaded detail view ───────────────────────────────────────────────────────
 
 function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse; orgId: string }) {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("activity");
+  const [isTaskOpen, setIsTaskOpen] = useState(false);
   const updateStage = useUpdateContactStage(orgId);
 
   const { contact, financialSummary, linkedBookings, linkedTasks, nextAction, timeline, workflowTraces } = detail;
@@ -361,7 +480,10 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-foreground">{linkedTasks.length} tasks</h3>
-              <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]">
+              <button
+                onClick={() => setIsTaskOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]"
+              >
                 <Plus className="w-3 h-3" />
                 New Task
               </button>
@@ -493,6 +615,15 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
           </div>
         )}
       </div>
+
+      {isTaskOpen && (
+        <CreateTaskDialog
+          orgId={orgId}
+          companyId={contact.company?.id ?? null}
+          contactId={contact.id}
+          onClose={() => setIsTaskOpen(false)}
+        />
+      )}
     </div>
   );
 }
