@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Plus,
   Search,
@@ -17,7 +17,7 @@ import {
   Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useOrg } from "@/lib/org-context";
 import { 
   useCRMContacts, 
@@ -377,6 +377,18 @@ export default function CRMPage() {
   const [search, setSearch] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCompanyOpen, setIsCompanyOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Quick Add / command-palette deep links: /crm?new=contact | ?new=company
+  useEffect(() => {
+    const create = searchParams.get("new");
+    if (!create) return;
+    if (create === "contact") setIsCreateOpen(true);
+    else if (create === "company") setIsCompanyOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("new");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const params = useMemo(() => ({
     companyId: companyId || undefined,

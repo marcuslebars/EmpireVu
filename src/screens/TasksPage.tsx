@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Plus,
   Search,
@@ -18,7 +18,7 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useOrg } from "@/lib/org-context";
 import {
   useTasks,
@@ -334,6 +334,16 @@ export default function TasksPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Quick Add / command-palette deep link: /tasks?new=task
+  useEffect(() => {
+    if (searchParams.get("new") !== "task") return;
+    setIsCreateOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("new");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const params = useMemo(() => ({
     companyId: companyId || undefined,
