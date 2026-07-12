@@ -21,6 +21,13 @@ export const createWorkflowInputSchema = z.object({
 
 export type CreateWorkflowInput = z.infer<typeof createWorkflowInputSchema>;
 
+export const updateWorkflowStatusInputSchema = z.object({
+  workflowId: z.string().uuid(),
+  status: z.enum(["draft", "active", "paused", "archived"]),
+});
+
+export type UpdateWorkflowStatusInput = z.infer<typeof updateWorkflowStatusInputSchema>;
+
 export interface ListWorkflowsOptions {
   companyId?: string | null;
   limit?: number;
@@ -114,4 +121,24 @@ export async function createWorkflow(
   });
 
   return data;
+}
+
+export async function updateWorkflowStatus(
+  context: TenantServiceContext,
+  input: UpdateWorkflowStatusInput,
+): Promise<Tables<"workflows">> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (context.supabase.from("workflows") as any)
+    .update({ status: input.status })
+    .eq("organization_id", context.organizationId)
+    .eq("id", input.workflowId)
+    .select("*")
+    .single();
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return data as Tables<"workflows">;
 }

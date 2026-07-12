@@ -15,6 +15,7 @@ import {
   useTriggerWorkflow,
   useRunWorkflowTest,
   useRetryWorkflowJob,
+  useUpdateWorkflowStatus,
   useCompanies,
 } from "@/lib/api-hooks";
 import { SkeletonCard, ErrorBanner, EmptyState } from "@/components/ui/StateViews";
@@ -288,15 +289,21 @@ export default function AutomationsPage() {
   const { organizationId, companyId } = useOrg();
   const [search, setSearch] = useState("");
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [triggerFilter, setTriggerFilter] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const params = useMemo(() => ({
     companyId: companyId || undefined,
     search: search || undefined,
-  }), [companyId, search]);
+    status: statusFilter || undefined,
+    triggerType: triggerFilter || undefined,
+  }), [companyId, search, statusFilter, triggerFilter]);
 
   const { data: workflows, isLoading, isError, refetch } = useWorkflows(organizationId, params);
   const { data: impact } = useAutomationImpact(organizationId);
   const triggerWorkflow = useTriggerWorkflow(organizationId);
+  const updateStatus = useUpdateWorkflowStatus(organizationId);
 
   const workflowList = workflows?.rows?.items ?? [];
 
@@ -309,6 +316,16 @@ export default function AutomationsPage() {
       toast.success("Workflow triggered");
     } catch {
       toast.error("Failed to trigger workflow");
+    }
+  };
+
+  const handleToggleStatus = async (id: string, current: string) => {
+    const next = current === "active" ? "paused" : "active";
+    try {
+      await updateStatus.mutateAsync({ workflowId: id, status: next });
+      toast.success(next === "active" ? "Workflow activated" : "Workflow paused");
+    } catch {
+      toast.error("Failed to update workflow");
     }
   };
 
@@ -357,10 +374,64 @@ export default function AutomationsPage() {
             className="w-full bg-card border border-border rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
           />
         </div>
-        <button className="flex items-center gap-2 px-3 py-2 rounded-xl bg-secondary text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
-          <Filter className="w-3.5 h-3.5" />
-          Filter
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => setFilterOpen((v) => !v)}
+            className={cn(
+              "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-colors",
+              statusFilter || triggerFilter ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Filter className="w-3.5 h-3.5" />
+            Filter
+            {(statusFilter || triggerFilter) && (
+              <span className="ml-0.5 text-[10px] font-bold bg-primary text-primary-foreground rounded-full w-4 h-4 flex items-center justify-center">
+                {(statusFilter ? 1 : 0) + (triggerFilter ? 1 : 0)}
+              </span>
+            )}
+          </button>
+          {filterOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
+              <div className="absolute top-full right-0 mt-1 w-56 bg-popover border border-border rounded-lg shadow-xl z-50 p-3 space-y-3 animate-scale-in">
+                <div>
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1 block">Status</label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="w-full px-2 py-1.5 text-xs bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                  >
+                    <option value="">All statuses</option>
+                    <option value="active">Active</option>
+                    <option value="paused">Paused</option>
+                    <option value="draft">Draft</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1 block">Trigger</label>
+                  <select
+                    value={triggerFilter}
+                    onChange={(e) => setTriggerFilter(e.target.value)}
+                    className="w-full px-2 py-1.5 text-xs bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                  >
+                    <option value="">All triggers</option>
+                    {Object.entries(triggerTypeLabel).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+                {(statusFilter || triggerFilter) && (
+                  <button
+                    onClick={() => { setStatusFilter(""); setTriggerFilter(""); }}
+                    className="w-full text-xs text-muted-foreground hover:text-foreground py-1"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Workflow Grid */}
@@ -397,9 +468,21 @@ export default function AutomationsPage() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      handleToggleStatus(workflow.id, workflow.status);
+                    }}
+                    disabled={updateStatus.isPending}
+                    title={workflow.status === "active" ? "Pause workflow" : "Activate workflow"}
+                    className="p-1.5 rounded-lg bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all disabled:opacity-50"
+                  >
+                    {workflow.status === "active" ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
                       handleQuickRun(workflow.id, workflow.triggerType);
                     }}
                     className="p-1.5 rounded-lg bg-secondary text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-0 group-hover:opacity-100 transition-all"
+                    title="Run now"
                   >
                     <Play className="w-3.5 h-3.5 fill-current" />
                   </button>
