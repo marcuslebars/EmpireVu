@@ -40,7 +40,7 @@ import {
 } from "@/lib/api-hooks";
 import { SkeletonCard, ErrorBanner, EmptyState, LoadingCards } from "@/components/ui/StateViews";
 import { formatCents, formatDate, relativeTime } from "@/lib/format";
-import { startOfWeek, endOfWeek, addWeeks, subWeeks, format, parseISO, addDays } from "date-fns";
+import { startOfWeek, endOfWeek, addWeeks, subWeeks, format, parseISO, addDays, startOfMonth, endOfMonth, addMonths, subMonths, startOfDay, endOfDay, isSameMonth, isSameDay, eachDayOfInterval } from "date-fns";
 import type { BookingCalendarRow, BookingDetailResponse } from "@/lib/api-client";
 import { toast } from "@/components/ui/sonner";
 
@@ -291,14 +291,31 @@ export default function CalendarPage() {
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
-  const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
-  const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
+  const { rangeStart, rangeEnd, gridDays, headerLabel } = useMemo(() => {
+    if (view === "Day") {
+      const s = startOfDay(currentDate);
+      return { rangeStart: s, rangeEnd: endOfDay(currentDate), gridDays: [s], headerLabel: format(currentDate, "EEEE, MMM d, yyyy") };
+    }
+    if (view === "Month") {
+      const s = startOfWeek(startOfMonth(currentDate), { weekStartsOn: 1 });
+      const e = endOfWeek(endOfMonth(currentDate), { weekStartsOn: 1 });
+      return { rangeStart: s, rangeEnd: e, gridDays: eachDayOfInterval({ start: s, end: e }), headerLabel: format(currentDate, "MMMM yyyy") };
+    }
+    const s = startOfWeek(currentDate, { weekStartsOn: 1 });
+    const e = endOfWeek(currentDate, { weekStartsOn: 1 });
+    return {
+      rangeStart: s,
+      rangeEnd: e,
+      gridDays: Array.from({ length: 7 }, (_, i) => addDays(s, i)),
+      headerLabel: `${format(s, "MMM d")} – ${format(e, "MMM d, yyyy")}`,
+    };
+  }, [view, currentDate]);
 
   const params = useMemo(() => ({
-    start: weekStart.toISOString(),
-    end: weekEnd.toISOString(),
+    start: rangeStart.toISOString(),
+    end: rangeEnd.toISOString(),
     companyId: companyId || undefined,
-  }), [weekStart, weekEnd, companyId]);
+  }), [rangeStart, rangeEnd, companyId]);
 
   const { data: calendarData, isLoading, isError, refetch } = useCalendarView(organizationId, params);
   const { data: capacityData } = useCalendarCapacity(organizationId, params);
@@ -306,10 +323,14 @@ export default function CalendarPage() {
   const updateStatus = useUpdateBookingStatus(organizationId, selectedBookingId || "");
 
   const bookings = calendarData?.bookings.items ?? [];
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const weekStart = rangeStart;
+  const days = gridDays;
+  const numCols = gridDays.length;
 
-  const handlePrev = () => setCurrentDate(subWeeks(currentDate, 1));
-  const handleNext = () => setCurrentDate(addWeeks(currentDate, 1));
+  const handlePrev = () =>
+    setCurrentDate((d) => (view === "Day" ? addDays(d, -1) : view === "Month" ? subMonths(d, 1) : subWeeks(d, 1)));
+  const handleNext = () =>
+    setCurrentDate((d) => (view === "Day" ? addDays(d, 1) : view === "Month" ? addMonths(d, 1) : addWeeks(d, 1)));
   const handleToday = () => setCurrentDate(new Date());
 
   const handleStatusUpdate = async (status: string) => {
@@ -358,8 +379,8 @@ export default function CalendarPage() {
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
-          <span className="text-sm font-semibold text-foreground min-w-[140px] text-center">
-            {format(weekStart, "MMM d")} – {format(weekEnd, "MMM d, yyyy")}
+          <span className="text-sm font-semibold text-foreground min-w-[160px] text-center">
+            {headerLabel}
           </span>
           <button
             onClick={() => setIsCreateOpen(true)}
@@ -373,110 +394,175 @@ export default function CalendarPage() {
 
       <div className="flex-1 flex gap-4 min-h-0">
         {/* Main Calendar Grid */}
-        <div className="flex-1 bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
-          {/* Day Headers */}
-          <div className="grid grid-cols-[64px_1fr] border-b border-border bg-secondary/30">
-            <div className="border-r border-border" />
-            <div className="grid grid-cols-7">
-              {days.map((day, i) => {
-                const isToday = format(day, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
-                return (
-                  <div key={i} className={cn("px-2 py-3 text-center border-r border-border last:border-r-0", isToday && "bg-primary/5")}>
-                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{format(day, "EEE")}</p>
-                    <p className={cn("text-lg font-bold mt-0.5", isToday ? "text-primary" : "text-foreground")}>{format(day, "d")}</p>
-                  </div>
-                );
-              })}
+        {view === "Month" ? (
+          /* ── Month grid ── */
+          <div className="flex-1 bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
+            <div className="grid grid-cols-7 border-b border-border bg-secondary/30 shrink-0">
+              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+                <div key={d} className="px-2 py-2 text-center text-[10px] font-bold text-muted-foreground uppercase tracking-wider border-r border-border last:border-r-0">
+                  {d}
+                </div>
+              ))}
             </div>
-          </div>
-
-          {/* Scrollable Grid */}
-          <div className="flex-1 overflow-y-auto relative custom-scrollbar">
-            <div className="grid grid-cols-[64px_1fr] min-h-full">
-              {/* Time Labels */}
-              <div className="border-r border-border bg-secondary/10">
-                {timeSlots.map((slot) => (
-                  <div key={slot.hour} className="h-[56px] px-2 py-1 text-[10px] font-medium text-muted-foreground text-right border-b border-border/50">
-                    {slot.label}
-                  </div>
-                ))}
-              </div>
-
-              {/* Grid Columns */}
-              <div className="grid grid-cols-7 relative">
-                {/* Horizontal Grid Lines */}
-                {timeSlots.map((slot) => (
-                  <div key={slot.hour} className="absolute left-0 right-0 border-b border-border/50" style={{ top: (slot.hour - GRID_START) * HOUR_HEIGHT }} />
-                ))}
-
-                {/* Vertical Grid Lines */}
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="absolute top-0 bottom-0 border-r border-border/50" style={{ left: `${((i + 1) / 7) * 100}%` }} />
-                ))}
-
-                {/* Bookings */}
-                {isLoading ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-background/50 backdrop-blur-[1px] z-10">
-                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                  </div>
-                ) : isError ? (
-                  <div className="absolute inset-0 flex items-center justify-center p-4">
-                    <ErrorBanner message="Failed to load calendar." onRetry={refetch} />
-                  </div>
-                ) : bookings.length === 0 ? (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <p className="text-xs text-muted-foreground">No bookings this week</p>
-                  </div>
-                ) : (
-                  bookings.map((booking) => {
-                    const top = bookingTopFromISO(booking.scheduledFor);
-                    const height = bookingHeightFromDuration(booking.durationMinutes);
-                    const dayIdx = getDayIndex(booking.scheduledFor, weekStart);
-                    if (dayIdx < 0 || dayIdx > 6) return null;
-
-                    const colors = getCompanyColors(booking.company?.id);
-                    const isSelected = selectedBookingId === booking.id;
-
+            <div className="flex-1 overflow-y-auto custom-scrollbar relative">
+              {isLoading ? (
+                <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+              ) : isError ? (
+                <div className="absolute inset-0 flex items-center justify-center p-4"><ErrorBanner message="Failed to load calendar." onRetry={refetch} /></div>
+              ) : (
+                <div className="grid grid-cols-7 auto-rows-fr min-h-full">
+                  {gridDays.map((day, i) => {
+                    const dayBookings = bookings.filter((b) => isSameDay(parseISO(b.scheduledFor), day));
+                    const inMonth = isSameMonth(day, currentDate);
+                    const isToday = isSameDay(day, new Date());
                     return (
                       <div
-                        key={booking.id}
-                        onClick={() => setSelectedBookingId(booking.id)}
+                        key={i}
+                        onClick={() => { setCurrentDate(day); setView("Day"); }}
                         className={cn(
-                          "absolute left-[2%] right-[2%] rounded-lg border p-2 cursor-pointer transition-all duration-200 group overflow-hidden",
-                          colors.bg,
-                          colors.border,
-                          isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-card z-20 shadow-lg" : "hover:shadow-md hover:z-10"
+                          "min-h-[96px] border-r border-b border-border/60 p-1.5 flex flex-col gap-1 cursor-pointer hover:bg-secondary/20 transition-colors",
+                          !inMonth && "bg-secondary/10",
                         )}
-                        style={{ top, height, left: `${(dayIdx / 7) * 100 + 0.5}%`, width: `${100 / 7 - 1}%` }}
                       >
-                        <div className="flex items-start justify-between gap-1">
-                          <p className={cn("text-[10px] font-bold leading-tight truncate", colors.text)}>{booking.title}</p>
-                          {booking.status === "confirmed" && <CheckCircle2 className={cn("w-2.5 h-2.5 shrink-0", colors.text)} />}
+                        <span className={cn(
+                          "text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full shrink-0",
+                          isToday ? "bg-primary text-primary-foreground" : inMonth ? "text-foreground" : "text-muted-foreground/50",
+                        )}>
+                          {format(day, "d")}
+                        </span>
+                        <div className="flex flex-col gap-0.5 min-h-0">
+                          {dayBookings.slice(0, 3).map((b) => {
+                            const colors = getCompanyColors(b.company?.id);
+                            return (
+                              <button
+                                key={b.id}
+                                onClick={(e) => { e.stopPropagation(); setSelectedBookingId(b.id); }}
+                                className={cn("flex items-center gap-1 px-1.5 py-0.5 rounded text-left transition-colors overflow-hidden", colors.bg, selectedBookingId === b.id && "ring-1 ring-primary")}
+                              >
+                                <span className={cn("w-1 h-1 rounded-full shrink-0", colors.dot)} />
+                                <span className="text-[9px] text-muted-foreground font-medium shrink-0">{format(parseISO(b.scheduledFor), "h:mm a")}</span>
+                                <span className={cn("text-[9px] font-medium truncate", colors.text)}>{b.title}</span>
+                              </button>
+                            );
+                          })}
+                          {dayBookings.length > 3 && (
+                            <span className="text-[9px] text-muted-foreground pl-1.5">+{dayBookings.length - 3} more</span>
+                          )}
                         </div>
-                        <div className="flex items-center gap-1 mt-1">
-                          <span className={cn("w-1 h-1 rounded-full", colors.dot)} />
-                          <p className="text-[9px] text-muted-foreground truncate font-medium">{booking.company?.name || "No Company"}</p>
-                        </div>
-                        {height > 40 && (
-                          <div className="mt-1.5 flex items-center gap-2">
-                            <div className="flex -space-x-1">
-                              {booking.assignedUserSummary.users.slice(0, 2).map((u, i) => (
-                                <div key={i} className="w-3.5 h-3.5 rounded-full bg-background border border-border flex items-center justify-center text-[7px] font-bold">
-                                  {u.initials}
-                                </div>
-                              ))}
-                            </div>
-                            <p className="text-[8px] text-muted-foreground font-medium">{format(parseISO(booking.scheduledFor), "h:mm a")}</p>
-                          </div>
-                        )}
                       </div>
                     );
-                  })
-                )}
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* ── Day / Week time grid ── */
+          <div className="flex-1 bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
+            {/* Day Headers */}
+            <div className="grid grid-cols-[64px_1fr] border-b border-border bg-secondary/30">
+              <div className="border-r border-border" />
+              <div className="grid" style={{ gridTemplateColumns: `repeat(${numCols}, minmax(0, 1fr))` }}>
+                {days.map((day, i) => {
+                  const isToday = isSameDay(day, new Date());
+                  return (
+                    <div key={i} className={cn("px-2 py-3 text-center border-r border-border last:border-r-0", isToday && "bg-primary/5")}>
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{format(day, "EEE")}</p>
+                      <p className={cn("text-lg font-bold mt-0.5", isToday ? "text-primary" : "text-foreground")}>{format(day, "d")}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Scrollable Grid */}
+            <div className="flex-1 overflow-y-auto relative custom-scrollbar">
+              <div className="grid grid-cols-[64px_1fr] min-h-full">
+                {/* Time Labels */}
+                <div className="border-r border-border bg-secondary/10">
+                  {timeSlots.map((slot) => (
+                    <div key={slot.hour} className="h-[56px] px-2 py-1 text-[10px] font-medium text-muted-foreground text-right border-b border-border/50">
+                      {slot.label}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Grid Columns */}
+                <div className="grid relative" style={{ gridTemplateColumns: `repeat(${numCols}, minmax(0, 1fr))` }}>
+                  {/* Horizontal Grid Lines */}
+                  {timeSlots.map((slot) => (
+                    <div key={slot.hour} className="absolute left-0 right-0 border-b border-border/50" style={{ top: (slot.hour - GRID_START) * HOUR_HEIGHT }} />
+                  ))}
+
+                  {/* Vertical Grid Lines */}
+                  {Array.from({ length: numCols - 1 }).map((_, i) => (
+                    <div key={i} className="absolute top-0 bottom-0 border-r border-border/50" style={{ left: `${((i + 1) / numCols) * 100}%` }} />
+                  ))}
+
+                  {/* Bookings */}
+                  {isLoading ? (
+                    <div className="absolute inset-0 flex items-center justify-center bg-background/50 backdrop-blur-[1px] z-10">
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                    </div>
+                  ) : isError ? (
+                    <div className="absolute inset-0 flex items-center justify-center p-4">
+                      <ErrorBanner message="Failed to load calendar." onRetry={refetch} />
+                    </div>
+                  ) : bookings.length === 0 ? (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <p className="text-xs text-muted-foreground">No bookings in this range</p>
+                    </div>
+                  ) : (
+                    bookings.map((booking) => {
+                      const top = bookingTopFromISO(booking.scheduledFor);
+                      const height = bookingHeightFromDuration(booking.durationMinutes);
+                      const dayIdx = getDayIndex(booking.scheduledFor, weekStart);
+                      if (dayIdx < 0 || dayIdx >= numCols) return null;
+
+                      const colors = getCompanyColors(booking.company?.id);
+                      const isSelected = selectedBookingId === booking.id;
+
+                      return (
+                        <div
+                          key={booking.id}
+                          onClick={() => setSelectedBookingId(booking.id)}
+                          className={cn(
+                            "absolute rounded-lg border p-2 cursor-pointer transition-all duration-200 group overflow-hidden",
+                            colors.bg,
+                            colors.border,
+                            isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-card z-20 shadow-lg" : "hover:shadow-md hover:z-10"
+                          )}
+                          style={{ top, height, left: `${(dayIdx / numCols) * 100 + 0.5}%`, width: `${100 / numCols - 1}%` }}
+                        >
+                          <div className="flex items-start justify-between gap-1">
+                            <p className={cn("text-[10px] font-bold leading-tight truncate", colors.text)}>{booking.title}</p>
+                            {booking.status === "confirmed" && <CheckCircle2 className={cn("w-2.5 h-2.5 shrink-0", colors.text)} />}
+                          </div>
+                          <div className="flex items-center gap-1 mt-1">
+                            <span className={cn("w-1 h-1 rounded-full", colors.dot)} />
+                            <p className="text-[9px] text-muted-foreground truncate font-medium">{booking.company?.name || "No Company"}</p>
+                          </div>
+                          {height > 40 && (
+                            <div className="mt-1.5 flex items-center gap-2">
+                              <div className="flex -space-x-1">
+                                {booking.assignedUserSummary.users.slice(0, 2).map((u, i) => (
+                                  <div key={i} className="w-3.5 h-3.5 rounded-full bg-background border border-border flex items-center justify-center text-[7px] font-bold">
+                                    {u.initials}
+                                  </div>
+                                ))}
+                              </div>
+                              <p className="text-[8px] text-muted-foreground font-medium">{format(parseISO(booking.scheduledFor), "h:mm a")}</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Sidebar: Capacity & Details */}
         <div className="w-80 flex flex-col gap-4 shrink-0 min-h-0">
