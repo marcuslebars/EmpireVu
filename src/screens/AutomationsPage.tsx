@@ -15,6 +15,8 @@ import {
   useTriggerWorkflow,
   useRunWorkflowTest,
   useRetryWorkflowJob,
+  useUpdateWorkflowStatus,
+  useCreateWorkflow,
   useCompanies,
 } from "@/lib/api-hooks";
 import { SkeletonCard, ErrorBanner, EmptyState } from "@/components/ui/StateViews";
@@ -284,19 +286,117 @@ function WorkflowDetailPanel({
 
 // ─── Automations Page ─────────────────────────────────────────────────────────
 
+// ─── Create Workflow Dialog ───────────────────────────────────────────────────
+
+const WORKFLOW_TRIGGERS = [
+  { value: "contact.created", label: "New contact added" },
+  { value: "contact.stage_changed", label: "CRM stage changed" },
+  { value: "booking.created", label: "Booking created" },
+  { value: "booking.completed", label: "Booking completed" },
+  { value: "task.completed", label: "Task completed" },
+];
+
+function CreateWorkflowDialog({ orgId, onClose }: { orgId: string; onClose: () => void }) {
+  const createWorkflow = useCreateWorkflow(orgId);
+  const [name, setName] = useState("");
+  const [triggerEvent, setTriggerEvent] = useState("contact.created");
+  const [taskTitle, setTaskTitle] = useState("");
+  const [priority, setPriority] = useState<"low" | "medium" | "high" | "urgent">("medium");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !taskTitle.trim()) return;
+    try {
+      await createWorkflow.mutateAsync({
+        name: name.trim(),
+        triggerEvent,
+        status: "active",
+        definition: {
+          version: 1,
+          conditions: [],
+          actions: [{ type: "create_task", title: taskTitle.trim(), priority }],
+        },
+      });
+      toast.success("Workflow created");
+      onClose();
+    } catch {
+      toast.error("Failed to create workflow. Please try again.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-card border border-border rounded-2xl w-[480px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">Create Workflow</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">When something happens, automatically create a task</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Workflow name <span className="text-destructive">*</span></label>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder="e.g., Follow up on new leads" className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">When…</label>
+            <select value={triggerEvent} onChange={(e) => setTriggerEvent(e.target.value)} className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer">
+              {WORKFLOW_TRIGGERS.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+            <p className="text-xs font-semibold text-foreground">…then create a task</p>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Task title <span className="text-destructive">*</span></label>
+              <input type="text" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} required placeholder="e.g., Call the new lead" className="w-full px-3 py-2 text-sm bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Priority</label>
+              <select value={priority} onChange={(e) => setPriority(e.target.value as typeof priority)} className="w-full px-3 py-2 text-sm bg-card border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors">Cancel</button>
+            <button type="submit" disabled={createWorkflow.isPending || !name.trim() || !taskTitle.trim()} className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--accent-violet))] text-white hover:bg-[hsl(var(--accent-violet))]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]">
+              {createWorkflow.isPending ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</>) : "Create Workflow"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function AutomationsPage() {
   const { organizationId, companyId } = useOrg();
   const [search, setSearch] = useState("");
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [triggerFilter, setTriggerFilter] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const params = useMemo(() => ({
     companyId: companyId || undefined,
     search: search || undefined,
-  }), [companyId, search]);
+    status: statusFilter || undefined,
+    triggerType: triggerFilter || undefined,
+  }), [companyId, search, statusFilter, triggerFilter]);
 
   const { data: workflows, isLoading, isError, refetch } = useWorkflows(organizationId, params);
   const { data: impact } = useAutomationImpact(organizationId);
   const triggerWorkflow = useTriggerWorkflow(organizationId);
+  const updateStatus = useUpdateWorkflowStatus(organizationId);
 
   const workflowList = workflows?.rows?.items ?? [];
 
@@ -312,6 +412,16 @@ export default function AutomationsPage() {
     }
   };
 
+  const handleToggleStatus = async (id: string, current: string) => {
+    const next = current === "active" ? "paused" : "active";
+    try {
+      await updateStatus.mutateAsync({ workflowId: id, status: next });
+      toast.success(next === "active" ? "Workflow activated" : "Workflow paused");
+    } catch {
+      toast.error("Failed to update workflow");
+    }
+  };
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -320,7 +430,10 @@ export default function AutomationsPage() {
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Automations</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Streamline your operations with smart workflows</p>
         </div>
-        <button className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-[hsl(var(--accent-violet))] text-white hover:bg-[hsl(var(--accent-violet))]/90 transition-all shadow-md shadow-violet-500/20 active:scale-[0.97]">
+        <button
+          onClick={() => setIsCreateOpen(true)}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-[hsl(var(--accent-violet))] text-white hover:bg-[hsl(var(--accent-violet))]/90 transition-all shadow-md shadow-violet-500/20 active:scale-[0.97]"
+        >
           <Plus className="w-4 h-4" />
           Create Workflow
         </button>
@@ -357,10 +470,64 @@ export default function AutomationsPage() {
             className="w-full bg-card border border-border rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
           />
         </div>
-        <button className="flex items-center gap-2 px-3 py-2 rounded-xl bg-secondary text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
-          <Filter className="w-3.5 h-3.5" />
-          Filter
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => setFilterOpen((v) => !v)}
+            className={cn(
+              "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-colors",
+              statusFilter || triggerFilter ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Filter className="w-3.5 h-3.5" />
+            Filter
+            {(statusFilter || triggerFilter) && (
+              <span className="ml-0.5 text-[10px] font-bold bg-primary text-primary-foreground rounded-full w-4 h-4 flex items-center justify-center">
+                {(statusFilter ? 1 : 0) + (triggerFilter ? 1 : 0)}
+              </span>
+            )}
+          </button>
+          {filterOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
+              <div className="absolute top-full right-0 mt-1 w-56 bg-popover border border-border rounded-lg shadow-xl z-50 p-3 space-y-3 animate-scale-in">
+                <div>
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1 block">Status</label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="w-full px-2 py-1.5 text-xs bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                  >
+                    <option value="">All statuses</option>
+                    <option value="active">Active</option>
+                    <option value="paused">Paused</option>
+                    <option value="draft">Draft</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1 block">Trigger</label>
+                  <select
+                    value={triggerFilter}
+                    onChange={(e) => setTriggerFilter(e.target.value)}
+                    className="w-full px-2 py-1.5 text-xs bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                  >
+                    <option value="">All triggers</option>
+                    {Object.entries(triggerTypeLabel).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+                {(statusFilter || triggerFilter) && (
+                  <button
+                    onClick={() => { setStatusFilter(""); setTriggerFilter(""); }}
+                    className="w-full text-xs text-muted-foreground hover:text-foreground py-1"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Workflow Grid */}
@@ -376,7 +543,7 @@ export default function AutomationsPage() {
         <EmptyState
           title="No workflows found"
           description={search ? "Try adjusting your search terms." : "Start automating your business today."}
-          action={!search ? { label: "Create Workflow", onClick: () => {} } : undefined}
+          action={!search ? { label: "Create Workflow", onClick: () => setIsCreateOpen(true) } : undefined}
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -397,9 +564,21 @@ export default function AutomationsPage() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      handleToggleStatus(workflow.id, workflow.status);
+                    }}
+                    disabled={updateStatus.isPending}
+                    title={workflow.status === "active" ? "Pause workflow" : "Activate workflow"}
+                    className="p-1.5 rounded-lg bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all disabled:opacity-50"
+                  >
+                    {workflow.status === "active" ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
                       handleQuickRun(workflow.id, workflow.triggerType);
                     }}
                     className="p-1.5 rounded-lg bg-secondary text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-0 group-hover:opacity-100 transition-all"
+                    title="Run now"
                   >
                     <Play className="w-3.5 h-3.5 fill-current" />
                   </button>
@@ -441,6 +620,10 @@ export default function AutomationsPage() {
           workflowId={selectedWorkflowId}
           onClose={() => setSelectedWorkflowId(null)}
         />
+      )}
+
+      {isCreateOpen && (
+        <CreateWorkflowDialog orgId={organizationId} onClose={() => setIsCreateOpen(false)} />
       )}
     </div>
   );

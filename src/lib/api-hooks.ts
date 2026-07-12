@@ -33,6 +33,9 @@ import {
   runWorkflowNow,
   runWorkflowTest,
   retryWorkflowJob,
+  updateWorkflowStatus,
+  createWorkflow,
+  type CreateWorkflowInput,
   type CreateContactInput,
   type CreateBookingInput,
   type CreateTaskInput,
@@ -393,6 +396,28 @@ export function useRetryWorkflowJob(orgId: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["automations", "jobs", orgId] });
       void qc.invalidateQueries({ queryKey: ["automations", "workflow", orgId] });
+    },
+  });
+}
+
+export function useUpdateWorkflowStatus(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ workflowId, status }: { workflowId: string; status: "draft" | "active" | "paused" | "archived" }) =>
+      updateWorkflowStatus(orgId, workflowId, status),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["automations", "workflows", orgId] });
+      void qc.invalidateQueries({ queryKey: ["automations", "workflow", orgId] });
+    },
+  });
+}
+
+export function useCreateWorkflow(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateWorkflowInput) => createWorkflow(orgId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["automations", "workflows", orgId] });
     },
   });
 }
