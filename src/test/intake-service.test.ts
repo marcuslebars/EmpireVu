@@ -138,7 +138,12 @@ describe("intake — never drop", () => {
     expect(fake.store.activity_events.some((e) => e.event_type === "lead.contact")).toBe(true);
   });
 
-  it("returning contact -> matched, no duplicate contact, cross-brand recorded", async () => {
+  it("returning contact -> matched, no duplicate, activity scoped to the contact's company (cross-brand)", async () => {
+    // Existing contact belongs to A1 Marine Care; the incoming lead is A1 Marine
+    // Storage (cross-brand). The lead's activity event MUST be written under the
+    // contact's company (co-care), not the lead's brand company (co-storage), or
+    // the set_activity_event_scope DB trigger rejects it and enrichment fails
+    // ("Activity event company_id must match the primary entity company.").
     fake.store.contacts.push({ id: "c-existing", organization_id: "org-a1", company_id: "co-care", email: "jane@example.com", phone: null });
     fake.store.activity_events.push({ id: "e1", organization_id: "org-a1", company_id: "co-care", entity_id: "c-existing", event_type: "lead.contact", occurred_at: "2026-06-01T00:00:00.000Z", metadata_json: { sourceSite: "a1marinecare" } });
     const env = validEnvelope();
@@ -147,6 +152,11 @@ describe("intake — never drop", () => {
     expect(fake.store.contacts).toHaveLength(1); // matched, not duplicated
     expect(fake.store.raw_leads[0].matched).toBe(true);
     expect(fake.store.raw_leads[0].contact_id).toBe("c-existing");
+    // The regression this guards: the new lead activity is scoped to the contact's
+    // company, and enrichment completed (not flagged).
+    const newActivity = fake.store.activity_events.find((e) => e.metadata_json?.leadId);
+    expect(newActivity?.company_id).toBe("co-care");
+    expect(fake.store.raw_leads[0].needs_attention).toBe(false);
   });
 });
 

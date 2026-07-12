@@ -207,9 +207,16 @@ async function parseIntoRecords(
     contactId = created.id;
   }
 
+  // Activity events + bookings are DB-trigger-scoped to the CONTACT's company.
+  // For a matched cross-brand contact (same person, a different A1 brand), the
+  // contact's company differs from this lead's — use the contact's so the
+  // trigger ("... must match the ... contact company") passes. The lead's real
+  // brand is preserved in the activity metadata (sourceSite).
+  const contactCompanyId = existing ? existing.company_id : companyId;
+
   // Record the lead touch (for both new and returning contacts).
   await createActivityEvent(ctx, {
-    companyId,
+    companyId: contactCompanyId,
     entityType: "contact",
     entityId: contactId,
     eventType: `lead.${envelope.formType}`,
@@ -232,7 +239,7 @@ async function parseIntoRecords(
       await createBooking(
         ctx,
         {
-          companyId,
+          companyId: contactCompanyId ?? companyId,
           contactId,
           title: `Lead booking — ${envelope.source}`,
           description: envelope.message ?? null,
@@ -292,6 +299,13 @@ export async function handleLeadIntake(rawBody: string, parsedBody: unknown): Pr
         .eq("lead_id", leadId);
     } catch (err) {
       console.error("[intake] enrichment failed (lead kept in raw_leads):", err);
+      // Enrichment failed after the durable write — flag for attention so the lead
+      // isn't left looking processed (contact_id stays null).
+      try {
+        await admin.from("raw_leads").update({ needs_attention: true }).eq("lead_id", leadId);
+      } catch (flagErr) {
+        console.error("[intake] failed to flag needs_attention after enrichment error:", flagErr);
+      }
     }
   } else if (parse.valid) {
     // Valid envelope but org/company unresolved (unknown brand or unseeded company).
