@@ -25,7 +25,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateBooking, useUpdateContactNotes } from "@/lib/api-hooks";
+import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateBooking, useUpdateContactNotes, useUpdateContactFields } from "@/lib/api-hooks";
 import { toast } from "@/components/ui/sonner";
 import { LoadingCards, ErrorBanner, EmptyState, SkeletonStatCard } from "@/components/ui/StateViews";
 import { formatCentsCompact, formatCents, formatDate, relativeTime } from "@/lib/format";
@@ -351,6 +351,76 @@ function ContactNotes({ orgId, contactId, initialNotes }: { orgId: string; conta
   );
 }
 
+// ─── Edit Contact Dialog ──────────────────────────────────────────────────────
+
+function EditContactDialog({
+  orgId,
+  contactId,
+  initial,
+  onClose,
+}: {
+  orgId: string;
+  contactId: string;
+  initial: { name: string; email: string | null; phone: string | null };
+  onClose: () => void;
+}) {
+  const updateContact = useUpdateContactFields(orgId, contactId);
+  const [name, setName] = useState(initial.name);
+  const [email, setEmail] = useState(initial.email ?? "");
+  const [phone, setPhone] = useState(initial.phone ?? "");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    const parts = name.trim().split(/\s+/);
+    try {
+      await updateContact.mutateAsync({
+        firstName: parts[0],
+        lastName: parts.length > 1 ? parts.slice(1).join(" ") : null,
+        email: email.trim() || null,
+        phone: phone.trim() || null,
+      });
+      toast.success("Contact updated");
+      onClose();
+    } catch {
+      toast.error("Failed to update contact. Please try again.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-card border border-border rounded-2xl w-[440px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-base font-semibold text-foreground">Edit Contact</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Name <span className="text-destructive">*</span></label>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} required autoFocus className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Email</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@example.com" className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Phone</label>
+            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 555 000 0000" className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors">Cancel</button>
+            <button type="submit" disabled={updateContact.isPending || !name.trim()} className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]">
+              {updateContact.isPending ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>) : "Save"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Loaded detail view ───────────────────────────────────────────────────────
 
 function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse; orgId: string }) {
@@ -358,6 +428,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
   const [activeTab, setActiveTab] = useState("activity");
   const [isTaskOpen, setIsTaskOpen] = useState(false);
   const [isBookingOpen, setIsBookingOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const updateStage = useUpdateContactStage(orgId);
 
   const { contact, financialSummary, linkedBookings, linkedTasks, nextAction, timeline, workflowTraces } = detail;
@@ -450,7 +521,10 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors active:scale-[0.97]">
+              <button
+                onClick={() => setIsEditOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors active:scale-[0.97]"
+              >
                 <Edit3 className="w-3 h-3" />
                 Edit
               </button>
@@ -470,7 +544,10 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
                 <p className={cn("text-sm font-semibold", ac.text)}>Next: {nextAction.label}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{nextAction.detail}</p>
               </div>
-              <button className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-colors active:scale-[0.97]", ac.bg, ac.text, "hover:opacity-80")}>
+              <button
+                onClick={() => setIsTaskOpen(true)}
+                className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-colors active:scale-[0.97]", ac.bg, ac.text, "hover:opacity-80")}
+              >
                 Take Action →
               </button>
             </div>
@@ -780,6 +857,15 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
           companyId={contact.company?.id ?? null}
           contactId={contact.id}
           onClose={() => setIsBookingOpen(false)}
+        />
+      )}
+
+      {isEditOpen && (
+        <EditContactDialog
+          orgId={orgId}
+          contactId={contact.id}
+          initial={{ name: contact.name, email: contact.email, phone: contact.phone }}
+          onClose={() => setIsEditOpen(false)}
         />
       )}
     </div>

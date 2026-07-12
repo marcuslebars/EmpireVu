@@ -22,10 +22,7 @@ import CalendarPage from "./screens/CalendarPage";
 import TasksPage from "./screens/TasksPage";
 import CRMPage from "./screens/CRMPage";
 import ContactDetailPage from "./screens/ContactDetailPage";
-import ProjectsPage from "./screens/ProjectsPage";
 import AutomationsPage from "./screens/AutomationsPage";
-import FilesPage from "./screens/FilesPage";
-import TeamPage from "./screens/TeamPage";
 import SettingsPage from "./screens/SettingsPage";
 import NotFound from "./screens/NotFound";
 import { Loader2, AlertTriangle, Bug, ChevronDown, ChevronRight } from "lucide-react";
@@ -339,34 +336,10 @@ function AppRoutes() {
           }
         />
         <Route
-          path="/projects"
-          element={
-            <ProtectedRoute>
-              <ProjectsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
           path="/automations"
           element={
             <ProtectedRoute>
               <AutomationsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/files"
-          element={
-            <ProtectedRoute>
-              <FilesPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/team"
-          element={
-            <ProtectedRoute>
-              <TeamPage />
             </ProtectedRoute>
           }
         />

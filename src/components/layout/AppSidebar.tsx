@@ -3,10 +3,7 @@ import {
   Calendar,
   CheckSquare,
   Users,
-  FolderKanban,
   Zap,
-  FileText,
-  UserCircle,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -20,10 +17,7 @@ const navItems = [
   { title: "Calendar", icon: Calendar, path: "/calendar" },
   { title: "Tasks", icon: CheckSquare, path: "/tasks" },
   { title: "CRM", icon: Users, path: "/crm" },
-  { title: "Projects", icon: FolderKanban, path: "/projects" },
   { title: "Automations", icon: Zap, path: "/automations" },
-  { title: "Files", icon: FileText, path: "/files" },
-  { title: "Team", icon: UserCircle, path: "/team" },
   { title: "Settings", icon: Settings, path: "/settings" },
 ];
 
