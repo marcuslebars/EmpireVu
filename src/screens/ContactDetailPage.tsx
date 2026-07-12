@@ -544,7 +544,10 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
                 <p className={cn("text-sm font-semibold", ac.text)}>Next: {nextAction.label}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{nextAction.detail}</p>
               </div>
-              <button className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-colors active:scale-[0.97]", ac.bg, ac.text, "hover:opacity-80")}>
+              <button
+                onClick={() => setIsTaskOpen(true)}
+                className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-colors active:scale-[0.97]", ac.bg, ac.text, "hover:opacity-80")}
+              >
                 Take Action →
               </button>
             </div>
