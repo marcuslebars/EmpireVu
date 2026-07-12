@@ -592,6 +592,24 @@ export function updateContactNotes(
   });
 }
 
+export interface UpdateContactFields {
+  firstName: string;
+  lastName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}
+
+export function updateContactFields(
+  orgId: string,
+  contactId: string,
+  fields: UpdateContactFields,
+): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "updateContact", ...fields }),
+  });
+}
+
 // Booking mutations
 
 export interface CreateBookingInput {

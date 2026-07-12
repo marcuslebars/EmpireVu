@@ -45,6 +45,16 @@ export const updateContactNotesInputSchema = z.object({
 
 export type UpdateContactNotesInput = z.infer<typeof updateContactNotesInputSchema>;
 
+export const updateContactFieldsInputSchema = z.object({
+  contactId: z.string().uuid(),
+  firstName: z.string().min(1).max(100),
+  lastName: z.string().max(100).nullable().optional(),
+  email: z.string().email().nullable().optional(),
+  phone: z.string().max(50).nullable().optional(),
+});
+
+export type UpdateContactFieldsInput = z.infer<typeof updateContactFieldsInputSchema>;
+
 interface ContactMutationOptions {
   dispatchWorkflow?: boolean;
 }
@@ -247,6 +257,33 @@ export async function updateContactNotes(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const query = (context.supabase.from("contacts") as any)
     .update({ notes: input.notes })
+    .eq("organization_id", context.organizationId)
+    .eq("id", input.contactId)
+    .select("*")
+    .single();
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return data as Tables<"contacts">;
+}
+
+export async function updateContactFields(
+  context: TenantServiceContext,
+  input: UpdateContactFieldsInput,
+): Promise<Tables<"contacts">> {
+  await assertContactInOrganization(context, input.contactId);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (context.supabase.from("contacts") as any)
+    .update({
+      first_name: input.firstName,
+      last_name: input.lastName ?? null,
+      email: input.email ?? null,
+      phone: input.phone ?? null,
+    })
     .eq("organization_id", context.organizationId)
     .eq("id", input.contactId)
     .select("*")

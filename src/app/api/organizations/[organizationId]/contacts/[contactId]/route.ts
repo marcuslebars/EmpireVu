@@ -9,6 +9,8 @@ import {
   assignContactOwnerInputSchema,
   updateContactNotes,
   updateContactNotesInputSchema,
+  updateContactFields,
+  updateContactFieldsInputSchema,
 } from "@/server/services/contacts";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
@@ -25,6 +27,13 @@ const patchContactInputSchema = z.union([
   z.object({ action: z.literal("updateStage"), stage: z.enum(["lead", "qualified", "active", "closed"]) }),
   z.object({ action: z.literal("assignOwner"), ownerProfileId: z.string().uuid() }),
   z.object({ action: z.literal("updateNotes"), notes: z.string().max(5000).nullable() }),
+  z.object({
+    action: z.literal("updateContact"),
+    firstName: z.string().min(1).max(100),
+    lastName: z.string().max(100).nullable().optional(),
+    email: z.string().email().nullable().optional(),
+    phone: z.string().max(50).nullable().optional(),
+  }),
 ]);
 
 export async function PATCH(request: Request, context: RouteContext): Promise<NextResponse> {
@@ -63,16 +72,34 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
       return NextResponse.json({ data });
     }
 
-    // updateNotes
-    const data = await updateContactNotes(
+    if (body.action === "updateNotes") {
+      const data = await updateContactNotes(
+        {
+          actorProfileId: organization.user.id,
+          organizationId: organization.organizationId,
+          supabase,
+        },
+        updateContactNotesInputSchema.parse({
+          contactId: context.params.contactId,
+          notes: body.notes,
+        }),
+      );
+      return NextResponse.json({ data });
+    }
+
+    // updateContact (fields)
+    const data = await updateContactFields(
       {
         actorProfileId: organization.user.id,
         organizationId: organization.organizationId,
         supabase,
       },
-      updateContactNotesInputSchema.parse({
+      updateContactFieldsInputSchema.parse({
         contactId: context.params.contactId,
-        notes: body.notes,
+        firstName: body.firstName,
+        lastName: body.lastName,
+        email: body.email,
+        phone: body.phone,
       }),
     );
     return NextResponse.json({ data });

@@ -23,6 +23,8 @@ import {
   updateContactStage,
   assignContactOwner,
   updateContactNotes,
+  updateContactFields,
+  type UpdateContactFields,
   createBooking,
   updateBookingStatus,
   createTask,
@@ -269,6 +271,17 @@ export function useUpdateContactNotes(orgId: string, contactId: string) {
     mutationFn: (notes: string | null) => updateContactNotes(orgId, contactId, notes),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
+    },
+  });
+}
+
+export function useUpdateContactFields(orgId: string, contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (fields: UpdateContactFields) => updateContactFields(orgId, contactId, fields),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
+      void qc.invalidateQueries({ queryKey: ["crm", "contacts", orgId] });
     },
   });
 }
