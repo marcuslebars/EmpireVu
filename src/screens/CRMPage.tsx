@@ -7,7 +7,6 @@ import {
   DollarSign,
   LayoutGrid,
   List,
-  GripVertical,
   Zap,
   AlertTriangle,
   Clock,
@@ -631,15 +630,21 @@ function ContactCard({
             )}
           </div>
         </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            // Action menu
-          }}
-          className="p-1 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+        <select
+          value={contact.stage}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => onStageChange(e.target.value)}
+          className={cn(
+            "text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full border-none focus:ring-0 cursor-pointer",
+            stageConfig[contact.stage]?.bg,
+            stageConfig[contact.stage]?.text,
+          )}
+          aria-label="Change stage"
         >
-          <GripVertical className="w-3.5 h-3.5" />
-        </button>
+          {pipelineStageOrder.map((s) => (
+            <option key={s} value={s}>{stageLabel[s]}</option>
+          ))}
+        </select>
       </div>
 
       {contact.nextAction && (

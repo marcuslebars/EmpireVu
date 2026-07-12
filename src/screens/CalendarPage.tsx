@@ -59,6 +59,7 @@ const statusConfig: Record<string, { label: string; icon: typeof CheckCircle2; c
   pending: { label: "Pending", icon: Clock, cls: "text-[hsl(var(--warning))]" },
   completed: { label: "Completed", icon: CheckCircle2, cls: "text-muted-foreground" },
   cancelled: { label: "Cancelled", icon: X, cls: "text-destructive" },
+  no_show: { label: "No-show", icon: AlertTriangle, cls: "text-destructive" },
   conflict: { label: "Conflict", icon: AlertTriangle, cls: "text-destructive" },
 };
 
@@ -313,10 +314,10 @@ export default function CalendarPage() {
 
   const handleStatusUpdate = async (status: string) => {
     if (!selectedBookingId) return;
-    const validStatuses = ["pending", "confirmed", "completed", "cancelled"] as const;
+    const validStatuses = ["pending", "confirmed", "completed", "cancelled", "no_show"] as const;
     if (!validStatuses.includes(status as typeof validStatuses[number])) return;
     try {
-      await updateStatus.mutateAsync(status as "pending" | "confirmed" | "completed" | "cancelled");
+      await updateStatus.mutateAsync(status as "pending" | "confirmed" | "completed" | "cancelled" | "no_show");
       toast.success(`Booking marked as ${status}`);
     } catch {
       toast.error("Failed to update status");

@@ -279,7 +279,7 @@ export function useCreateBooking(orgId: string) {
 export function useUpdateBookingStatus(orgId: string, bookingId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (status: "pending" | "confirmed" | "completed" | "cancelled") =>
+    mutationFn: (status: "pending" | "confirmed" | "completed" | "cancelled" | "no_show") =>
       updateBookingStatus(orgId, bookingId, status),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["calendar", "view", orgId] });

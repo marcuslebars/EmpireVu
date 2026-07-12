@@ -289,6 +289,41 @@ function StatusDropdown({
   );
 }
 
+// ─── Complete toggle (per-row) ────────────────────────────────────────────────
+
+function TaskCompleteToggle({ taskId, currentStatus }: { taskId: string; currentStatus: string }) {
+  const { organizationId } = useOrg();
+  const updateStatus = useUpdateTaskStatus(organizationId, taskId);
+  const done = currentStatus === "completed";
+
+  const handleToggle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await updateStatus.mutateAsync(done ? "todo" : "completed");
+      toast.success(done ? "Task reopened" : "Task completed");
+    } catch {
+      toast.error("Failed to update task");
+    }
+  };
+
+  return (
+    <button
+      onClick={handleToggle}
+      disabled={updateStatus.isPending}
+      className="text-muted-foreground hover:text-[hsl(var(--success))] transition-colors disabled:opacity-50"
+      aria-label={done ? "Reopen task" : "Mark task complete"}
+    >
+      {updateStatus.isPending ? (
+        <Loader2 className="w-4 h-4 animate-spin" />
+      ) : done ? (
+        <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success))]" />
+      ) : (
+        <Circle className="w-4 h-4" />
+      )}
+    </button>
+  );
+}
+
 // ─── Tasks Page ───────────────────────────────────────────────────────────────
 
 export default function TasksPage() {
@@ -394,15 +429,7 @@ export default function TasksPage() {
                       )}
                     >
                       <td className="px-4 py-3">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleStatusUpdate("completed");
-                          }}
-                          className="text-muted-foreground hover:text-[hsl(var(--success))] transition-colors"
-                        >
-                          <Circle className="w-4 h-4" />
-                        </button>
+                        <TaskCompleteToggle taskId={task.id} currentStatus={task.status} />
                       </td>
                       <td className="px-4 py-3">
                         <p className="text-sm font-semibold text-foreground leading-tight">{task.title}</p>
