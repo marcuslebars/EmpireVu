@@ -74,6 +74,8 @@ const bookingStatusConfig: Record<string, { bg: string; text: string }> = {
   confirmed: { bg: "bg-primary/15", text: "text-primary" },
   pending: { bg: "bg-amber-500/15", text: "text-amber-400" },
   completed: { bg: "bg-emerald-500/15", text: "text-emerald-400" },
+  cancelled: { bg: "bg-muted", text: "text-muted-foreground" },
+  no_show: { bg: "bg-red-500/15", text: "text-red-400" },
   conflict: { bg: "bg-red-500/15", text: "text-red-400" },
 };
 

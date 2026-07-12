@@ -26,7 +26,7 @@ export type CreateBookingInput = z.infer<typeof createBookingInputSchema>;
 
 export const updateBookingStatusInputSchema = z.object({
   bookingId: z.string().uuid(),
-  status: z.enum(["pending", "confirmed", "completed", "cancelled"]),
+  status: z.enum(["pending", "confirmed", "completed", "cancelled", "no_show"]),
 });
 
 export type UpdateBookingStatusInput = z.infer<typeof updateBookingStatusInputSchema>;

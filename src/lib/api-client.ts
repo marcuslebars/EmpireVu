@@ -603,7 +603,7 @@ export function createBooking(orgId: string, input: CreateBookingInput): Promise
 export function updateBookingStatus(
   orgId: string,
   bookingId: string,
-  status: "pending" | "confirmed" | "completed" | "cancelled",
+  status: "pending" | "confirmed" | "completed" | "cancelled" | "no_show",
 ): Promise<unknown> {
   return apiFetch(`/api/organizations/${orgId}/bookings/${bookingId}`, {
     method: "PATCH",
