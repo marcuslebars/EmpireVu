@@ -6,6 +6,7 @@ import { updateBookingStatus } from "@/server/services/bookings";
 import { assignContactOwner, updateContactStage } from "@/server/services/contacts";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { assignTaskUser, createTask, updateTaskStatus } from "@/server/services/tasks";
+import { analyzeContact } from "@/server/services/ai";
 import type {
   WorkflowAction,
   WorkflowEventContext,
@@ -136,6 +137,60 @@ export async function executeWorkflowActions(
 
         actionsExecutedCount += 1;
         createdTasksCount += 1;
+        timeSavedSeconds += action.time_saved_seconds ?? 0;
+        break;
+      }
+      case "ai_analyze": {
+        const contactId =
+          resolveString(action.contact_id, eventContext) ??
+          resolveContextString(eventContext.fields.contact_id) ??
+          (eventContext.entityType === "contact" ? eventContext.entityId : null);
+
+        if (!contactId) {
+          throw new ValidationError("ai_analyze requires a contact to analyze.");
+        }
+
+        projectedActions.push({ action, resolvedPayload: { contact_id: contactId } });
+
+        if (!options.dryRun) {
+          const analysis = await analyzeContact(context, contactId);
+
+          if (action.create_review_task !== false) {
+            const description = [
+              analysis.summary,
+              "",
+              `Suggested stage: ${analysis.suggestedStage} · Fit ${Math.round(analysis.fitScore)}/100 · ${analysis.urgency} urgency`,
+              "",
+              "Drafted email —",
+              `Subject: ${analysis.draftedEmail.subject}`,
+              analysis.draftedEmail.body,
+              "",
+              "Drafted SMS —",
+              analysis.draftedSms,
+            ].join("\n");
+
+            await createTask(
+              context,
+              {
+                companyId: eventContext.companyId,
+                contactId,
+                description,
+                priority:
+                  analysis.urgency === "high"
+                    ? "high"
+                    : analysis.urgency === "medium"
+                      ? "medium"
+                      : "low",
+                title: "Review AI-drafted reply",
+                workflowId: options.workflow.id,
+              },
+              { dispatchWorkflow: false },
+            );
+            createdTasksCount += 1;
+          }
+        }
+
+        actionsExecutedCount += 1;
         timeSavedSeconds += action.time_saved_seconds ?? 0;
         break;
       }

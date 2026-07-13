@@ -66,6 +66,12 @@ const workflowActionSchema = z.discriminatedUnion("type", [
     time_saved_seconds: z.number().int().nonnegative().optional(),
     type: z.literal("create_activity_event"),
   }),
+  z.object({
+    contact_id: z.string().optional(),
+    create_review_task: z.boolean().optional(),
+    time_saved_seconds: z.number().int().nonnegative().optional(),
+    type: z.literal("ai_analyze"),
+  }),
 ]);
 
 const workflowDefinitionSchema = z.object({

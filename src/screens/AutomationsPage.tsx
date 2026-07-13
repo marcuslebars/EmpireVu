@@ -3,7 +3,7 @@ import {
   Plus, Zap, ArrowRight, MoreHorizontal, Search, Filter, Play, Pause,
   ChevronRight, Calendar, UserPlus, CheckCircle2, Bell, ClipboardList,
   Target, Mail, Clock, AlertTriangle, Building2, Globe, X,
-  Repeat, Settings2, TrendingUp, Eye, RotateCcw, Loader2,
+  Repeat, Settings2, TrendingUp, Eye, RotateCcw, Loader2, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
@@ -580,7 +580,7 @@ interface UICondition {
 
 interface UIAction {
   id: string;
-  type: "create_task" | "update_status";
+  type: "create_task" | "update_status" | "ai_analyze";
   // create_task
   title: string;
   priority: "low" | "medium" | "high" | "urgent";
@@ -636,6 +636,9 @@ function parseDefActions(def: unknown): UIAction[] {
   if (!Array.isArray(raw) || raw.length === 0) return [newAction("create_task", "a-0", "lead")];
   return raw.map((a, i) => {
     const act = (a ?? {}) as Record<string, unknown>;
+    if (act.type === "ai_analyze") {
+      return newAction("ai_analyze", `a-${i}`, "lead");
+    }
     if (act.type === "update_status") {
       return newAction("update_status", `a-${i}`, typeof act.status === "string" ? act.status : "lead");
     }
@@ -717,7 +720,13 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
 
   const actionsValid =
     actions.length > 0 &&
-    actions.every((a) => (a.type === "create_task" ? a.title.trim().length > 0 : Boolean(a.statusValue)));
+    actions.every((a) =>
+      a.type === "create_task"
+        ? a.title.trim().length > 0
+        : a.type === "update_status"
+          ? Boolean(a.statusValue)
+          : true,
+    );
   const canSubmit = name.trim().length > 0 && actionsValid && !pending;
 
   const buildDefinition = () => {
@@ -748,6 +757,9 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
         if (a.dueInDays.trim() && Number.isFinite(Number(a.dueInDays)))
           action.due_in_days = Math.max(0, Math.floor(Number(a.dueInDays)));
         return action;
+      }
+      if (a.type === "ai_analyze") {
+        return { type: "ai_analyze" };
       }
       // update_status: no target_entity => the engine acts on the triggering record.
       return { type: "update_status", status: a.statusValue };
@@ -865,6 +877,7 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
                     <select value={a.type} onChange={(e) => changeActionType(a.id, e.target.value as UIAction["type"])} className={`${selectCls} text-xs font-semibold flex-1`}>
                       <option value="create_task">Create a task</option>
                       <option value="update_status">Update the {triggerEntity}&rsquo;s {ENTITY_STATUS_NOUN[triggerEntity]}</option>
+                      <option value="ai_analyze">Analyze the lead with AI</option>
                     </select>
                     {actions.length > 1 && (
                       <button type="button" onClick={() => removeAction(a.id)} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground shrink-0">
@@ -899,6 +912,10 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
                         <input type="text" value={a.description} onChange={(e) => updateAction(a.id, { description: e.target.value })} placeholder="Optional details" className={inputCls} />
                       </div>
                     </>
+                  ) : a.type === "ai_analyze" ? (
+                    <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
+                      Claude reads this lead and creates a review task with a drafted email + SMS. Nothing is sent — you review and send. Requires ANTHROPIC_API_KEY on the worker service.
+                    </p>
                   ) : (
                     <div>
                       <label className={labelCls}>Set {ENTITY_STATUS_NOUN[triggerEntity]} to</label>
@@ -917,6 +934,9 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
               </button>
               <button type="button" onClick={() => addAction("update_status")} className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--accent-violet))] hover:opacity-80 transition-opacity">
                 <Plus className="w-3.5 h-3.5" /> Change status
+              </button>
+              <button type="button" onClick={() => addAction("ai_analyze")} className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--accent-violet))] hover:opacity-80 transition-opacity">
+                <Sparkles className="w-3.5 h-3.5" /> AI analyze
               </button>
             </div>
           </div>
