@@ -71,6 +71,56 @@ const actionOptions = [
 
 // ─── Workflow Detail Panel ────────────────────────────────────────────────────
 
+interface TestConditionResult {
+  actualValue: unknown;
+  condition: { field: string; operator: string; value?: unknown };
+  matched: boolean;
+}
+
+interface TestProjectionAction {
+  action: { type: string; [key: string]: unknown };
+  resolvedPayload: Record<string, unknown>;
+}
+
+interface TestRunResult {
+  matchedConditions: boolean;
+  conditionResults: TestConditionResult[];
+  projectedActions: TestProjectionAction[];
+  actionsExecutedCount: number;
+  createdTasksCount: number;
+  skippedReason: string | null;
+  failureReason: string | null;
+  dryRun: boolean;
+}
+
+function describeTestCondition(c: TestConditionResult): string {
+  const raw = c.condition.value;
+  const valStr = Array.isArray(raw) ? raw.join(", ") : raw == null ? "" : String(raw);
+  return `${c.condition.field} ${c.condition.operator}${valStr ? ` ${valStr}` : ""}`;
+}
+
+function describeTestAction(p: TestProjectionAction): string {
+  const payload = p.resolvedPayload ?? {};
+  switch (p.action.type) {
+    case "create_task":
+      return `Create task: ${(payload.title as string) || "(untitled)"}${payload.priority ? ` · ${String(payload.priority)}` : ""}`;
+    case "update_status":
+      return `Set status → ${payload.status ? String(payload.status) : "?"}`;
+    case "assign_user":
+      return "Assign a user";
+    case "create_activity_event":
+      return `Log activity: ${payload.event_type ? String(payload.event_type) : "event"}`;
+    default:
+      return p.action.type;
+  }
+}
+
+function formatActualValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (Array.isArray(value)) return value.join(", ");
+  return String(value);
+}
+
 function WorkflowDetailPanel({
   workflowId,
   onClose,
@@ -84,6 +134,13 @@ function WorkflowDetailPanel({
   const runNow = useRunWorkflowNow(organizationId, workflowId);
   const runTest = useRunWorkflowTest(organizationId, workflowId);
   const retryJob = useRetryWorkflowJob(organizationId);
+
+  const [testOpen, setTestOpen] = useState(false);
+  const [sampleStage, setSampleStage] = useState("");
+  const [samplePriority, setSamplePriority] = useState("");
+  const [sampleStatus, setSampleStatus] = useState("");
+  const [sampleValue, setSampleValue] = useState("");
+  const [testResult, setTestResult] = useState<TestRunResult | null>(null);
 
   const workflow = data?.workflow;
   const runs = data?.workflowRuns.items ?? [];
@@ -105,16 +162,25 @@ function WorkflowDetailPanel({
   };
 
   const handleRunTest = async () => {
+    const trigger = workflow?.triggerType ?? "";
+    // trigger is dot-separated (e.g. "contact.created") -> entity is the prefix.
+    const entityType = trigger.split(".")[0] || "contact";
+    const metadata: Record<string, unknown> = {};
+    if (sampleStage.trim()) {
+      metadata.stage = sampleStage.trim();
+      metadata.stage_changed_to = sampleStage.trim();
+    }
+    if (samplePriority.trim()) metadata.priority = samplePriority.trim();
+    if (sampleStatus.trim()) metadata.status = sampleStatus.trim();
+    if (sampleValue.trim() && Number.isFinite(Number(sampleValue))) {
+      metadata.value_cents = Number(sampleValue);
+    }
     try {
-      await runTest.mutateAsync({
+      const payload = (await runTest.mutateAsync({
         dryRun: true,
-        sampleEvent: {
-          entityType: workflow?.triggerType ?? "manual",
-          eventType: workflow?.triggerType ?? "manual",
-        },
-      });
-      toast.success("Test run completed — check execution log");
-      void refetch();
+        sampleEvent: { entityType, eventType: trigger, metadata },
+      })) as { data: TestRunResult };
+      setTestResult(payload.data);
     } catch {
       toast.error("Test run failed. Please try again.");
     }
@@ -259,23 +325,102 @@ function WorkflowDetailPanel({
             </div>
 
             {/* Actions */}
-            <div className="pt-4 border-t border-border flex gap-3">
-              <button
-                onClick={handleRunNow}
-                disabled={runNow.isPending}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all disabled:opacity-50"
-              >
-                {runNow.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                Run Now
-              </button>
-              <button
-                onClick={handleRunTest}
-                disabled={runTest.isPending}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-secondary text-foreground hover:bg-surface-3 transition-all disabled:opacity-50"
-              >
-                {runTest.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                Test Run
-              </button>
+            <div className="pt-4 border-t border-border space-y-3">
+              <div className="flex gap-3">
+                <button
+                  onClick={handleRunNow}
+                  disabled={runNow.isPending}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all disabled:opacity-50"
+                >
+                  {runNow.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                  Run Now
+                </button>
+                <button
+                  onClick={() => setTestOpen((v) => !v)}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all",
+                    testOpen ? "bg-surface-3 text-foreground" : "bg-secondary text-foreground hover:bg-surface-3"
+                  )}
+                >
+                  <Zap className="w-4 h-4" />
+                  Test Run
+                </button>
+              </div>
+
+              {testOpen && (
+                <div className="rounded-xl border border-border bg-secondary/40 p-4 space-y-3">
+                  <p className="text-xs font-semibold text-foreground">Dry run — nothing is saved</p>
+                  <p className="text-[11px] text-muted-foreground -mt-1.5">Optionally set sample values to test your conditions.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input value={sampleStage} onChange={(e) => setSampleStage(e.target.value)} placeholder="stage (e.g. lead)" className="w-full px-2.5 py-1.5 text-xs bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+                    <input value={samplePriority} onChange={(e) => setSamplePriority(e.target.value)} placeholder="priority (e.g. high)" className="w-full px-2.5 py-1.5 text-xs bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+                    <input value={sampleStatus} onChange={(e) => setSampleStatus(e.target.value)} placeholder="status" className="w-full px-2.5 py-1.5 text-xs bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+                    <input value={sampleValue} onChange={(e) => setSampleValue(e.target.value)} type="number" placeholder="deal value (cents)" className="w-full px-2.5 py-1.5 text-xs bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+                  </div>
+                  <button
+                    onClick={handleRunTest}
+                    disabled={runTest.isPending}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--accent-violet))] text-white hover:bg-[hsl(var(--accent-violet))]/90 transition-colors disabled:opacity-50"
+                  >
+                    {runTest.isPending ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Running…</> : <><Zap className="w-3.5 h-3.5" /> Run test</>}
+                  </button>
+
+                  {testResult && (
+                    <div className="space-y-3 pt-1">
+                      {testResult.failureReason ? (
+                        <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/20 p-2.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
+                          <p className="text-xs text-destructive">{testResult.failureReason}</p>
+                        </div>
+                      ) : testResult.matchedConditions ? (
+                        <div className="flex items-start gap-2 rounded-lg bg-[hsl(var(--success))]/10 border border-[hsl(var(--success))]/20 p-2.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-[hsl(var(--success))] shrink-0 mt-0.5" />
+                          <p className="text-xs text-foreground">
+                            Conditions matched — would run <span className="font-semibold">{testResult.actionsExecutedCount}</span> action{testResult.actionsExecutedCount === 1 ? "" : "s"}
+                            {testResult.createdTasksCount > 0 ? <>, create <span className="font-semibold">{testResult.createdTasksCount}</span> task{testResult.createdTasksCount === 1 ? "" : "s"}</> : null}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="flex items-start gap-2 rounded-lg bg-[hsl(var(--warning))]/10 border border-[hsl(var(--warning))]/20 p-2.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-[hsl(var(--warning))] shrink-0 mt-0.5" />
+                          <p className="text-xs text-foreground">Conditions did not match — no actions would run.</p>
+                        </div>
+                      )}
+
+                      {testResult.conditionResults.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Conditions</p>
+                          <div className="space-y-1">
+                            {testResult.conditionResults.map((c, i) => (
+                              <div key={i} className="flex items-center justify-between gap-2 text-[11px] bg-card rounded-md px-2 py-1.5">
+                                <span className="text-foreground truncate">{describeTestCondition(c)}</span>
+                                <span className={cn("shrink-0 flex items-center gap-1", c.matched ? "text-[hsl(var(--success))]" : "text-muted-foreground")}>
+                                  <span className="text-muted-foreground">got {formatActualValue(c.actualValue)}</span>
+                                  {c.matched ? <CheckCircle2 className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {testResult.projectedActions.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Would run</p>
+                          <div className="space-y-1">
+                            {testResult.projectedActions.map((a, i) => (
+                              <div key={i} className="flex items-center gap-2 text-[11px] text-foreground bg-card rounded-md px-2 py-1.5">
+                                <ArrowRight className="w-3 h-3 text-[hsl(var(--accent-violet))] shrink-0" />
+                                <span className="truncate">{describeTestAction(a)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}
