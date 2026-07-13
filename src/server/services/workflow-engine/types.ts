@@ -67,7 +67,15 @@ export interface WorkflowCreateActivityEventAction {
   type: "create_activity_event";
 }
 
+export interface WorkflowAiAnalyzeAction {
+  contact_id?: string;
+  create_review_task?: boolean;
+  time_saved_seconds?: number;
+  type: "ai_analyze";
+}
+
 export type WorkflowAction =
+  | WorkflowAiAnalyzeAction
   | WorkflowAssignUserAction
   | WorkflowCreateActivityEventAction
   | WorkflowCreateTaskAction

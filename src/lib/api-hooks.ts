@@ -24,6 +24,7 @@ import {
   assignContactOwner,
   updateContactNotes,
   updateContactFields,
+  analyzeContactAI,
   type UpdateContactFields,
   createBooking,
   updateBookingStatus,
@@ -59,12 +60,14 @@ export function useDashboardSummary(orgId: string) {
 export function useDashboardActivity(
   orgId: string,
   params: { companyId?: string; limit?: number } = {},
+  options: { refetchInterval?: number } = {},
 ) {
   return useQuery({
     queryKey: ["dashboard", "activity", orgId, params],
     queryFn: () => fetchDashboardActivity(orgId, params),
     enabled: Boolean(orgId),
     staleTime: 15_000,
+    refetchInterval: options.refetchInterval,
   });
 }
 
@@ -288,6 +291,12 @@ export function useUpdateContactFields(orgId: string, contactId: string) {
       void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
       void qc.invalidateQueries({ queryKey: ["crm", "contacts", orgId] });
     },
+  });
+}
+
+export function useAnalyzeContactAI(orgId: string, contactId: string) {
+  return useMutation({
+    mutationFn: () => analyzeContactAI(orgId, contactId),
   });
 }
 

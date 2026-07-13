@@ -21,11 +21,13 @@ import {
   Circle,
   X,
   Loader2,
+  Sparkles,
+  Copy,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateBooking, useUpdateContactNotes, useUpdateContactFields } from "@/lib/api-hooks";
+import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateBooking, useUpdateContactNotes, useUpdateContactFields, useAnalyzeContactAI } from "@/lib/api-hooks";
 import { toast } from "@/components/ui/sonner";
 import { LoadingCards, ErrorBanner, EmptyState, SkeletonStatCard } from "@/components/ui/StateViews";
 import { formatCentsCompact, formatCents, formatDate, relativeTime } from "@/lib/format";
@@ -313,6 +315,136 @@ function CreateBookingDialog({
 
 // ─── Editable internal notes ──────────────────────────────────────────────────
 
+const aiUrgencyStyle: Record<string, string> = {
+  high: "bg-[hsl(var(--urgent))]/15 text-[hsl(var(--urgent))]",
+  medium: "bg-[hsl(var(--warning))]/15 text-[hsl(var(--warning))]",
+  low: "bg-muted text-muted-foreground",
+};
+
+function AIAssistantPanel({ orgId, contact }: { orgId: string; contact: ContactDetailResponse["contact"] }) {
+  const analyze = useAnalyzeContactAI(orgId, contact.id);
+  const result = analyze.data;
+
+  const copy = (text: string, label: string) => {
+    if (!navigator.clipboard) {
+      toast.error("Clipboard unavailable");
+      return;
+    }
+    void navigator.clipboard.writeText(text).then(
+      () => toast.success(`${label} copied`),
+      () => toast.error("Couldn't copy"),
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-[hsl(var(--accent-violet))]" /> AI lead analysis
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Claude reads this lead and drafts a first reply. Nothing is sent — review before use.
+          </p>
+        </div>
+        <button
+          onClick={() => analyze.mutate()}
+          disabled={analyze.isPending}
+          className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--accent-violet))] text-white hover:bg-[hsl(var(--accent-violet))]/90 transition-colors disabled:opacity-50"
+        >
+          {analyze.isPending ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing…</>
+          ) : (
+            <><Sparkles className="w-4 h-4" /> {result ? "Re-analyze" : "Analyze lead"}</>
+          )}
+        </button>
+      </div>
+
+      {analyze.isError && (
+        <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-xs text-destructive">
+          {analyze.error instanceof Error ? analyze.error.message : "AI analysis failed."}
+        </div>
+      )}
+
+      {!result && !analyze.isPending && !analyze.isError && (
+        <div className="rounded-xl border border-dashed border-border p-8 text-center">
+          <Sparkles className="w-6 h-6 text-muted-foreground/50 mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">
+            Run an AI analysis to get a summary, fit score, suggested next steps, and a drafted email + SMS for this lead.
+          </p>
+        </div>
+      )}
+
+      {result && (
+        <div className="space-y-4">
+          <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wide", aiUrgencyStyle[result.urgency] ?? aiUrgencyStyle.low)}>
+                {result.urgency} urgency
+              </span>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-secondary text-foreground">
+                Fit {Math.round(result.fitScore)}/100
+              </span>
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-secondary text-muted-foreground">
+                Suggested stage: {result.suggestedStage}
+              </span>
+            </div>
+            <p className="text-sm text-foreground">{result.summary}</p>
+            <p className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Intent:</span> {result.intent}
+            </p>
+          </div>
+
+          {result.suggestedActions.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Suggested next steps</p>
+              <div className="space-y-1.5">
+                {result.suggestedActions.map((action, i) => (
+                  <div key={i} className="flex items-start gap-2 text-sm text-foreground">
+                    <ArrowRight className="w-3.5 h-3.5 text-[hsl(var(--accent-violet))] shrink-0 mt-0.5" />
+                    <span>{action}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="bg-card border border-border rounded-xl p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-foreground flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" /> Drafted email</p>
+              <button
+                onClick={() => copy(`Subject: ${result.draftedEmail.subject}\n\n${result.draftedEmail.body}`, "Email")}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5" /> Copy
+              </button>
+            </div>
+            <p className="text-sm font-medium text-foreground">{result.draftedEmail.subject}</p>
+            <p className="text-sm text-muted-foreground whitespace-pre-wrap">{result.draftedEmail.body}</p>
+          </div>
+
+          <div className="bg-card border border-border rounded-xl p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-foreground flex items-center gap-1.5"><MessageSquare className="w-3.5 h-3.5" /> Drafted SMS</p>
+              <button
+                onClick={() => copy(result.draftedSms, "SMS")}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5" /> Copy
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground whitespace-pre-wrap">{result.draftedSms}</p>
+          </div>
+
+          <p className="text-[11px] text-muted-foreground/70 flex items-center gap-1.5">
+            <AlertTriangle className="w-3 h-3" /> AI-generated draft. Review and edit before sending — nothing is sent automatically.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ContactNotes({ orgId, contactId, initialNotes }: { orgId: string; contactId: string; initialNotes: string | null }) {
   const updateNotes = useUpdateContactNotes(orgId, contactId);
   const [notes, setNotes] = useState(initialNotes ?? "");
@@ -442,6 +574,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
 
   const tabs = [
     { key: "activity", label: "Activity" },
+    { key: "ai", label: "AI" },
     { key: "bookings", label: "Bookings", count: linkedBookings.length },
     { key: "tasks", label: "Tasks", count: linkedTasks.length },
     { key: "financials", label: "Financials" },
@@ -835,6 +968,9 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
             )}
           </div>
         )}
+
+        {/* AI */}
+        {activeTab === "ai" && <AIAssistantPanel orgId={orgId} contact={contact} />}
 
         {/* Notes */}
         {activeTab === "notes" && (
