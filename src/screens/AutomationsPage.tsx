@@ -17,6 +17,7 @@ import {
   useRetryWorkflowJob,
   useUpdateWorkflowStatus,
   useCreateWorkflow,
+  useUpdateWorkflow,
   useCompanies,
 } from "@/lib/api-hooks";
 import { SkeletonCard, ErrorBanner, EmptyState } from "@/components/ui/StateViews";
@@ -124,9 +125,11 @@ function formatActualValue(value: unknown): string {
 function WorkflowDetailPanel({
   workflowId,
   onClose,
+  onEdit,
 }: {
   workflowId: string;
   onClose: () => void;
+  onEdit: (workflow: EditWorkflow) => void;
 }) {
   const { organizationId } = useOrg();
   const { data, isLoading, isError, refetch } = useWorkflowDetail(organizationId, workflowId);
@@ -221,9 +224,28 @@ function WorkflowDetailPanel({
               </>
             ) : null}
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {workflow && (
+              <button
+                type="button"
+                onClick={() =>
+                  onEdit({
+                    id: workflow.id,
+                    name: workflow.name,
+                    triggerType: workflow.triggerType,
+                    description: workflow.description,
+                    definition: workflow.definition,
+                  })
+                }
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              >
+                <Settings2 className="w-3.5 h-3.5" /> Edit
+              </button>
+            )}
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {isError && (
@@ -531,15 +553,71 @@ function newAction(type: UIAction["type"], id: string, statusValue: string): UIA
   };
 }
 
-function CreateWorkflowDialog({ orgId, onClose }: { orgId: string; onClose: () => void }) {
+interface EditWorkflow {
+  id: string;
+  name: string;
+  triggerType: string;
+  description: string | null;
+  definition: unknown;
+}
+
+function definitionRecord(def: unknown): Record<string, unknown> {
+  return def && typeof def === "object" && !Array.isArray(def) ? (def as Record<string, unknown>) : {};
+}
+
+function parseDefConditions(def: unknown): UICondition[] {
+  const raw = definitionRecord(def).conditions;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((c, i) => {
+    const cond = (c ?? {}) as Record<string, unknown>;
+    const v = cond.value;
+    return {
+      id: `c-${i}`,
+      field: typeof cond.field === "string" ? cond.field : "stage",
+      operator: (typeof cond.operator === "string" ? cond.operator : "equals") as ConditionOperator,
+      value: Array.isArray(v) ? v.join(", ") : v == null ? "" : String(v),
+    };
+  });
+}
+
+function parseDefActions(def: unknown): UIAction[] {
+  const raw = definitionRecord(def).actions;
+  if (!Array.isArray(raw) || raw.length === 0) return [newAction("create_task", "a-0", "lead")];
+  return raw.map((a, i) => {
+    const act = (a ?? {}) as Record<string, unknown>;
+    if (act.type === "update_status") {
+      return newAction("update_status", `a-${i}`, typeof act.status === "string" ? act.status : "lead");
+    }
+    const base = newAction("create_task", `a-${i}`, "lead");
+    const priority = ["low", "medium", "high", "urgent"].includes(act.priority as string)
+      ? (act.priority as UIAction["priority"])
+      : "medium";
+    const taskStatus = ["todo", "in_progress", "blocked", "completed"].includes(act.status as string)
+      ? (act.status as UIAction["taskStatus"])
+      : "todo";
+    return {
+      ...base,
+      title: typeof act.title === "string" ? act.title : "",
+      priority,
+      taskStatus,
+      description: typeof act.description === "string" ? act.description : "",
+      dueInDays: act.due_in_days != null ? String(act.due_in_days) : "",
+    };
+  });
+}
+
+function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; workflow?: EditWorkflow; onClose: () => void }) {
   const createWorkflow = useCreateWorkflow(orgId);
+  const updateWorkflow = useUpdateWorkflow(orgId);
+  const editing = Boolean(workflow);
+  const pending = editing ? updateWorkflow.isPending : createWorkflow.isPending;
   const idRef = useRef(1);
   const nextId = () => `row-${idRef.current++}`;
 
-  const [name, setName] = useState("");
-  const [triggerEvent, setTriggerEvent] = useState("contact.created");
-  const [conditions, setConditions] = useState<UICondition[]>([]);
-  const [actions, setActions] = useState<UIAction[]>([newAction("create_task", "row-0", "lead")]);
+  const [name, setName] = useState(workflow?.name ?? "");
+  const [triggerEvent, setTriggerEvent] = useState(workflow?.triggerType ?? "contact.created");
+  const [conditions, setConditions] = useState<UICondition[]>(() => parseDefConditions(workflow?.definition));
+  const [actions, setActions] = useState<UIAction[]>(() => parseDefActions(workflow?.definition));
 
   const triggerEntity = TRIGGER_ENTITY[triggerEvent] ?? "contact";
 
@@ -589,7 +667,7 @@ function CreateWorkflowDialog({ orgId, onClose }: { orgId: string; onClose: () =
   const actionsValid =
     actions.length > 0 &&
     actions.every((a) => (a.type === "create_task" ? a.title.trim().length > 0 : Boolean(a.statusValue)));
-  const canSubmit = name.trim().length > 0 && actionsValid && !createWorkflow.isPending;
+  const canSubmit = name.trim().length > 0 && actionsValid && !pending;
 
   const buildDefinition = () => {
     const builtConditions = conditions
@@ -631,16 +709,28 @@ function CreateWorkflowDialog({ orgId, onClose }: { orgId: string; onClose: () =
     e.preventDefault();
     if (!canSubmit) return;
     try {
-      await createWorkflow.mutateAsync({
-        name: name.trim(),
-        triggerEvent,
-        status: "active",
-        definition: buildDefinition(),
-      });
-      toast.success("Workflow created");
+      if (editing && workflow) {
+        await updateWorkflow.mutateAsync({
+          workflowId: workflow.id,
+          name: name.trim(),
+          triggerEvent,
+          definition: buildDefinition(),
+        });
+        toast.success("Workflow updated");
+      } else {
+        await createWorkflow.mutateAsync({
+          name: name.trim(),
+          triggerEvent,
+          status: "active",
+          definition: buildDefinition(),
+        });
+        toast.success("Workflow created");
+      }
       onClose();
     } catch {
-      toast.error("Failed to create workflow. Please try again.");
+      toast.error(
+        editing ? "Failed to update workflow. Please try again." : "Failed to create workflow. Please try again.",
+      );
     }
   };
 
@@ -654,7 +744,7 @@ function CreateWorkflowDialog({ orgId, onClose }: { orgId: string; onClose: () =
       <div className="bg-card border border-border rounded-2xl w-[560px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card z-10">
           <div>
-            <h2 className="text-base font-semibold text-foreground">Create Workflow</h2>
+            <h2 className="text-base font-semibold text-foreground">{editing ? "Edit Workflow" : "Create Workflow"}</h2>
             <p className="text-xs text-muted-foreground mt-0.5">When something happens, run one or more actions</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
@@ -783,7 +873,7 @@ function CreateWorkflowDialog({ orgId, onClose }: { orgId: string; onClose: () =
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors">Cancel</button>
             <button type="submit" disabled={!canSubmit} className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--accent-violet))] text-white hover:bg-[hsl(var(--accent-violet))]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]">
-              {createWorkflow.isPending ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</>) : "Create Workflow"}
+              {pending ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" /> {editing ? "Saving…" : "Creating…"}</>) : (editing ? "Save Changes" : "Create Workflow")}
             </button>
           </div>
         </form>
@@ -797,6 +887,7 @@ export default function AutomationsPage() {
   const [search, setSearch] = useState("");
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editingWorkflow, setEditingWorkflow] = useState<EditWorkflow | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [triggerFilter, setTriggerFilter] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
@@ -1034,11 +1125,23 @@ export default function AutomationsPage() {
         <WorkflowDetailPanel
           workflowId={selectedWorkflowId}
           onClose={() => setSelectedWorkflowId(null)}
+          onEdit={(wf) => {
+            setSelectedWorkflowId(null);
+            setEditingWorkflow(wf);
+          }}
         />
       )}
 
       {isCreateOpen && (
         <CreateWorkflowDialog orgId={organizationId} onClose={() => setIsCreateOpen(false)} />
+      )}
+
+      {editingWorkflow && (
+        <CreateWorkflowDialog
+          orgId={organizationId}
+          workflow={editingWorkflow}
+          onClose={() => setEditingWorkflow(null)}
+        />
       )}
     </div>
   );

@@ -752,6 +752,25 @@ export function updateWorkflowStatus(
   });
 }
 
+export interface UpdateWorkflowInput {
+  name?: string;
+  description?: string | null;
+  triggerEvent?: string;
+  definition?: Record<string, unknown>;
+  status?: "draft" | "active" | "paused" | "archived";
+}
+
+export function updateWorkflow(
+  orgId: string,
+  workflowId: string,
+  input: UpdateWorkflowInput,
+): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/workflows/${workflowId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "update", ...input }),
+  });
+}
+
 export interface CreateWorkflowInput {
   name: string;
   triggerEvent: string;
