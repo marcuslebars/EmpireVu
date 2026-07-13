@@ -89,6 +89,77 @@ export async function createOrganization(
   return organization as Tables<"organizations">;
 }
 
+export const updateOrganizationInputSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    slug: z.string().min(1).max(80).optional(),
+  })
+  .refine((value) => value.name !== undefined || value.slug !== undefined, {
+    message: "Provide at least one field to update.",
+  });
+
+export type UpdateOrganizationInput = z.infer<typeof updateOrganizationInputSchema>;
+
+export async function updateOrganization(
+  supabase: AppSupabaseClient,
+  organizationId: string,
+  input: UpdateOrganizationInput,
+): Promise<Tables<"organizations">> {
+  const updates: { name?: string; slug?: string } = {};
+
+  if (input.name !== undefined) {
+    updates.name = input.name;
+  }
+
+  if (input.slug !== undefined) {
+    updates.slug = slugify(input.slug);
+  }
+
+  if (updates.slug) {
+    const { data: existing, error: existingError } = await supabase
+      .from("organizations")
+      .select("id")
+      .eq("slug", updates.slug)
+      .neq("id", organizationId)
+      .maybeSingle();
+
+    if (existingError) {
+      throw existingError;
+    }
+
+    if (existing) {
+      throw new ValidationError("An organization with this slug already exists.");
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (supabase as any)
+    .from("organizations")
+    .update(updates)
+    .eq("id", organizationId)
+    .select("*")
+    .single();
+  const { data, error } = (await query) as {
+    data: Tables<"organizations"> | null;
+    error: { code?: string } | null;
+  };
+
+  if (error) {
+    // Map the DB unique-constraint collision (against orgs the caller can't see
+    // under RLS) to a friendly 400 instead of a raw 500.
+    if (error.code === "23505") {
+      throw new ValidationError("An organization with this slug already exists.");
+    }
+    throw error;
+  }
+
+  if (!data) {
+    throw new Error("Organization update failed.");
+  }
+
+  return data as Tables<"organizations">;
+}
+
 export async function listUserOrganizations(
   supabase: AppSupabaseClient,
   userId: string,

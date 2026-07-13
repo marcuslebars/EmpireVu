@@ -780,6 +780,17 @@ export function fetchOrganizations(): Promise<OrganizationSummary[]> {
   return apiFetch("/api/organizations");
 }
 
+export async function updateOrganization(
+  orgId: string,
+  input: { name?: string; slug?: string },
+): Promise<OrganizationSummary> {
+  const result = await apiFetch<{ data: OrganizationSummary }>(`/api/organizations/${orgId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+  return result.data;
+}
+
 export function fetchCompanies(orgId: string): Promise<CompanySummary[]> {
   return apiFetch(`/api/organizations/${orgId}/companies`);
 }
