@@ -34,8 +34,10 @@ import {
   runWorkflowTest,
   retryWorkflowJob,
   updateWorkflowStatus,
+  updateWorkflow,
   createWorkflow,
   type CreateWorkflowInput,
+  type UpdateWorkflowInput,
   type CreateContactInput,
   type CreateBookingInput,
   type CreateTaskInput,
@@ -418,6 +420,18 @@ export function useCreateWorkflow(orgId: string) {
     mutationFn: (input: CreateWorkflowInput) => createWorkflow(orgId, input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["automations", "workflows", orgId] });
+    },
+  });
+}
+
+export function useUpdateWorkflow(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ workflowId, ...input }: UpdateWorkflowInput & { workflowId: string }) =>
+      updateWorkflow(orgId, workflowId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["automations", "workflows", orgId] });
+      void qc.invalidateQueries({ queryKey: ["automations", "workflow", orgId] });
     },
   });
 }

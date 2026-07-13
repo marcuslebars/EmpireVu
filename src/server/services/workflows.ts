@@ -142,3 +142,41 @@ export async function updateWorkflowStatus(
 
   return data as Tables<"workflows">;
 }
+
+export const updateWorkflowInputSchema = z.object({
+  workflowId: z.string().uuid(),
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(5000).nullable().optional(),
+  triggerEvent: z.string().min(2).max(120).optional(),
+  definition: z.record(z.string(), z.unknown()).optional(),
+  status: z.enum(["draft", "active", "paused", "archived"]).optional(),
+});
+
+export type UpdateWorkflowInput = z.infer<typeof updateWorkflowInputSchema>;
+
+export async function updateWorkflow(
+  context: TenantServiceContext,
+  input: UpdateWorkflowInput,
+): Promise<Tables<"workflows">> {
+  const updates: Record<string, unknown> = {};
+  if (input.name !== undefined) updates.name = input.name;
+  if (input.description !== undefined) updates.description = input.description;
+  if (input.triggerEvent !== undefined) updates.trigger_event = input.triggerEvent;
+  if (input.definition !== undefined) updates.definition = input.definition;
+  if (input.status !== undefined) updates.status = input.status;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (context.supabase.from("workflows") as any)
+    .update(updates)
+    .eq("organization_id", context.organizationId)
+    .eq("id", input.workflowId)
+    .select("*")
+    .single();
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return data as Tables<"workflows">;
+}

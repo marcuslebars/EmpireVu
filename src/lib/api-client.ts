@@ -452,11 +452,15 @@ export interface WorkflowDetailResponse {
   };
   workflowRuns: {
     items: Array<{
+      actionsExecutedCount: number;
       completedAt: string | null;
+      conditionResults: Array<{ actualValue: unknown; field: string; matched: boolean; operator: string; value: unknown }>;
       createdAt: string;
+      createdTasksCount: number;
       failureReason: string | null;
       id: string;
       status: string;
+      timeSavedSeconds: number;
       triggerEvent: { id: string; label: string; type: string } | null;
     }>;
     pagination: { page: number; pageSize: number; total: number; totalPages: number };
@@ -749,6 +753,25 @@ export function updateWorkflowStatus(
   return apiFetch(`/api/organizations/${orgId}/workflows/${workflowId}`, {
     method: "PATCH",
     body: JSON.stringify({ action: "updateStatus", status }),
+  });
+}
+
+export interface UpdateWorkflowInput {
+  name?: string;
+  description?: string | null;
+  triggerEvent?: string;
+  definition?: Record<string, unknown>;
+  status?: "draft" | "active" | "paused" | "archived";
+}
+
+export function updateWorkflow(
+  orgId: string,
+  workflowId: string,
+  input: UpdateWorkflowInput,
+): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/workflows/${workflowId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "update", ...input }),
   });
 }
 
