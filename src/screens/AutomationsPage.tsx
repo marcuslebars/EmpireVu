@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import {
   Plus, Zap, ArrowRight, MoreHorizontal, Search, Filter, Play, Pause,
   ChevronRight, Calendar, UserPlus, CheckCircle2, Bell, ClipboardList,
@@ -296,26 +296,201 @@ const WORKFLOW_TRIGGERS = [
   { value: "task.completed", label: "Task completed" },
 ];
 
+// Which entity each trigger fires on — drives the update_status options.
+const TRIGGER_ENTITY: Record<string, "contact" | "booking" | "task"> = {
+  "contact.created": "contact",
+  "contact.stage_changed": "contact",
+  "booking.created": "booking",
+  "booking.completed": "booking",
+  "task.completed": "task",
+};
+
+const ENTITY_STATUS_OPTIONS: Record<"contact" | "booking" | "task", { value: string; label: string }[]> = {
+  contact: [
+    { value: "lead", label: "Lead" },
+    { value: "qualified", label: "Qualified" },
+    { value: "active", label: "Active" },
+    { value: "closed", label: "Closed" },
+  ],
+  booking: [
+    { value: "pending", label: "Pending" },
+    { value: "confirmed", label: "Confirmed" },
+    { value: "completed", label: "Completed" },
+    { value: "cancelled", label: "Cancelled" },
+  ],
+  task: [
+    { value: "todo", label: "To Do" },
+    { value: "in_progress", label: "In Progress" },
+    { value: "blocked", label: "Blocked" },
+    { value: "completed", label: "Completed" },
+  ],
+};
+
+const ENTITY_STATUS_NOUN: Record<"contact" | "booking" | "task", string> = {
+  contact: "stage",
+  booking: "status",
+  task: "status",
+};
+
+const CONDITION_FIELDS = [
+  { value: "stage", label: "Contact stage" },
+  { value: "stage_changed_to", label: "Changed to stage" },
+  { value: "previous_stage", label: "Previous stage" },
+  { value: "priority", label: "Priority" },
+  { value: "status", label: "Status" },
+  { value: "value_cents", label: "Deal value (cents)" },
+  { value: "title", label: "Title" },
+];
+
+const CONDITION_OPERATORS = [
+  { value: "equals", label: "equals" },
+  { value: "in", label: "is any of" },
+  { value: "changed_to", label: "changed to" },
+  { value: "greater_than", label: "greater than" },
+  { value: "less_than", label: "less than" },
+  { value: "exists", label: "exists" },
+] as const;
+
+type ConditionOperator = (typeof CONDITION_OPERATORS)[number]["value"];
+
+interface UICondition {
+  id: string;
+  field: string;
+  operator: ConditionOperator;
+  value: string;
+}
+
+interface UIAction {
+  id: string;
+  type: "create_task" | "update_status";
+  // create_task
+  title: string;
+  priority: "low" | "medium" | "high" | "urgent";
+  taskStatus: "todo" | "in_progress" | "blocked" | "completed";
+  description: string;
+  dueInDays: string;
+  // update_status
+  statusValue: string;
+}
+
+function newAction(type: UIAction["type"], id: string, statusValue: string): UIAction {
+  return {
+    id,
+    type,
+    title: "",
+    priority: "medium",
+    taskStatus: "todo",
+    description: "",
+    dueInDays: "",
+    statusValue,
+  };
+}
+
 function CreateWorkflowDialog({ orgId, onClose }: { orgId: string; onClose: () => void }) {
   const createWorkflow = useCreateWorkflow(orgId);
+  const idRef = useRef(1);
+  const nextId = () => `row-${idRef.current++}`;
+
   const [name, setName] = useState("");
   const [triggerEvent, setTriggerEvent] = useState("contact.created");
-  const [taskTitle, setTaskTitle] = useState("");
-  const [priority, setPriority] = useState<"low" | "medium" | "high" | "urgent">("medium");
+  const [conditions, setConditions] = useState<UICondition[]>([]);
+  const [actions, setActions] = useState<UIAction[]>([newAction("create_task", "row-0", "lead")]);
+
+  const triggerEntity = TRIGGER_ENTITY[triggerEvent] ?? "contact";
+
+  const handleTriggerChange = (value: string) => {
+    setTriggerEvent(value);
+    const entity = TRIGGER_ENTITY[value] ?? "contact";
+    const valid = ENTITY_STATUS_OPTIONS[entity].map((o) => o.value);
+    // Keep any update_status actions pointing at a status valid for the new trigger.
+    setActions((prev) =>
+      prev.map((a) =>
+        a.type === "update_status" && !valid.includes(a.statusValue)
+          ? { ...a, statusValue: valid[0] }
+          : a,
+      ),
+    );
+  };
+
+  const addCondition = () =>
+    setConditions((c) => [...c, { id: nextId(), field: "stage", operator: "equals", value: "" }]);
+  const updateCondition = (id: string, patch: Partial<UICondition>) =>
+    setConditions((c) => c.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  const removeCondition = (id: string) => setConditions((c) => c.filter((row) => row.id !== id));
+
+  const addAction = (type: UIAction["type"]) =>
+    setActions((a) => [...a, newAction(type, nextId(), ENTITY_STATUS_OPTIONS[triggerEntity][0].value)]);
+  const updateAction = (id: string, patch: Partial<UIAction>) =>
+    setActions((a) => a.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  const removeAction = (id: string) => setActions((a) => a.filter((row) => row.id !== id));
+  const changeActionType = (id: string, type: UIAction["type"]) => {
+    const valid = ENTITY_STATUS_OPTIONS[triggerEntity].map((o) => o.value);
+    setActions((a) =>
+      a.map((row) =>
+        row.id === id
+          ? {
+              ...row,
+              type,
+              statusValue:
+                type === "update_status" && !valid.includes(row.statusValue)
+                  ? ENTITY_STATUS_OPTIONS[triggerEntity][0].value
+                  : row.statusValue,
+            }
+          : row,
+      ),
+    );
+  };
+
+  const actionsValid =
+    actions.length > 0 &&
+    actions.every((a) => (a.type === "create_task" ? a.title.trim().length > 0 : Boolean(a.statusValue)));
+  const canSubmit = name.trim().length > 0 && actionsValid && !createWorkflow.isPending;
+
+  const buildDefinition = () => {
+    const builtConditions = conditions
+      .filter((c) => c.field && (c.operator === "exists" || c.value.trim().length > 0))
+      .map((c) => {
+        if (c.operator === "exists") return { field: c.field, operator: c.operator };
+        if (c.operator === "in")
+          return {
+            field: c.field,
+            operator: c.operator,
+            value: c.value.split(",").map((s) => s.trim()).filter(Boolean),
+          };
+        if (c.operator === "greater_than" || c.operator === "less_than")
+          return { field: c.field, operator: c.operator, value: Number(c.value) };
+        return { field: c.field, operator: c.operator, value: c.value.trim() };
+      });
+
+    const builtActions = actions.map((a) => {
+      if (a.type === "create_task") {
+        const action: Record<string, unknown> = {
+          type: "create_task",
+          title: a.title.trim(),
+          priority: a.priority,
+          status: a.taskStatus,
+        };
+        if (a.description.trim()) action.description = a.description.trim();
+        if (a.dueInDays.trim() && Number.isFinite(Number(a.dueInDays)))
+          action.due_in_days = Math.max(0, Math.floor(Number(a.dueInDays)));
+        return action;
+      }
+      // update_status: no target_entity => the engine acts on the triggering record.
+      return { type: "update_status", status: a.statusValue };
+    });
+
+    return { version: 1, conditions: builtConditions, actions: builtActions };
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !taskTitle.trim()) return;
+    if (!canSubmit) return;
     try {
       await createWorkflow.mutateAsync({
         name: name.trim(),
         triggerEvent,
         status: "active",
-        definition: {
-          version: 1,
-          conditions: [],
-          actions: [{ type: "create_task", title: taskTitle.trim(), priority }],
-        },
+        definition: buildDefinition(),
       });
       toast.success("Workflow created");
       onClose();
@@ -324,50 +499,145 @@ function CreateWorkflowDialog({ orgId, onClose }: { orgId: string; onClose: () =
     }
   };
 
+  const labelCls = "text-xs font-medium text-muted-foreground mb-1.5 block";
+  const inputCls =
+    "w-full px-3 py-2 text-sm bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring";
+  const selectCls = `${inputCls} appearance-none cursor-pointer`;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-2xl w-[480px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+      <div className="bg-card border border-border rounded-2xl w-[560px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card z-10">
           <div>
             <h2 className="text-base font-semibold text-foreground">Create Workflow</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">When something happens, automatically create a task</p>
+            <p className="text-xs text-muted-foreground mt-0.5">When something happens, run one or more actions</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-5">
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Workflow name <span className="text-destructive">*</span></label>
+            <label className={labelCls}>Workflow name <span className="text-destructive">*</span></label>
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder="e.g., Follow up on new leads" className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
           </div>
+
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">When…</label>
-            <select value={triggerEvent} onChange={(e) => setTriggerEvent(e.target.value)} className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer">
+            <label className={labelCls}>When…</label>
+            <select value={triggerEvent} onChange={(e) => handleTriggerChange(e.target.value)} className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer">
               {WORKFLOW_TRIGGERS.map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </select>
           </div>
-          <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
-            <p className="text-xs font-semibold text-foreground">…then create a task</p>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Task title <span className="text-destructive">*</span></label>
-              <input type="text" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} required placeholder="e.g., Call the new lead" className="w-full px-3 py-2 text-sm bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+
+          {/* Conditions */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-muted-foreground">Only if… <span className="text-muted-foreground/60">(optional · all must match)</span></label>
+              <button type="button" onClick={addCondition} className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--accent-violet))] hover:opacity-80 transition-opacity">
+                <Plus className="w-3.5 h-3.5" /> Add condition
+              </button>
             </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Priority</label>
-              <select value={priority} onChange={(e) => setPriority(e.target.value as typeof priority)} className="w-full px-3 py-2 text-sm bg-card border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer">
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
+            {conditions.length === 0 ? (
+              <p className="text-xs text-muted-foreground/70 italic">Runs on every matching event.</p>
+            ) : (
+              <div className="space-y-2">
+                {conditions.map((c) => (
+                  <div key={c.id} className="flex items-center gap-2">
+                    <select value={c.field} onChange={(e) => updateCondition(c.id, { field: e.target.value })} className={`${selectCls} flex-1`}>
+                      {CONDITION_FIELDS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+                    </select>
+                    <select value={c.operator} onChange={(e) => updateCondition(c.id, { operator: e.target.value as ConditionOperator })} className={`${selectCls} w-32 shrink-0`}>
+                      {CONDITION_OPERATORS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    {c.operator !== "exists" && (
+                      <input
+                        type={c.operator === "greater_than" || c.operator === "less_than" ? "number" : "text"}
+                        value={c.value}
+                        onChange={(e) => updateCondition(c.id, { value: e.target.value })}
+                        placeholder={c.operator === "in" ? "a, b" : "value"}
+                        className={`${inputCls} w-28 shrink-0`}
+                      />
+                    )}
+                    <button type="button" onClick={() => removeCondition(c.id)} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground shrink-0">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground">…then do <span className="text-destructive">*</span></label>
+            <div className="space-y-3">
+              {actions.map((a) => (
+                <div key={a.id} className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <select value={a.type} onChange={(e) => changeActionType(a.id, e.target.value as UIAction["type"])} className={`${selectCls} text-xs font-semibold flex-1`}>
+                      <option value="create_task">Create a task</option>
+                      <option value="update_status">Update the {triggerEntity}&rsquo;s {ENTITY_STATUS_NOUN[triggerEntity]}</option>
+                    </select>
+                    {actions.length > 1 && (
+                      <button type="button" onClick={() => removeAction(a.id)} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground shrink-0">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {a.type === "create_task" ? (
+                    <>
+                      <div>
+                        <label className={labelCls}>Task title <span className="text-destructive">*</span></label>
+                        <input type="text" value={a.title} onChange={(e) => updateAction(a.id, { title: e.target.value })} placeholder="e.g., Call the new lead" className={inputCls} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className={labelCls}>Priority</label>
+                          <select value={a.priority} onChange={(e) => updateAction(a.id, { priority: e.target.value as UIAction["priority"] })} className={selectCls}>
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                            <option value="urgent">Urgent</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className={labelCls}>Due in (days)</label>
+                          <input type="number" min={0} value={a.dueInDays} onChange={(e) => updateAction(a.id, { dueInDays: e.target.value })} placeholder="e.g., 2" className={inputCls} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Description</label>
+                        <input type="text" value={a.description} onChange={(e) => updateAction(a.id, { description: e.target.value })} placeholder="Optional details" className={inputCls} />
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <label className={labelCls}>Set {ENTITY_STATUS_NOUN[triggerEntity]} to</label>
+                      <select value={a.statusValue} onChange={(e) => updateAction(a.id, { statusValue: e.target.value })} className={selectCls}>
+                        {ENTITY_STATUS_OPTIONS[triggerEntity].map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                      <p className="text-[11px] text-muted-foreground/70 mt-1.5">Applies to the {triggerEntity} that triggered this workflow.</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => addAction("create_task")} className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--accent-violet))] hover:opacity-80 transition-opacity">
+                <Plus className="w-3.5 h-3.5" /> Add task
+              </button>
+              <button type="button" onClick={() => addAction("update_status")} className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--accent-violet))] hover:opacity-80 transition-opacity">
+                <Plus className="w-3.5 h-3.5" /> Change status
+              </button>
             </div>
           </div>
+
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors">Cancel</button>
-            <button type="submit" disabled={createWorkflow.isPending || !name.trim() || !taskTitle.trim()} className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--accent-violet))] text-white hover:bg-[hsl(var(--accent-violet))]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]">
+            <button type="submit" disabled={!canSubmit} className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--accent-violet))] text-white hover:bg-[hsl(var(--accent-violet))]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]">
               {createWorkflow.isPending ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</>) : "Create Workflow"}
             </button>
           </div>
