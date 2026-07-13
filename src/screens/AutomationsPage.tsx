@@ -144,6 +144,7 @@ function WorkflowDetailPanel({
   const [sampleStatus, setSampleStatus] = useState("");
   const [sampleValue, setSampleValue] = useState("");
   const [testResult, setTestResult] = useState<TestRunResult | null>(null);
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
   const workflow = data?.workflow;
   const runs = data?.workflowRuns.items ?? [];
@@ -321,27 +322,77 @@ function WorkflowDetailPanel({
                 {runs.length === 0 ? (
                   <p className="text-xs text-muted-foreground bg-secondary rounded-lg p-3 text-center">No executions yet</p>
                 ) : (
-                  runs.slice(0, 5).map((run) => (
-                    <div key={run.id} className="flex items-center gap-3 bg-secondary rounded-lg p-3">
-                      <div className={cn(
-                        "w-2 h-2 rounded-full shrink-0",
-                        run.status === "completed" ? "bg-[hsl(var(--success))]" :
-                        run.status === "failed" ? "bg-[hsl(var(--urgent))]" :
-                        "bg-[hsl(var(--warning))]"
-                      )} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-foreground">
-                          {run.status === "completed" ? "All actions completed" :
-                           run.status === "failed" ? (run.failureReason ?? "Failed") :
-                           "Running"}
-                        </p>
-                        {run.triggerEvent && (
-                          <p className="text-[10px] text-muted-foreground">{run.triggerEvent.label}</p>
+                  runs.slice(0, 8).map((run) => {
+                    const expanded = expandedRunId === run.id;
+                    const hasDetail = run.conditionResults.length > 0 || Boolean(run.failureReason);
+                    const summary =
+                      run.status === "failed"
+                        ? run.failureReason ?? "Failed"
+                        : run.status === "running"
+                          ? "Running…"
+                          : run.actionsExecutedCount > 0
+                            ? `${run.actionsExecutedCount} action${run.actionsExecutedCount === 1 ? "" : "s"}${run.createdTasksCount > 0 ? `, ${run.createdTasksCount} task${run.createdTasksCount === 1 ? "" : "s"}` : ""}`
+                            : run.conditionResults.some((c) => !c.matched)
+                              ? "No actions — conditions not met"
+                              : "No actions run";
+                    return (
+                      <div key={run.id} className="bg-secondary rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => hasDetail && setExpandedRunId(expanded ? null : run.id)}
+                          className={cn("w-full flex items-center gap-3 p-3 text-left", hasDetail && "hover:bg-surface-3 transition-colors")}
+                        >
+                          <div className={cn(
+                            "w-2 h-2 rounded-full shrink-0",
+                            run.status === "completed" ? "bg-[hsl(var(--success))]" :
+                            run.status === "failed" ? "bg-[hsl(var(--urgent))]" :
+                            "bg-[hsl(var(--warning))]"
+                          )} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-foreground truncate">{summary}</p>
+                            {run.triggerEvent && (
+                              <p className="text-[10px] text-muted-foreground truncate">{run.triggerEvent.label}</p>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-muted-foreground shrink-0">{relativeTime(run.createdAt)}</span>
+                          {hasDetail && (
+                            <ChevronRight className={cn("w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform", expanded && "rotate-90")} />
+                          )}
+                        </button>
+                        {expanded && (
+                          <div className="px-3 pb-3 space-y-2 border-t border-border/60">
+                            {run.conditionResults.length > 0 && (
+                              <div className="pt-2 space-y-1">
+                                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Conditions</p>
+                                {run.conditionResults.map((c, i) => (
+                                  <div key={i} className="flex items-center justify-between gap-2 text-[11px]">
+                                    <span className="text-foreground truncate">
+                                      {c.field} {c.operator}
+                                      {c.value != null && String(c.value) !== "" ? ` ${Array.isArray(c.value) ? c.value.join(", ") : String(c.value)}` : ""}
+                                    </span>
+                                    <span className={cn("shrink-0 flex items-center gap-1", c.matched ? "text-[hsl(var(--success))]" : "text-muted-foreground")}>
+                                      <span className="text-muted-foreground">got {formatActualValue(c.actualValue)}</span>
+                                      {c.matched ? <CheckCircle2 className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {(run.actionsExecutedCount > 0 || run.timeSavedSeconds > 0) && (
+                              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground pt-1">
+                                <span>{run.actionsExecutedCount} action{run.actionsExecutedCount === 1 ? "" : "s"} run</span>
+                                {run.createdTasksCount > 0 && <span>{run.createdTasksCount} task{run.createdTasksCount === 1 ? "" : "s"} created</span>}
+                                {run.timeSavedSeconds > 0 && <span>~{run.timeSavedSeconds}s saved</span>}
+                              </div>
+                            )}
+                            {run.failureReason && (
+                              <p className="text-[11px] text-destructive pt-1">{run.failureReason}</p>
+                            )}
+                          </div>
                         )}
                       </div>
-                      <span className="text-[10px] text-muted-foreground shrink-0">{relativeTime(run.createdAt)}</span>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>

@@ -364,11 +364,15 @@ export interface WorkflowDetailResponse {
     triggerType: string;
   };
   workflowRuns: PaginatedResult<{
+    actionsExecutedCount: number;
     completedAt: string | null;
+    conditionResults: Array<{ actualValue: Json; field: string; matched: boolean; operator: string; value: Json }>;
     createdAt: string;
+    createdTasksCount: number;
     failureReason: string | null;
     id: string;
     status: Tables<"workflow_runs">["status"];
+    timeSavedSeconds: number;
     triggerEvent: EntityReferenceSummary | null;
   }>;
 }
@@ -2031,6 +2035,30 @@ export async function getWorkflowsListView(
   };
 }
 
+function extractRunConditionResults(
+  contextJson: Json,
+): Array<{ actualValue: Json; field: string; matched: boolean; operator: string; value: Json }> {
+  const record =
+    contextJson && typeof contextJson === "object" && !Array.isArray(contextJson)
+      ? (contextJson as Record<string, Json>)
+      : {};
+  const raw = record.condition_results;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    const entry = (item && typeof item === "object" && !Array.isArray(item) ? item : {}) as Record<string, Json>;
+    const condition = (entry.condition && typeof entry.condition === "object" && !Array.isArray(entry.condition)
+      ? entry.condition
+      : {}) as Record<string, Json>;
+    return {
+      actualValue: entry.actualValue ?? null,
+      field: typeof condition.field === "string" ? condition.field : "",
+      matched: entry.matched === true,
+      operator: typeof condition.operator === "string" ? condition.operator : "",
+      value: condition.value ?? null,
+    };
+  });
+}
+
 export async function getWorkflowDetailView(
   context: TenantServiceContext,
   workflowId: string,
@@ -2063,11 +2091,15 @@ export async function getWorkflowDetailView(
     .sort((left, right) => (right.completed_at ?? right.updated_at).localeCompare(left.completed_at ?? left.updated_at));
   const paginatedRuns = paginateItems(
     relatedRuns.map((run) => ({
+      actionsExecutedCount: run.actions_executed_count,
       completedAt: run.completed_at,
+      conditionResults: extractRunConditionResults(run.context_json),
       createdAt: run.created_at,
+      createdTasksCount: run.created_tasks_count,
       failureReason: run.failure_reason,
       id: run.id,
       status: run.status,
+      timeSavedSeconds: run.time_saved_seconds,
       triggerEvent: run.trigger_event_id && activityEventMap.get(run.trigger_event_id)
         ? {
             id: run.trigger_event_id,

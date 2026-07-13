@@ -452,11 +452,15 @@ export interface WorkflowDetailResponse {
   };
   workflowRuns: {
     items: Array<{
+      actionsExecutedCount: number;
       completedAt: string | null;
+      conditionResults: Array<{ actualValue: unknown; field: string; matched: boolean; operator: string; value: unknown }>;
       createdAt: string;
+      createdTasksCount: number;
       failureReason: string | null;
       id: string;
       status: string;
+      timeSavedSeconds: number;
       triggerEvent: { id: string; label: string; type: string } | null;
     }>;
     pagination: { page: number; pageSize: number; total: number; totalPages: number };
