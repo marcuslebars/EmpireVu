@@ -24,6 +24,7 @@ import {
   assignContactOwner,
   updateContactNotes,
   updateContactFields,
+  analyzeContactAI,
   type UpdateContactFields,
   createBooking,
   updateBookingStatus,
@@ -290,6 +291,12 @@ export function useUpdateContactFields(orgId: string, contactId: string) {
       void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
       void qc.invalidateQueries({ queryKey: ["crm", "contacts", orgId] });
     },
+  });
+}
+
+export function useAnalyzeContactAI(orgId: string, contactId: string) {
+  return useMutation({
+    mutationFn: () => analyzeContactAI(orgId, contactId),
   });
 }
 

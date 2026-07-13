@@ -614,6 +614,30 @@ export function updateContactFields(
   });
 }
 
+// AI
+
+export interface ContactAIAnalysis {
+  summary: string;
+  intent: string;
+  urgency: "low" | "medium" | "high";
+  fitScore: number;
+  suggestedStage: "lead" | "qualified" | "active" | "closed";
+  suggestedActions: string[];
+  draftedEmail: { subject: string; body: string };
+  draftedSms: string;
+}
+
+export async function analyzeContactAI(
+  orgId: string,
+  contactId: string,
+): Promise<ContactAIAnalysis> {
+  const result = await apiFetch<{ data: ContactAIAnalysis }>(
+    `/api/organizations/${orgId}/contacts/${contactId}/ai/analyze`,
+    { method: "POST" },
+  );
+  return result.data;
+}
+
 // Booking mutations
 
 export interface CreateBookingInput {
