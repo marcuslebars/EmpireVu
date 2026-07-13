@@ -1,18 +1,143 @@
-import { useState } from "react";
-import { Building2, Users, Bell, Puzzle, Palette, Shield, ChevronRight } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Building2, Users, Bell, Puzzle, Palette, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "@/components/ui/sonner";
+import { useOrg } from "@/lib/org-context";
+import { useOrganizations, useCompanies, useUpdateOrganization } from "@/lib/api-hooks";
 
 const sections = [
-  { id: "org", label: "Organization", icon: Building2, description: "Manage organization name, logo, and billing" },
-  { id: "company", label: "Company Settings", icon: Building2, description: "Configure individual company preferences" },
+  { id: "org", label: "Organization", icon: Building2, description: "Manage organization name, slug, and companies" },
   { id: "members", label: "Members & Permissions", icon: Users, description: "Manage team roles and access controls" },
   { id: "notifications", label: "Notifications", icon: Bell, description: "Configure notification preferences" },
   { id: "integrations", label: "Integrations", icon: Puzzle, description: "Connect third-party tools and services" },
   { id: "appearance", label: "Appearance", icon: Palette, description: "Customize theme and display options" },
 ];
 
+function OrganizationSettings() {
+  const { organizationId } = useOrg();
+  const { data: orgs, isLoading: orgsLoading } = useOrganizations();
+  const { data: companies, isLoading: companiesLoading } = useCompanies(organizationId);
+  const updateOrg = useUpdateOrganization(organizationId);
+
+  const org = orgs?.find((o) => o.id === organizationId) ?? null;
+
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+
+  useEffect(() => {
+    if (org) {
+      setName(org.name);
+      setSlug(org.slug);
+    }
+    // Seed inputs when the active organization changes; intentionally not
+    // re-seeding on every refetch so in-progress edits aren't clobbered.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [org?.id]);
+
+  const dirty = org ? name.trim() !== org.name || slug.trim() !== org.slug : false;
+  const canSave = dirty && name.trim().length > 0 && !updateOrg.isPending;
+
+  const handleSave = () => {
+    if (!canSave || !org) return;
+    const payload: { name?: string; slug?: string } = {};
+    if (name.trim() !== org.name) payload.name = name.trim();
+    if (slug.trim() !== org.slug) payload.slug = slug.trim();
+    updateOrg.mutate(payload, {
+      onSuccess: (updated) => {
+        setName(updated.name);
+        setSlug(updated.slug);
+        toast.success("Organization updated");
+      },
+      onError: (error) =>
+        toast.error(error instanceof Error ? error.message : "Failed to update organization"),
+    });
+  };
+
+  if (orgsLoading && !org) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading organization…
+      </div>
+    );
+  }
+
+  if (!org) {
+    return <div className="text-sm text-muted-foreground py-8">No organization selected.</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold text-foreground">Organization</h2>
+        <p className="text-sm text-muted-foreground mt-1">Manage your organization details</p>
+      </div>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1.5">Organization Name</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full bg-secondary border-0 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1.5">Slug</label>
+          <input
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            className="w-full bg-secondary border-0 rounded-lg px-3 py-2 text-sm text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            Used in URLs. Lowercased and hyphenated automatically on save.
+          </p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1.5">
+            Companies{companies ? ` (${companies.length})` : ""}
+          </label>
+          <div className="space-y-2">
+            {companiesLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground px-3 py-2.5">
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+              </div>
+            ) : companies && companies.length > 0 ? (
+              companies.map((c) => (
+                <div
+                  key={c.id}
+                  className="flex items-center justify-between px-3 py-2.5 bg-secondary rounded-lg"
+                >
+                  <span className="text-sm text-foreground">{c.name}</span>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                </div>
+              ))
+            ) : (
+              <div className="text-sm text-muted-foreground px-3 py-2.5 bg-secondary rounded-lg">
+                No companies yet.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="flex justify-end pt-4 border-t border-border">
+        <button
+          onClick={handleSave}
+          disabled={!canSave}
+          className={cn(
+            "px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground transition-colors active:scale-[0.97] flex items-center gap-2",
+            canSave ? "hover:bg-primary/90" : "opacity-50 cursor-not-allowed"
+          )}
+        >
+          {updateOrg.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+          Save Changes
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [active, setActive] = useState("org");
+  const activeSection = sections.find((s) => s.id === active);
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-6">
@@ -41,84 +166,18 @@ export default function SettingsPage() {
 
         {/* Content */}
         <div className="lg:col-span-3 bg-card border border-border rounded-xl p-6">
-          {active === "org" && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">Organization</h2>
-                <p className="text-sm text-muted-foreground mt-1">Manage your organization details</p>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1.5">Organization Name</label>
-                  <input defaultValue="Thinker Holdings" className="w-full bg-secondary border-0 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1.5">Slug</label>
-                  <input defaultValue="thinker-holdings" className="w-full bg-secondary border-0 rounded-lg px-3 py-2 text-sm text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1.5">Companies</label>
-                  <div className="space-y-2">
-                    {["A1 Marine Care", "RankLocal", "MarineMecca", "Vitatee"].map((c) => (
-                      <div key={c} className="flex items-center justify-between px-3 py-2.5 bg-secondary rounded-lg">
-                        <span className="text-sm text-foreground">{c}</span>
-                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="flex justify-end pt-4 border-t border-border">
-                <button className="px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]">
-                  Save Changes
-                </button>
-              </div>
-            </div>
-          )}
-          {active === "members" && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-foreground">Members & Permissions</h2>
-                  <p className="text-sm text-muted-foreground mt-1">Manage team access and roles</p>
-                </div>
-                <button className="px-3 py-1.5 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]">
-                  Invite Member
-                </button>
-              </div>
-              <div className="space-y-2">
-                {[
-                  { name: "James Donovan", role: "Owner", email: "james@thinkerholdings.com" },
-                  { name: "Marcus Reeves", role: "Admin", email: "marcus@a1marinecare.com" },
-                  { name: "Kira Lam", role: "Member", email: "kira@ranklocal.com" },
-                  { name: "Aisha Shah", role: "Member", email: "aisha@vitatee.com" },
-                ].map((m) => (
-                  <div key={m.email} className="flex items-center justify-between px-3 py-3 bg-secondary rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-medium text-foreground">
-                        {m.name.split(" ").map(n => n[0]).join("")}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{m.name}</p>
-                        <p className="text-xs text-muted-foreground">{m.email}</p>
-                      </div>
-                    </div>
-                    <span className="text-xs font-medium px-2 py-1 rounded bg-muted text-muted-foreground">{m.role}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {!["org", "members"].includes(active) && (
+          {active === "org" ? (
+            <OrganizationSettings />
+          ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center mb-4">
-                {(() => {
-                  const s = sections.find(s => s.id === active);
-                  return s ? <s.icon className="w-5 h-5 text-muted-foreground" /> : null;
-                })()}
+                {activeSection ? <activeSection.icon className="w-5 h-5 text-muted-foreground" /> : null}
               </div>
-              <h3 className="text-sm font-semibold text-foreground mb-1">{sections.find(s => s.id === active)?.label}</h3>
-              <p className="text-sm text-muted-foreground max-w-sm">{sections.find(s => s.id === active)?.description}</p>
+              <h3 className="text-sm font-semibold text-foreground mb-1">{activeSection?.label}</h3>
+              <p className="text-sm text-muted-foreground max-w-sm">{activeSection?.description}</p>
+              <span className="mt-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+                Coming soon
+              </span>
             </div>
           )}
         </div>
