@@ -25,6 +25,11 @@ import {
   updateContactNotes,
   updateContactFields,
   analyzeContactAI,
+  confirmAIDraftSlot,
+  fetchContactAIDrafts,
+  sendAIDraft,
+  updateAIDraft,
+  type UpdateAIDraftInput,
   type UpdateContactFields,
   createBooking,
   updateBookingStatus,
@@ -294,9 +299,59 @@ export function useUpdateContactFields(orgId: string, contactId: string) {
   });
 }
 
+const aiDraftsKey = (orgId: string, contactId: string) => ["crm", "ai-drafts", orgId, contactId];
+
+export function useContactAIDrafts(orgId: string, contactId: string) {
+  return useQuery({
+    queryKey: aiDraftsKey(orgId, contactId),
+    queryFn: () => fetchContactAIDrafts(orgId, contactId),
+    enabled: Boolean(orgId && contactId),
+  });
+}
+
 export function useAnalyzeContactAI(orgId: string, contactId: string) {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: () => analyzeContactAI(orgId, contactId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: aiDraftsKey(orgId, contactId) });
+    },
+  });
+}
+
+export function useUpdateAIDraft(orgId: string, contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ draftId, ...input }: UpdateAIDraftInput & { draftId: string }) =>
+      updateAIDraft(orgId, contactId, draftId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: aiDraftsKey(orgId, contactId) });
+    },
+  });
+}
+
+export function useSendAIDraft(orgId: string, contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ draftId, channel }: { draftId: string; channel: "email" | "sms" }) =>
+      sendAIDraft(orgId, contactId, draftId, channel),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: aiDraftsKey(orgId, contactId) });
+      void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
+    },
+  });
+}
+
+export function useConfirmAIDraftSlot(orgId: string, contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ draftId, startsAt, title }: { draftId: string; startsAt: string; title?: string }) =>
+      confirmAIDraftSlot(orgId, contactId, draftId, { startsAt, title }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: aiDraftsKey(orgId, contactId) });
+      void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
+      void qc.invalidateQueries({ queryKey: ["calendar", "view", orgId] });
+    },
   });
 }
 

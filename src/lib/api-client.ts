@@ -616,6 +616,12 @@ export function updateContactFields(
 
 // AI
 
+export interface ProposedSlot {
+  startsAt: string;
+  durationMinutes: number;
+  reason: string;
+}
+
 export interface ContactAIAnalysis {
   summary: string;
   intent: string;
@@ -625,17 +631,94 @@ export interface ContactAIAnalysis {
   suggestedActions: string[];
   draftedEmail: { subject: string; body: string };
   draftedSms: string;
+  proposedSlots: ProposedSlot[];
 }
 
-export async function analyzeContactAI(
+export type AIDraftSendStatus = "draft" | "sent" | "failed";
+
+/** A persisted AI draft — the analysis plus the editable, sendable reply. */
+export interface AIDraft {
+  id: string;
+  organization_id: string;
+  company_id: string;
+  contact_id: string;
+  analysis: ContactAIAnalysis;
+  email_subject: string | null;
+  email_body: string | null;
+  sms_body: string | null;
+  proposed_slots: ProposedSlot[];
+  booking_id: string | null;
+  email_status: AIDraftSendStatus;
+  email_sent_at: string | null;
+  email_error: string | null;
+  sms_status: AIDraftSendStatus;
+  sms_sent_at: string | null;
+  sms_error: string | null;
+  workflow_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AIDraftBooking {
+  id: string;
+  title: string;
+  scheduled_for: string;
+}
+
+// NOTE: apiFetch already unwraps the route's { data } envelope, so these return
+// its result directly. Reading `.data` off it again yields undefined.
+
+/** Runs Claude and persists the result as a reviewable draft. */
+export function analyzeContactAI(orgId: string, contactId: string): Promise<AIDraft> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}/ai/analyze`, {
+    method: "POST",
+  });
+}
+
+export function fetchContactAIDrafts(orgId: string, contactId: string): Promise<AIDraft[]> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}/ai/drafts`);
+}
+
+export interface UpdateAIDraftInput {
+  emailSubject?: string | null;
+  emailBody?: string | null;
+  smsBody?: string | null;
+}
+
+export function updateAIDraft(
   orgId: string,
   contactId: string,
-): Promise<ContactAIAnalysis> {
-  const result = await apiFetch<{ data: ContactAIAnalysis }>(
-    `/api/organizations/${orgId}/contacts/${contactId}/ai/analyze`,
-    { method: "POST" },
-  );
-  return result.data;
+  draftId: string,
+  input: UpdateAIDraftInput,
+): Promise<AIDraft> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}/ai/drafts/${draftId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function sendAIDraft(
+  orgId: string,
+  contactId: string,
+  draftId: string,
+  channel: "email" | "sms",
+): Promise<AIDraft> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}/ai/drafts/${draftId}/send`, {
+    method: "POST",
+    body: JSON.stringify({ channel }),
+  });
+}
+
+export function confirmAIDraftSlot(
+  orgId: string,
+  contactId: string,
+  draftId: string,
+  input: { startsAt: string; title?: string },
+): Promise<{ booking: AIDraftBooking; draft: AIDraft }> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}/ai/drafts/${draftId}/booking`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 // Booking mutations
