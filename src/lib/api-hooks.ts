@@ -42,6 +42,8 @@ import {
   updateWorkflowStatus,
   updateWorkflow,
   createWorkflow,
+  suggestWorkflows,
+  type WorkflowSuggestion,
   type CreateWorkflowInput,
   type UpdateWorkflowInput,
   type CreateContactInput,
@@ -485,6 +487,13 @@ export function useCreateWorkflow(orgId: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["automations", "workflows", orgId] });
     },
+  });
+}
+
+/** Read-only: asks Claude for proposals. Nothing is created until the owner clicks. */
+export function useSuggestWorkflows(orgId: string) {
+  return useMutation({
+    mutationFn: () => suggestWorkflows(orgId),
   });
 }
 
