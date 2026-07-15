@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { handleRoute } from "@/server/api/route";
 import { requireOrganizationContext } from "@/server/organizations/context";
-import { createDraftForContact } from "@/server/services/ai-drafts";
+import { listDraftsForContact } from "@/server/services/ai-drafts";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -14,13 +14,12 @@ interface RouteContext {
   };
 }
 
-/** Analyze the lead and persist the result as a reviewable, sendable draft. */
-export async function POST(_request: Request, context: RouteContext): Promise<NextResponse> {
+export async function GET(_request: Request, context: RouteContext): Promise<NextResponse> {
   return handleRoute(async () => {
     const supabase = createSupabaseServerClient();
     const organization = await requireOrganizationContext(supabase, context.params.organizationId);
 
-    const { draft } = await createDraftForContact(
+    const data = await listDraftsForContact(
       {
         actorProfileId: organization.user.id,
         organizationId: organization.organizationId,
@@ -29,6 +28,6 @@ export async function POST(_request: Request, context: RouteContext): Promise<Ne
       context.params.contactId,
     );
 
-    return NextResponse.json({ data: draft });
+    return NextResponse.json({ data });
   });
 }

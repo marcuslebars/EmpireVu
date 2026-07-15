@@ -1,7 +1,72 @@
 import type { Tables } from "@/server/db/database.types";
 import { ValidationError } from "@/server/organizations/context";
 import type { TenantServiceContext } from "@/server/services/shared";
-import { analyzeLead, isAIConfigured, type LeadAnalysis } from "@/server/ai/claude";
+import {
+  analyzeLead,
+  isAIConfigured,
+  type BusySlot,
+  type LeadAnalysis,
+  type SchedulingContext,
+} from "@/server/ai/claude";
+
+/** How far ahead the AI is allowed to see (and propose) when suggesting booking slots. */
+const SCHEDULING_HORIZON_DAYS = 14;
+
+export function getBusinessTimezone(): string {
+  return process.env.BUSINESS_TIMEZONE ?? "America/Toronto";
+}
+
+/**
+ * The company's real calendar for the next two weeks, so proposed slots don't
+ * collide with work already booked. Cancelled jobs don't block a slot.
+ */
+async function loadSchedulingContext(
+  context: TenantServiceContext,
+  companyId: string | null,
+  nowIso: string,
+): Promise<SchedulingContext> {
+  const scheduling: SchedulingContext = {
+    busy: [],
+    nowIso,
+    timezone: getBusinessTimezone(),
+  };
+
+  if (!companyId) {
+    return scheduling;
+  }
+
+  const horizonIso = new Date(
+    new Date(nowIso).getTime() + SCHEDULING_HORIZON_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const { data, error } = await context.supabase
+    .from("bookings")
+    .select("title, scheduled_for, duration_minutes, status")
+    .eq("organization_id", context.organizationId)
+    .eq("company_id", companyId)
+    .neq("status", "cancelled")
+    .gte("scheduled_for", nowIso)
+    .lte("scheduled_for", horizonIso)
+    .order("scheduled_for", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  const rows = (data ?? []) as Array<
+    Pick<Tables<"bookings">, "title" | "scheduled_for" | "duration_minutes">
+  >;
+
+  scheduling.busy = rows.map(
+    (row): BusySlot => ({
+      durationMinutes: row.duration_minutes ?? 30,
+      startsAt: row.scheduled_for,
+      title: row.title,
+    }),
+  );
+
+  return scheduling;
+}
 
 export async function analyzeContact(
   context: TenantServiceContext,
@@ -45,6 +110,12 @@ export async function analyzeContact(
       ? (contact.metadata as Record<string, unknown>)
       : {};
 
+  const scheduling = await loadSchedulingContext(
+    context,
+    contact.company_id,
+    new Date().toISOString(),
+  );
+
   return analyzeLead({
     firstName: contact.first_name,
     lastName: contact.last_name,
@@ -55,5 +126,6 @@ export async function analyzeContact(
     companyName,
     createdAt: contact.created_at,
     metadata,
+    scheduling,
   });
 }

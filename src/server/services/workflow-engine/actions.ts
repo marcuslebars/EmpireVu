@@ -6,7 +6,7 @@ import { updateBookingStatus } from "@/server/services/bookings";
 import { assignContactOwner, updateContactStage } from "@/server/services/contacts";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { assignTaskUser, createTask, updateTaskStatus } from "@/server/services/tasks";
-import { analyzeContact } from "@/server/services/ai";
+import { createDraftForContact } from "@/server/services/ai-drafts";
 import type {
   WorkflowAction,
   WorkflowEventContext,
@@ -153,20 +153,22 @@ export async function executeWorkflowActions(
         projectedActions.push({ action, resolvedPayload: { contact_id: contactId } });
 
         if (!options.dryRun) {
-          const analysis = await analyzeContact(context, contactId);
+          const { analysis } = await createDraftForContact(context, contactId, {
+            workflowId: options.workflow.id,
+          });
 
           if (action.create_review_task !== false) {
+            // The drafted email/SMS deliberately aren't copied in here: the draft is
+            // editable, so duplicated text would go stale the moment it's edited.
+            // The task points at the draft; the draft stays the single source.
             const description = [
               analysis.summary,
               "",
               `Suggested stage: ${analysis.suggestedStage} · Fit ${Math.round(analysis.fitScore)}/100 · ${analysis.urgency} urgency`,
               "",
-              "Drafted email —",
-              `Subject: ${analysis.draftedEmail.subject}`,
-              analysis.draftedEmail.body,
-              "",
-              "Drafted SMS —",
-              analysis.draftedSms,
+              analysis.proposedSlots.length > 0
+                ? `A drafted email and SMS plus ${analysis.proposedSlots.length} proposed booking time(s) are ready on this contact's AI tab — review, edit, and send from there.`
+                : "A drafted email and SMS are ready on this contact's AI tab — review, edit, and send from there.",
             ].join("\n");
 
             await createTask(
