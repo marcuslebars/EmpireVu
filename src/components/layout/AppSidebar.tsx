@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
+import { Logo, LogoMark } from "@/components/brand/Logo";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -33,15 +34,8 @@ export function AppSidebar() {
     >
       {/* Logo */}
       <div className="h-14 flex items-center px-4 border-b border-sidebar-border">
-        <div className="flex items-center gap-2.5 overflow-hidden">
-          <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
-            <span className="text-primary-foreground font-bold text-sm">S</span>
-          </div>
-          {!collapsed && (
-            <span className="font-semibold text-foreground tracking-tight text-[15px]">
-              EmpireVu
-            </span>
-          )}
+        <div className="flex items-center overflow-hidden">
+          {collapsed ? <LogoMark className="w-7 h-7 text-sm" /> : <Logo className="h-[22px]" />}
         </div>
       </div>
 
