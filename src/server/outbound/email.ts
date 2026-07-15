@@ -33,13 +33,15 @@ export class OutboundSendError extends Error {}
 
 export function readEmailConfig(): OutboundEmailConfig | null {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.OUTBOUND_FROM_EMAIL ?? process.env.LEAD_FROM_EMAIL;
+  // `||` not `??`: a variable that exists but is blank (easy to do in a hosting
+  // dashboard) should fall back, not silently defeat the fallback.
+  const from = process.env.OUTBOUND_FROM_EMAIL || process.env.LEAD_FROM_EMAIL;
 
   if (!apiKey || !from) {
     return null;
   }
 
-  return { apiKey, from, replyTo: process.env.OUTBOUND_REPLY_TO ?? null };
+  return { apiKey, from, replyTo: process.env.OUTBOUND_REPLY_TO || null };
 }
 
 export function isEmailSendConfigured(): boolean {

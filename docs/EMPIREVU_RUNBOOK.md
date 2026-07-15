@@ -33,8 +33,20 @@
 | `LEAD_INTAKE_SECRET` | HMAC key for `X-EmpireVu-Signature`; **shared** with the spokes |
 | `LEAD_INTAKE_ORG_SLUG` | Org the intake writes to (`a1-group`) |
 | `LEAD_NOTIFY_EMAIL` | Lead-notification recipient |
-| `LEAD_FROM_EMAIL` | Resend sender (default `leads@a1marinecare.ca`) |
+| `LEAD_FROM_EMAIL` | Resend sender for **owner notifications** (default `leads@a1marinecare.ca`) |
+| `ANTHROPIC_API_KEY` | Claude — lead analysis + drafted replies. **Also required on the worker** (see below) |
+| `OUTBOUND_FROM_EMAIL` | Resend sender for **customer-facing** AI replies. Falls back to `LEAD_FROM_EMAIL`, but that reads "EmpireVu Leads" — set a customer-appropriate sender. Domain must be verified in Resend |
+| `OUTBOUND_REPLY_TO` | *(optional)* Where a customer's reply lands |
+| `TWILIO_ACCOUNT_SID` | SMS — Twilio account SID (`AC…`) |
+| `TWILIO_AUTH_TOKEN` | SMS — Twilio auth token |
+| `TWILIO_FROM_NUMBER` | SMS — the sending number, E.164 (`+1…`) |
+| `BUSINESS_TIMEZONE` | *(optional)* IANA zone the AI reasons about booking times in. Default `America/Toronto` |
 | `PORT` | **Auto-set by Railway — never set manually** |
+
+All three `TWILIO_*` vars must be set together — SMS send is disabled (with a clear
+error, never a silent no-op) unless all three are present. Same for email:
+`RESEND_API_KEY` + a sender. Sending is **draft-first** — a human clicks send — so
+these only ever apply to the web service, never the worker.
 
 **Remove (obsolete after consolidation):** `VITE_API_BASE_URL`, `VITE_NEXT_SERVER_ORIGIN` — the SPA is same-origin now; if left set they break the SPA→API calls.
 
@@ -52,8 +64,25 @@ When pointing the service at a **new** Supabase project:
 3. **Auth**: configure Authentication → Providers (Google) + Site URL/redirect = your Railway domain before CRM login works. *(Not needed for `/api/intake` or for viewing rows in the Supabase Table Editor.)*
 4. **No org until Phase 3** — a fresh project has no org, so a valid lead is stored + emailed but flagged "needs attention" with no contact created until `a1-group` is seeded.
 
-## Worker service (to create)
+## Worker service
 Second Railway service, same repo. Start `npm run worker:workflow-events`. Env: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (+ optional `WORKFLOW_EVENT_WORKER_POLL_MS`/`_BATCH_SIZE`/`_STALE_AFTER_SECONDS`/`_ID`). No volume. Until it runs, workflow jobs queue but don't execute — fine, since intake writes + notifies directly.
+
+### ⚠ `ANTHROPIC_API_KEY` must ALSO be on the worker
+Workflow actions execute **in the worker**, so the `ai_analyze` action (the
+"Analyze the lead with AI" automation) needs `ANTHROPIC_API_KEY` on the *worker*
+service, not just the web one. Without it every live run throws "AI is not
+configured".
+
+**This does not show up in testing** — three ways it can look fine and still be dead:
+- the Automations **Test** button runs a *dry run*, and `ai_analyze` skips the
+  Claude call entirely on a dry run — so Test passes without ever calling Claude;
+- **Run now** executes in the *web* service, which has the key — so it passes too;
+- the contact AI tab's **Analyze** button is also the web service — passes.
+
+Only a real lead → queued job → worker exercises the worker's copy of the key.
+To verify for real: add a contact, let the workflow fire, and confirm the
+"Review AI-drafted reply" task appears. If it doesn't, check the worker's logs for
+"AI is not configured".
 
 ## Deploy discipline (auto-deploy on push to `main`)
 Every merge to `main` is a production deploy. Gate on the feature branch first (run separately):
@@ -63,6 +92,18 @@ npm run test
 npm run build
 ```
 Merge only when all three pass. (Next's build-time typecheck is intentionally off — `npm run typecheck` is the authoritative gate.)
+
+## Pending migrations to apply to the live Supabase
+Railway does **not** run migrations. Apply these in the SQL Editor with (or before)
+the deploy that ships them, or the matching writes fail against the live DB.
+
+| Migration | Why | Note |
+|---|---|---|
+| `20260712000000_add_booking_no_show.sql` | `no_show` was dropped from `booking_status` by the 2026-03-22 harden migration | `alter type public.booking_status add value if not exists 'no_show';` — **ADD VALUE runs outside a transaction**, so run it on its own |
+| `20260715000000_add_ai_drafts.sql` | Phase D: the `ai_drafts` table behind the AI review-and-send tab | Plain DDL; paste the file as-is. Verify: `select count(*) from ai_drafts;` returns `0`, not an error |
+
+Until `ai_drafts` exists, the AI tab's Analyze button and the `ai_analyze`
+automation both fail on the insert.
 
 ## Post-deploy smoke (PowerShell)
 ```powershell
@@ -128,6 +169,35 @@ select lead_id, source_site, schema_valid, needs_attention, created_at
 from raw_leads order by created_at desc limit 5;
 ```
 Two new rows (CASE 1 `schema_valid=true`, CASE 3 `false`), **none** for CASE 2, and two emails at `LEAD_NOTIFY_EMAIL` (CASE 3 marked "needs attention").
+
+## Phase D — AI replies to leads (draft-first)
+
+**The rule: nothing reaches a customer without a human click.** There is no
+auto-send path in the code — the engine can analyze and draft, but only the
+Send button on the contact's **AI** tab actually sends. Owner's decision,
+2026-07-15.
+
+The loop:
+1. A draft is created — either the **Analyze lead** button on the contact's AI tab,
+   or the `ai_analyze` automation firing on a new lead (which also raises a
+   "Review AI-drafted reply" task).
+2. The AI tab shows the summary/fit/urgency, an **editable** email + SMS, and up to
+   3 proposed booking times (Claude is given the company's real calendar; anything
+   overlapping an existing job or in the past is filtered out server-side).
+3. You edit if needed and press **Send email** / **Send SMS** → two-step confirm →
+   it goes out via Resend / Twilio. Edits are saved automatically on send, so what
+   you see is what is sent.
+4. **Confirm** on a proposed time creates the booking. One booking per draft.
+
+Operational notes:
+- A sent channel is **read-only and cannot be re-sent** — the guard is in the
+  service, not just the UI.
+- Sends **never auto-retry**: a timeout is ambiguous and a retry could double-text
+  a customer. A failure shows the provider's real error; press send again yourself.
+- Drafts are the audit trail of what was sent (no delete policy). The stored
+  `analysis` is Claude's original output, kept even after a human edits the reply.
+- If a send fails with "not configured", the web service is missing
+  `OUTBOUND_FROM_EMAIL`/`RESEND_API_KEY` or the `TWILIO_*` trio.
 
 ---
 
