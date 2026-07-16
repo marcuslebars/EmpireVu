@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   Plus, Zap, ArrowRight, MoreHorizontal, Search, Filter, Play, Pause,
   ChevronRight, Calendar, UserPlus, CheckCircle2, Bell, ClipboardList,
@@ -19,10 +19,11 @@ import {
   useCreateWorkflow,
   useUpdateWorkflow,
   useCompanies,
+  useSuggestWorkflows,
 } from "@/lib/api-hooks";
 import { SkeletonCard, ErrorBanner, EmptyState } from "@/components/ui/StateViews";
 import { relativeTime, formatPercent, formatSeconds } from "@/lib/format";
-import type { WorkflowListRow, WorkflowDetailResponse } from "@/lib/api-client";
+import type { WorkflowListRow, WorkflowDetailResponse, WorkflowSuggestion } from "@/lib/api-client";
 import { toast } from "@/components/ui/sonner";
 
 // ─── Styling maps ─────────────────────────────────────────────────────────────
@@ -504,6 +505,142 @@ function WorkflowDetailPanel({
 
 // ─── Automations Page ─────────────────────────────────────────────────────────
 
+// ─── AI workflow suggestions ──────────────────────────────────────────────────
+
+const triggerLabel: Record<string, string> = {
+  "contact.created": "New contact added",
+  "contact.stage_changed": "Contact stage changes",
+  "booking.created": "Booking created",
+  "booking.completed": "Booking completed",
+  "task.completed": "Task completed",
+};
+
+function describeAction(action: { type: string; title?: string; priority?: string; status?: string }): string {
+  switch (action.type) {
+    case "create_task":
+      return `Create task "${action.title}"${action.priority ? ` (${action.priority})` : ""}`;
+    case "ai_analyze":
+      return "Analyze the lead with AI and draft a reply";
+    case "update_status":
+      return `Set status to ${action.status}`;
+    default:
+      return action.type;
+  }
+}
+
+/**
+ * Claude reads the real CRM and proposes automations. Every proposal is already
+ * validated against the engine's schema server-side, so anything shown here will
+ * actually run. Nothing is created until the owner clicks Create.
+ */
+function SuggestWorkflowsPanel({ orgId, onClose }: { orgId: string; onClose: () => void }) {
+  const suggest = useSuggestWorkflows(orgId);
+  const createWorkflow = useCreateWorkflow(orgId);
+  const [created, setCreated] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    suggest.mutate();
+    // Run once when the panel opens; re-running is the Retry button's job.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleCreate = async (suggestion: WorkflowSuggestion) => {
+    try {
+      await createWorkflow.mutateAsync({
+        name: suggestion.name,
+        triggerEvent: suggestion.triggerEvent,
+        definition: suggestion.definition,
+        description: suggestion.rationale,
+        status: "active",
+      });
+      setCreated((prev) => ({ ...prev, [suggestion.name]: true }));
+      toast.success(`"${suggestion.name}" created and switched on`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't create that workflow.");
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-[hsl(var(--accent-violet))]" /> AI suggestions
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Claude looked at your contacts, bookings, tasks and existing automations. Nothing is created until you say so.
+          </p>
+        </div>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {suggest.isPending && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
+          <Loader2 className="w-4 h-4 animate-spin" /> Reading your business…
+        </div>
+      )}
+
+      {suggest.isError && (
+        <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-xs text-destructive flex items-center justify-between gap-3">
+          <span>{suggest.error instanceof Error ? suggest.error.message : "Couldn't get suggestions."}</span>
+          <button onClick={() => suggest.mutate()} className="font-semibold underline shrink-0">
+            Retry
+          </button>
+        </div>
+      )}
+
+      {suggest.isSuccess && suggest.data.length === 0 && (
+        <div className="rounded-lg border border-dashed border-border p-6 text-center">
+          <p className="text-sm text-muted-foreground">
+            Claude didn't find anything worth adding — your automations already cover the obvious ground.
+          </p>
+        </div>
+      )}
+
+      {suggest.isSuccess && suggest.data.length > 0 && (
+        <div className="space-y-3">
+          {suggest.data.map((suggestion) => (
+            <div key={suggestion.name} className="rounded-lg border border-border bg-secondary/40 p-4 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground">{suggestion.name}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    When: {triggerLabel[suggestion.triggerEvent] ?? suggestion.triggerEvent}
+                  </p>
+                </div>
+                {created[suggestion.name] ? (
+                  <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 uppercase tracking-wide shrink-0">
+                    <CheckCircle2 className="w-3 h-3" /> Created
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => void handleCreate(suggestion)}
+                    disabled={createWorkflow.isPending}
+                    className="shrink-0 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[hsl(var(--accent-violet))] text-white hover:bg-[hsl(var(--accent-violet))]/90 transition-colors disabled:opacity-50"
+                  >
+                    Create
+                  </button>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">{suggestion.rationale}</p>
+              <div className="space-y-1 pt-1">
+                {suggestion.actions.map((action, i) => (
+                  <div key={i} className="flex items-start gap-2 text-xs text-foreground">
+                    <ArrowRight className="w-3 h-3 text-[hsl(var(--accent-violet))] shrink-0 mt-0.5" />
+                    <span>{describeAction(action)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Create Workflow Dialog ───────────────────────────────────────────────────
 
 const WORKFLOW_TRIGGERS = [
@@ -958,6 +1095,7 @@ export default function AutomationsPage() {
   const [search, setSearch] = useState("");
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isSuggestOpen, setIsSuggestOpen] = useState(false);
   const [editingWorkflow, setEditingWorkflow] = useState<EditWorkflow | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [triggerFilter, setTriggerFilter] = useState("");
@@ -1007,14 +1145,27 @@ export default function AutomationsPage() {
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Automations</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Streamline your operations with smart workflows</p>
         </div>
-        <button
-          onClick={() => setIsCreateOpen(true)}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-[hsl(var(--accent-violet))] text-white hover:bg-[hsl(var(--accent-violet))]/90 transition-all shadow-md shadow-violet-500/20 active:scale-[0.97]"
-        >
-          <Plus className="w-4 h-4" />
-          Create Workflow
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsSuggestOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-secondary text-foreground hover:bg-secondary/70 transition-all active:scale-[0.97]"
+          >
+            <Sparkles className="w-4 h-4 text-[hsl(var(--accent-violet))]" />
+            Suggest with AI
+          </button>
+          <button
+            onClick={() => setIsCreateOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-[hsl(var(--accent-violet))] text-white hover:bg-[hsl(var(--accent-violet))]/90 transition-all shadow-md shadow-violet-500/20 active:scale-[0.97]"
+          >
+            <Plus className="w-4 h-4" />
+            Create Workflow
+          </button>
+        </div>
       </div>
+
+      {isSuggestOpen && (
+        <SuggestWorkflowsPanel orgId={organizationId} onClose={() => setIsSuggestOpen(false)} />
+      )}
 
       {/* Impact Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

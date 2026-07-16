@@ -898,6 +898,19 @@ export function createWorkflow(orgId: string, input: CreateWorkflowInput): Promi
   });
 }
 
+/** An AI-proposed automation, already compiled + validated against the engine schema. */
+export interface WorkflowSuggestion {
+  name: string;
+  rationale: string;
+  triggerEvent: string;
+  actions: Array<{ type: string; title?: string; priority?: string; status?: string }>;
+  definition: Record<string, unknown>;
+}
+
+export function suggestWorkflows(orgId: string): Promise<WorkflowSuggestion[]> {
+  return apiFetch(`/api/organizations/${orgId}/workflows/suggest`, { method: "POST" });
+}
+
 // ─── Organizations & Companies ───────────────────────────────────────────────
 
 export interface OrganizationSummary {
