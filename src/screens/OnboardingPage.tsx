@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Building2, Loader2, AlertCircle, ArrowRight, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
+import { Logo } from "@/components/brand/Logo";
 
 type OnboardingStep = "org" | "company" | "complete";
 
@@ -152,11 +153,8 @@ export default function OnboardingPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/50 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">S</span>
-            </div>
-            <CardTitle className="text-2xl">EmpireVu</CardTitle>
+          <div className="flex items-center mb-2">
+            <Logo className="h-7" />
           </div>
           <CardDescription>
             {step === "org" && "Create your organization to get started"}

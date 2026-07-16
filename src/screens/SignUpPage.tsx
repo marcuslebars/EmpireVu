@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Loader2, AlertCircle, CheckCircle, Chrome } from "lucide-react";
 import { supabase, getSupabaseConfigDiagnostic } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { Logo } from "@/components/brand/Logo";
 
 export default function SignUpPage() {
   const navigate = useNavigate();
@@ -97,11 +98,8 @@ export default function SignUpPage() {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="w-full max-w-[420px]">
-          <div className="flex items-center justify-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
-              <span className="text-primary-foreground font-bold text-lg">S</span>
-            </div>
-            <span className="text-2xl font-semibold tracking-tight text-foreground">EmpireVu</span>
+          <div className="flex items-center justify-center mb-8">
+            <Logo className="h-8" />
           </div>
 
           <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-xl shadow-black/10">
@@ -138,11 +136,8 @@ export default function SignUpPage() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-[420px]">
-        <div className="flex items-center justify-center gap-3 mb-8">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
-            <span className="text-primary-foreground font-bold text-lg">S</span>
-          </div>
-          <span className="text-2xl font-semibold tracking-tight text-foreground">EmpireVu</span>
+        <div className="flex items-center justify-center mb-8">
+          <Logo className="h-8" />
         </div>
 
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-xl shadow-black/10">
