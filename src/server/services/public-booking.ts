@@ -285,27 +285,48 @@ export async function createPublicBookingRequest(
   if (bookingError) throw bookingError;
   const booking = bookingData as Tables<"bookings">;
 
-  // Owner awareness — best effort. The booking is already saved; a failed
-  // timeline row must never make a real booking request look like it didn't land.
+  // Fire the booking.created trigger so automations run on customer bookings,
+  // and give the owner a timeline row. Best effort: the booking is already saved,
+  // so a dispatch hiccup means "no automation ran", never "the request was lost".
+  // (The normal createBooking path dispatches via emitActivityEventAndDispatch;
+  // here we replicate its two writes — the event, then the job the worker polls —
+  // because there's no authenticated actor/context on a public request.)
   try {
-    await admin.from("activity_events").insert({
-      actor_user_id: null,
+    const { data: eventData, error: eventError } = await admin
+      .from("activity_events")
+      .insert({
+        actor_user_id: null,
+        company_id: company.id,
+        entity_id: booking.id,
+        entity_type: "booking",
+        event_type: "booking.created",
+        metadata_json: {
+          bookingId: booking.id,
+          scheduledFor: booking.scheduled_for,
+          status: booking.status,
+          source: "public_booking",
+        },
+        organization_id: company.organizationId,
+        related_entity_id: contactId,
+        related_entity_type: "contact",
+      })
+      .select("id")
+      .single();
+
+    if (eventError) throw eventError;
+
+    const { error: jobError } = await admin.from("workflow_event_jobs").insert({
+      activity_event_id: (eventData as { id: string }).id,
+      available_at: new Date().toISOString(),
       company_id: company.id,
-      entity_id: booking.id,
-      entity_type: "booking",
-      event_type: "booking.created",
-      metadata_json: {
-        bookingId: booking.id,
-        scheduledFor: booking.scheduled_for,
-        status: booking.status,
-        source: "public_booking",
-      },
+      max_attempts: 5,
       organization_id: company.organizationId,
-      related_entity_id: contactId,
-      related_entity_type: "contact",
+      status: "pending",
     });
-  } catch (activityError) {
-    console.error("[public-booking] activity event insert failed (non-fatal):", activityError);
+
+    if (jobError) throw jobError;
+  } catch (dispatchError) {
+    console.error("[public-booking] workflow dispatch failed (non-fatal):", dispatchError);
   }
 
   return { ok: true, scheduledFor: booking.scheduled_for };
