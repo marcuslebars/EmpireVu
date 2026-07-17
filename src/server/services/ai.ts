@@ -16,6 +16,12 @@ export function getBusinessTimezone(): string {
   return process.env.BUSINESS_TIMEZONE ?? "America/Toronto";
 }
 
+/** The app's public origin (e.g. https://empirevu.com) for customer-facing links. Null if unset. */
+export function getAppBaseUrl(): string | null {
+  const raw = process.env.APP_BASE_URL?.trim();
+  return raw ? raw.replace(/\/+$/, "") : null;
+}
+
 /**
  * The company's real calendar for the next two weeks, so proposed slots don't
  * collide with work already booked. Cancelled jobs don't block a slot.
@@ -116,6 +122,10 @@ export async function analyzeContact(
     new Date().toISOString(),
   );
 
+  const appBaseUrl = getAppBaseUrl();
+  const bookingUrl =
+    appBaseUrl && contact.company_id ? `${appBaseUrl}/book/${contact.company_id}` : null;
+
   return analyzeLead({
     firstName: contact.first_name,
     lastName: contact.last_name,
@@ -127,5 +137,6 @@ export async function analyzeContact(
     createdAt: contact.created_at,
     metadata,
     scheduling,
+    bookingUrl,
   });
 }
