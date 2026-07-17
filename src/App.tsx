@@ -10,6 +10,7 @@ import { ProtectedRoute, AuthRedirect } from "@/components/system/ProtectedRoute
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AppDiagnosticsPage } from "@/screens/AppDiagnosticsPage";
 import { OpsPage } from "@/screens/OpsPage";
+import PublicBookingPage from "@/screens/PublicBookingPage";
 import SignInPage from "./screens/SignInPage";
 import SignUpPage from "./screens/SignUpPage";
 import OAuthCallbackPage from "./screens/OAuthCallbackPage";
@@ -294,6 +295,7 @@ function AppRoutes() {
       <Route path="/onboarding" element={<OnboardingPageWrapper />} />
       <Route path="/internal/diagnostics" element={<AppDiagnosticsPage />} />
       <Route path="/internal/ops" element={<OpsPageWrapper />} />
+      <Route path="/book/:companyId" element={<PublicBookingPage />} />
       <Route element={<AppLayout />}>
         <Route
           path="/"
