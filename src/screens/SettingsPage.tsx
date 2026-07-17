@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Building2, Users, Bell, Puzzle, Palette, ChevronRight, Loader2 } from "lucide-react";
+import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
 import { useOrg } from "@/lib/org-context";
@@ -107,7 +107,23 @@ function OrganizationSettings() {
                   className="flex items-center justify-between px-3 py-2.5 bg-secondary rounded-lg"
                 >
                   <span className="text-sm text-foreground">{c.name}</span>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = `${window.location.origin}/book/${c.id}`;
+                      if (!navigator.clipboard) {
+                        toast.error("Clipboard unavailable");
+                        return;
+                      }
+                      void navigator.clipboard.writeText(url).then(
+                        () => toast.success("Booking link copied"),
+                        () => toast.error("Couldn't copy"),
+                      );
+                    }}
+                    className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                  >
+                    <Link2 className="w-3.5 h-3.5" /> Copy booking link
+                  </button>
                 </div>
               ))
             ) : (
