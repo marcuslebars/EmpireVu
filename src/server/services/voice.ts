@@ -1,6 +1,7 @@
 import type { Tables } from "@/server/db/database.types";
 import { ValidationError } from "@/server/organizations/context";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { createActivityEvent } from "@/server/services/activity-events";
 import { placeOutboundCall, readVoiceConfig, type PlaceCallResult } from "@/server/outbound/voice";
 
 export function isVoiceConfigured(): boolean {
@@ -53,7 +54,7 @@ export async function callContactWithMarina(
   if (!toNumber) throw new ValidationError("This lead's phone number isn't a callable number.");
 
   const name = [contact.first_name, contact.last_name].filter(Boolean).join(" ").trim();
-  return placeOutboundCall(
+  const result = await placeOutboundCall(
     {
       toNumber,
       metadata: {
@@ -65,6 +66,27 @@ export async function callContactWithMarina(
     },
     config,
   );
+
+  // Best-effort: log the placed call on the contact's timeline. The call is
+  // already dialing, so a failed activity write must never look like a failed call.
+  try {
+    await createActivityEvent(context, {
+      companyId: contact.company_id,
+      entityId: contact.id,
+      entityType: "contact",
+      eventType: "contact.call_placed",
+      metadata: {
+        agent: "marina",
+        agentCallId: result.agentCallId,
+        channel: "voice",
+        toNumber: result.toNumber,
+      },
+    });
+  } catch {
+    // Recording the call is non-critical — never surface it as a call failure.
+  }
+
+  return result;
 }
 
 /**

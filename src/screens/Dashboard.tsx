@@ -104,6 +104,7 @@ function DashboardErrorState({ message, onRetry }: { message: string; onRetry?: 
 // ─── Event type config ───────────────────────────────────────────────────────
 
 const eventTypeConfig: Record<string, { label: string; color: string }> = {
+  "contact.call_placed": { label: "Marina call", color: "text-[hsl(var(--accent-violet))]" },
   booking_created: { label: "Booking created", color: "text-primary" },
   booking_completed: { label: "Booking completed", color: "text-[hsl(var(--success))]" },
   task_created: { label: "Task created", color: "text-[hsl(var(--warning))]" },
