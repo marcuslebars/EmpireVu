@@ -733,6 +733,17 @@ export function startContactCall(orgId: string, contactId: string): Promise<Cont
   });
 }
 
+/** Places an ad-hoc call to a raw number with Marina — no contact record needed. */
+export function startQuickCall(
+  orgId: string,
+  input: { phone: string; name?: string },
+): Promise<ContactCallResult> {
+  return apiFetch(`/api/organizations/${orgId}/voice/call`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 // Booking mutations
 
 export interface CreateBookingInput {

@@ -12,6 +12,7 @@ import {
   Loader2,
   UserPlus,
   CheckSquare,
+  Phone,
   Settings as SettingsIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -19,6 +20,7 @@ import { useOrg } from "@/lib/org-context";
 import { useOrganizations, useCompanies, useDashboardActivity } from "@/lib/api-hooks";
 import { useAuth } from "@/lib/auth-context";
 import { CommandPalette } from "@/components/layout/CommandPalette";
+import { QuickCallDialog } from "@/components/voice/QuickCallDialog";
 
 const companyColors = [
   "hsl(215 100% 55%)",
@@ -152,6 +154,25 @@ function relativeTime(iso: string): string {
   const days = Math.round(hours / 24);
   if (days < 7) return `${days}d ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+function QuickCallButton() {
+  const { organizationId } = useOrg();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        title="Call a lead with Marina"
+        className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold bg-[hsl(var(--accent-violet))]/10 text-[hsl(var(--accent-violet))] hover:bg-[hsl(var(--accent-violet))]/20 transition-all duration-150 active:scale-[0.97]"
+      >
+        <Phone className="w-4 h-4" />
+        <span className="hidden sm:inline">Call</span>
+      </button>
+      {open && <QuickCallDialog orgId={organizationId} onClose={() => setOpen(false)} />}
+    </>
+  );
 }
 
 function QuickAddMenu() {
@@ -417,6 +438,7 @@ export function TopBar() {
 
       {/* Right: Actions */}
       <div className="flex items-center gap-2.5">
+        <QuickCallButton />
         <QuickAddMenu />
         <NotificationsMenu />
         <UserMenu />

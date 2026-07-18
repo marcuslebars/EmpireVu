@@ -29,6 +29,7 @@ import {
   fetchContactAIDrafts,
   sendAIDraft,
   startContactCall,
+  startQuickCall,
   updateAIDraft,
   type UpdateAIDraftInput,
   type UpdateContactFields,
@@ -367,6 +368,13 @@ export function useCallContact(orgId: string, contactId: string) {
       // The call shows up on the contact timeline once the agent reports back.
       void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
     },
+  });
+}
+
+/** Ad-hoc call to a raw number with Marina — no contact needed. Places a real call. */
+export function useQuickCall(orgId: string) {
+  return useMutation({
+    mutationFn: (input: { phone: string; name?: string }) => startQuickCall(orgId, input),
   });
 }
 
