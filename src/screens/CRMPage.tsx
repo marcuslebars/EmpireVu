@@ -15,10 +15,12 @@ import {
   X,
   Loader2,
   Building2,
+  Phone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useOrg } from "@/lib/org-context";
+import { QuickCallDialog } from "@/components/voice/QuickCallDialog";
 import { 
   useCRMContacts, 
   useCreateContact, 
@@ -377,6 +379,7 @@ export default function CRMPage() {
   const [search, setSearch] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCompanyOpen, setIsCompanyOpen] = useState(false);
+  const [callContact, setCallContact] = useState<CRMContactRow | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Quick Add / command-palette deep links: /crm?new=contact | ?new=company
@@ -527,6 +530,7 @@ export default function CRMPage() {
                     contact={contact}
                     onStageChange={(s) => handleStageChange(contact.id, s)}
                     onClick={() => navigate(`/crm/${contact.id}`)}
+                    onCall={contact.phone ? () => setCallContact(contact) : undefined}
                   />
                 ))}
               </div>
@@ -600,8 +604,22 @@ export default function CRMPage() {
                   <td className="px-4 py-3">
                     <p className="text-xs font-bold text-foreground">{formatCentsCompact(contact.pipelineValueCents ?? 0)}</p>
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <ChevronRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity inline-block" />
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      {contact.phone && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCallContact(contact);
+                          }}
+                          title="Call with Marina"
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-[hsl(var(--accent-violet))] hover:bg-[hsl(var(--accent-violet))]/10 opacity-0 group-hover:opacity-100 transition-all"
+                        >
+                          <Phone className="w-3.5 h-3.5" /> Call
+                        </button>
+                      )}
+                      <ChevronRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity inline-block" />
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -612,6 +630,15 @@ export default function CRMPage() {
 
       {isCreateOpen && <CreateContactDialog onClose={() => setIsCreateOpen(false)} />}
       {isCompanyOpen && <NewCompanyDialog onClose={() => setIsCompanyOpen(false)} />}
+      {callContact && (
+        <QuickCallDialog
+          orgId={organizationId}
+          contactId={callContact.id}
+          initialName={callContact.name}
+          initialPhone={callContact.phone ?? ""}
+          onClose={() => setCallContact(null)}
+        />
+      )}
     </div>
   );
 }
@@ -620,10 +647,12 @@ function ContactCard({
   contact,
   onStageChange,
   onClick,
+  onCall,
 }: {
   contact: CRMContactRow;
   onStageChange: (s: string) => void;
   onClick: () => void;
+  onCall?: () => void;
 }) {
   return (
     <div
@@ -676,6 +705,18 @@ function ContactCard({
             <span className="font-bold text-foreground">{formatCentsCompact(contact.pipelineValueCents ?? 0)}</span>
           </div>
         </div>
+        {onCall && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onCall();
+            }}
+            title="Call with Marina"
+            className="flex items-center gap-1 px-1.5 py-1 rounded-md text-[10px] font-medium text-[hsl(var(--accent-violet))] hover:bg-[hsl(var(--accent-violet))]/10 opacity-0 group-hover:opacity-100 transition-all"
+          >
+            <Phone className="w-3 h-3" /> Call
+          </button>
+        )}
       </div>
     </div>
   );

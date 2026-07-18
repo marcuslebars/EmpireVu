@@ -721,6 +721,29 @@ export function confirmAIDraftSlot(
   });
 }
 
+export interface ContactCallResult {
+  agentCallId: string | null;
+  toNumber: string;
+}
+
+/** Places an on-demand voice call to this contact with the Cartesia agent (Marina). */
+export function startContactCall(orgId: string, contactId: string): Promise<ContactCallResult> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}/call`, {
+    method: "POST",
+  });
+}
+
+/** Places an ad-hoc call to a raw number with Marina — no contact record needed. */
+export function startQuickCall(
+  orgId: string,
+  input: { phone: string; name?: string },
+): Promise<ContactCallResult> {
+  return apiFetch(`/api/organizations/${orgId}/voice/call`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 // Booking mutations
 
 export interface CreateBookingInput {

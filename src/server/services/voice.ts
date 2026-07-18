@@ -66,3 +66,37 @@ export async function callContactWithMarina(
     config,
   );
 }
+
+/**
+ * Ad-hoc call to a raw phone number — no contact record required. Backs the
+ * top-bar "Quick call" so the owner can dial a lead (or test Marina) instantly.
+ */
+export async function callNumberWithMarina(
+  context: TenantServiceContext,
+  input: { toNumber: string; name?: string | null },
+): Promise<PlaceCallResult> {
+  const config = readVoiceConfig();
+  if (!config) {
+    throw new ValidationError(
+      "Voice calling is not configured. Set CARTESIA_API_KEY, CARTESIA_AGENT_ID, and CARTESIA_FROM_NUMBER_ID on the server.",
+    );
+  }
+
+  const toNumber = toE164(input.toNumber);
+  if (!toNumber) {
+    throw new ValidationError("That doesn't look like a phone number Marina can call.");
+  }
+
+  const name = input.name?.trim() || undefined;
+  return placeOutboundCall(
+    {
+      toNumber,
+      metadata: {
+        name,
+        organizationId: context.organizationId,
+        source: "quick_call",
+      },
+    },
+    config,
+  );
+}
