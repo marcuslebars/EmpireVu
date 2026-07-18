@@ -131,6 +131,156 @@ function getDayIndex(scheduledFor: string, weekStart: Date): number {
   return diff;
 }
 
+/* ── Booking detail body (shared by desktop rail + mobile sheet) ── */
+function BookingDetailBody({
+  detailData,
+  isLoading,
+  onClose,
+  onStatusUpdate,
+  statusPending,
+}: {
+  detailData: BookingDetailResponse | undefined;
+  isLoading: boolean;
+  onClose: () => void;
+  onStatusUpdate: (status: string) => void;
+  statusPending: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="space-y-2">
+          <div className="h-4 w-3/4 bg-secondary animate-pulse rounded" />
+          <div className="h-3 w-1/2 bg-secondary animate-pulse rounded" />
+        </div>
+        <LoadingCards count={3} />
+      </div>
+    );
+  }
+  if (!detailData) return null;
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="p-5 border-b border-border shrink-0">
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <h3 className="text-sm font-bold text-foreground leading-tight">{detailData.booking.title}</h3>
+          <button onClick={onClose} className="p-1 hover:bg-secondary rounded-md transition-colors">
+            <X className="w-3.5 h-3.5 text-muted-foreground" />
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider", statusConfig[detailData.booking.status]?.cls || "bg-secondary text-muted-foreground")}>
+            {detailData.booking.status}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
+        {/* Primary Info */}
+        <div className="grid grid-cols-2 gap-y-4 gap-x-2">
+          <DetailRow icon={Briefcase} label="Company" value={detailData.booking.company?.name || "None"} highlight />
+          <DetailRow icon={Users} label="Contact" value={detailData.booking.contact?.name || "None"} />
+          <DetailRow icon={CalendarDays} label="Date" value={format(parseISO(detailData.booking.scheduledFor), "MMM d, yyyy")} />
+          <DetailRow icon={Clock} label="Time" value={format(parseISO(detailData.booking.scheduledFor), "h:mm a")} />
+        </div>
+
+        {/* Description */}
+        {detailData.booking.description && (
+          <div className="space-y-2">
+            <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <StickyNote className="w-3 h-3" />
+              Notes
+            </h4>
+            <p className="text-xs text-foreground/80 leading-relaxed bg-secondary/30 p-3 rounded-lg border border-border/50 italic">
+              "{detailData.booking.description}"
+            </p>
+          </div>
+        )}
+
+        {/* Team */}
+        {detailData.booking && "assignedUserSummary" in detailData.booking && (detailData.booking as { assignedUserSummary?: { users: { initials: string; name: string }[] } }).assignedUserSummary && (
+          <div className="space-y-3">
+            <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <UserPlus className="w-3 h-3" />
+              Assigned Team
+            </h4>
+            <div className="space-y-2">
+              {((detailData.booking as { assignedUserSummary?: { users: { initials: string; name: string }[] } }).assignedUserSummary?.users ?? []).map((u, i) => (
+                <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-secondary/40 border border-border/50">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary">
+                      {u.initials}
+                    </div>
+                    <span className="text-xs font-medium text-foreground">{u.name}</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">Primary</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Linked Tasks */}
+        {detailData.tasks.length > 0 && (
+          <div className="space-y-3">
+            <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <CheckCircle2 className="w-3 h-3" />
+              Linked Tasks
+            </h4>
+            <div className="space-y-2">
+              {detailData.tasks.map((t) => (
+                <div key={t.id} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer group border border-transparent hover:border-border">
+                  <Circle className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                  <span className="text-xs text-foreground/80 group-hover:text-foreground transition-colors truncate flex-1">{t.title}</span>
+                  <ArrowRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="p-4 border-t border-border bg-secondary/20 shrink-0">
+        <div className="grid grid-cols-2 gap-2">
+          {detailData.booking.status === "pending" && (
+            <button
+              onClick={() => onStatusUpdate("confirmed")}
+              disabled={statusPending}
+              className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+            >
+              {statusPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+              Confirm Booking
+            </button>
+          )}
+          {detailData.booking.status === "confirmed" && (
+            <button
+              onClick={() => onStatusUpdate("completed")}
+              disabled={statusPending}
+              className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-[hsl(var(--success))] text-white hover:opacity-90 transition-all"
+            >
+              {statusPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+              Mark Completed
+            </button>
+          )}
+          <button
+            onClick={() => onStatusUpdate("cancelled")}
+            disabled={statusPending}
+            className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-secondary text-foreground hover:bg-surface-3 transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onStatusUpdate("no_show")}
+            disabled={statusPending}
+            className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-secondary text-foreground hover:bg-surface-3 transition-all"
+          >
+            No-show
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Create Booking Dialog ── */
 function CreateBookingDialog({ onClose, defaultDate }: { onClose: () => void; defaultDate?: string }) {
   const { organizationId } = useOrg();
@@ -602,137 +752,47 @@ export default function CalendarPage() {
                 <p className="text-sm font-semibold text-foreground">No Selection</p>
                 <p className="text-xs text-muted-foreground mt-1">Select a booking to view details and manage status.</p>
               </div>
-            ) : isDetailLoading ? (
-              <div className="p-6 space-y-6">
-                <div className="space-y-2">
-                  <div className="h-4 w-3/4 bg-secondary animate-pulse rounded" />
-                  <div className="h-3 w-1/2 bg-secondary animate-pulse rounded" />
-                </div>
-                <LoadingCards count={3} />
-              </div>
-            ) : detailData ? (
-              <div className="flex-1 flex flex-col min-h-0">
-                <div className="p-5 border-b border-border shrink-0">
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <h3 className="text-sm font-bold text-foreground leading-tight">{detailData.booking.title}</h3>
-                    <button onClick={() => setSelectedBookingId(null)} className="p-1 hover:bg-secondary rounded-md transition-colors">
-                      <X className="w-3.5 h-3.5 text-muted-foreground" />
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider", statusConfig[detailData.booking.status]?.cls || "bg-secondary text-muted-foreground")}>
-                      {detailData.booking.status}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
-                  {/* Primary Info */}
-                  <div className="grid grid-cols-2 gap-y-4 gap-x-2">
-                    <DetailRow icon={Briefcase} label="Company" value={detailData.booking.company?.name || "None"} highlight />
-                    <DetailRow icon={Users} label="Contact" value={detailData.booking.contact?.name || "None"} />
-                    <DetailRow icon={CalendarDays} label="Date" value={format(parseISO(detailData.booking.scheduledFor), "MMM d, yyyy")} />
-                    <DetailRow icon={Clock} label="Time" value={format(parseISO(detailData.booking.scheduledFor), "h:mm a")} />
-                  </div>
-
-                  {/* Description */}
-                  {detailData.booking.description && (
-                    <div className="space-y-2">
-                      <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                        <StickyNote className="w-3 h-3" />
-                        Notes
-                      </h4>
-                      <p className="text-xs text-foreground/80 leading-relaxed bg-secondary/30 p-3 rounded-lg border border-border/50 italic">
-                        "{detailData.booking.description}"
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Team */}
-                  {detailData.booking && "assignedUserSummary" in detailData.booking && (detailData.booking as { assignedUserSummary?: { users: { initials: string; name: string }[] } }).assignedUserSummary && (
-                    <div className="space-y-3">
-                      <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                        <UserPlus className="w-3 h-3" />
-                        Assigned Team
-                      </h4>
-                      <div className="space-y-2">
-                        {((detailData.booking as { assignedUserSummary?: { users: { initials: string; name: string }[] } }).assignedUserSummary?.users ?? []).map((u, i) => (
-                          <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-secondary/40 border border-border/50">
-                            <div className="flex items-center gap-2">
-                              <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary">
-                                {u.initials}
-                              </div>
-                              <span className="text-xs font-medium text-foreground">{u.name}</span>
-                            </div>
-                            <span className="text-[10px] text-muted-foreground">Primary</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Linked Tasks */}
-                  {detailData.tasks.length > 0 && (
-                    <div className="space-y-3">
-                      <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3 h-3" />
-                        Linked Tasks
-                      </h4>
-                      <div className="space-y-2">
-                        {detailData.tasks.map((t) => (
-                          <div key={t.id} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer group border border-transparent hover:border-border">
-                            <Circle className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                            <span className="text-xs text-foreground/80 group-hover:text-foreground transition-colors truncate flex-1">{t.title}</span>
-                            <ArrowRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Actions */}
-                <div className="p-4 border-t border-border bg-secondary/20 shrink-0">
-                  <div className="grid grid-cols-2 gap-2">
-                    {detailData.booking.status === "pending" && (
-                      <button
-                        onClick={() => handleStatusUpdate("confirmed")}
-                        disabled={updateStatus.isPending}
-                        className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
-                      >
-                        {updateStatus.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                        Confirm Booking
-                      </button>
-                    )}
-                    {detailData.booking.status === "confirmed" && (
-                      <button
-                        onClick={() => handleStatusUpdate("completed")}
-                        disabled={updateStatus.isPending}
-                        className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-[hsl(var(--success))] text-white hover:opacity-90 transition-all"
-                      >
-                        {updateStatus.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                        Mark Completed
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleStatusUpdate("cancelled")}
-                      disabled={updateStatus.isPending}
-                      className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-secondary text-foreground hover:bg-surface-3 transition-all"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => handleStatusUpdate("no_show")}
-                      disabled={updateStatus.isPending}
-                      className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-secondary text-foreground hover:bg-surface-3 transition-all"
-                    >
-                      No-show
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
+            ) : (
+              <BookingDetailBody
+                detailData={detailData}
+                isLoading={isDetailLoading}
+                onClose={() => setSelectedBookingId(null)}
+                onStatusUpdate={handleStatusUpdate}
+                statusPending={updateStatus.isPending}
+              />
+            )}
           </div>
+        </div>
+      </div>
+
+      {/* Mobile booking detail — bottom sheet (the desktop rail is hidden below lg) */}
+      <div
+        className={cn(
+          "lg:hidden fixed inset-0 z-50 transition-opacity duration-200",
+          selectedBookingId ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none",
+        )}
+        aria-hidden={!selectedBookingId}
+      >
+        <div
+          className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+          onClick={() => setSelectedBookingId(null)}
+        />
+        <div
+          className={cn(
+            "absolute inset-x-0 bottom-0 max-h-[88vh] flex flex-col bg-card border-t border-border rounded-t-2xl shadow-2xl shadow-black/60 transition-transform duration-300 ease-out",
+            selectedBookingId ? "translate-y-0" : "translate-y-full",
+          )}
+        >
+          <div className="mx-auto mt-2 mb-1 h-1 w-10 rounded-full bg-border shrink-0" />
+          {selectedBookingId && (
+            <BookingDetailBody
+              detailData={detailData}
+              isLoading={isDetailLoading}
+              onClose={() => setSelectedBookingId(null)}
+              onStatusUpdate={handleStatusUpdate}
+              statusPending={updateStatus.isPending}
+            />
+          )}
         </div>
       </div>
 
