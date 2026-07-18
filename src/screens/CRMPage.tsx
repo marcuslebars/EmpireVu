@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useOrg } from "@/lib/org-context";
 import { QuickCallDialog } from "@/components/voice/QuickCallDialog";
+import { Modal } from "@/components/ui/Modal";
 import { 
   useCRMContacts, 
   useCreateContact, 
@@ -136,8 +137,7 @@ function CreateContactDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-2xl w-[520px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+    <Modal onClose={onClose} size="lg">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
             <h2 className="text-base font-semibold text-foreground">Add Contact</h2>
@@ -261,8 +261,7 @@ function CreateContactDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -293,8 +292,7 @@ function NewCompanyDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-2xl w-[460px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+    <Modal onClose={onClose} size="md">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
             <h2 className="text-base font-semibold text-foreground">New Company</h2>
@@ -365,8 +363,7 @@ function NewCompanyDialog({ onClose }: { onClose: () => void }) {
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -441,7 +438,7 @@ export default function CRMPage() {
           <h1 className="text-2xl font-bold tracking-tight text-foreground">CRM</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Manage your leads and customer relationships</p>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center flex-wrap gap-2 sm:gap-2.5">
           <div className="flex items-center bg-secondary/50 rounded-lg p-1 border border-border">
             <button
               onClick={() => setView("kanban")}
@@ -539,7 +536,8 @@ export default function CRMPage() {
         </div>
       ) : (
         <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
-          <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left border-collapse">
             <thead>
               <tr className="bg-secondary/30 border-b border-border">
                 <th className="px-4 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Contact</th>
@@ -625,6 +623,7 @@ export default function CRMPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

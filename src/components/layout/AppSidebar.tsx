@@ -7,6 +7,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  X,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
@@ -22,56 +23,98 @@ const navItems = [
   { title: "Settings", icon: Settings, path: "/settings" },
 ];
 
-export function AppSidebar() {
+function NavList({ collapsed, onNavigate }: { collapsed?: boolean; onNavigate?: () => void }) {
+  return (
+    <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
+      {navItems.map((item) => (
+        <NavLink
+          key={item.path}
+          to={item.path}
+          end={item.path === "/"}
+          onClick={onNavigate}
+          className={({ isActive }) =>
+            cn(
+              "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150",
+              "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+              "active:scale-[0.97]",
+              isActive
+                ? "bg-sidebar-accent text-foreground shadow-sm"
+                : "text-sidebar-foreground",
+            )
+          }
+        >
+          <item.icon className="w-[18px] h-[18px] shrink-0" />
+          {!collapsed && <span>{item.title}</span>}
+        </NavLink>
+      ))}
+    </nav>
+  );
+}
+
+export function AppSidebar({
+  mobileOpen,
+  onMobileClose,
+}: {
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+}) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <aside
-      className={cn(
-        "h-screen sticky top-0 flex flex-col bg-sidebar border-r border-sidebar-border transition-all duration-300 ease-out",
-        collapsed ? "w-16" : "w-60"
-      )}
-    >
-      {/* Logo */}
-      <div className="h-14 flex items-center px-4 border-b border-sidebar-border">
-        <div className="flex items-center overflow-hidden">
-          {collapsed ? <LogoMark className="w-7 h-7 text-sm" /> : <Logo className="h-[22px]" />}
+    <>
+      {/* Desktop sidebar (in-flow, collapsible) */}
+      <aside
+        className={cn(
+          "hidden lg:flex h-screen sticky top-0 flex-col bg-sidebar border-r border-sidebar-border transition-all duration-300 ease-out",
+          collapsed ? "w-16" : "w-60",
+        )}
+      >
+        <div className="h-14 flex items-center px-4 border-b border-sidebar-border">
+          <div className="flex items-center overflow-hidden">
+            {collapsed ? <LogoMark className="w-7 h-7 text-sm" /> : <Logo className="h-[22px]" />}
+          </div>
         </div>
-      </div>
 
-      {/* Nav */}
-      <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            end={item.path === "/"}
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150",
-                "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                "active:scale-[0.97]",
-                isActive
-                  ? "bg-sidebar-accent text-foreground shadow-sm"
-                  : "text-sidebar-foreground"
-              )
-            }
+        <NavList collapsed={collapsed} />
+
+        <div className="p-2 border-t border-sidebar-border">
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="w-full flex items-center justify-center py-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors"
           >
-            <item.icon className="w-[18px] h-[18px] shrink-0" />
-            {!collapsed && <span>{item.title}</span>}
-          </NavLink>
-        ))}
-      </nav>
+            {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          </button>
+        </div>
+      </aside>
 
-      {/* Collapse toggle */}
-      <div className="p-2 border-t border-sidebar-border">
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center justify-center py-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors"
+      {/* Mobile drawer (off-canvas overlay) */}
+      <div
+        className={cn(
+          "lg:hidden fixed inset-0 z-50 transition-opacity duration-200",
+          mobileOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none",
+        )}
+        aria-hidden={!mobileOpen}
+      >
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onMobileClose} />
+        <aside
+          className={cn(
+            "absolute left-0 top-0 h-full w-64 flex flex-col bg-sidebar border-r border-sidebar-border shadow-2xl transition-transform duration-300 ease-out",
+            mobileOpen ? "translate-x-0" : "-translate-x-full",
+          )}
         >
-          {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-        </button>
+          <div className="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
+            <Logo className="h-[22px]" />
+            <button
+              onClick={onMobileClose}
+              className="p-1.5 rounded-lg hover:bg-sidebar-accent text-muted-foreground transition-colors"
+              aria-label="Close menu"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <NavList onNavigate={onMobileClose} />
+        </aside>
       </div>
-    </aside>
+    </>
   );
 }

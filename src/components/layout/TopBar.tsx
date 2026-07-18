@@ -13,6 +13,7 @@ import {
   UserPlus,
   CheckSquare,
   Phone,
+  Menu,
   Settings as SettingsIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -361,7 +362,7 @@ function UserMenu() {
   );
 }
 
-export function TopBar() {
+export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
   const { organizationId, companyId, setOrganizationId, setCompanyId } = useOrg();
   const { data: orgs, isLoading: isLoadingOrgs } = useOrganizations();
   const { data: companies, isLoading: isLoadingCompanies } = useCompanies(organizationId);
@@ -399,45 +400,57 @@ export function TopBar() {
   };
 
   return (
-    <header className="h-14 border-b border-border bg-background/90 backdrop-blur-xl sticky top-0 z-30 flex items-center justify-between px-5 gap-4">
-      {/* Left: Switchers */}
-      <div className="flex items-center gap-1">
-        <Dropdown
-          label="Organization"
-          icon={Building2}
-          items={organizationItems}
-          selected={organizationId}
-          onSelect={setOrganizationId}
-          isLoading={isLoadingOrgs}
-        />
-        <span className="text-border select-none">/</span>
-        <Dropdown
-          label="Company"
-          icon={Briefcase}
-          items={companyItems}
-          selected={selectedCompanyId}
-          onSelect={handleCompanySelect}
-          showDot
-          isLoading={isLoadingCompanies}
-        />
+    <header className="h-14 border-b border-border bg-background/90 backdrop-blur-xl sticky top-0 z-30 flex items-center justify-between px-3 sm:px-5 gap-2 sm:gap-4">
+      {/* Left: Menu + Switchers */}
+      <div className="flex items-center gap-1 min-w-0">
+        <button
+          onClick={onMenuClick}
+          aria-label="Open menu"
+          className="lg:hidden p-2 -ml-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+        <div className="hidden md:block">
+          <Dropdown
+            label="Organization"
+            icon={Building2}
+            items={organizationItems}
+            selected={organizationId}
+            onSelect={setOrganizationId}
+            isLoading={isLoadingOrgs}
+          />
+        </div>
+        <span className="hidden md:inline text-border select-none">/</span>
+        <div className="min-w-0">
+          <Dropdown
+            label="Company"
+            icon={Briefcase}
+            items={companyItems}
+            selected={selectedCompanyId}
+            onSelect={handleCompanySelect}
+            showDot
+            isLoading={isLoadingCompanies}
+          />
+        </div>
       </div>
 
       {/* Center: Search */}
-      <div className="flex-1 max-w-lg mx-4">
+      <div className="flex-1 min-w-0 max-w-lg mx-1 sm:mx-4">
         <button
           onClick={() => setPaletteOpen(true)}
-          className="w-full relative flex items-center bg-secondary/80 border border-transparent rounded-lg pl-10 pr-14 py-2 text-sm text-muted-foreground hover:bg-secondary hover:border-primary/30 transition-all duration-200 text-left group"
+          className="w-full relative flex items-center bg-secondary/80 border border-transparent rounded-lg pl-10 pr-4 sm:pr-14 py-2 text-sm text-muted-foreground hover:bg-secondary hover:border-primary/30 transition-all duration-200 text-left group"
         >
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-          <span className="truncate">Search contacts, pages…</span>
-          <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium text-muted-foreground bg-surface-3 px-1.5 py-0.5 rounded border border-border">
+          <span className="truncate hidden sm:inline">Search contacts, pages…</span>
+          <span className="truncate sm:hidden">Search…</span>
+          <kbd className="hidden sm:block absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium text-muted-foreground bg-surface-3 px-1.5 py-0.5 rounded border border-border">
             ⌘K
           </kbd>
         </button>
       </div>
 
       {/* Right: Actions */}
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
         <QuickCallButton />
         <QuickAddMenu />
         <NotificationsMenu />

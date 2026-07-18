@@ -43,6 +43,7 @@ import { formatCents, formatDate, relativeTime } from "@/lib/format";
 import { startOfWeek, endOfWeek, addWeeks, subWeeks, format, parseISO, addDays, startOfMonth, endOfMonth, addMonths, subMonths, startOfDay, endOfDay, isSameMonth, isSameDay, eachDayOfInterval } from "date-fns";
 import type { BookingCalendarRow, BookingDetailResponse } from "@/lib/api-client";
 import { toast } from "@/components/ui/sonner";
+import { Modal } from "@/components/ui/Modal";
 
 /* ── Company palette ── */
 const companyColors: Record<string, { bg: string; border: string; text: string; dot: string }> = {
@@ -172,8 +173,7 @@ function CreateBookingDialog({ onClose, defaultDate }: { onClose: () => void; de
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-2xl w-[480px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+    <Modal onClose={onClose} size="lg">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
             <h2 className="text-base font-semibold text-foreground">New Booking</h2>
@@ -279,8 +279,7 @@ function CreateBookingDialog({ onClose, defaultDate }: { onClose: () => void; de
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -346,9 +345,9 @@ export default function CalendarPage() {
   };
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col gap-4">
+    <div className="flex flex-col gap-4 lg:h-[calc(100vh-8rem)]">
       {/* Header */}
-      <div className="flex items-center justify-between shrink-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold text-foreground">Calendar</h1>
           <div className="flex items-center bg-secondary/50 rounded-lg p-1 border border-border">
@@ -367,7 +366,7 @@ export default function CalendarPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center flex-wrap gap-2 sm:gap-3">
           <div className="flex items-center bg-secondary/50 rounded-lg border border-border">
             <button onClick={handlePrev} className="p-1.5 hover:text-foreground text-muted-foreground transition-colors">
               <ChevronLeft className="w-4 h-4" />
@@ -392,7 +391,7 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      <div className="flex-1 flex gap-4 min-h-0">
+      <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-[70vh] lg:min-h-0">
         {/* Main Calendar Grid */}
         {view === "Month" ? (
           /* ── Month grid ── */
@@ -565,7 +564,7 @@ export default function CalendarPage() {
         )}
 
         {/* Sidebar: Capacity & Details */}
-        <div className="w-80 flex flex-col gap-4 shrink-0 min-h-0">
+        <div className="hidden lg:flex w-80 flex-col gap-4 shrink-0 min-h-0">
           {/* Capacity Card */}
           <div className="bg-card border border-border rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between mb-4">

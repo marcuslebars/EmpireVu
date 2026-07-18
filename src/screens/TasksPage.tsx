@@ -31,6 +31,7 @@ import { SkeletonRow, ErrorBanner, EmptyState } from "@/components/ui/StateViews
 import { formatDate, relativeTime } from "@/lib/format";
 import type { TaskListRow, TaskDetailResponse } from "@/lib/api-client";
 import { toast } from "@/components/ui/sonner";
+import { Modal } from "@/components/ui/Modal";
 
 // ─── Styling maps ─────────────────────────────────────────────────────────────
 
@@ -105,8 +106,7 @@ function CreateTaskDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-2xl w-[500px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+    <Modal onClose={onClose} size="lg">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
             <h2 className="text-base font-semibold text-foreground">New Task</h2>
@@ -216,8 +216,7 @@ function CreateTaskDialog({ onClose }: { onClose: () => void }) {
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -459,11 +458,11 @@ export default function TasksPage() {
         </div>
       </div>
 
-      <div className="flex-1 flex gap-6 min-h-0">
+      <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-6 min-h-0">
         {/* Task List */}
-        <div className="flex-1 bg-card border border-border rounded-2xl overflow-hidden flex flex-col shadow-sm">
-          <div className="overflow-y-auto flex-1 custom-scrollbar">
-            <table className="w-full text-left border-collapse">
+        <div className={cn("flex-1 bg-card border border-border rounded-2xl overflow-hidden flex flex-col shadow-sm", selectedTaskId && "hidden lg:flex")}>
+          <div className="overflow-auto flex-1 custom-scrollbar">
+            <table className="w-full min-w-[560px] text-left border-collapse">
               <thead className="sticky top-0 bg-card z-10">
                 <tr className="bg-secondary/30 border-b border-border">
                   <th className="px-4 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-wider w-10"></th>
@@ -538,7 +537,7 @@ export default function TasksPage() {
         </div>
 
         {/* Detail Panel */}
-        <div className="w-96 bg-card border border-border rounded-2xl flex flex-col shadow-sm overflow-hidden shrink-0">
+        <div className={cn("w-full lg:w-96 flex-1 lg:flex-none bg-card border border-border rounded-2xl flex flex-col shadow-sm overflow-hidden shrink-0", !selectedTaskId && "hidden lg:flex")}>
           {!selectedTaskId ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
               <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center mb-4">

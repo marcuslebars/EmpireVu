@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
 import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateBooking, useUpdateContactNotes, useUpdateContactFields, useAnalyzeContactAI, useContactAIDrafts, useUpdateAIDraft, useSendAIDraft, useConfirmAIDraftSlot, useCallContact } from "@/lib/api-hooks";
 import { toast } from "@/components/ui/sonner";
+import { Modal } from "@/components/ui/Modal";
 import { LoadingCards, ErrorBanner, EmptyState, SkeletonStatCard } from "@/components/ui/StateViews";
 import { formatCentsCompact, formatCents, formatDate, relativeTime } from "@/lib/format";
 import type { AIDraft, ContactDetailResponse, ProposedSlot } from "@/lib/api-client";
@@ -121,8 +122,7 @@ function CreateTaskDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-2xl w-[460px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+    <Modal onClose={onClose} size="md">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-base font-semibold text-foreground">New Task</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
@@ -189,8 +189,7 @@ function CreateTaskDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -235,8 +234,7 @@ function CreateBookingDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-2xl w-[460px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+    <Modal onClose={onClose} size="md">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-base font-semibold text-foreground">New Booking</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
@@ -307,8 +305,7 @@ function CreateBookingDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -809,8 +806,7 @@ function EditContactDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-2xl w-[440px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
+    <Modal onClose={onClose} size="md">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-base font-semibold text-foreground">Edit Contact</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
@@ -837,8 +833,7 @@ function EditContactDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -949,7 +944,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
         </button>
 
         <div className="bg-card border border-border rounded-xl p-5">
-          <div className="flex items-start justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
             <div className="flex items-start gap-4">
               <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center text-base font-bold relative bg-primary/15 text-primary")}>
                 {contact.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
@@ -961,7 +956,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
               </div>
               <div>
                 <h1 className="text-xl font-bold text-foreground">{contact.name}</h1>
-                <div className="flex items-center gap-3 mt-1.5">
+                <div className="flex items-center flex-wrap gap-3 mt-1.5">
                   {contact.company && (
                     <span className="text-[11px] font-medium px-2 py-0.5 rounded-md inline-flex items-center gap-1.5 bg-primary/15 text-primary">
                       <span className="w-1.5 h-1.5 rounded-full bg-primary" />
@@ -994,7 +989,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                <div className="flex items-center flex-wrap gap-x-4 gap-y-1.5 mt-3 text-xs text-muted-foreground">
                   {contact.email && (
                     <span className="flex items-center gap-1.5"><Mail className="w-3 h-3" />{contact.email}</span>
                   )}
@@ -1042,7 +1037,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
           )}
 
           {/* Stats */}
-          <div className="grid grid-cols-4 gap-3 mt-4 pt-4 border-t border-border/50">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-border/50">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center">
                 <DollarSign className="w-4 h-4 text-emerald-400" />
@@ -1094,13 +1089,13 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
 
       {/* Tabs */}
       <div className="opacity-0 animate-fade-in" style={{ animationDelay: "80ms" }}>
-        <div className="flex items-center gap-1 border-b border-border">
+        <div className="flex items-center gap-1 border-b border-border overflow-x-auto">
           {tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
               className={cn(
-                "px-4 py-2.5 text-sm font-medium transition-colors relative",
+                "px-4 py-2.5 text-sm font-medium transition-colors relative shrink-0 whitespace-nowrap",
                 activeTab === tab.key ? "text-foreground" : "text-muted-foreground hover:text-foreground"
               )}
             >
