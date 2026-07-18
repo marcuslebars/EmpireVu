@@ -3,7 +3,7 @@ import {
   Plus, Zap, ArrowRight, MoreHorizontal, Search, Filter, Play, Pause,
   ChevronRight, Calendar, UserPlus, CheckCircle2, Bell, ClipboardList,
   Target, Mail, Clock, AlertTriangle, Building2, Globe, X,
-  Repeat, Settings2, TrendingUp, Eye, RotateCcw, Loader2, Sparkles,
+  Repeat, Settings2, TrendingUp, Eye, RotateCcw, Loader2, Sparkles, Phone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
@@ -521,6 +521,8 @@ function describeAction(action: { type: string; title?: string; priority?: strin
       return `Create task "${action.title}"${action.priority ? ` (${action.priority})` : ""}`;
     case "ai_analyze":
       return "Analyze the lead with AI and draft a reply";
+    case "call_lead":
+      return "Call the lead with Marina (voice agent)";
     case "update_status":
       return `Set status to ${action.status}`;
     default:
@@ -717,7 +719,7 @@ interface UICondition {
 
 interface UIAction {
   id: string;
-  type: "create_task" | "update_status" | "ai_analyze";
+  type: "create_task" | "update_status" | "ai_analyze" | "call_lead";
   // create_task
   title: string;
   priority: "low" | "medium" | "high" | "urgent";
@@ -775,6 +777,9 @@ function parseDefActions(def: unknown): UIAction[] {
     const act = (a ?? {}) as Record<string, unknown>;
     if (act.type === "ai_analyze") {
       return newAction("ai_analyze", `a-${i}`, "lead");
+    }
+    if (act.type === "call_lead") {
+      return newAction("call_lead", `a-${i}`, "lead");
     }
     if (act.type === "update_status") {
       return newAction("update_status", `a-${i}`, typeof act.status === "string" ? act.status : "lead");
@@ -898,6 +903,9 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
       if (a.type === "ai_analyze") {
         return { type: "ai_analyze" };
       }
+      if (a.type === "call_lead") {
+        return { type: "call_lead" };
+      }
       // update_status: no target_entity => the engine acts on the triggering record.
       return { type: "update_status", status: a.statusValue };
     });
@@ -1015,6 +1023,7 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
                       <option value="create_task">Create a task</option>
                       <option value="update_status">Update the {triggerEntity}&rsquo;s {ENTITY_STATUS_NOUN[triggerEntity]}</option>
                       <option value="ai_analyze">Analyze the lead with AI</option>
+                      <option value="call_lead">Call the lead with Marina (voice)</option>
                     </select>
                     {actions.length > 1 && (
                       <button type="button" onClick={() => removeAction(a.id)} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground shrink-0">
@@ -1053,6 +1062,10 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
                     <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
                       Claude reads this lead and creates a review task with a drafted email + SMS. Nothing is sent — you review and send. Requires ANTHROPIC_API_KEY on the worker service.
                     </p>
+                  ) : a.type === "call_lead" ? (
+                    <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
+                      Your Cartesia voice agent (Marina) places a real phone call to this lead. Requires CARTESIA_API_KEY, CARTESIA_AGENT_ID and CARTESIA_FROM_NUMBER_ID on the worker, and a phone number on the contact.
+                    </p>
                   ) : (
                     <div>
                       <label className={labelCls}>Set {ENTITY_STATUS_NOUN[triggerEntity]} to</label>
@@ -1074,6 +1087,9 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
               </button>
               <button type="button" onClick={() => addAction("ai_analyze")} className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--accent-violet))] hover:opacity-80 transition-opacity">
                 <Sparkles className="w-3.5 h-3.5" /> AI analyze
+              </button>
+              <button type="button" onClick={() => addAction("call_lead")} className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--accent-violet))] hover:opacity-80 transition-opacity">
+                <Phone className="w-3.5 h-3.5" /> Call lead
               </button>
             </div>
           </div>

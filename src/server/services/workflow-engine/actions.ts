@@ -7,6 +7,7 @@ import { assignContactOwner, updateContactStage } from "@/server/services/contac
 import type { TenantServiceContext } from "@/server/services/shared";
 import { assignTaskUser, createTask, updateTaskStatus } from "@/server/services/tasks";
 import { createDraftForContact } from "@/server/services/ai-drafts";
+import { callContactWithMarina } from "@/server/services/voice";
 import type {
   WorkflowAction,
   WorkflowEventContext,
@@ -190,6 +191,26 @@ export async function executeWorkflowActions(
             );
             createdTasksCount += 1;
           }
+        }
+
+        actionsExecutedCount += 1;
+        timeSavedSeconds += action.time_saved_seconds ?? 0;
+        break;
+      }
+      case "call_lead": {
+        const contactId =
+          resolveString(action.contact_id, eventContext) ??
+          resolveContextString(eventContext.fields.contact_id) ??
+          (eventContext.entityType === "contact" ? eventContext.entityId : null);
+
+        if (!contactId) {
+          throw new ValidationError("call_lead requires a contact to call.");
+        }
+
+        projectedActions.push({ action, resolvedPayload: { contact_id: contactId } });
+
+        if (!options.dryRun) {
+          await callContactWithMarina(context, contactId);
         }
 
         actionsExecutedCount += 1;
