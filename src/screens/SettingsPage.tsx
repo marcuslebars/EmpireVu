@@ -181,7 +181,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Content */}
-        <div className="lg:col-span-3 bg-card border border-border rounded-xl p-6">
+        <div className="lg:col-span-3 bg-card border border-border rounded-xl p-4 sm:p-6">
           {active === "org" ? (
             <OrganizationSettings />
           ) : (

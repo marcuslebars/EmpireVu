@@ -272,7 +272,7 @@ export default function Dashboard() {
             )}
           </div>
           {imp && (
-            <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center gap-3">
               <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                 <Zap className="w-3 h-3 text-[hsl(var(--accent-violet))]" />
                 <span className="font-semibold text-foreground tabular-nums">{imp.totalWorkflowRuns}</span>

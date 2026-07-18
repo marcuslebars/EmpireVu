@@ -25,6 +25,7 @@ import { SkeletonCard, ErrorBanner, EmptyState } from "@/components/ui/StateView
 import { relativeTime, formatPercent, formatSeconds } from "@/lib/format";
 import type { WorkflowListRow, WorkflowDetailResponse, WorkflowSuggestion } from "@/lib/api-client";
 import { toast } from "@/components/ui/sonner";
+import { Modal } from "@/components/ui/Modal";
 
 // ─── Styling maps ─────────────────────────────────────────────────────────────
 
@@ -1088,9 +1089,8 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
   const selectCls = `${inputCls} appearance-none cursor-pointer`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-2xl w-[560px] max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/40 animate-fade-in">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card z-10">
+    <Modal onClose={onClose} size="xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card z-10 rounded-t-2xl">
           <div>
             <h2 className="text-base font-semibold text-foreground">{editing ? "Edit Workflow" : "Create Workflow"}</h2>
             <p className="text-xs text-muted-foreground mt-0.5">When something happens, run one or more actions</p>
@@ -1241,8 +1241,7 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1302,7 +1301,7 @@ export default function AutomationsPage() {
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Automations</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Streamline your operations with smart workflows</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap gap-2 sm:justify-end">
           <button
             onClick={() => { setIsTemplatesOpen((v) => !v); setIsSuggestOpen(false); }}
             className={cn(
@@ -1339,7 +1338,7 @@ export default function AutomationsPage() {
       )}
 
       {/* Impact Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: "Time Saved", value: formatSeconds(impact?.estimatedTimeSavedSeconds ?? 0), icon: Clock, color: "text-[hsl(var(--accent-blue))]" },
           { label: "Tasks Automated", value: (impact?.tasksAutoCreated ?? 0).toLocaleString(), icon: Zap, color: "text-[hsl(var(--accent-violet))]" },
