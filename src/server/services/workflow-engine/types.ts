@@ -74,8 +74,15 @@ export interface WorkflowAiAnalyzeAction {
   type: "ai_analyze";
 }
 
+export interface WorkflowCallLeadAction {
+  contact_id?: string;
+  time_saved_seconds?: number;
+  type: "call_lead";
+}
+
 export type WorkflowAction =
   | WorkflowAiAnalyzeAction
+  | WorkflowCallLeadAction
   | WorkflowAssignUserAction
   | WorkflowCreateActivityEventAction
   | WorkflowCreateTaskAction
