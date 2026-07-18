@@ -112,6 +112,10 @@ function describeTestAction(p: TestProjectionAction): string {
       return "Assign a user";
     case "create_activity_event":
       return `Log activity: ${payload.event_type ? String(payload.event_type) : "event"}`;
+    case "ai_analyze":
+      return "Analyze the lead with AI and draft a reply";
+    case "call_lead":
+      return "Call the lead with Marina (voice agent)";
     default:
       return p.action.type;
   }
@@ -643,6 +647,142 @@ function SuggestWorkflowsPanel({ orgId, onClose }: { orgId: string; onClose: () 
   );
 }
 
+// ─── Starter templates ────────────────────────────────────────────────────────
+
+interface StarterTemplate {
+  key: string;
+  name: string;
+  description: string;
+  triggerEvent: string;
+  actions: Array<{ type: string; title?: string; priority?: string; status?: string }>;
+  definition: Record<string, unknown>;
+  note?: string;
+  icon: typeof Phone;
+}
+
+// Ready-made, one-click automations. Each definition is already in the exact shape
+// the engine validates, so "Create" saves it active and it runs immediately.
+const STARTER_TEMPLATES: StarterTemplate[] = [
+  {
+    key: "call-customers-on-booking",
+    name: "Call customers when they book",
+    description:
+      "When someone self-books online, Marina rings them to confirm the appointment by voice.",
+    triggerEvent: "booking.created",
+    actions: [{ type: "call_lead" }],
+    definition: { version: 1, conditions: [], actions: [{ type: "call_lead" }] },
+    note: "Needs the Cartesia vars on the worker + a phone on the booking.",
+    icon: Calendar,
+  },
+  {
+    key: "call-new-leads",
+    name: "Call new leads with Marina",
+    description: "The moment a lead lands, Marina phones them — while their interest is hot.",
+    triggerEvent: "contact.created",
+    actions: [{ type: "call_lead" }],
+    definition: { version: 1, conditions: [], actions: [{ type: "call_lead" }] },
+    note: "Needs the Cartesia vars on the worker + a phone on the contact.",
+    icon: Phone,
+  },
+  {
+    key: "ai-draft-new-leads",
+    name: "AI-draft a reply to every new lead",
+    description:
+      "Claude reads each new lead and drafts an email + SMS for you to review and send.",
+    triggerEvent: "contact.created",
+    actions: [{ type: "ai_analyze" }],
+    definition: { version: 1, conditions: [], actions: [{ type: "ai_analyze" }] },
+    note: "Needs ANTHROPIC_API_KEY on the worker.",
+    icon: Sparkles,
+  },
+];
+
+/** One-click ready-made automations — no builder, no AI call, just Create. */
+function StarterTemplatesPanel({ orgId, onClose }: { orgId: string; onClose: () => void }) {
+  const createWorkflow = useCreateWorkflow(orgId);
+  const [created, setCreated] = useState<Record<string, boolean>>({});
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+
+  const handleCreate = async (template: StarterTemplate) => {
+    setPendingKey(template.key);
+    try {
+      await createWorkflow.mutateAsync({
+        name: template.name,
+        triggerEvent: template.triggerEvent,
+        definition: template.definition,
+        description: template.description,
+        status: "active",
+      });
+      setCreated((prev) => ({ ...prev, [template.key]: true }));
+      toast.success(`"${template.name}" created and switched on`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't create that workflow.");
+    } finally {
+      setPendingKey(null);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <ClipboardList className="w-4 h-4 text-[hsl(var(--accent-violet))]" /> Starter templates
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Proven automations, one click each. They&rsquo;re switched on the moment you create them.
+          </p>
+        </div>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {STARTER_TEMPLATES.map((template) => (
+          <div key={template.key} className="rounded-lg border border-border bg-secondary/40 p-4 space-y-2 flex flex-col">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-[hsl(var(--accent-violet))]/10 flex items-center justify-center shrink-0">
+                <template.icon className="w-4 h-4 text-[hsl(var(--accent-violet))]" />
+              </div>
+              <p className="text-sm font-semibold text-foreground leading-tight">{template.name}</p>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              When: {triggerLabel[template.triggerEvent] ?? template.triggerEvent}
+            </p>
+            <p className="text-xs text-muted-foreground flex-1">{template.description}</p>
+            <div className="space-y-1">
+              {template.actions.map((action, i) => (
+                <div key={i} className="flex items-start gap-1.5 text-[11px] text-foreground">
+                  <ArrowRight className="w-3 h-3 text-[hsl(var(--accent-violet))] shrink-0 mt-0.5" />
+                  <span>{describeAction(action)}</span>
+                </div>
+              ))}
+            </div>
+            {template.note && (
+              <p className="text-[10px] text-muted-foreground/70 leading-snug">{template.note}</p>
+            )}
+            {created[template.key] ? (
+              <span className="flex items-center justify-center gap-1 text-[10px] font-semibold px-2 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 uppercase tracking-wide">
+                <CheckCircle2 className="w-3 h-3" /> Created
+              </span>
+            ) : (
+              <button
+                onClick={() => void handleCreate(template)}
+                disabled={createWorkflow.isPending}
+                className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[hsl(var(--accent-violet))] text-white hover:bg-[hsl(var(--accent-violet))]/90 transition-colors disabled:opacity-50"
+              >
+                {pendingKey === template.key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                Create
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Create Workflow Dialog ───────────────────────────────────────────────────
 
 const WORKFLOW_TRIGGERS = [
@@ -1112,6 +1252,7 @@ export default function AutomationsPage() {
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isSuggestOpen, setIsSuggestOpen] = useState(false);
+  const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
   const [editingWorkflow, setEditingWorkflow] = useState<EditWorkflow | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [triggerFilter, setTriggerFilter] = useState("");
@@ -1163,7 +1304,17 @@ export default function AutomationsPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setIsSuggestOpen(true)}
+            onClick={() => { setIsTemplatesOpen((v) => !v); setIsSuggestOpen(false); }}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all active:scale-[0.97]",
+              isTemplatesOpen ? "bg-[hsl(var(--accent-violet))]/15 text-[hsl(var(--accent-violet))]" : "bg-secondary text-foreground hover:bg-secondary/70",
+            )}
+          >
+            <ClipboardList className="w-4 h-4 text-[hsl(var(--accent-violet))]" />
+            Templates
+          </button>
+          <button
+            onClick={() => { setIsSuggestOpen(true); setIsTemplatesOpen(false); }}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-secondary text-foreground hover:bg-secondary/70 transition-all active:scale-[0.97]"
           >
             <Sparkles className="w-4 h-4 text-[hsl(var(--accent-violet))]" />
@@ -1178,6 +1329,10 @@ export default function AutomationsPage() {
           </button>
         </div>
       </div>
+
+      {isTemplatesOpen && (
+        <StarterTemplatesPanel orgId={organizationId} onClose={() => setIsTemplatesOpen(false)} />
+      )}
 
       {isSuggestOpen && (
         <SuggestWorkflowsPanel orgId={organizationId} onClose={() => setIsSuggestOpen(false)} />

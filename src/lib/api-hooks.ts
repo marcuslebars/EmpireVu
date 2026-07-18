@@ -28,6 +28,7 @@ import {
   confirmAIDraftSlot,
   fetchContactAIDrafts,
   sendAIDraft,
+  startContactCall,
   updateAIDraft,
   type UpdateAIDraftInput,
   type UpdateContactFields,
@@ -353,6 +354,18 @@ export function useConfirmAIDraftSlot(orgId: string, contactId: string) {
       void qc.invalidateQueries({ queryKey: aiDraftsKey(orgId, contactId) });
       void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
       void qc.invalidateQueries({ queryKey: ["calendar", "view", orgId] });
+    },
+  });
+}
+
+/** On-demand voice call to a contact with Marina (Cartesia). Places a real call. */
+export function useCallContact(orgId: string, contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => startContactCall(orgId, contactId),
+    onSuccess: () => {
+      // The call shows up on the contact timeline once the agent reports back.
+      void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
     },
   });
 }
