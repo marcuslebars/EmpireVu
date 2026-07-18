@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
 const sizeMap = {
@@ -47,7 +48,15 @@ export function Modal({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  return (
+  // Portal to <body> so the overlay is positioned against the viewport. If it
+  // rendered in place, a `filter`/`backdrop-filter` on any ancestor (e.g. the
+  // top bar's `backdrop-blur`) becomes the containing block for `position:
+  // fixed`, and the overlay/card anchor to that ancestor instead of the screen.
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
     <div
       className="fixed inset-0 z-50 overflow-y-auto bg-black/70 backdrop-blur-sm"
       onClick={onClose}
@@ -66,6 +75,7 @@ export function Modal({
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
