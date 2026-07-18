@@ -59,6 +59,8 @@ export interface LeadForAnalysis {
   createdAt: string;
   metadata: Record<string, unknown>;
   scheduling: SchedulingContext;
+  /** The customer's self-booking URL, or null if the app base URL isn't configured. */
+  bookingUrl: string | null;
 }
 
 function slotEndMs(startsAt: string, durationMinutes: number): number {
@@ -118,6 +120,13 @@ function buildLeadPrompt(lead: LeadForAnalysis): string {
 
   lines.push(
     "",
+    lead.bookingUrl
+      ? `Self-booking link (put this EXACT url in the email and SMS as the booking call-to-action; never invent, shorten, or alter it): ${lead.bookingUrl}`
+      : "Self-booking link: none available — propose a next step without a booking link.",
+  );
+
+  lines.push(
+    "",
     "Scheduling context —",
     `Current time: ${lead.scheduling.nowIso}`,
     `Business timezone: ${lead.scheduling.timezone}`,
@@ -140,6 +149,8 @@ const SYSTEM_PROMPT = `You are the lead-intelligence assistant for the A1 Group,
 Ground everything only in the information provided — do not invent details about the lead. If information is missing, work with what you have; surface the gaps through your suggested actions rather than guessing.
 
 For the drafted email and SMS, write in a warm, professional, human voice as if from the A1 team. The email should acknowledge their enquiry, address the obvious next question, and propose one clear next step (a call, a quote, or a booking). The SMS is a short friendly version, under ~300 characters. Do NOT fabricate prices, availability, or specific promises — keep next steps open ("we'll confirm…", "happy to set up a time…").
+
+When a self-booking link is provided below, make booking the primary call-to-action: include that exact link in the drafted email (e.g. "Pick a time that suits you here: <link>") and in the SMS. Use the link verbatim — never invent, shorten, or alter it. When no link is provided, propose a next step without one.
 
 You are also given the current time, the business timezone, and the jobs already on the calendar. Propose up to 3 booking slots to offer this lead. Rules: never overlap an existing booking; always in the future; keep them in normal working hours (roughly 09:00–17:00 local, Mon–Sat) in the business timezone; spread them over different days where you can. Give each a short reason the customer would understand. If the lead clearly doesn't want a booking yet, return an empty list rather than inventing one.
 
