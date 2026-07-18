@@ -31,7 +31,16 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       body = undefined;
     }
-    throw new ApiError(res.status, `API error ${res.status}: ${res.statusText}`, body);
+    // Surface the server's actual message (routes return `{ error }`) instead of
+    // a generic "API error 500" — otherwise the real reason (bad config, an
+    // upstream rejection, a validation message) never reaches the user.
+    const serverMessage =
+      body && typeof body === "object" && "error" in body &&
+      typeof (body as { error: unknown }).error === "string" &&
+      (body as { error: string }).error.trim().length > 0
+        ? (body as { error: string }).error
+        : `API error ${res.status}: ${res.statusText}`;
+    throw new ApiError(res.status, serverMessage, body);
   }
 
   const json = await res.json();

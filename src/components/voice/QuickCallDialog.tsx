@@ -8,6 +8,7 @@ import { toast } from "@/components/ui/sonner";
  * One dialog, two modes: dial a raw number (no contact needed), or call an
  * existing contact by id (richer metadata for the agent). Placing a call here
  * rings a real person immediately, so the primary button is the deliberate step.
+ * Kept intentionally compact so it reads as a small pop-up even in a short window.
  */
 export function QuickCallDialog({
   orgId,
@@ -50,31 +51,32 @@ export function QuickCallDialog({
 
   const inputCls =
     "w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring";
-  const labelCls = "text-xs font-medium text-muted-foreground mb-1.5 block";
+  const labelCls = "text-xs font-medium text-muted-foreground mb-1 block";
 
   return (
-    <Modal onClose={onClose} size="md">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-[hsl(var(--accent-violet))]/15 flex items-center justify-center">
+    <Modal onClose={onClose} size="sm">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-[hsl(var(--accent-violet))]/15 flex items-center justify-center shrink-0">
             <Phone className="w-4 h-4 text-[hsl(var(--accent-violet))]" />
           </div>
-          <div>
-            <h2 className="text-base font-semibold text-foreground">Call with Marina</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Your voice agent rings the number now</p>
-          </div>
+          <h2 className="text-sm font-semibold text-foreground truncate">Call with Marina</h2>
         </div>
-        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0"
+        >
           <X className="w-4 h-4" />
         </button>
       </div>
 
-      <div className="p-6 space-y-4">
+      <div className="p-5 space-y-3">
         {isContact ? (
-          <div className="rounded-lg bg-secondary/50 border border-border px-3 py-3">
-            <p className="text-sm font-medium text-foreground">{initialName || "This contact"}</p>
+          <div className="rounded-lg bg-secondary/50 border border-border px-3 py-2.5">
+            <p className="text-sm font-medium text-foreground truncate">{initialName || "This contact"}</p>
             <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
-              <Phone className="w-3 h-3" /> {initialPhone}
+              <Phone className="w-3 h-3 shrink-0" /> {initialPhone}
             </p>
           </div>
         ) : (
@@ -106,12 +108,12 @@ export function QuickCallDialog({
           </>
         )}
 
-        <p className="text-[11px] text-muted-foreground/80 flex items-start gap-1.5">
+        <p className="text-[11px] text-muted-foreground/70 flex items-start gap-1.5 leading-snug">
           <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
-          This places a real call the moment you confirm. Use a number you can answer when testing.
+          Rings a real phone the moment you confirm.
         </p>
 
-        <div className="flex gap-2 pt-1">
+        <div className="flex gap-2 pt-0.5">
           <button
             type="button"
             onClick={onClose}
