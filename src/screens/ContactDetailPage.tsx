@@ -1127,8 +1127,8 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
                     {i < timeline.length - 1 && (
                       <div className="absolute left-[15px] top-9 bottom-0 w-px bg-border/50" />
                     )}
-                    <div className="w-8 h-8 rounded-lg bg-card border border-border flex items-center justify-center shrink-0 z-10 text-primary">
-                      <Activity className="w-3.5 h-3.5" />
+                    <div className={cn("w-8 h-8 rounded-lg bg-card border border-border flex items-center justify-center shrink-0 z-10", item.metadata?.channel === "voice" ? "text-[hsl(var(--accent-violet))]" : "text-primary")}>
+                      {item.metadata?.channel === "voice" ? <Phone className="w-3.5 h-3.5" /> : <Activity className="w-3.5 h-3.5" />}
                     </div>
                     <div className="pb-5 flex-1">
                       <div className="flex items-center justify-between">

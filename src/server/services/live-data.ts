@@ -977,6 +977,14 @@ function buildActivityEventTraceSummary(activityEvent: Tables<"activity_events">
         metadata,
         title: "Contact owner assigned",
       };
+    case "contact.call_placed": {
+      const toNumber = typeof metadata.toNumber === "string" ? metadata.toNumber : null;
+      return {
+        detail: toNumber ? `Marina placed a call to ${toNumber}.` : "Marina placed a call to this lead.",
+        metadata,
+        title: "Call placed",
+      };
+    }
     case "booking.created":
       return {
         detail: "A booking was created.",
