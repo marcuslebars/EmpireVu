@@ -947,6 +947,58 @@ function summarizeRevenueFromEvents(events: Tables<"activity_events">[]): { toda
   return { todayCents, weekCents };
 }
 
+/** Cartesia `end_reason` → an owner-facing outcome phrase. */
+function describeCallOutcome(endReason: string | null): string {
+  switch (endReason) {
+    case "agent_hangup":
+    case "client_hangup":
+      return "Answered";
+    case "max_duration":
+      return "Answered (hit max duration)";
+    case "inactivity":
+      return "Answered (ended on silence)";
+    case "dial_no_answer":
+      return "No answer";
+    case "dial_busy":
+      return "Line busy";
+    case "dial_failed":
+      return "Couldn't connect";
+    case "client_disconnected":
+      return "Disconnected";
+    case "api_cancelled":
+      return "Cancelled";
+    case "error":
+      return "Failed";
+    default:
+      return endReason ? titleize(endReason) : "Ended";
+  }
+}
+
+function callOutcomeTitle(endReason: string | null): string {
+  switch (endReason) {
+    case "dial_no_answer":
+      return "Call not answered";
+    case "dial_busy":
+      return "Call — line busy";
+    case "dial_failed":
+    case "error":
+      return "Call failed";
+    case "api_cancelled":
+      return "Call cancelled";
+    default:
+      return "Call completed";
+  }
+}
+
+function formatCallDuration(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
+}
+
 function buildActivityEventTraceSummary(activityEvent: Tables<"activity_events">): {
   detail: string;
   metadata: Record<string, Json>;
@@ -983,6 +1035,25 @@ function buildActivityEventTraceSummary(activityEvent: Tables<"activity_events">
         detail: toNumber ? `Marina placed a call to ${toNumber}.` : "Marina placed a call to this lead.",
         metadata,
         title: "Call placed",
+      };
+    }
+    case "contact.call_completed": {
+      const endReason = typeof metadata.endReason === "string" ? metadata.endReason : null;
+      const summary = typeof metadata.summary === "string" && metadata.summary.trim().length > 0
+        ? metadata.summary.trim()
+        : null;
+      const durationSeconds =
+        typeof metadata.durationSeconds === "number" ? metadata.durationSeconds : null;
+      const outcome = describeCallOutcome(endReason);
+      const parts = [outcome];
+      if (durationSeconds != null && durationSeconds > 0) {
+        parts.push(formatCallDuration(durationSeconds));
+      }
+
+      return {
+        detail: summary ?? `${parts.join(" · ")}.`,
+        metadata,
+        title: callOutcomeTitle(endReason),
       };
     }
     case "booking.created":

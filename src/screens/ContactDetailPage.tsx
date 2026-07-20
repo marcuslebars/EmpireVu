@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -26,7 +26,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateBooking, useUpdateContactNotes, useUpdateContactFields, useAnalyzeContactAI, useContactAIDrafts, useUpdateAIDraft, useSendAIDraft, useConfirmAIDraftSlot, useCallContact } from "@/lib/api-hooks";
+import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateBooking, useUpdateContactNotes, useUpdateContactFields, useAnalyzeContactAI, useContactAIDrafts, useUpdateAIDraft, useSendAIDraft, useConfirmAIDraftSlot, useCallContact, useSyncContactCalls } from "@/lib/api-hooks";
 import { toast } from "@/components/ui/sonner";
 import { Modal } from "@/components/ui/Modal";
 import { LoadingCards, ErrorBanner, EmptyState, SkeletonStatCard } from "@/components/ui/StateViews";
@@ -913,6 +913,32 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
   const updateStage = useUpdateContactStage(orgId);
 
   const { contact, financialSummary, linkedBookings, linkedTasks, nextAction, timeline, workflowTraces } = detail;
+
+  // A placed call carries `agentCallId`; its outcome event adds `callStatus`.
+  // Anything placed without a matching outcome is still unresolved.
+  const syncCalls = useSyncContactCalls(orgId, contact.id);
+  const hasUnresolvedCalls = useMemo(() => {
+    const placed = new Set<string>();
+    const resolved = new Set<string>();
+    for (const item of timeline) {
+      const meta = item.metadata as Record<string, unknown> | undefined;
+      const callId = meta?.agentCallId;
+      if (typeof callId !== "string") continue;
+      if (typeof meta?.callStatus === "string") resolved.add(callId);
+      else placed.add(callId);
+    }
+    return [...placed].some((id) => !resolved.has(id));
+  }, [timeline]);
+
+  // Fire once per view — the endpoint is idempotent, and a call that's still
+  // ringing stays unresolved, so a ref keeps this from looping.
+  const attemptedCallSync = useRef(false);
+  useEffect(() => {
+    if (!hasUnresolvedCalls || attemptedCallSync.current) return;
+    attemptedCallSync.current = true;
+    syncCalls.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasUnresolvedCalls]);
 
   const sc = stageConfig[contact.stage] ?? stageConfig.lead;
   const ac = actionTypeConfig[nextAction.type];

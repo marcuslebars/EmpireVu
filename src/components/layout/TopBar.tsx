@@ -131,6 +131,7 @@ const ACTIVITY_LABELS: Record<string, string> = {
   "contact.stage_changed": "Stage changed",
   "contact.updated": "Contact updated",
   "contact.call_placed": "Marina call",
+  "contact.call_completed": "Call outcome",
   "booking.created": "New booking",
   "booking.completed": "Booking completed",
   "booking.cancelled": "Booking cancelled",
