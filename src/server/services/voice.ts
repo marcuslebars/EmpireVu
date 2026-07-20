@@ -2,7 +2,12 @@ import type { Tables } from "@/server/db/database.types";
 import { ValidationError } from "@/server/organizations/context";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { createActivityEvent } from "@/server/services/activity-events";
-import { placeOutboundCall, readVoiceConfig, type PlaceCallResult } from "@/server/outbound/voice";
+import {
+  fetchCallDetails,
+  placeOutboundCall,
+  readVoiceConfig,
+  type PlaceCallResult,
+} from "@/server/outbound/voice";
 
 export function isVoiceConfigured(): boolean {
   return readVoiceConfig() !== null;
@@ -121,4 +126,108 @@ export async function callNumberWithMarina(
     },
     config,
   );
+}
+
+/** Cartesia statuses that mean the call is over and its outcome is final. */
+const TERMINAL_CALL_STATUSES = new Set(["completed", "failed"]);
+
+function readEventMetadata(event: Tables<"activity_events">): Record<string, unknown> {
+  return event.metadata_json && typeof event.metadata_json === "object" && !Array.isArray(event.metadata_json)
+    ? (event.metadata_json as Record<string, unknown>)
+    : {};
+}
+
+/**
+ * Pull outcomes for this contact's placed calls that aren't resolved yet, and
+ * record each as a `contact.call_completed` event carrying Marina's summary.
+ *
+ * Insert-only and idempotent: a placed call counts as resolved once a completed
+ * event exists for its agentCallId, so re-running is safe and never duplicates.
+ * Calls still ringing are simply skipped and picked up on the next sync.
+ */
+export async function syncCallOutcomesForContact(
+  context: TenantServiceContext,
+  contactId: string,
+): Promise<{ synced: number }> {
+  const config = readVoiceConfig();
+  if (!config) {
+    return { synced: 0 };
+  }
+
+  const { data, error } = await context.supabase
+    .from("activity_events")
+    .select("*")
+    .eq("organization_id", context.organizationId)
+    .eq("entity_type", "contact")
+    .eq("entity_id", contactId)
+    .in("event_type", ["contact.call_placed", "contact.call_completed"])
+    .order("occurred_at", { ascending: false })
+    .limit(100);
+
+  if (error) throw error;
+  const events = data ?? [];
+
+  const resolved = new Set(
+    events
+      .filter((event) => event.event_type === "contact.call_completed")
+      .map((event) => readEventMetadata(event).agentCallId)
+      .filter((id): id is string => typeof id === "string"),
+  );
+
+  const pending = events.filter((event) => {
+    if (event.event_type !== "contact.call_placed") return false;
+    const id = readEventMetadata(event).agentCallId;
+    return typeof id === "string" && !resolved.has(id);
+  });
+
+  let synced = 0;
+
+  for (const event of pending) {
+    const meta = readEventMetadata(event);
+    const agentCallId = meta.agentCallId as string;
+
+    try {
+      const details = await fetchCallDetails(agentCallId, config);
+      if (!details.status || !TERMINAL_CALL_STATUSES.has(details.status)) {
+        continue;
+      }
+
+      const durationSeconds =
+        details.startTime && details.endTime &&
+        !Number.isNaN(Date.parse(details.startTime)) &&
+        !Number.isNaN(Date.parse(details.endTime))
+          ? Math.max(0, Math.round((Date.parse(details.endTime) - Date.parse(details.startTime)) / 1000))
+          : null;
+
+      const endedAt =
+        details.endTime && !Number.isNaN(Date.parse(details.endTime))
+          ? new Date(details.endTime).toISOString()
+          : undefined;
+
+      await createActivityEvent(context, {
+        companyId: event.company_id,
+        entityId: contactId,
+        entityType: "contact",
+        eventType: "contact.call_completed",
+        metadata: {
+          agent: "marina",
+          agentCallId,
+          callStatus: details.status,
+          channel: "voice",
+          durationSeconds,
+          endReason: details.endReason,
+          errorMessage: details.errorMessage,
+          summary: details.summary,
+          toNumber: typeof meta.toNumber === "string" ? meta.toNumber : null,
+        },
+        occurredAt: endedAt,
+      });
+
+      synced += 1;
+    } catch {
+      // One failed lookup shouldn't block the others — retried on the next sync.
+    }
+  }
+
+  return { synced };
 }

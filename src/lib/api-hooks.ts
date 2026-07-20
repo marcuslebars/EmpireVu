@@ -30,6 +30,7 @@ import {
   sendAIDraft,
   startContactCall,
   startQuickCall,
+  syncContactCalls,
   updateAIDraft,
   type UpdateAIDraftInput,
   type UpdateContactFields,
@@ -367,6 +368,19 @@ export function useCallContact(orgId: string, contactId: string) {
     onSuccess: () => {
       // The call shows up on the contact timeline once the agent reports back.
       void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
+    },
+  });
+}
+
+/** Pulls finished-call outcomes onto the contact timeline. Safe to re-run. */
+export function useSyncContactCalls(orgId: string, contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => syncContactCalls(orgId, contactId),
+    onSuccess: (result) => {
+      if (result?.synced > 0) {
+        void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
+      }
     },
   });
 }

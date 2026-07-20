@@ -88,3 +88,64 @@ export async function placeOutboundCall(
   const call = json?.calls?.[0];
   return { agentCallId: call?.agent_call_id ?? null, toNumber: input.toNumber };
 }
+
+export interface CallDetails {
+  endReason: string | null;
+  endTime: string | null;
+  errorMessage: string | null;
+  startTime: string | null;
+  /** created | started | completed | failed */
+  status: string | null;
+  summary: string | null;
+}
+
+/**
+ * Read a placed call's outcome. Only "completed" and "failed" are terminal —
+ * anything else means the call is still ringing or in progress.
+ */
+export async function fetchCallDetails(
+  agentCallId: string,
+  config: VoiceConfig | null = readVoiceConfig(),
+): Promise<CallDetails> {
+  if (!config) {
+    throw new OutboundNotConfiguredError("Voice calling is not configured.");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${CARTESIA_CALLS_URL}/${encodeURIComponent(agentCallId)}`, {
+      headers: {
+        // Cartesia's docs disagree: the outbound-dialing page documents
+        // `X-API-Key` (what our working call uses) while the API-conventions
+        // page documents `Authorization: Bearer`. Send both so either satisfies.
+        Authorization: `Bearer ${config.apiKey}`,
+        "Cartesia-Version": CARTESIA_VERSION,
+        "X-API-Key": config.apiKey,
+      },
+    });
+  } catch (error) {
+    throw new OutboundSendError(
+      `Cartesia call lookup failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new OutboundSendError(
+      `Cartesia returned ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`,
+    );
+  }
+
+  const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  const readString = (key: string): string | null =>
+    typeof json?.[key] === "string" ? (json[key] as string) : null;
+
+  return {
+    endReason: readString("end_reason"),
+    endTime: readString("end_time"),
+    errorMessage: readString("error_message"),
+    startTime: readString("start_time"),
+    status: readString("status"),
+    summary: readString("summary"),
+  };
+}

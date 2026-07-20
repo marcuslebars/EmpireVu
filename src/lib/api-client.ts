@@ -742,6 +742,13 @@ export function startContactCall(orgId: string, contactId: string): Promise<Cont
   });
 }
 
+/** Pulls outcomes for this contact's finished calls. Idempotent. */
+export function syncContactCalls(orgId: string, contactId: string): Promise<{ synced: number }> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}/calls/sync`, {
+    method: "POST",
+  });
+}
+
 /** Places an ad-hoc call to a raw number with Marina — no contact record needed. */
 export function startQuickCall(
   orgId: string,
