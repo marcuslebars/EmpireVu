@@ -19,6 +19,7 @@
     "worker:workflow-events": "tsx src/server/workers/workflow-event-worker.ts"
   },
   "dependencies": {
+    "@a1/pricing-engine": "github:marcuslebars/a1-pricing-engine",
     "@anthropic-ai/sdk": "^0.111.0",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "^1.2.11",
