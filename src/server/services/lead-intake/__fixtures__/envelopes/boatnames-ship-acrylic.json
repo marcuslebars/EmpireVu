@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "source": "boatnames_quote_ship",
+  "sourceSite": "boatnames",
+  "formType": "quote",
+  "receivedAt": "2026-07-25T15:00:00.000Z",
+  "contact": {
+    "name": "Marcus Reed",
+    "email": "marcus@example.com",
+    "phone": "705-555-0199"
+  },
+  "message": "Cast acrylic boat name lettering — \"Second Wind\" · Port: Midland, ON · Transom Serif · Mirror Gold · 8\" letters · ~60\" run.\nFulfillment: Ship anywhere in Canada.\nTransom width: 168\".\nPreview: https://boatnames.ca/?name=Second+Wind&line=acrylic&font=transom-serif&finish=mirror-gold&size=8#previewer\nPhoto: https://boatnames.ca/storage/quote-photos/example.jpg\n\nWould love to have it done before the August long weekend.",
+  "asset": {
+    "makeModel": "Meridian 408 Motoryacht",
+    "marina": "Bay Port Yachting Centre"
+  },
+  "meta": {
+    "site": "boatnames.ca",
+    "page": "/#quote",
+    "utm": {
+      "utm_source": "google",
+      "utm_campaign": "boat-lettering"
+    }
+  }
+}

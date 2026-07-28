@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "source": "boatnames_quote_install",
+  "sourceSite": "boatnames",
+  "formType": "quote",
+  "receivedAt": "2026-07-25T15:00:00.000Z",
+  "contact": {
+    "name": "Dana Lowe",
+    "email": "dana@example.com",
+    "phone": "705-555-0142"
+  },
+  "message": "Cut vinyl boat name lettering — \"Knot Working\" · Port: Penetanguishene, ON · Deck Sans · Metallic Gold · 6\" letters · ~44\" run.\nFulfillment: White-glove install (Georgian Bay / Simcoe / Trent-Severn).\nTransom width: 132\".\nPreview: https://boatnames.ca/?name=Knot+Working&line=vinyl&font=deck-sans&finish=vinyl-gold&size=6#previewer\nPhoto: https://boatnames.ca/storage/quote-photos/example2.jpg\n\nWould like it installed before the season opener.",
+  "asset": {
+    "makeModel": "Sea Ray 320 Sundancer",
+    "marina": "Wye Heritage Marina"
+  },
+  "meta": {
+    "site": "boatnames.ca",
+    "page": "/install",
+    "utm": {
+      "utm_source": "instagram",
+      "utm_campaign": "install"
+    }
+  }
+}
