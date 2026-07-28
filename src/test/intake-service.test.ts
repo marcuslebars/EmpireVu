@@ -7,9 +7,22 @@
  *  - unknown brand -> stored raw, no company, flagged, still success;
  *  - the result echoes no data (write-only in effect).
  */
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type Row = Record<string, any>;
+
+/** Load an exact intake fixture (the same bytes a spoke forwarder emits). */
+const loadFixture = (file: string): Row =>
+  JSON.parse(
+    readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "..", "server", "services", "lead-intake", "__fixtures__", "envelopes", file),
+      "utf8",
+    ),
+  );
 
 let fake: ReturnType<typeof createFakeAdmin>;
 
@@ -93,6 +106,7 @@ function baseSeed(): Record<string, Row[]> {
     companies: [
       { id: "co-care", organization_id: "org-a1", slug: "a1-marine-care", name: "A1 Marine Care" },
       { id: "co-storage", organization_id: "org-a1", slug: "a1-marine-storage", name: "A1 Marine Storage" },
+      { id: "co-boatnames", organization_id: "org-a1", slug: "a1-boatnames", name: "boatnames.ca" },
     ],
     contacts: [],
     activity_events: [],
@@ -172,6 +186,47 @@ describe("intake — never drop", () => {
     expect(newActivity?.company_id).toBe("co-storage"); // scoped to the lead's brand
     expect(newActivity?.metadata_json?.crossBrandBrands).toEqual(["A1 Marine Care"]);
     expect(fake.store.raw_leads[0].needs_attention).toBe(false);
+  });
+});
+
+describe("intake — boatnames brand routing (a1-boatnames)", () => {
+  // Proves the new sourceSite:"boatnames" -> company a1-boatnames path against
+  // the EXACT bytes the boatnames.ca forwarder emits (the golden fixtures), so a
+  // boatnames lead becomes a contact instead of landing in raw_leads.
+  it.each(["boatnames-ship-acrylic.json", "boatnames-install-vinyl.json"])(
+    "%s resolves to a1-boatnames and creates a contact (not a raw-only lead)",
+    async (file) => {
+      const env = loadFixture(file);
+      expect(env.sourceSite).toBe("boatnames");
+      expect(env.formType).toBe("quote"); // NOT boatnames_quote_* — that's `source`
+
+      const res = await handleLeadIntake(JSON.stringify(env), env);
+      expect(res.ok).toBe(true);
+
+      const raw = fake.store.raw_leads[0];
+      expect(raw.schema_valid).toBe(true);
+      expect(raw.organization_id).toBe("org-a1");
+      expect(raw.company_id).toBe("co-boatnames"); // routed to the new company
+      expect(raw.needs_attention).toBe(false); // enriched, not an orphan
+
+      expect(fake.store.contacts).toHaveLength(1);
+      expect(fake.store.contacts[0].organization_id).toBe("org-a1");
+      expect(fake.store.contacts[0].company_id).toBe("co-boatnames");
+
+      const activity = fake.store.activity_events.find((e) => e.metadata_json?.leadId);
+      expect(activity?.company_id).toBe("co-boatnames");
+      expect(fake.store.activity_events.some((e) => e.event_type === "lead.quote")).toBe(true);
+    },
+  );
+
+  it("without the a1-boatnames company seeded, the same lead lands in raw_leads (proves the seed is required)", async () => {
+    fake.store.companies = fake.store.companies.filter((c) => c.slug !== "a1-boatnames");
+    const env = loadFixture("boatnames-ship-acrylic.json");
+    const res = await handleLeadIntake(JSON.stringify(env), env);
+    expect(res.ok).toBe(true);
+    expect(fake.store.raw_leads[0].company_id).toBeNull();
+    expect(fake.store.raw_leads[0].needs_attention).toBe(true);
+    expect(fake.store.contacts).toHaveLength(0);
   });
 });
 
