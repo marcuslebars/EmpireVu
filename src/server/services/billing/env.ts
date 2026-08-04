@@ -8,7 +8,7 @@
  * read here; it lives in `.env.example`/docs for Phase 2.
  */
 
-import type { PurchasablePlan } from "@/server/services/billing/config";
+import { PURCHASABLE_PLANS, type PurchasablePlan } from "@/server/services/billing/config";
 
 function getRequiredEnv(name: string): string {
   const value = process.env[name];
@@ -51,6 +51,24 @@ export function getStripePriceId(plan: PurchasablePlan): string {
  */
 export function getStripeSetupFeePriceId(plan: PurchasablePlan): string | null {
   return process.env[`STRIPE_SETUP_FEE_${plan.toUpperCase()}`] ?? null;
+}
+
+/**
+ * Reverse of getStripePriceId: map a Stripe recurring Price id back to its plan,
+ * or null when it matches no configured plan price. Lets the event processor
+ * derive the plan straight from the subscription's price (source of truth in
+ * Stripe) rather than trusting event metadata.
+ */
+export function planForStripePriceId(priceId: string | null | undefined): PurchasablePlan | null {
+  if (!priceId) {
+    return null;
+  }
+  for (const plan of PURCHASABLE_PLANS) {
+    if (process.env[PLAN_PRICE_ENV[plan]] === priceId) {
+      return plan;
+    }
+  }
+  return null;
 }
 
 /**
