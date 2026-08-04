@@ -297,7 +297,11 @@ export interface Database {
           created_by: string | null;
           id: string;
           name: string;
+          plan: string;
           slug: string;
+          stripe_customer_id: string | null;
+          subscription_status: string;
+          trial_ends_at: string | null;
           updated_at: string;
         };
         Insert: {
@@ -306,7 +310,11 @@ export interface Database {
           created_by?: string | null;
           id?: string;
           name: string;
+          plan?: string;
           slug: string;
+          stripe_customer_id?: string | null;
+          subscription_status?: string;
+          trial_ends_at?: string | null;
           updated_at?: string;
         };
         Update: {
@@ -315,7 +323,11 @@ export interface Database {
           created_by?: string | null;
           id?: string;
           name?: string;
+          plan?: string;
           slug?: string;
+          stripe_customer_id?: string | null;
+          subscription_status?: string;
+          trial_ends_at?: string | null;
           updated_at?: string;
         };
         Relationships: [];
@@ -841,6 +853,147 @@ export interface Database {
           raw_payload?: Json | null;
           requested_service?: string | null;
           telnyx_conversation_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      billing_events: {
+        Row: {
+          id: string;
+          organization_id: string | null;
+          payload: Json;
+          processed_at: string | null;
+          received_at: string;
+          stripe_event_id: string;
+          type: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id?: string | null;
+          payload: Json;
+          processed_at?: string | null;
+          received_at?: string;
+          stripe_event_id: string;
+          type: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string | null;
+          payload?: Json;
+          processed_at?: string | null;
+          received_at?: string;
+          stripe_event_id?: string;
+          type?: string;
+        };
+        Relationships: [];
+      };
+      billing_event_jobs: {
+        Row: {
+          attempt_count: number;
+          available_at: string;
+          billing_event_id: string;
+          completed_at: string | null;
+          created_at: string;
+          id: string;
+          last_attempted_at: string | null;
+          last_error: string | null;
+          locked_at: string | null;
+          locked_by: string | null;
+          max_attempts: number;
+          started_at: string | null;
+          status: string;
+          updated_at: string;
+        };
+        Insert: {
+          attempt_count?: number;
+          available_at?: string;
+          billing_event_id: string;
+          completed_at?: string | null;
+          created_at?: string;
+          id?: string;
+          last_attempted_at?: string | null;
+          last_error?: string | null;
+          locked_at?: string | null;
+          locked_by?: string | null;
+          max_attempts?: number;
+          started_at?: string | null;
+          status?: string;
+          updated_at?: string;
+        };
+        Update: {
+          attempt_count?: number;
+          available_at?: string;
+          billing_event_id?: string;
+          completed_at?: string | null;
+          created_at?: string;
+          id?: string;
+          last_attempted_at?: string | null;
+          last_error?: string | null;
+          locked_at?: string | null;
+          locked_by?: string | null;
+          max_attempts?: number;
+          started_at?: string | null;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      feature_flags: {
+        Row: {
+          created_at: string;
+          enabled: boolean;
+          feature: string;
+          limit_value: number | null;
+          organization_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          enabled?: boolean;
+          feature: string;
+          limit_value?: number | null;
+          organization_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          enabled?: boolean;
+          feature?: string;
+          limit_value?: number | null;
+          organization_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      subscriptions: {
+        Row: {
+          created_at: string;
+          current_period_end: string | null;
+          id: string;
+          organization_id: string;
+          plan: string;
+          status: string;
+          stripe_subscription_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          current_period_end?: string | null;
+          id?: string;
+          organization_id: string;
+          plan: string;
+          status: string;
+          stripe_subscription_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          current_period_end?: string | null;
+          id?: string;
+          organization_id?: string;
+          plan?: string;
+          status?: string;
+          stripe_subscription_id?: string;
           updated_at?: string;
         };
         Relationships: [];
