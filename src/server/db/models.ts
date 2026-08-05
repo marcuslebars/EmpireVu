@@ -12,6 +12,10 @@ export type Workflow = Tables<"workflows">;
 export type WorkflowRun = Tables<"workflow_runs">;
 export type ActivityEvent = Tables<"activity_events">;
 export type Comment = Tables<"comments">;
+export type Subscription = Tables<"subscriptions">;
+export type BillingEvent = Tables<"billing_events">;
+export type BillingEventJob = Tables<"billing_event_jobs">;
+export type FeatureFlag = Tables<"feature_flags">;
 
 export type CompanyInsert = Inserts<"companies">;
 export type ContactInsert = Inserts<"contacts">;
@@ -30,6 +34,14 @@ export type WorkflowUpdate = Updates<"workflows">;
 export type WorkflowRunUpdate = Updates<"workflow_runs">;
 export type ActivityEventUpdate = Updates<"activity_events">;
 export type CommentUpdate = Updates<"comments">;
+
+export type OrganizationUpdate = Updates<"organizations">;
+export type SubscriptionInsert = Inserts<"subscriptions">;
+export type SubscriptionUpdate = Updates<"subscriptions">;
+export type BillingEventUpdate = Updates<"billing_events">;
+export type BillingEventJobUpdate = Updates<"billing_event_jobs">;
+export type FeatureFlagInsert = Inserts<"feature_flags">;
+export type FeatureFlagUpdate = Updates<"feature_flags">;
 
 export type MembershipRole = DbEnum<"membership_role">;
 export type CompanyRole = DbEnum<"company_role">;
