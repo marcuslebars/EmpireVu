@@ -39,15 +39,27 @@ creates the webhook endpoint for you.
 
 ### In Railway
 
-- [ ] Set the env vars below on the **web** service: `STRIPE_SECRET_KEY`,
-      `STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_PRICE_*` (+ setup
-      fees), `BILLING_PAST_DUE_GRACE_DAYS`.
-- [ ] Create a **new worker service** from `railway.billing-worker.json`
-      (start command `npm run worker:billing-events`). Give it `STRIPE_SECRET_KEY`,
-      the Supabase URL + **service-role key**, and the `STRIPE_PRICE_*` vars.
-- [ ] Create a **cron service** from `railway.billing-reconcile.json`
-      (`npm run job:billing-reconcile`, nightly). Same env as the worker. Set/confirm
-      the cron schedule in the Railway service settings.
+Four services deploy from this one repo. Each reads a specific config file, set
+per service under **Service Settings → Config-as-Code → "Railway Config File"**. A
+service left on the default `railway.json` runs the **web** start command — so set
+the path explicitly for every non-web service (this is the same mechanism the
+existing workflow worker already relies on).
+
+- [ ] **Web** (`railway.json` → `npm run start`): `STRIPE_SECRET_KEY`,
+      `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_*` (+ optional `STRIPE_SETUP_FEE_*`),
+      `BILLING_PAST_DUE_GRACE_DAYS`, plus the existing Supabase URL + anon +
+      service-role and `APP_BASE_URL`. (`STRIPE_PUBLISHABLE_KEY` is Phase-2/client —
+      optional now.)
+- [ ] **Billing worker** — new service, config file **`railway.billing-worker.json`**
+      (`npm run worker:billing-events`): `NEXT_PUBLIC_SUPABASE_URL` +
+      `SUPABASE_SERVICE_ROLE_KEY` + `STRIPE_PRICE_*` (+ optional `BILLING_EVENT_WORKER_*`).
+      **No `STRIPE_SECRET_KEY`** — it never constructs a Stripe client.
+- [ ] **Reconcile cron** — new service, config file **`railway.billing-reconcile.json`**
+      (`npm run job:billing-reconcile`, nightly): `STRIPE_SECRET_KEY` + `STRIPE_PRICE_*`
+      + `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`. Confirm the cron
+      schedule (`0 8 * * *`) in service settings.
+- [ ] The existing **workflow worker** (`railway.worker.json`) is **unchanged** and
+      needs **no** billing env — do not add Stripe vars to it.
 
 > **Secrets discipline:** `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are
 > server-only — never give them a `VITE_`/`NEXT_PUBLIC_` prefix, never log them,
@@ -55,21 +67,40 @@ creates the webhook endpoint for you.
 
 ---
 
-## Environment variables
+## Environment variables (per service)
 
-| Var | Where | Notes |
-|---|---|---|
-| `STRIPE_SECRET_KEY` | web, billing worker, reconcile | Server-only secret. |
-| `STRIPE_WEBHOOK_SECRET` | web | Endpoint signing secret (`whsec_...`). |
-| `STRIPE_PUBLISHABLE_KEY` | (client, Phase 2) | Client-safe; unused in Phase 1. |
-| `STRIPE_PRICE_LAUNCH` / `_OPERATE` / `_FRONT_DESK` | web, workers | Recurring Price ids. |
-| `STRIPE_SETUP_FEE_LAUNCH` / `_OPERATE` / `_FRONT_DESK` | web | Optional one-time fee Price ids. |
-| `BILLING_PAST_DUE_GRACE_DAYS` | web (gating), workers | Default `7`. |
-| `BILLING_EVENT_WORKER_ID` / `_BATCH_SIZE` / `_POLL_MS` / `_STALE_AFTER_SECONDS` | billing worker | Tuning; defaults `pid` / `10` / `2000` / `900`. |
-| `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL` | web, workers | Existing; the workers need service-role. |
-| `APP_BASE_URL` | web | Used to build Checkout/Portal return URLs. |
+Traced from the code, not assumed. Legend: ✅ required · ➕ recommended · ○ optional · — not needed.
 
-See `.env.example` for the annotated list.
+| Var | web | billing-worker | reconcile | workflow-worker |
+|---|:--:|:--:|:--:|:--:|
+| `STRIPE_SECRET_KEY` | ✅ | — | ✅ | — |
+| `STRIPE_WEBHOOK_SECRET` | ✅ | — | — | — |
+| `STRIPE_PUBLISHABLE_KEY` | ○ (Phase 2) | — | — | — |
+| `STRIPE_PRICE_LAUNCH` / `_OPERATE` / `_FRONT_DESK` | ✅ | ✅ | ➕ | — |
+| `STRIPE_SETUP_FEE_*` | ○ | — | — | — |
+| `BILLING_PAST_DUE_GRACE_DAYS` (def 7) | ○ | — | — | — |
+| `BILLING_EVENT_WORKER_ID` / `_BATCH_SIZE` / `_POLL_MS` / `_STALE_AFTER_SECONDS` | — | ○ | — | — |
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ | ✅ | ✅ | ✅ |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | ✅ | ✅ | ✅ |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or `_PUBLISHABLE_KEY`) | ✅ | — | — | — |
+| `APP_BASE_URL` | ✅ | — | — | — |
+
+Why the non-obvious cells:
+- **`STRIPE_SECRET_KEY` is NOT on the billing worker.** The worker
+  (`billing-event-worker.ts` → `processBillingEventJob`) only reads the stored
+  event payload and writes Postgres; it never imports `billing/stripe.ts`. The
+  **reconcile** job *does* (`stripe.subscriptions.list`), so it needs it.
+- **`BILLING_PAST_DUE_GRACE_DAYS` is web-only.** Code path:
+  `getPastDueGraceDays()` (`billing/env.ts`) → `evaluateOrg` → `orgCan`/`orgLimit`
+  (`billing/gating.ts`), whose only caller is the web route
+  `GET /api/organizations/[organizationId]/billing`. Neither worker imports gating.
+- **`STRIPE_PRICE_*` on the worker** is required for correct upgrade/downgrade
+  (mapping the subscription's price id → plan on `customer.subscription.updated`);
+  on reconcile it's what enables plan-drift detection.
+- **workflow-worker** carries none of the billing vars (its own AI/outbound env is
+  unrelated) — don't add Stripe keys to it.
+
+See `.env.example` for the annotated, copy-ready list.
 
 ---
 
@@ -186,9 +217,15 @@ Clean up/down/up = apply up → down → up again with no errors.
 
 ## Operational notes
 
-- **Two Railway workers now**: the existing `workflow-event` worker and the new
-  `billing-event` worker are separate services so billing throughput/failures are
-  isolated from workflow processing.
+- **Service topology (4 total)**: `web` (`railway.json`) + the pre-existing
+  `workflow-event` worker (`railway.worker.json`) + two new services this phase
+  adds — the `billing-event` worker (`railway.billing-worker.json`) and the
+  reconcile cron (`railway.billing-reconcile.json`). The billing worker is
+  deliberately **separate** from the workflow worker so a billing bug can't stall
+  workflow jobs (or vice versa), the two carry different credentials (billing
+  needs Stripe price ids; the workflow worker needs AI/outbound keys), and they
+  scale/restart independently. Both share the same Postgres claim-queue pattern —
+  no BullMQ.
 - **Dead-letters**: a `billing_event_jobs` row with `status = 'failed'` is the
   dead-letter. Inspect `last_error`; the underlying `billing_events` row is intact,
   so the event can be re-driven after fixing the cause (e.g. linking the customer).
