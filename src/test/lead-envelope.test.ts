@@ -43,6 +43,17 @@ describe("envelope validation (sorts, never throws)", () => {
     expect(parseLeadEnvelope({ ...base, contact: { phone: "705-555-0101" } }).valid).toBe(true);
   });
 
+  it("accepts the winter-storage-quote formType with a locality (A1 Marine Storage locality pages)", () => {
+    const r = parseLeadEnvelope({
+      ...base,
+      formType: "winter-storage-quote",
+      source: "a1marinestorage-winter-quote",
+      meta: { site: "a1marinestorage.ca", page: "/boat-storage/midland", locality: "Midland" },
+    });
+    expect(r.valid).toBe(true);
+    expect(r.envelope?.meta?.locality).toBe("Midland");
+  });
+
   it("rejects contact with neither email nor phone", () => {
     const r = parseLeadEnvelope({ ...base, contact: { name: "Nobody" } });
     expect(r.valid).toBe(false);

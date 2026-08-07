@@ -16,7 +16,9 @@ export const leadEnvelopeSchema = z.object({
   schemaVersion: z.literal(LEAD_SCHEMA_VERSION),
   source: z.string().min(1).max(120),
   sourceSite: z.string().min(1).max(80),
-  formType: z.enum(["quote", "contact", "booking"]),
+  // "winter-storage-quote": A1 Marine Storage locality / ad lead-capture (feeds the
+  // Jobber sync worker). Additive — existing spokes are unaffected.
+  formType: z.enum(["quote", "contact", "booking", "winter-storage-quote"]),
   receivedAt: z.string().datetime(),
   contact: z
     .object({
@@ -44,6 +46,8 @@ export const leadEnvelopeSchema = z.object({
       preferredDate: z.string().max(40).optional(),
       preferredTime: z.string().max(40).optional(),
       utm: z.record(z.string(), z.string()).optional(),
+      // Locality tag from A1 Marine Storage /boat-storage/[town] pages.
+      locality: z.string().max(80).optional(),
     })
     .optional(),
 });

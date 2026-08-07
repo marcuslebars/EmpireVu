@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "source": "a1marinestorage-winter-quote",
+  "sourceSite": "a1marinestorage",
+  "formType": "winter-storage-quote",
+  "receivedAt": "2026-07-06T15:45:00.000Z",
+  "contact": {
+    "name": "Dana Whitfield",
+    "email": "dana@example.com",
+    "phone": "705-555-0142"
+  },
+  "message": "Service interest: Outdoor Storage, Shrink Wrapping",
+  "asset": {
+    "makeModel": "2018 Bayliner VR5",
+    "lengthFt": 22,
+    "type": "bowrider"
+  },
+  "meta": {
+    "site": "a1marinestorage.ca",
+    "page": "/boat-storage/midland",
+    "locality": "Midland",
+    "utm": { "utm_source": "meta", "utm_campaign": "winter-storage-midland" }
+  }
+}
