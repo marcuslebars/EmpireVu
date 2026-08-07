@@ -40,7 +40,7 @@ const queryClient = new QueryClient({
   },
 });
 
-function LoadingScreen({ message = "Loading EmpireVu..." }: { message?: string }) {
+function LoadingScreen({ message = "Loading Tilotto Hub..." }: { message?: string }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4">
       <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -172,7 +172,7 @@ function ImpossibleStateFallback({ phase }: { phase: string }) {
               <AlertTriangle className="w-6 h-6 text-destructive" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-foreground mb-1">EmpireVu failed to load</h1>
+              <h1 className="text-xl font-semibold text-foreground mb-1">Tilotto Hub failed to load</h1>
               <p className="text-sm text-muted-foreground">
                 An unexpected bootstrap state was reached: {phase}
               </p>
@@ -371,7 +371,7 @@ function AppBootstrap() {
                   <AlertTriangle className="w-6 h-6 text-destructive" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-semibold text-foreground mb-1">EmpireVu failed to load</h1>
+                  <h1 className="text-xl font-semibold text-foreground mb-1">Tilotto Hub failed to load</h1>
                   <p className="text-sm text-muted-foreground">
                     An error occurred during bootstrap. Try reloading.
                   </p>
