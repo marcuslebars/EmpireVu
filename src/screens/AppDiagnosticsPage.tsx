@@ -82,7 +82,7 @@ export function AppDiagnosticsPage() {
     <div className="min-h-screen bg-muted/30 p-8">
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">EmpireVu Diagnostics</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Tilotto Hub Diagnostics</h1>
           <p className="text-muted-foreground mt-1">
             Internal diagnostics panel for debugging production issues
           </p>

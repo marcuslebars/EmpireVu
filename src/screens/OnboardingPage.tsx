@@ -183,7 +183,7 @@ export default function OnboardingPage() {
                   autoFocus
                 />
                 <p className="text-xs text-muted-foreground">
-                  This is your company or team name in EmpireVu
+                  This is your company or team name in Tilotto Hub
                 </p>
               </div>
               <Button type="submit" className="w-full" disabled={isLoading}>
