@@ -18,6 +18,8 @@ import { parseLeadEnvelope, type LeadEnvelope } from "./envelope";
 import { normalizeEmail, normalizePhoneLast10 } from "./matching";
 import { sendLeadNotification, type ReturningInfo } from "./notify";
 import { companySlugForSourceSite, LEAD_INTAKE_ORG_SLUG } from "./routing";
+import { getJobberConfig } from "@/server/services/jobber/config";
+import { enqueueJobberSyncJob } from "@/server/services/jobber/sync-jobs";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 type AsRecord = Record<string, unknown>;
@@ -303,6 +305,42 @@ async function parseIntoRecords(
   return { contactId, matched, returning, crossBrandBrands };
 }
 
+/** Enqueue a Jobber sync job for A1 Marine Storage quote / winter-storage-quote leads
+ *  (flag-gated). Best-effort; enqueueJobberSyncJob never throws. */
+async function maybeEnqueueJobberSync(
+  admin: AdminClient,
+  args: { envelope: LeadEnvelope; orgId: string; companyId: string; leadId: string; contactId: string },
+): Promise<void> {
+  if (!getJobberConfig().enabled) return;
+  const { envelope } = args;
+  const eligible =
+    envelope.sourceSite === "a1marinestorage" &&
+    (envelope.formType === "quote" || envelope.formType === "winter-storage-quote");
+  if (!eligible) return;
+  await enqueueJobberSyncJob(admin, {
+    organizationId: args.orgId,
+    companyId: args.companyId,
+    leadId: args.leadId,
+    contactId: args.contactId,
+    payload: {
+      formType: envelope.formType,
+      source: envelope.source,
+      sourceSite: envelope.sourceSite,
+      contact: envelope.contact,
+      message: envelope.message,
+      // The envelope schema requires these at runtime; the map pins them to the concrete
+      // JobberSyncLineItem shape (z.infer widens them to optional via the array's .optional()).
+      lineItems: envelope.lineItems?.map((li) => ({
+        description: li.description ?? "",
+        quantity: li.quantity ?? 1,
+        unitPriceCents: li.unitPriceCents ?? 0,
+      })),
+      asset: envelope.asset,
+      locality: envelope.meta?.locality,
+    },
+  });
+}
+
 /**
  * Handle an authenticated lead intake. Never drops a lead:
  *   1) write raw_leads (durable) FIRST — a throw here fails the request (no false success);
@@ -349,6 +387,10 @@ export async function handleLeadIntake(rawBody: string, parsedBody: unknown): Pr
         .from("raw_leads")
         .update({ contact_id: enriched.contactId, matched: enriched.matched, needs_attention: false })
         .eq("lead_id", leadId);
+      // Additive: enqueue a Jobber sync for A1 Marine Storage quote leads (gated by
+      // JOBBER_SYNC_ENABLED). Best-effort — the durable raw_leads row + the worker's
+      // reconcile sweep are the safety net; this never affects the lead.
+      await maybeEnqueueJobberSync(admin, { envelope, orgId, companyId, leadId, contactId: enriched.contactId });
     } catch (err) {
       console.error("[intake] enrichment failed (lead kept in raw_leads):", err);
       // Enrichment failed after the durable write — flag for attention so the lead
