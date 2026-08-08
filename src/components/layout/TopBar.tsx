@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
   Search,
@@ -399,9 +400,12 @@ function CreateEntityDialog({
 }) {
   const [name, setName] = useState("");
 
-  return (
+  // Portal to <body>: the TopBar's <header> uses backdrop-blur (a backdrop-filter),
+  // which makes it a containing block for position:fixed — without the portal the
+  // overlay/dialog would be trapped inside the ~56px header strip.
+  return createPortal(
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <div
@@ -443,7 +447,8 @@ function CreateEntityDialog({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
