@@ -973,6 +973,18 @@ export async function updateOrganization(
   return result.data;
 }
 
+export interface CreateOrganizationInput {
+  name: string;
+  slug?: string;
+}
+
+export function createOrganization(input: CreateOrganizationInput): Promise<OrganizationSummary> {
+  return apiFetch("/api/organizations", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export function fetchCompanies(orgId: string): Promise<CompanySummary[]> {
   return apiFetch(`/api/organizations/${orgId}/companies`);
 }

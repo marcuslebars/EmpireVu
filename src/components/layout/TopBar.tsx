@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-import { useOrganizations, useCompanies, useDashboardActivity } from "@/lib/api-hooks";
+import { useOrganizations, useCompanies, useDashboardActivity, useCreateOrganization, useCreateCompany } from "@/lib/api-hooks";
 import { useAuth } from "@/lib/auth-context";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { QuickCallDialog } from "@/components/voice/QuickCallDialog";
@@ -41,6 +41,7 @@ function Dropdown({
   onSelect,
   showDot,
   isLoading,
+  onCreate,
 }: {
   label: string;
   icon: React.ElementType;
@@ -49,6 +50,7 @@ function Dropdown({
   onSelect: (id: string) => void;
   showDot?: boolean;
   isLoading?: boolean;
+  onCreate?: { label: string; onClick: () => void };
 }) {
   const [open, setOpen] = useState(false);
   const current = items.find((i) => i.id === selected);
@@ -118,6 +120,20 @@ function Dropdown({
                   )}
                 </button>
               ))
+            )}
+            {onCreate && (
+              <div className="mt-1 pt-1 border-t border-border">
+                <button
+                  onClick={() => {
+                    setOpen(false);
+                    onCreate.onClick();
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm text-primary hover:bg-secondary transition-colors flex items-center gap-2.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{onCreate.label}</span>
+                </button>
+              </div>
             )}
           </div>
         </>
@@ -364,11 +380,109 @@ function UserMenu() {
   );
 }
 
+function CreateEntityDialog({
+  title,
+  label,
+  placeholder,
+  isPending,
+  error,
+  onSubmit,
+  onClose,
+}: {
+  title: string;
+  label: string;
+  placeholder: string;
+  isPending: boolean;
+  error: string | null;
+  onSubmit: (name: string) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState("");
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm bg-popover border border-border rounded-xl shadow-2xl shadow-black/40 p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-base font-semibold text-foreground mb-3">{title}</h2>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (name.trim()) onSubmit(name.trim());
+          }}
+        >
+          <label className="block text-xs font-medium text-muted-foreground mb-1.5">{label}</label>
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={placeholder}
+            className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+          />
+          {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-secondary transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isPending || !name.trim()}
+              className="px-3 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+            >
+              {isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Create
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
   const { organizationId, companyId, setOrganizationId, setCompanyId } = useOrg();
   const { data: orgs, isLoading: isLoadingOrgs } = useOrganizations();
   const { data: companies, isLoading: isLoadingCompanies } = useCompanies(organizationId);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const createOrg = useCreateOrganization();
+  const createCompanyMutation = useCreateCompany(organizationId);
+  const [createDialog, setCreateDialog] = useState<null | "org" | "company">(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const openCreate = (kind: "org" | "company") => {
+    setCreateError(null);
+    setCreateDialog(kind);
+  };
+
+  const submitCreateOrg = async (name: string) => {
+    setCreateError(null);
+    try {
+      const org = await createOrg.mutateAsync({ name });
+      setOrganizationId(org.id); // switch into the new org
+      setCreateDialog(null);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed to create organization.");
+    }
+  };
+
+  const submitCreateCompany = async (name: string) => {
+    setCreateError(null);
+    try {
+      const company = await createCompanyMutation.mutateAsync({ name });
+      setCompanyId(company.id); // focus the new company
+      setCreateDialog(null);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed to create company.");
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -420,6 +534,7 @@ export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
             selected={organizationId}
             onSelect={setOrganizationId}
             isLoading={isLoadingOrgs}
+            onCreate={{ label: "New organization", onClick: () => openCreate("org") }}
           />
         </div>
         <span className="hidden md:inline text-border select-none">/</span>
@@ -432,6 +547,11 @@ export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
             onSelect={handleCompanySelect}
             showDot
             isLoading={isLoadingCompanies}
+            onCreate={
+              organizationId
+                ? { label: "New company", onClick: () => openCreate("company") }
+                : undefined
+            }
           />
         </div>
       </div>
@@ -458,6 +578,29 @@ export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
         <NotificationsMenu />
         <UserMenu />
       </div>
+
+      {createDialog === "org" && (
+        <CreateEntityDialog
+          title="New organization"
+          label="Organization name"
+          placeholder="Acme Marine"
+          isPending={createOrg.isPending}
+          error={createError}
+          onSubmit={submitCreateOrg}
+          onClose={() => setCreateDialog(null)}
+        />
+      )}
+      {createDialog === "company" && (
+        <CreateEntityDialog
+          title="New company"
+          label="Company name"
+          placeholder="North Shore Marina"
+          isPending={createCompanyMutation.isPending}
+          error={createError}
+          onSubmit={submitCreateCompany}
+          onClose={() => setCreateDialog(null)}
+        />
+      )}
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </header>

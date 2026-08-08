@@ -546,7 +546,7 @@ export function useUpdateWorkflow(orgId: string) {
 
 // ─── Organizations & Companies ───────────────────────────────────────────────
 
-import { fetchOrganizations, updateOrganization, fetchCompanies, createCompany, type CreateCompanyInput } from "./api-client";
+import { fetchOrganizations, updateOrganization, fetchCompanies, createCompany, createOrganization, type CreateCompanyInput, type CreateOrganizationInput } from "./api-client";
 
 export function useOrganizations() {
   return useQuery({
@@ -571,6 +571,16 @@ export function useCreateCompany(orgId: string) {
     mutationFn: (input: CreateCompanyInput) => createCompany(orgId, input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["companies", orgId] });
+    },
+  });
+}
+
+export function useCreateOrganization() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateOrganizationInput) => createOrganization(input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["organizations"] });
     },
   });
 }
