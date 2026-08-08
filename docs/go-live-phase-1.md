@@ -78,6 +78,11 @@ running service, **not** at the GitHub repo.
       match the real host.
 - [ ] The Tilotto site's "Hub" nav link (repo `tilotto-v2`) already points here; no
       app code change is needed (the app serves any host).
+- [ ] **Verify:** `nslookup hub.tilotto.com` resolves to the Railway target (a
+      `*.up.railway.app`, and **not** `mj0wne3m.up.railway.app` — that's the
+      marketing site), and `https://hub.tilotto.com` loads the Tilotto Hub app with
+      a valid certificate. Until DNS is created, the lookup returns "Non-existent
+      domain".
 
 ### 4. Verify end-to-end (exit criteria)
 Against a **non-`internal`** test org, authed as a member:
