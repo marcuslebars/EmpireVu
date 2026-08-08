@@ -87,6 +87,9 @@ Railway. Never prefix with `VITE_`.
 | `JOBBER_AUTHORIZE_URL` | no | `https://api.getjobber.com/api/oauth/authorize` | |
 | `JOBBER_TOKEN_URL` | no | `https://api.getjobber.com/api/oauth/token` | |
 | `JOBBER_GRAPHQL_URL` | no | `https://api.getjobber.com/api/graphql` | |
+| `JOBBER_DEPOSIT_PERCENT` | no | `25` | Deposit to reserve, as % of the quote subtotal |
+| `JOBBER_DEPOSIT_FLAT_CENTS` | no | — | Fixed deposit override in cents (ignores percent when set) |
+| `JOBBER_DEPOSIT_MIN_CENTS` | no | `0` | Minimum deposit floor in cents |
 
 Worker tuning (worker service only, all optional):
 
@@ -97,6 +100,32 @@ Worker tuning (worker service only, all optional):
 | `JOBBER_SYNC_WORKER_POLL_MS` | `3000` | Idle poll interval |
 | `JOBBER_SYNC_WORKER_STALE_AFTER_SECONDS` | `900` | Reclaim locks older than this |
 | `JOBBER_SYNC_WORKER_RECONCILE_MS` | `600000` | Reconcile sweep cadence (10 min) |
+
+## Deposit + auto-send (quote → payment)
+
+For calculator leads (`formType: "quote"`, which carry engine line items) the worker:
+
+1. Creates the Jobber quote **with a required deposit** — 25% of the subtotal by default
+   (`computeDepositCents`, tunable via `JOBBER_DEPOSIT_*`).
+2. **Auto-sends** the quote (`sendQuote`) so the customer immediately receives it with a
+   secure pay link.
+3. The customer approves + pays the deposit via **Jobber Payments** (hosted checkout).
+4. The `QUOTE_APPROVAL` webhook fires → EmpireVu treats it as **deposit paid = booking
+   confirmed** and surfaces the lead for the team to schedule.
+
+Idempotency: the quote is created once. If the **send** fails, the job completes (never
+re-creating the quote) and the lead is surfaced via `raw_leads.needs_attention` so the team
+sends it manually. Lead-capture leads (`winter-storage-quote`, no line items) still get the
+client only — the team builds those quotes.
+
+**Prerequisite: Jobber Payments must be enabled** on the account (deposits require it).
+
+**Storage-site coordination:** the a1marinestorage calculator copy ("this is a quote
+request, not a payment") flips to deposit-link language ("we've sent a secure link to pay
+your deposit and reserve your spot") **only once this path is live** — otherwise the site
+promises a link that never arrives. Owner chose **auto-send on submit** (no availability
+gate); a "reservation subject to availability confirmation" line covers the rare
+over-capacity refund.
 
 ## Worker deployment
 
@@ -152,9 +181,10 @@ introspection / a real webhook and adjust if needed — search for `CONFIRM` /
 
 - `client.ts` — `CLIENTS_SEARCH`, `CLIENT_CREATE`, `QUOTE_CREATE` field names/inputs, and the
   `unitPriceCents / 100` → dollars conversion (confirm Jobber's expected unit).
+- `client.ts` — the **required-deposit field** on `QuoteCreateInput` (sent as
+  `requiredDepositAmount`, a guess) and the **`QUOTE_SEND` mutation** (`quoteSendMessage`, a
+  guess) — the two new pieces for deposit + auto-send. Both are isolated one-liners.
 - `webhook.ts` — the webhook envelope (`topic` / `itemId` path) and the quote-approval topic.
-- `sync-jobs.ts` — the post-quote "quote ready" send (Jobber's own email/text vs an EmpireVu
-  email with the approval link).
 
 ## Types note
 

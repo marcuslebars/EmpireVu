@@ -3,8 +3,8 @@
 // Exhausted retries land in manual_review, surfaced via raw_leads.needs_attention
 // (owner amendment — never a silent status).
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { getJobberConfig, type JobberSyncJobRow, type JobberSyncPayload } from "./config";
-import { createQuote, findOrCreateClient, JobberRateLimitError } from "./client";
+import { computeDepositCents, getJobberConfig, type JobberSyncJobRow, type JobberSyncPayload } from "./config";
+import { createQuote, findOrCreateClient, JobberRateLimitError, sendQuote } from "./client";
 import { ensureAccessToken } from "./oauth";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -133,14 +133,37 @@ export async function processJobberSyncJob(admin: AdminClient, job: JobberSyncJo
     const accessToken = await ensureAccessToken(admin, job.organization_id, cfg);
     const clientId = await findOrCreateClient(accessToken, job.payload.contact, cfg);
     const lineItems = job.payload.lineItems ?? [];
-    // Calculator leads carry engine line items → a full quote. Lead-capture leads
-    // (winter-storage-quote, no line items) get the client only; the team quotes.
-    const quoteId = lineItems.length
-      ? await createQuote(accessToken, clientId, lineItems, { title: quoteTitle(job.payload) }, cfg)
-      : null;
+    // Calculator leads carry engine line items → a full quote with a required deposit,
+    // auto-sent so the customer immediately gets the quote + secure pay link. Lead-capture
+    // leads (winter-storage-quote, no line items) get the client only; the team quotes.
+    let quoteId: string | null = null;
+    if (lineItems.length) {
+      const subtotalCents = lineItems.reduce((sum, li) => sum + li.unitPriceCents * li.quantity, 0);
+      const depositCents = computeDepositCents(subtotalCents, cfg.deposit);
+      quoteId = await createQuote(
+        accessToken,
+        clientId,
+        lineItems,
+        { title: quoteTitle(job.payload), depositCents },
+        cfg,
+      );
+      // The quote now exists. A send failure must NOT re-create it on retry — complete the
+      // job (terminal) and surface the lead so the team sends it manually.
+      try {
+        await sendQuote(accessToken, quoteId, cfg);
+      } catch (sendErr) {
+        await completeJob(admin, job, { clientId, quoteId });
+        await surfaceManualReview(
+          admin,
+          job,
+          `Quote ${quoteId} created but auto-send failed — send it manually. ${
+            sendErr instanceof Error ? sendErr.message : ""
+          }`.trim(),
+        );
+        return;
+      }
+    }
     await completeJob(admin, job, { clientId, quoteId });
-    // TODO(confirm at connect): trigger the client-hub "quote ready" send (Jobber's own
-    // email/text vs our email with the approval link) — see docs/jobber-integration.md.
   } catch (err) {
     if (err instanceof JobberRateLimitError) {
       await failJob(admin, job, "Jobber rate limit (429)", err.retryAfterMs ?? 60_000);

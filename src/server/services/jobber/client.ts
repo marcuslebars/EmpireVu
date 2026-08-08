@@ -70,6 +70,18 @@ const QUOTE_CREATE = /* GraphQL */ `
     }
   }`;
 
+// CONFIRM at connect: the exact "send quote to client" mutation + input. Jobber may
+// expose quoteSendMessage, a state transition, or a send-on-create flag; this is the
+// single place to correct it. Sending is what surfaces the quote + secure deposit pay
+// link (Jobber Payments) to the customer.
+const QUOTE_SEND = /* GraphQL */ `
+  mutation QuoteSend($input: QuoteSendMessageInput!) {
+    quoteSendMessage(input: $input) {
+      quote { id }
+      userErrors { message }
+    }
+  }`;
+
 const onlyDigits = (s?: string): string => (s ?? "").replace(/\D/g, "");
 const last10 = (s?: string): string => {
   const d = onlyDigits(s);
@@ -129,10 +141,11 @@ export async function createQuote(
   accessToken: string,
   clientId: string,
   lineItems: JobberSyncLineItem[],
-  opts: { title?: string } = {},
+  opts: { title?: string; depositCents?: number } = {},
   cfg: JobberConfig = getJobberConfig(),
 ): Promise<string> {
-  const input = {
+  const depositCents = opts.depositCents && opts.depositCents > 0 ? opts.depositCents : 0;
+  const input: Record<string, unknown> = {
     clientId,
     title: opts.title ?? "Winter storage quote",
     lineItems: lineItems.map((li) => ({
@@ -142,6 +155,11 @@ export async function createQuote(
       // most versions; the pricing engine speaks cents. cents→dollars here.
       unitPrice: li.unitPriceCents / 100,
     })),
+    // CONFIRM at connect: the exact required-deposit field on QuoteCreateInput. Jobber
+    // quotes support a required deposit; we compute the amount our side (25% default) and
+    // send a FIXED dollar amount. Verify the field name/shape (e.g. requiredDeposit /
+    // depositAmount) via introspection — see docs/jobber-integration.md.
+    ...(depositCents > 0 ? { requiredDepositAmount: depositCents / 100 } : {}),
   };
   const created = await jobberGraphQL<{
     quoteCreate: { quote: { id: string } | null; userErrors: { message: string }[] };
@@ -152,4 +170,23 @@ export async function createQuote(
   const id = created.quoteCreate.quote?.id;
   if (!id) throw new Error("quoteCreate returned no quote id.");
   return id;
+}
+
+/**
+ * Auto-send a created quote so the client receives it with the secure deposit pay link
+ * (Jobber Payments). Throws on failure — the caller keeps the already-created quote and
+ * flags the lead for a manual send rather than re-creating it. See QUOTE_SEND (confirm
+ * the exact mutation at connect).
+ */
+export async function sendQuote(
+  accessToken: string,
+  quoteId: string,
+  cfg: JobberConfig = getJobberConfig(),
+): Promise<void> {
+  const sent = await jobberGraphQL<{
+    quoteSendMessage: { quote: { id: string } | null; userErrors: { message: string }[] };
+  }>(accessToken, QUOTE_SEND, { input: { quoteId } }, cfg);
+  if (sent.quoteSendMessage?.userErrors?.length) {
+    throw new Error(`quoteSendMessage: ${sent.quoteSendMessage.userErrors.map((e) => e.message).join("; ")}`);
+  }
 }
