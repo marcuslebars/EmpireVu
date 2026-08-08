@@ -65,6 +65,20 @@ Legend: ✅ required · ➕ recommended · ○ optional · — not needed.
 - [ ] Leave the **workflow worker unchanged** (no billing env).
 - [ ] Deploy (merge to `main` triggers the web auto-deploy).
 
+### 3b. Custom domain — hub.tilotto.com
+The app is served by the Railway **web** service; a subdomain points at that
+running service, **not** at the GitHub repo.
+- [ ] Railway → the **web** service → **Settings → Networking → Custom Domain** →
+      add `hub.tilotto.com`; copy the CNAME target Railway shows (e.g.
+      `xxxx.up.railway.app`).
+- [ ] At the `tilotto.com` DNS provider, add `CNAME  hub → <that Railway target>`.
+      Railway auto-provisions TLS; it resolves in minutes–~1h.
+- [ ] Set **`APP_BASE_URL=https://hub.tilotto.com`** on the web service — it builds
+      the Stripe Checkout/Portal return URLs (and self-booking links), so it must
+      match the real host.
+- [ ] The Tilotto site's "Hub" nav link (repo `tilotto-v2`) already points here; no
+      app code change is needed (the app serves any host).
+
 ### 4. Verify end-to-end (exit criteria)
 Against a **non-`internal`** test org, authed as a member:
 1. **Create** — `POST /api/organizations/{orgId}/billing/checkout` `{"plan":"launch"}`, pay with `4242 4242 4242 4242` → org `active`, `subscriptions` row; `GET .../billing` shows the gating map.
