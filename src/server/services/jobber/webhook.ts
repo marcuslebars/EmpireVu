@@ -26,8 +26,10 @@ export async function handleJobberWebhook(rawBody: string): Promise<void> {
 
   const admin = createSupabaseAdminClient();
 
-  // Quote approved → mark the matching sync job's lead for the team to fulfil.
-  // (Deposit-paid status arrives via Jobber Payments events once enabled.)
+  // Quote approved → the required deposit was paid to approve it, so this is a CONFIRMED,
+  // DEPOSIT-PAID booking. Surface the lead so the team schedules drop-off/fulfilment.
+  // (A first-class "booked" status + positive notification is a follow-up; needs_attention
+  // is what the existing ops view watches.)
   if (/QUOTE_APPROV/i.test(topic) && itemId) {
     const { data } = await tbl(admin, "jobber_sync_jobs")
       .select("id, lead_id")
@@ -35,7 +37,7 @@ export async function handleJobberWebhook(rawBody: string): Promise<void> {
       .maybeSingle();
     if (data?.lead_id) {
       await tbl(admin, "raw_leads").update({ needs_attention: true }).eq("lead_id", data.lead_id);
-      console.log(`[jobber] quote ${itemId} approved (lead ${data.lead_id}) — flagged for fulfilment`);
+      console.log(`[jobber] quote ${itemId} approved — DEPOSIT PAID, booking confirmed (lead ${data.lead_id}); schedule fulfilment`);
     } else {
       console.log(`[jobber] quote-approved webhook for unknown quote ${itemId}`);
     }

@@ -17,6 +17,14 @@ export interface JobberConfig {
   authorizeUrl: string;
   tokenUrl: string;
   graphqlUrl: string;
+  deposit: JobberDepositConfig;
+}
+
+/** Required-deposit policy for auto-sent quotes. A flat override wins over percent. */
+export interface JobberDepositConfig {
+  percent: number; // e.g. 25 → deposit is 25% of the quote subtotal
+  flatCents: number | null; // optional fixed override (ignores percent when set)
+  minCents: number; // optional floor
 }
 
 export function getJobberConfig(): JobberConfig {
@@ -31,7 +39,35 @@ export function getJobberConfig(): JobberConfig {
     authorizeUrl: process.env.JOBBER_AUTHORIZE_URL ?? "https://api.getjobber.com/api/oauth/authorize",
     tokenUrl: process.env.JOBBER_TOKEN_URL ?? "https://api.getjobber.com/api/oauth/token",
     graphqlUrl: process.env.JOBBER_GRAPHQL_URL ?? "https://api.getjobber.com/api/graphql",
+    deposit: {
+      percent: numEnv("JOBBER_DEPOSIT_PERCENT", 25),
+      flatCents: intEnvOrNull("JOBBER_DEPOSIT_FLAT_CENTS"),
+      minCents: numEnv("JOBBER_DEPOSIT_MIN_CENTS", 0),
+    },
   };
+}
+
+function numEnv(name: string, fallback: number): number {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+function intEnvOrNull(name: string): number | null {
+  const raw = process.env[name];
+  if (!raw) return null;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Deposit (cents) required to reserve, derived from the quote subtotal. A flat override
+ * wins; otherwise `percent` of subtotal, floored at `minCents`, and never above the
+ * subtotal itself. Returns 0 for a non-positive subtotal.
+ */
+export function computeDepositCents(subtotalCents: number, deposit: JobberDepositConfig): number {
+  if (!Number.isFinite(subtotalCents) || subtotalCents <= 0) return 0;
+  const base = deposit.flatCents != null ? deposit.flatCents : Math.round((subtotalCents * deposit.percent) / 100);
+  return Math.min(subtotalCents, Math.max(base, deposit.minCents, 0));
 }
 
 export function assertJobberConfigured(cfg: JobberConfig): void {
