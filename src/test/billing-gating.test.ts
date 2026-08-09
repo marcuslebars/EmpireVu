@@ -177,4 +177,20 @@ describe("requireFeature (route enforcement guard)", () => {
     });
     await expect(requireFeature(fake.client, ORG, "marina_reception")).resolves.toBeUndefined();
   });
+
+  it("gates workflows + sms_sequences by plan (operate includes them, launch does not)", async () => {
+    const launch = createFakeDb({
+      organizations: [{ id: ORG, plan: "launch", subscription_status: "active" }],
+      subscriptions: [{ current_period_end: daysFromNow(20), organization_id: ORG }],
+    });
+    await expect(requireFeature(launch.client, ORG, "workflows")).rejects.toThrow();
+    await expect(requireFeature(launch.client, ORG, "sms_sequences")).rejects.toThrow();
+
+    const operate = createFakeDb({
+      organizations: [{ id: ORG, plan: "operate", subscription_status: "active" }],
+      subscriptions: [{ current_period_end: daysFromNow(20), organization_id: ORG }],
+    });
+    await expect(requireFeature(operate.client, ORG, "workflows")).resolves.toBeUndefined();
+    await expect(requireFeature(operate.client, ORG, "sms_sequences")).resolves.toBeUndefined();
+  });
 });

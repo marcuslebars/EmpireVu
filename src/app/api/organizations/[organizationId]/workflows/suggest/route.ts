@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { handleRoute } from "@/server/api/route";
 import { requireOrganizationContext } from "@/server/organizations/context";
+import { requireFeature } from "@/server/services/billing/gating";
 import { suggestWorkflows } from "@/server/services/ai-workflows";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
@@ -22,6 +23,7 @@ export async function POST(_request: Request, context: RouteContext): Promise<Ne
   return handleRoute(async () => {
     const supabase = createSupabaseServerClient();
     const organization = await requireOrganizationContext(supabase, context.params.organizationId);
+    await requireFeature(supabase, organization.organizationId, "workflows");
 
     const data = await suggestWorkflows({
       actorProfileId: organization.user.id,

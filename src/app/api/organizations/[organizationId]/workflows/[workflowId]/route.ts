@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { handleRoute, parseJsonBody } from "@/server/api/route";
 import { requireOrganizationContext } from "@/server/organizations/context";
+import { requireFeature } from "@/server/services/billing/gating";
 import {
   updateWorkflow,
   updateWorkflowInputSchema,
@@ -39,6 +40,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
   return handleRoute(async () => {
     const supabase = createSupabaseServerClient();
     const organization = await requireOrganizationContext(supabase, context.params.organizationId);
+    await requireFeature(supabase, organization.organizationId, "workflows");
     const body = await parseJsonBody(request, patchWorkflowInputSchema);
 
     const serviceContext = {

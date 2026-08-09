@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { handleRoute, parseJsonBody } from "@/server/api/route";
 import { requireOrganizationContext } from "@/server/organizations/context";
+import { requireFeature } from "@/server/services/billing/gating";
 import { sendDraftEmail, sendDraftSms } from "@/server/services/ai-drafts";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
@@ -30,6 +31,11 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     const supabase = createSupabaseServerClient();
     const organization = await requireOrganizationContext(supabase, context.params.organizationId);
     const body = await parseJsonBody(request, sendDraftInputSchema);
+
+    // SMS is a gated feature; email replies are not.
+    if (body.channel === "sms") {
+      await requireFeature(supabase, organization.organizationId, "sms_sequences");
+    }
 
     const serviceContext = {
       actorProfileId: organization.user.id,
