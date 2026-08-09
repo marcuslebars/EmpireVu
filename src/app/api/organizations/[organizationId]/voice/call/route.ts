@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { handleRoute, parseJsonBody } from "@/server/api/route";
 import { requireOrganizationContext } from "@/server/organizations/context";
+import { requireFeature } from "@/server/services/billing/gating";
 import { callNumberWithMarina } from "@/server/services/voice";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
@@ -27,6 +28,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   return handleRoute(async () => {
     const supabase = createSupabaseServerClient();
     const organization = await requireOrganizationContext(supabase, context.params.organizationId);
+    await requireFeature(supabase, organization.organizationId, "marina_reception");
     const body = await parseJsonBody(request, quickCallInputSchema);
 
     const result = await callNumberWithMarina(

@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { BILLING_FEATURES } from "@/server/services/billing/config";
-import { isBillingHealthy, orgCan, orgLimit } from "@/server/services/billing/gating";
+import { isBillingHealthy, orgCan, orgLimit, requireFeature } from "@/server/services/billing/gating";
 
 type Row = Record<string, any>;
 
@@ -151,5 +151,30 @@ describe("isBillingHealthy", () => {
     expect(isBillingHealthy("past_due", "2026-08-01T00:00:00.000Z", now, 7)).toBe(true); // +3d < 7
     expect(isBillingHealthy("past_due", "2026-07-20T00:00:00.000Z", now, 7)).toBe(false); // +15d > 7
     expect(isBillingHealthy("past_due", null, now, 7)).toBe(false); // no period end -> off
+  });
+});
+
+describe("requireFeature (route enforcement guard)", () => {
+  it("throws for a launch org calling marina_reception", async () => {
+    const fake = createFakeDb({
+      organizations: [{ id: ORG, plan: "launch", subscription_status: "active" }],
+      subscriptions: [{ current_period_end: daysFromNow(20), organization_id: ORG }],
+    });
+    await expect(requireFeature(fake.client, ORG, "marina_reception")).rejects.toThrow();
+  });
+
+  it("passes for an internal (house) org", async () => {
+    const fake = createFakeDb({
+      organizations: [{ id: ORG, plan: "internal", subscription_status: "none" }],
+    });
+    await expect(requireFeature(fake.client, ORG, "marina_reception")).resolves.toBeUndefined();
+  });
+
+  it("passes for a front_desk org (active)", async () => {
+    const fake = createFakeDb({
+      organizations: [{ id: ORG, plan: "front_desk", subscription_status: "active" }],
+      subscriptions: [{ current_period_end: daysFromNow(20), organization_id: ORG }],
+    });
+    await expect(requireFeature(fake.client, ORG, "marina_reception")).resolves.toBeUndefined();
   });
 });
