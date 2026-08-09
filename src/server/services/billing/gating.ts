@@ -1,5 +1,6 @@
-import { isBillingFeature, planDefault, planLimit } from "@/server/services/billing/config";
+import { isBillingFeature, planDefault, planLimit, type BillingFeature } from "@/server/services/billing/config";
 import { getPastDueGraceDays } from "@/server/services/billing/env";
+import { AuthorizationError } from "@/server/organizations/context";
 import type { createSupabaseServerClient } from "@/server/supabase/server";
 
 /**
@@ -188,4 +189,20 @@ export async function orgLimit(
     return flag.limit_value;
   }
   return planLimit(evaluation.plan, feature);
+}
+
+/**
+ * Route-level enforcement guard: throws AuthorizationError (→ 403 via handleRoute)
+ * unless the org may use `feature`. Call it right after requireOrganizationContext.
+ * internal/house tenants (and healthy paid plans that include the feature) pass.
+ */
+export async function requireFeature(
+  supabase: BillingClient,
+  organizationId: string,
+  feature: BillingFeature,
+): Promise<void> {
+  const allowed = await orgCan(supabase, organizationId, feature);
+  if (!allowed) {
+    throw new AuthorizationError(`Your plan does not include this feature (${feature}).`);
+  }
 }
