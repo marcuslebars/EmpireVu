@@ -1,11 +1,18 @@
-// Jobber GraphQL client: find-or-create client (dedupe email→phone) + createQuote.
+// Jobber GraphQL client: search/create a client (+ the required property), then
+// create-AND-send a quote with a required deposit.
 //
-// The mutation/query shapes below match Jobber's documented clientCreate /
-// quoteCreate / clients for GraphQL version ~2025-04-16. CONFIRM them against the
-// live schema (introspection) once the app exists — see docs/jobber-integration.md.
-// They're isolated in this file so any correction is a one-file edit. Nothing here
-// runs until JOBBER_SYNC_ENABLED is on and the account is connected.
-import { getJobberConfig, type JobberConfig, type JobberSyncLineItem } from "./config";
+// Shapes below are CONFIRMED against the live 2025-04-16 schema via introspection
+// (not guesses). Key facts that shaped this:
+//   • quoteCreate(attributes: QuoteCreateAttributes!) — clientId AND propertyId are both
+//     REQUIRED. Leads have no address, so we attach the storage-yard as the property.
+//   • There is NO "send quote" mutation. A quote is sent by transitioning it to
+//     AWAITING_RESPONSE (its "sent / awaiting approval" state) — done inline on create
+//     via `transitionQuoteTo`. That is what surfaces the online deposit to the client.
+//   • Deposit is a CostModifier: { rate, type: Percent | Unit } (Jobber computes 25%).
+//   • clientCreate uses `emails` / `phones` (not phoneNumbers); descriptions are enums.
+//   • Line items require `saveToProductsAndServices` (we send false — don't pollute the
+//     account's catalogue). `unitPrice` is dollars (engine speaks cents → /100).
+import { getJobberConfig, type JobberConfig, type JobberDepositConfig, type JobberSyncLineItem } from "./config";
 
 export class JobberRateLimitError extends Error {
   constructor(public readonly retryAfterMs?: number) {
@@ -47,36 +54,52 @@ async function jobberGraphQL<T>(
   return body.data;
 }
 
+// Storage quotes are serviced at the A1 yard, so that's the Jobber "property" we attach
+// (a quote requires one; leads carry no structured address). Jobber address fields are
+// all optional strings.
+const FACILITY_PROPERTY = {
+  address: {
+    street1: "639 Concession Road 16 East",
+    city: "Tiny",
+    province: "ON",
+    postalCode: "L9M 1R2",
+    country: "Canada",
+  },
+} as const;
+
 const CLIENTS_SEARCH = /* GraphQL */ `
   query ClientsSearch($searchTerm: String!) {
-    clients(searchTerm: $searchTerm, first: 20) {
-      nodes { id emails { address } phoneNumbers { number } }
+    clients(searchTerm: $searchTerm, first: 5) {
+      nodes { id }
+    }
+  }`;
+
+const CLIENT_PROPERTIES = /* GraphQL */ `
+  query ClientProperties($id: EncodedId!) {
+    client(id: $id) {
+      id
+      properties(first: 1) { nodes { id } }
     }
   }`;
 
 const CLIENT_CREATE = /* GraphQL */ `
   mutation ClientCreate($input: ClientCreateInput!) {
     clientCreate(input: $input) {
-      client { id }
+      client { id properties(first: 1) { nodes { id } } }
+      userErrors { message }
+    }
+  }`;
+
+const PROPERTY_CREATE = /* GraphQL */ `
+  mutation PropertyCreate($clientId: EncodedId!, $input: PropertyCreateInput!) {
+    propertyCreate(clientId: $clientId, input: $input) {
       userErrors { message }
     }
   }`;
 
 const QUOTE_CREATE = /* GraphQL */ `
-  mutation QuoteCreate($input: QuoteCreateInput!) {
-    quoteCreate(input: $input) {
-      quote { id }
-      userErrors { message }
-    }
-  }`;
-
-// CONFIRM at connect: the exact "send quote to client" mutation + input. Jobber may
-// expose quoteSendMessage, a state transition, or a send-on-create flag; this is the
-// single place to correct it. Sending is what surfaces the quote + secure deposit pay
-// link (Jobber Payments) to the customer.
-const QUOTE_SEND = /* GraphQL */ `
-  mutation QuoteSend($input: QuoteSendMessageInput!) {
-    quoteSendMessage(input: $input) {
+  mutation QuoteCreate($attributes: QuoteCreateAttributes!) {
+    quoteCreate(attributes: $attributes) {
       quote { id }
       userErrors { message }
     }
@@ -88,34 +111,32 @@ const last10 = (s?: string): string => {
   return d.length >= 10 ? d.slice(-10) : "";
 };
 
-interface ClientNode {
-  id: string;
-  emails?: { address: string }[];
-  phoneNumbers?: { number: string }[];
+interface ClientPropertiesData {
+  client: { id: string; properties: { nodes: { id: string }[] } } | null;
 }
 
-/** Find a Jobber client by email, then by phone (last-10); create one if none. */
+/**
+ * Find a Jobber client by email (then phone), or create one — with the storage-yard
+ * property inline so quotes have a property to attach. Returns the client id and, when we
+ * just created it, the property id (saving a round-trip).
+ */
 export async function findOrCreateClient(
   accessToken: string,
   contact: { name?: string; email?: string; phone?: string },
   cfg: JobberConfig = getJobberConfig(),
-): Promise<string> {
+): Promise<{ clientId: string; propertyId: string | null }> {
   const email = contact.email?.trim().toLowerCase();
   const phone10 = last10(contact.phone);
 
   for (const term of [email, phone10].filter(Boolean) as string[]) {
-    const data = await jobberGraphQL<{ clients: { nodes: ClientNode[] } }>(
+    const data = await jobberGraphQL<{ clients: { nodes: { id: string }[] } }>(
       accessToken,
       CLIENTS_SEARCH,
       { searchTerm: term },
       cfg,
     );
-    const hit = (data.clients?.nodes ?? []).find(
-      (n) =>
-        (email && (n.emails ?? []).some((e) => e.address.trim().toLowerCase() === email)) ||
-        (phone10 !== "" && (n.phoneNumbers ?? []).some((p) => last10(p.number) === phone10)),
-    );
-    if (hit) return hit.id;
+    const hit = data.clients?.nodes?.[0];
+    if (hit) return { clientId: hit.id, propertyId: null };
   }
 
   const [firstName, ...rest] = (contact.name ?? "").trim().split(/\s+/);
@@ -123,70 +144,85 @@ export async function findOrCreateClient(
     firstName: firstName || "Lead",
     lastName: rest.join(" ") || null,
     emails: contact.email ? [{ address: contact.email, primary: true, description: "MAIN" }] : [],
-    phoneNumbers: contact.phone ? [{ number: contact.phone, primary: true, description: "MAIN" }] : [],
+    phones: contact.phone ? [{ number: contact.phone, primary: true, description: "MAIN" }] : [],
+    properties: [FACILITY_PROPERTY],
   };
   const created = await jobberGraphQL<{
-    clientCreate: { client: { id: string } | null; userErrors: { message: string }[] };
+    clientCreate: {
+      client: { id: string; properties: { nodes: { id: string }[] } } | null;
+      userErrors: { message: string }[];
+    };
   }>(accessToken, CLIENT_CREATE, { input }, cfg);
   if (created.clientCreate.userErrors?.length) {
     throw new Error(`clientCreate: ${created.clientCreate.userErrors.map((e) => e.message).join("; ")}`);
   }
-  const id = created.clientCreate.client?.id;
-  if (!id) throw new Error("clientCreate returned no client id.");
+  const client = created.clientCreate.client;
+  if (!client?.id) throw new Error("clientCreate returned no client id.");
+  return { clientId: client.id, propertyId: client.properties?.nodes?.[0]?.id ?? null };
+}
+
+/** Return a property id for the client — an existing one, else create the yard property. */
+export async function ensurePropertyId(
+  accessToken: string,
+  clientId: string,
+  cfg: JobberConfig = getJobberConfig(),
+): Promise<string> {
+  const existing = await jobberGraphQL<ClientPropertiesData>(accessToken, CLIENT_PROPERTIES, { id: clientId }, cfg);
+  const found = existing.client?.properties?.nodes?.[0]?.id;
+  if (found) return found;
+
+  const res = await jobberGraphQL<{ propertyCreate: { userErrors: { message: string }[] } }>(
+    accessToken,
+    PROPERTY_CREATE,
+    { clientId, input: { properties: [FACILITY_PROPERTY] } },
+    cfg,
+  );
+  if (res.propertyCreate.userErrors?.length) {
+    throw new Error(`propertyCreate: ${res.propertyCreate.userErrors.map((e) => e.message).join("; ")}`);
+  }
+  const after = await jobberGraphQL<ClientPropertiesData>(accessToken, CLIENT_PROPERTIES, { id: clientId }, cfg);
+  const id = after.client?.properties?.nodes?.[0]?.id;
+  if (!id) throw new Error("Could not resolve a Jobber property for the client.");
   return id;
 }
 
-/** Create a quote for the client from the engine line items. Returns the quote id. */
+/** Map our deposit config to a Jobber CostModifier ({ rate, type }). */
+function jobberDeposit(d: JobberDepositConfig): { rate: number; type: "Percent" | "Unit" } {
+  if (d.flatCents != null) return { rate: Math.round(d.flatCents) / 100, type: "Unit" };
+  return { rate: d.percent, type: "Percent" };
+}
+
+/**
+ * Create a quote for the client (from engine line items) with a required deposit, and
+ * SEND it in the same call by transitioning it to AWAITING_RESPONSE — the customer
+ * immediately gets the quote + online deposit link. Returns the quote id.
+ */
 export async function createQuote(
   accessToken: string,
-  clientId: string,
-  lineItems: JobberSyncLineItem[],
-  opts: { title?: string; depositCents?: number } = {},
+  args: { clientId: string; propertyId: string; lineItems: JobberSyncLineItem[]; title?: string },
   cfg: JobberConfig = getJobberConfig(),
 ): Promise<string> {
-  const depositCents = opts.depositCents && opts.depositCents > 0 ? opts.depositCents : 0;
-  const input: Record<string, unknown> = {
-    clientId,
-    title: opts.title ?? "Winter storage quote",
-    lineItems: lineItems.map((li) => ({
+  const attributes = {
+    clientId: args.clientId,
+    propertyId: args.propertyId,
+    title: args.title ?? "Winter storage quote",
+    lineItems: args.lineItems.map((li) => ({
       name: li.description,
       quantity: li.quantity,
-      // CONFIRM units against the live schema: Jobber unitPrice is dollars (Float) in
-      // most versions; the pricing engine speaks cents. cents→dollars here.
-      unitPrice: li.unitPriceCents / 100,
+      unitPrice: li.unitPriceCents / 100, // engine cents → Jobber dollars
+      saveToProductsAndServices: false,
     })),
-    // CONFIRM at connect: the exact required-deposit field on QuoteCreateInput. Jobber
-    // quotes support a required deposit; we compute the amount our side (25% default) and
-    // send a FIXED dollar amount. Verify the field name/shape (e.g. requiredDeposit /
-    // depositAmount) via introspection — see docs/jobber-integration.md.
-    ...(depositCents > 0 ? { requiredDepositAmount: depositCents / 100 } : {}),
+    deposit: jobberDeposit(cfg.deposit),
+    allowClientHubCreditCardPayments: true, // let the client pay the deposit online (Jobber Payments)
+    transitionQuoteTo: "AWAITING_RESPONSE", // = sent / awaiting approval (there is no send mutation)
   };
   const created = await jobberGraphQL<{
     quoteCreate: { quote: { id: string } | null; userErrors: { message: string }[] };
-  }>(accessToken, QUOTE_CREATE, { input }, cfg);
+  }>(accessToken, QUOTE_CREATE, { attributes }, cfg);
   if (created.quoteCreate.userErrors?.length) {
     throw new Error(`quoteCreate: ${created.quoteCreate.userErrors.map((e) => e.message).join("; ")}`);
   }
   const id = created.quoteCreate.quote?.id;
   if (!id) throw new Error("quoteCreate returned no quote id.");
   return id;
-}
-
-/**
- * Auto-send a created quote so the client receives it with the secure deposit pay link
- * (Jobber Payments). Throws on failure — the caller keeps the already-created quote and
- * flags the lead for a manual send rather than re-creating it. See QUOTE_SEND (confirm
- * the exact mutation at connect).
- */
-export async function sendQuote(
-  accessToken: string,
-  quoteId: string,
-  cfg: JobberConfig = getJobberConfig(),
-): Promise<void> {
-  const sent = await jobberGraphQL<{
-    quoteSendMessage: { quote: { id: string } | null; userErrors: { message: string }[] };
-  }>(accessToken, QUOTE_SEND, { input: { quoteId } }, cfg);
-  if (sent.quoteSendMessage?.userErrors?.length) {
-    throw new Error(`quoteSendMessage: ${sent.quoteSendMessage.userErrors.map((e) => e.message).join("; ")}`);
-  }
 }
