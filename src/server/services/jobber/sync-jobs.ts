@@ -6,6 +6,7 @@ import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { getJobberConfig, type JobberSyncJobRow, type JobberSyncPayload } from "./config";
 import { createQuote, ensurePropertyId, findOrCreateClient, JobberRateLimitError } from "./client";
 import { ensureAccessToken } from "./oauth";
+import { sendEmail } from "@/server/outbound/email";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 // jobber_* + raw_leads writes via the service-role client (jobber_* not yet in database.types.ts).
@@ -114,6 +115,39 @@ function quoteTitle(payload: JobberSyncPayload): string {
   return payload.locality ? `Winter storage — ${payload.locality}` : "Winter storage quote";
 }
 
+/**
+ * Email the customer the Jobber client-hub link, where they review the quote and pay the
+ * deposit (Jobber's API can't send the quote itself). Throws on send failure so the caller
+ * can surface the lead for a manual send. No email on the lead → nothing to send.
+ */
+async function emailDepositLink(
+  contact: { name?: string; email?: string },
+  clientHubUri: string | null,
+): Promise<void> {
+  const to = contact.email?.trim();
+  if (!to) return;
+  if (!clientHubUri) throw new Error("Quote has no clientHubUri to email.");
+  const firstName = (contact.name ?? "").trim().split(/\s+/)[0] || "there";
+  await sendEmail({
+    to,
+    subject: "Your A1 Marine Storage quote — reserve your spot",
+    body: [
+      `Hi ${firstName},`,
+      "",
+      "Thanks for your quote request with A1 Marine Storage — your quote is ready.",
+      "",
+      "Review it and pay your deposit to reserve your spot:",
+      clientHubUri,
+      "",
+      "Your reservation is confirmed once the deposit is received (subject to availability confirmation).",
+      "",
+      "Questions? Just reply to this email.",
+      "",
+      "— A1 Marine Storage · Tiny, Ontario",
+    ].join("\n"),
+  });
+}
+
 export async function processJobberSyncJob(admin: AdminClient, job: JobberSyncJobRow): Promise<void> {
   const cfg = getJobberConfig();
   if (!cfg.enabled) {
@@ -138,19 +172,35 @@ export async function processJobberSyncJob(admin: AdminClient, job: JobberSyncJo
     );
     const lineItems = job.payload.lineItems ?? [];
     // Calculator leads carry engine line items → a full quote with a required deposit,
-    // created AND sent in one call (transitionQuoteTo) so the customer immediately gets the
-    // quote + online deposit link. Lead-capture leads (winter-storage-quote, no line items)
-    // get the client only; the team quotes those.
+    // transitioned to awaiting-response. Jobber's API can't email the quote, so we email
+    // the customer its client-hub link (where they pay the deposit). Lead-capture leads
+    // (winter-storage-quote, no line items) get the client only; the team quotes those.
     let quoteId: string | null = null;
     if (lineItems.length) {
       // Every Jobber quote needs a property. A newly-created client already has the yard
       // property; an existing client gets one ensured.
       const propertyId = createdPropertyId ?? (await ensurePropertyId(accessToken, clientId, cfg));
-      quoteId = await createQuote(
+      const quote = await createQuote(
         accessToken,
         { clientId, propertyId, lineItems, title: quoteTitle(job.payload) },
         cfg,
       );
+      quoteId = quote.quoteId;
+      // The quote exists now. If emailing the pay link fails, do NOT re-create it — complete
+      // the job and surface the lead so the team sends it from Jobber.
+      try {
+        await emailDepositLink(job.payload.contact, quote.clientHubUri);
+      } catch (emailErr) {
+        await completeJob(admin, job, { clientId, quoteId });
+        await surfaceManualReview(
+          admin,
+          job,
+          `Quote ${quoteId} created but the deposit email failed — send it from Jobber. ${
+            emailErr instanceof Error ? emailErr.message : ""
+          }`.trim(),
+        );
+        return;
+      }
     }
     await completeJob(admin, job, { clientId, quoteId });
   } catch (err) {

@@ -100,7 +100,7 @@ const PROPERTY_CREATE = /* GraphQL */ `
 const QUOTE_CREATE = /* GraphQL */ `
   mutation QuoteCreate($attributes: QuoteCreateAttributes!) {
     quoteCreate(attributes: $attributes) {
-      quote { id }
+      quote { id clientHubUri }
       userErrors { message }
     }
   }`;
@@ -201,7 +201,7 @@ export async function createQuote(
   accessToken: string,
   args: { clientId: string; propertyId: string; lineItems: JobberSyncLineItem[]; title?: string },
   cfg: JobberConfig = getJobberConfig(),
-): Promise<string> {
+): Promise<{ quoteId: string; clientHubUri: string | null }> {
   const attributes = {
     clientId: args.clientId,
     propertyId: args.propertyId,
@@ -217,12 +217,12 @@ export async function createQuote(
     transitionQuoteTo: "AWAITING_RESPONSE", // = sent / awaiting approval (there is no send mutation)
   };
   const created = await jobberGraphQL<{
-    quoteCreate: { quote: { id: string } | null; userErrors: { message: string }[] };
+    quoteCreate: { quote: { id: string; clientHubUri: string | null } | null; userErrors: { message: string }[] };
   }>(accessToken, QUOTE_CREATE, { attributes }, cfg);
   if (created.quoteCreate.userErrors?.length) {
     throw new Error(`quoteCreate: ${created.quoteCreate.userErrors.map((e) => e.message).join("; ")}`);
   }
-  const id = created.quoteCreate.quote?.id;
-  if (!id) throw new Error("quoteCreate returned no quote id.");
-  return id;
+  const quote = created.quoteCreate.quote;
+  if (!quote?.id) throw new Error("quoteCreate returned no quote id.");
+  return { quoteId: quote.id, clientHubUri: quote.clientHubUri ?? null };
 }
