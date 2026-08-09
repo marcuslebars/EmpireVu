@@ -105,18 +105,21 @@ Worker tuning (worker service only, all optional):
 
 For calculator leads (`formType: "quote"`, which carry engine line items) the worker:
 
-1. Creates the Jobber quote **with a required deposit** — 25% of the subtotal by default
-   (`computeDepositCents`, tunable via `JOBBER_DEPOSIT_*`).
-2. **Auto-sends** the quote (`sendQuote`) so the customer immediately receives it with a
-   secure pay link.
-3. The customer approves + pays the deposit via **Jobber Payments** (hosted checkout).
+1. Finds/creates the Jobber **client** — with the storage-yard **property** attached
+   (quotes require a property and leads carry no structured address).
+2. Creates the Jobber quote **with a required deposit** (`deposit: { rate: 25, type: Percent }`
+   — Jobber computes 25% of the subtotal; tunable via `JOBBER_DEPOSIT_*`) and **sends it in the
+   same call** by setting `transitionQuoteTo: AWAITING_RESPONSE`. There is no send mutation in
+   Jobber's API — that status *is* "sent / awaiting approval". `allowClientHubCreditCardPayments`
+   is set so the deposit is payable online.
+3. The customer approves + pays the deposit via **Jobber Payments** (client-hub checkout).
 4. The `QUOTE_APPROVAL` webhook fires → EmpireVu treats it as **deposit paid = booking
    confirmed** and surfaces the lead for the team to schedule.
 
-Idempotency: the quote is created once. If the **send** fails, the job completes (never
-re-creating the quote) and the lead is surfaced via `raw_leads.needs_attention` so the team
-sends it manually. Lead-capture leads (`winter-storage-quote`, no line items) still get the
-client only — the team builds those quotes.
+Idempotency: `jobber_sync_jobs.lead_id` is unique, so a lead syncs once; failures retry with
+backoff and land in `manual_review` (surfaced via `raw_leads.needs_attention`) once exhausted.
+Lead-capture leads (`winter-storage-quote`, no line items) still get the client only — the
+team builds those quotes.
 
 **Prerequisite: Jobber Payments must be enabled** on the account (deposits require it).
 
@@ -172,19 +175,28 @@ To connect the A1 Jobber account (once, by an admin):
 To disable instantly: set `JOBBER_SYNC_ENABLED=0`. In-flight jobs park themselves (without
 burning a retry) and lead capture is unaffected.
 
-## ⚠️ Confirm against the live Jobber schema at connect time
+## Schema confirmed (2026-08-09) + what still needs a live run
 
-The GraphQL mutations and the webhook payload shape were written from Jobber's public docs
-but have **not** been run against a live account. Before flipping the flag, verify via
-introspection / a real webhook and adjust if needed — search for `CONFIRM` /
-`confirm at connect` in the `src/server/services/jobber/` files:
+The `client.ts` GraphQL was **confirmed against the live 2025-04-16 schema by introspection**
+(the earlier guesses are gone):
 
-- `client.ts` — `CLIENTS_SEARCH`, `CLIENT_CREATE`, `QUOTE_CREATE` field names/inputs, and the
-  `unitPriceCents / 100` → dollars conversion (confirm Jobber's expected unit).
-- `client.ts` — the **required-deposit field** on `QuoteCreateInput` (sent as
-  `requiredDepositAmount`, a guess) and the **`QUOTE_SEND` mutation** (`quoteSendMessage`, a
-  guess) — the two new pieces for deposit + auto-send. Both are isolated one-liners.
-- `webhook.ts` — the webhook envelope (`topic` / `itemId` path) and the quote-approval topic.
+- `quoteCreate(attributes: QuoteCreateAttributes!)` — `clientId` + `propertyId` (both required),
+  `lineItems` (`name`, `quantity`, `unitPrice` dollars, `saveToProductsAndServices: false`),
+  `deposit: { rate, type }` (a `CostModifier`; 25% = `{ rate: 25, type: Percent }`),
+  `allowClientHubCreditCardPayments: true`, and `transitionQuoteTo: AWAITING_RESPONSE` — which
+  **sends** the quote (Jobber has no send mutation; that status is "sent / awaiting approval").
+- `clientCreate(input: ClientCreateInput!)` — `emails` / `phones` + an inline `properties` (the
+  storage yard); `clients(searchTerm:)` for dedup; `propertyCreate` as the fallback property.
+
+Still to verify with a **real run** (not introspectable):
+
+- The **`QUOTE_APPROVAL` webhook** envelope (`topic` / `itemId` path) in `webhook.ts` — confirm
+  against a real approval event.
+- The read shapes assumed in `client.ts` (`clients(...){ nodes { id } }`,
+  `properties(first: 1){ nodes { id } }`) — standard Jobber Relay convention; a test quote
+  confirms them (any mismatch is a one-line fix).
+- That `AWAITING_RESPONSE` actually emails the client the deposit link (vs only setting status)
+  — the test quote confirms the customer receives it.
 
 ## Types note
 
