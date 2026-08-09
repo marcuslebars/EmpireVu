@@ -108,20 +108,25 @@ For calculator leads (`formType: "quote"`, which carry engine line items) the wo
 1. Finds/creates the Jobber **client** — with the storage-yard **property** attached
    (quotes require a property and leads carry no structured address).
 2. Creates the Jobber quote **with a required deposit** (`deposit: { rate: 25, type: Percent }`
-   — Jobber computes 25% of the subtotal; tunable via `JOBBER_DEPOSIT_*`) and **sends it in the
-   same call** by setting `transitionQuoteTo: AWAITING_RESPONSE`. There is no send mutation in
-   Jobber's API — that status *is* "sent / awaiting approval". `allowClientHubCreditCardPayments`
-   is set so the deposit is payable online.
-3. The customer approves + pays the deposit via **Jobber Payments** (client-hub checkout).
-4. The `QUOTE_APPROVAL` webhook fires → EmpireVu treats it as **deposit paid = booking
-   confirmed** and surfaces the lead for the team to schedule.
+   — Jobber computes 25%; tunable via `JOBBER_DEPOSIT_*`), sets `allowClientHubCreditCardPayments`
+   so it's payable online, and transitions it to `AWAITING_RESPONSE`.
+3. **Emails the customer the quote's `clientHubUri`** (via Resend) — the client-hub page where
+   they review the quote and pay the deposit. Jobber's API has **no** mutation to email a quote,
+   so EmpireVu delivers the link itself. Email failure ≠ lost quote: the quote already exists, so
+   the job completes and the lead is surfaced for a manual send from Jobber.
+4. The customer pays the deposit via **Jobber Payments** on the client hub; the `QUOTE_APPROVAL`
+   webhook fires → EmpireVu treats it as **deposit paid = booking confirmed** and surfaces the
+   lead for the team to schedule.
 
 Idempotency: `jobber_sync_jobs.lead_id` is unique, so a lead syncs once; failures retry with
 backoff and land in `manual_review` (surfaced via `raw_leads.needs_attention`) once exhausted.
 Lead-capture leads (`winter-storage-quote`, no line items) still get the client only — the
 team builds those quotes.
 
-**Prerequisite: Jobber Payments must be enabled** on the account (deposits require it).
+**Prerequisites:** **Jobber Payments** enabled on the account (deposits require it), and the
+worker service has **`RESEND_API_KEY` + `OUTBOUND_FROM_EMAIL`** set (a Resend-verified sender,
+e.g. `A1 Marine Storage <bookings@a1marinestorage.ca>`) so it can email the deposit link;
+optionally `OUTBOUND_REPLY_TO` to route replies to the team.
 
 **Storage-site coordination:** the a1marinestorage calculator copy ("this is a quote
 request, not a payment") flips to deposit-link language ("we've sent a secure link to pay
