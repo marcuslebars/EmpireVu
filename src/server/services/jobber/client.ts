@@ -78,14 +78,14 @@ const CLIENT_PROPERTIES = /* GraphQL */ `
   query ClientProperties($id: EncodedId!) {
     client(id: $id) {
       id
-      properties(first: 1) { nodes { id } }
+      properties { id }
     }
   }`;
 
 const CLIENT_CREATE = /* GraphQL */ `
   mutation ClientCreate($input: ClientCreateInput!) {
     clientCreate(input: $input) {
-      client { id properties(first: 1) { nodes { id } } }
+      client { id properties { id } }
       userErrors { message }
     }
   }`;
@@ -112,7 +112,7 @@ const last10 = (s?: string): string => {
 };
 
 interface ClientPropertiesData {
-  client: { id: string; properties: { nodes: { id: string }[] } } | null;
+  client: { id: string; properties: { id: string }[] } | null;
 }
 
 /**
@@ -149,7 +149,7 @@ export async function findOrCreateClient(
   };
   const created = await jobberGraphQL<{
     clientCreate: {
-      client: { id: string; properties: { nodes: { id: string }[] } } | null;
+      client: { id: string; properties: { id: string }[] } | null;
       userErrors: { message: string }[];
     };
   }>(accessToken, CLIENT_CREATE, { input }, cfg);
@@ -158,7 +158,7 @@ export async function findOrCreateClient(
   }
   const client = created.clientCreate.client;
   if (!client?.id) throw new Error("clientCreate returned no client id.");
-  return { clientId: client.id, propertyId: client.properties?.nodes?.[0]?.id ?? null };
+  return { clientId: client.id, propertyId: client.properties?.[0]?.id ?? null };
 }
 
 /** Return a property id for the client — an existing one, else create the yard property. */
@@ -168,7 +168,7 @@ export async function ensurePropertyId(
   cfg: JobberConfig = getJobberConfig(),
 ): Promise<string> {
   const existing = await jobberGraphQL<ClientPropertiesData>(accessToken, CLIENT_PROPERTIES, { id: clientId }, cfg);
-  const found = existing.client?.properties?.nodes?.[0]?.id;
+  const found = existing.client?.properties?.[0]?.id;
   if (found) return found;
 
   const res = await jobberGraphQL<{ propertyCreate: { userErrors: { message: string }[] } }>(
@@ -181,7 +181,7 @@ export async function ensurePropertyId(
     throw new Error(`propertyCreate: ${res.propertyCreate.userErrors.map((e) => e.message).join("; ")}`);
   }
   const after = await jobberGraphQL<ClientPropertiesData>(accessToken, CLIENT_PROPERTIES, { id: clientId }, cfg);
-  const id = after.client?.properties?.nodes?.[0]?.id;
+  const id = after.client?.properties?.[0]?.id;
   if (!id) throw new Error("Could not resolve a Jobber property for the client.");
   return id;
 }
