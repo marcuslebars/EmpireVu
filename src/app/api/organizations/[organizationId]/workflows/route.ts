@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { handleRoute, parseJsonBody, parseLimit } from "@/server/api/route";
 import { requireOrganizationContext } from "@/server/organizations/context";
+import { requireFeature } from "@/server/services/billing/gating";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 import {
   createWorkflow,
@@ -44,6 +45,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   return handleRoute(async () => {
     const supabase = createSupabaseServerClient();
     const organization = await requireOrganizationContext(supabase, context.params.organizationId);
+    await requireFeature(supabase, organization.organizationId, "workflows");
     const input = await parseJsonBody(request, createWorkflowInputSchema);
 
     const data = await createWorkflow(
