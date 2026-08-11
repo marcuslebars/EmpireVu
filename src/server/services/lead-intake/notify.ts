@@ -20,6 +20,8 @@ export interface NotifyLead {
   returning: ReturningInfo | null;
   /** Other A1 brands where this same person already exists (cross-brand overlap). */
   crossBrandBrands: string[];
+  /** Phone-lead urgency (Retell post-call analysis): escalates subject + adds a callback line. */
+  urgent?: boolean;
 }
 
 function buildText(lead: NotifyLead): string {
@@ -48,6 +50,9 @@ function buildText(lead: NotifyLead): string {
   if (lead.crossBrandBrands.length) {
     parts.push("", `⚑ ALSO A CUSTOMER OF: ${lead.crossBrandBrands.join(", ")} — cross-brand, handle as a warm lead`);
   }
+  if (lead.urgent) {
+    parts.push("", "🚨 URGENT — the caller flagged this as time-sensitive. Call them back ASAP.");
+  }
   if (!lead.schemaValid) {
     parts.push("", "⚠ NEEDS ATTENTION — this payload did not match the lead schema and was stored raw. Review it in raw_leads.");
   }
@@ -66,6 +71,7 @@ export async function sendLeadNotification(lead: NotifyLead): Promise<boolean> {
 
   const who = lead.contact.name || lead.contact.email || lead.contact.phone || "Unknown";
   const markers = [
+    lead.urgent ? "🚨 URGENT" : null,
     !lead.schemaValid ? "⚠ NEEDS ATTENTION" : null,
     lead.crossBrandBrands.length ? "⚑ CROSS-BRAND" : null,
     lead.returning && lead.returning.priorCount > 0 ? "↩ RETURNING" : null,

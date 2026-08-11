@@ -383,9 +383,14 @@ export async function handleLeadIntake(rawBody: string, parsedBody: unknown): Pr
       const enriched = await parseIntoRecords(admin, { orgId, companyId, envelope, leadId });
       returning = enriched.returning;
       crossBrandBrands = enriched.crossBrandBrands;
+      // Urgent phone-leads (Retell post-call analysis) stay flagged for attention even on
+      // a clean enrichment, so they surface in the needs-attention queue for an immediate
+      // callback. Only phone-leads set meta.urgent — every other spoke leaves it undefined,
+      // so this clears to false exactly as before.
+      const urgent = envelope.meta?.urgent === true;
       await admin
         .from("raw_leads")
-        .update({ contact_id: enriched.contactId, matched: enriched.matched, needs_attention: false })
+        .update({ contact_id: enriched.contactId, matched: enriched.matched, needs_attention: urgent })
         .eq("lead_id", leadId);
       // Additive: enqueue a Jobber sync for A1 Marine Storage quote leads (gated by
       // JOBBER_SYNC_ENABLED). Best-effort — the durable raw_leads row + the worker's
@@ -425,6 +430,7 @@ export async function handleLeadIntake(rawBody: string, parsedBody: unknown): Pr
       lineItems: envelope?.lineItems ?? null,
       returning,
       crossBrandBrands,
+      urgent: envelope?.meta?.urgent === true,
     });
   } catch (err) {
     console.error("[intake] notification failed:", err);

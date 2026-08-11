@@ -18,7 +18,10 @@ export const leadEnvelopeSchema = z.object({
   sourceSite: z.string().min(1).max(80),
   // "winter-storage-quote": A1 Marine Storage locality / ad lead-capture (feeds the
   // Jobber sync worker). Additive — existing spokes are unaffected.
-  formType: z.enum(["quote", "contact", "booking", "winter-storage-quote"]),
+  // "phone-lead": a call handled by the Retell voice receptionist, mapped onto this
+  // same envelope so a phone lead flows through the identical intake / dedup / notify
+  // path as a web form. Additive.
+  formType: z.enum(["quote", "contact", "booking", "winter-storage-quote", "phone-lead"]),
   receivedAt: z.string().datetime(),
   contact: z
     .object({
@@ -31,12 +34,21 @@ export const leadEnvelopeSchema = z.object({
     }),
   message: z.string().max(10000).optional(),
   lineItems: z.array(leadLineItemSchema).max(100).optional(),
+  // Structured services the caller asked about (phone-lead). A human-readable summary
+  // still rides in `message`; this keeps the list machine-usable for Phase 2 quoting.
+  services: z.array(z.string().min(1).max(120)).max(50).optional(),
   asset: z
     .object({
       makeModel: z.string().max(200).optional(),
       lengthFt: z.number().optional(),
       type: z.string().max(120).optional(),
       marina: z.string().max(200).optional(),
+      // Phone-lead (Retell) additions — boat attributes captured on the call. All
+      // optional, so existing spokes and golden fixtures are unaffected.
+      engineType: z.string().max(40).optional(),
+      engineCount: z.number().int().nonnegative().max(20).optional(),
+      onTrailer: z.boolean().optional(),
+      location: z.string().max(200).optional(),
     })
     .optional(),
   meta: z
@@ -48,6 +60,11 @@ export const leadEnvelopeSchema = z.object({
       utm: z.record(z.string(), z.string()).optional(),
       // Locality tag from A1 Marine Storage /boat-storage/[town] pages.
       locality: z.string().max(80).optional(),
+      // Phone-lead (Retell): `urgent` from post-call analysis escalates the lead to a
+      // high-priority notification + needs-attention; `retell.callId` links the lead
+      // back to its retell_calls row (raw transcript + analysis).
+      urgent: z.boolean().optional(),
+      retell: z.object({ callId: z.string().min(1).max(200) }).optional(),
     })
     .optional(),
 });

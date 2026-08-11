@@ -37,6 +37,12 @@ describe("lead envelope golden fixtures", () => {
 
   it("covers every formType", () => {
     const types = new Set(files.map((f) => (load(f) as { formType: string }).formType));
-    expect([...types].sort()).toEqual(["booking", "contact", "quote", "winter-storage-quote"]);
+    expect([...types].sort()).toEqual([
+      "booking",
+      "contact",
+      "phone-lead",
+      "quote",
+      "winter-storage-quote",
+    ]);
   });
 });

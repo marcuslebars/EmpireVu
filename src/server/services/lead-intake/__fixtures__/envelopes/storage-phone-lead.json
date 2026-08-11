@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "source": "retell_voice_agent",
+  "sourceSite": "a1marinestorage",
+  "formType": "phone-lead",
+  "receivedAt": "2026-07-06T16:10:00.000Z",
+  "contact": {
+    "name": "Paul Genereux",
+    "phone": "705-555-0188"
+  },
+  "message": "Caller wants his boat winterized and shrink-wrapped, then stored outdoors for the season. Needs it done before the first freeze. Summary: 24ft Sea Ray, twin outboards, currently on a trailer at home in Midland.",
+  "services": ["Winterization", "Shrink Wrapping", "Outdoor Storage"],
+  "asset": {
+    "makeModel": "2017 Sea Ray SPX 210",
+    "lengthFt": 24,
+    "type": "bowrider",
+    "engineType": "outboard",
+    "engineCount": 2,
+    "onTrailer": true,
+    "location": "Midland"
+  },
+  "meta": {
+    "site": "retell",
+    "urgent": true,
+    "retell": { "callId": "call_9f2c1e7b4a3d8e60" }
+  }
+}
