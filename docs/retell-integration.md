@@ -141,14 +141,63 @@ then it's live. RLS: org members read; only the service role (this webhook) writ
 4. Flip `RETELL_INTAKE_ENABLED=1` and redeploy.
 5. Place a test call; confirm the lead appears (and the 🚨 URGENT email if you flagged it urgent).
 
+## Outbound calling (Marina) — replacing Cartesia
+
+Retell also places **outbound** calls (the "Marina" agent), replacing the Cartesia
+`placeOutboundCall` path. All three call sites — the CRM "Call" action, the top-bar Quick Call, and
+the `call_lead` workflow action — go through `services/voice.ts`, which picks the provider:
+
+- **Retell** when `RETELL_OUTBOUND_ENABLED=1` **and** the outbound config is present, otherwise
+- **Cartesia** (fallback), so nothing breaks mid-migration.
+
+When Retell places a call it passes:
+
+- `metadata: { contactId, organizationId, companyId }` — echoed back on the call object, so the
+  `call_analyzed` webhook can attach the outcome to the right contact.
+- `retell_llm_dynamic_variables: { customer_name, company_name }` — **the fix for the old "greets
+  wrong company" bug.** Your outbound agent's prompt must reference `{{company_name}}` and
+  `{{customer_name}}` in its greeting.
+
+### The webhook behaves differently by direction
+
+The same `/api/retell/webhook` handles both directions and branches on `call.direction`:
+
+- **`outbound`** → logs a `contact.call_completed` activity on the contact (summary, sentiment,
+  voicemail, status). **Never creates a lead.** Gated by `RETELL_OUTBOUND_ENABLED`.
+- **`inbound`** → the phone-lead intake above. Gated by `RETELL_INTAKE_ENABLED`.
+
+Outbound outcomes arrive by **webhook push** — no polling. The Cartesia outcome poll skips Retell
+calls (tagged `provider: "retell"` on the placed-call event).
+
+### Env (EmpireVu Railway service)
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `RETELL_OUTBOUND_ENABLED` | to switch on | `1` routes outbound calls through Retell; else Cartesia. |
+| `RETELL_API_KEY` | yes | Same key as inbound. |
+| `RETELL_FROM_NUMBER` | yes | The Retell number to dial FROM (E.164). |
+| `RETELL_OUTBOUND_AGENT_ID` | recommended | A dedicated outbound agent (its own dial-out greeting). If unset, the from-number's default agent is used. |
+
+### Configure + go live
+
+1. Import/assign a Retell phone number to dial from → set `RETELL_FROM_NUMBER`.
+2. Build an **outbound agent** whose greeting uses `{{company_name}}` / `{{customer_name}}`; put its id in `RETELL_OUTBOUND_AGENT_ID`. Point it at the same `/api/retell/webhook` (`call_analyzed`).
+3. Flip `RETELL_OUTBOUND_ENABLED=1` and redeploy. Place a test call from the CRM; confirm a `contact.call_completed` lands on the contact (and NO new lead).
+
+### Fully retiring Cartesia (later)
+
+Once Retell outbound is proven: leave the flag on, then delete the Cartesia branch in
+`services/voice.ts` + `outbound/voice.ts` and the `CARTESIA_*` env. Until then Cartesia stays as an
+automatic fallback.
+
 ## Local dev: simulate a signed webhook
 
-`scripts/dev/retell-simulate.mjs` builds a `call_analyzed` payload, signs it exactly as Retell does,
+`scripts/dev/retell-simulate.ts` builds a `call_analyzed` payload, signs it exactly as Retell does,
 and (a) verifies the signature and (b) runs it through the field-reader → envelope → schema pipeline,
 printing the resulting canonical lead. No database required — it proves the transform end-to-end.
 
 ```bash
-node scripts/dev/retell-simulate.mjs
+npx tsx scripts/dev/retell-simulate.ts
 ```
 
 To exercise the full DB write, run the app locally with Supabase creds + `RETELL_INTAKE_ENABLED=1`

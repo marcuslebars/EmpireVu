@@ -8,7 +8,10 @@
 // ever configured, but normally only RETELL_API_KEY is set. See docs/retell-integration.md.
 
 export interface RetellConfig {
+  /** Inbound phone-lead intake (RETELL_INTAKE_ENABLED). */
   enabled: boolean;
+  /** Outbound calling via Retell — the Marina replacement (RETELL_OUTBOUND_ENABLED). */
+  outboundEnabled: boolean;
   /** Retell API key — also the webhook signature key (the same value). */
   apiKey: string;
   /** Brand key the lead-intake routing consumes. A1 Marine Storage is tenant zero. */
@@ -22,6 +25,7 @@ export interface RetellConfig {
 export function getRetellConfig(): RetellConfig {
   return {
     enabled: process.env.RETELL_INTAKE_ENABLED === "1",
+    outboundEnabled: process.env.RETELL_OUTBOUND_ENABLED === "1",
     // Prefer an explicit webhook secret if set, else the API key (which is what Retell
     // actually signs with). Either way this is the key HMAC verification uses.
     apiKey: (process.env.RETELL_WEBHOOK_SECRET?.trim() || process.env.RETELL_API_KEY?.trim()) ?? "",

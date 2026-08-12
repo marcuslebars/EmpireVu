@@ -24,9 +24,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid signature." }, { status: 401 });
   }
 
-  // Inert unless enabled. The signature is verified first, so a flagged-off endpoint
+  // Inert unless intake OR outbound is enabled (ingestRetellCall routes by direction and
+  // re-checks the specific flag). Signature is verified first, so a flagged-off endpoint
   // can't be probed unauthenticated; a valid-but-disabled call is ACKed (no retry).
-  if (!cfg.enabled) {
+  if (!cfg.enabled && !cfg.outboundEnabled) {
     return NextResponse.json({ ok: true, disabled: true }, { status: 200 });
   }
 

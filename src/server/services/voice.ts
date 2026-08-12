@@ -8,9 +8,83 @@ import {
   readVoiceConfig,
   type PlaceCallResult,
 } from "@/server/outbound/voice";
+import { placeRetellCall, readRetellVoiceConfig } from "@/server/outbound/retell-voice";
+import { getRetellConfig } from "@/server/services/retell/config";
+
+type MarinaProvider = "retell" | "cartesia";
+
+/**
+ * Which agent places outbound calls: Retell when RETELL_OUTBOUND_ENABLED is set and the
+ * outbound voice config is present, otherwise the Cartesia fallback. Null when neither
+ * is configured. (To fully retire Cartesia later: leave the flag on and delete the
+ * Cartesia branch.)
+ */
+function selectMarinaProvider(): MarinaProvider | null {
+  if (getRetellConfig().outboundEnabled && readRetellVoiceConfig()) return "retell";
+  if (readVoiceConfig()) return "cartesia";
+  return null;
+}
 
 export function isVoiceConfigured(): boolean {
-  return readVoiceConfig() !== null;
+  return selectMarinaProvider() !== null;
+}
+
+interface MarinaCallOutcome {
+  agentCallId: string | null;
+  provider: MarinaProvider;
+  toNumber: string;
+}
+
+/**
+ * Place a Marina call through whichever provider is active. `metadata` is echoed back on
+ * Retell's call object so the `call_analyzed` webhook can attach the outcome to the
+ * contact; the dynamic variables let the agent greet with the right customer + company
+ * name — the fix for the old wrong-company greeting.
+ */
+async function placeMarinaCall(input: {
+  toNumber: string;
+  customerName?: string | null;
+  companyName?: string | null;
+  metadata: Record<string, unknown>;
+}): Promise<MarinaCallOutcome> {
+  const provider = selectMarinaProvider();
+  if (!provider) {
+    throw new ValidationError(
+      "Voice calling is not configured. Either enable Retell (RETELL_OUTBOUND_ENABLED with " +
+        "RETELL_API_KEY + RETELL_FROM_NUMBER) or set CARTESIA_API_KEY, CARTESIA_AGENT_ID, and " +
+        "CARTESIA_FROM_NUMBER_ID.",
+    );
+  }
+
+  if (provider === "retell") {
+    const dynamicVariables: Record<string, string> = {};
+    if (input.customerName) dynamicVariables.customer_name = input.customerName;
+    if (input.companyName) dynamicVariables.company_name = input.companyName;
+    const result = await placeRetellCall({
+      toNumber: input.toNumber,
+      metadata: input.metadata,
+      dynamicVariables,
+    });
+    return { agentCallId: result.callId, provider, toNumber: result.toNumber };
+  }
+
+  const result = await placeOutboundCall({ toNumber: input.toNumber, metadata: input.metadata });
+  return { agentCallId: result.agentCallId, provider, toNumber: result.toNumber };
+}
+
+/** The brand name to greet as, for the outbound dynamic variables. */
+async function resolveCompanyName(
+  context: TenantServiceContext,
+  companyId: string | null | undefined,
+): Promise<string | null> {
+  if (!companyId) return null;
+  const { data } = await context.supabase
+    .from("companies")
+    .select("name")
+    .eq("organization_id", context.organizationId)
+    .eq("id", companyId)
+    .maybeSingle();
+  return (data as { name?: string } | null)?.name ?? null;
 }
 
 /**
@@ -33,13 +107,6 @@ export async function callContactWithMarina(
   context: TenantServiceContext,
   contactId: string,
 ): Promise<PlaceCallResult> {
-  const config = readVoiceConfig();
-  if (!config) {
-    throw new ValidationError(
-      "Voice calling is not configured. Set CARTESIA_API_KEY, CARTESIA_AGENT_ID, and CARTESIA_FROM_NUMBER_ID on the server.",
-    );
-  }
-
   const { data, error } = await context.supabase
     .from("contacts")
     .select("id, first_name, last_name, phone, company_id")
@@ -59,21 +126,23 @@ export async function callContactWithMarina(
   if (!toNumber) throw new ValidationError("This lead's phone number isn't a callable number.");
 
   const name = [contact.first_name, contact.last_name].filter(Boolean).join(" ").trim();
-  const result = await placeOutboundCall(
-    {
-      toNumber,
-      metadata: {
-        contactId: contact.id,
-        name: name || undefined,
-        organizationId: context.organizationId,
-        companyId: contact.company_id,
-      },
-    },
-    config,
-  );
+  const companyName = await resolveCompanyName(context, contact.company_id);
 
-  // Best-effort: log the placed call on the contact's timeline. The call is
-  // already dialing, so a failed activity write must never look like a failed call.
+  const outcome = await placeMarinaCall({
+    toNumber,
+    customerName: name || null,
+    companyName,
+    metadata: {
+      contactId: contact.id,
+      name: name || undefined,
+      organizationId: context.organizationId,
+      companyId: contact.company_id,
+    },
+  });
+
+  // Best-effort: log the placed call on the contact's timeline. The call is already
+  // dialing, so a failed activity write must never look like a failed call. `provider`
+  // lets the Cartesia poll skip Retell calls (those resolve via the webhook).
   try {
     await createActivityEvent(context, {
       companyId: contact.company_id,
@@ -82,16 +151,17 @@ export async function callContactWithMarina(
       eventType: "contact.call_placed",
       metadata: {
         agent: "marina",
-        agentCallId: result.agentCallId,
+        provider: outcome.provider,
+        agentCallId: outcome.agentCallId,
         channel: "voice",
-        toNumber: result.toNumber,
+        toNumber: outcome.toNumber,
       },
     });
   } catch {
     // Recording the call is non-critical — never surface it as a call failure.
   }
 
-  return result;
+  return { agentCallId: outcome.agentCallId, toNumber: outcome.toNumber };
 }
 
 /**
@@ -102,30 +172,23 @@ export async function callNumberWithMarina(
   context: TenantServiceContext,
   input: { toNumber: string; name?: string | null },
 ): Promise<PlaceCallResult> {
-  const config = readVoiceConfig();
-  if (!config) {
-    throw new ValidationError(
-      "Voice calling is not configured. Set CARTESIA_API_KEY, CARTESIA_AGENT_ID, and CARTESIA_FROM_NUMBER_ID on the server.",
-    );
-  }
-
   const toNumber = toE164(input.toNumber);
   if (!toNumber) {
     throw new ValidationError("That doesn't look like a phone number Marina can call.");
   }
 
   const name = input.name?.trim() || undefined;
-  return placeOutboundCall(
-    {
-      toNumber,
-      metadata: {
-        name,
-        organizationId: context.organizationId,
-        source: "quick_call",
-      },
+  const outcome = await placeMarinaCall({
+    toNumber,
+    customerName: name ?? null,
+    companyName: null,
+    metadata: {
+      name,
+      organizationId: context.organizationId,
+      source: "quick_call",
     },
-    config,
-  );
+  });
+  return { agentCallId: outcome.agentCallId, toNumber: outcome.toNumber };
 }
 
 /** Cartesia statuses that mean the call is over and its outcome is final. */
@@ -176,7 +239,10 @@ export async function syncCallOutcomesForContact(
 
   const pending = events.filter((event) => {
     if (event.event_type !== "contact.call_placed") return false;
-    const id = readEventMetadata(event).agentCallId;
+    const meta = readEventMetadata(event);
+    // Retell calls resolve via the call_analyzed webhook, not this Cartesia poll.
+    if (meta.provider === "retell") return false;
+    const id = meta.agentCallId;
     return typeof id === "string" && !resolved.has(id);
   });
 
