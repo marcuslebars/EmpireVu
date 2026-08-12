@@ -184,6 +184,38 @@ calls (tagged `provider: "retell"` on the placed-call event).
 2. Build an **outbound agent** whose greeting uses `{{company_name}}` / `{{customer_name}}`; put its id in `RETELL_OUTBOUND_AGENT_ID`. Point it at the same `/api/retell/webhook` (`call_analyzed`).
 3. Flip `RETELL_OUTBOUND_ENABLED=1` and redeploy. Place a test call from the CRM; confirm a `contact.call_completed` lands on the contact (and NO new lead).
 
+### Per-company agents (a brand's own knowledge base + prompt)
+
+Marina calls each lead **as the brand the lead came in from**. Because a Retell knowledge base
+is attached to an agent, each company gets its **own Retell agent** (its KB + system prompt,
+authored in the Retell dashboard). EmpireVu maps company → agent in `company_voice_profiles`
+and, at call time, resolves the calling contact's `company_id` → that profile →
+`override_agent_id` + per-brand caller ID + merged dynamic variables.
+
+Set a profile per company (authenticated, org-scoped):
+
+```json
+POST /api/organizations/{organizationId}/voice-profiles
+{
+  "companyId": "<uuid>",
+  "retellOutboundAgentId": "agent_...",
+  "fromNumber": "+1705...",
+  "brandLabel": "A1 Marine Storage",
+  "dynamicVariables": { "services": "winterization, shrink wrapping, storage" }
+}
+```
+
+`retellOutboundAgentId` = the Retell agent for THIS brand (its KB + prompt). `fromNumber` =
+optional per-brand caller ID (else `RETELL_FROM_NUMBER`). `brandLabel` = greeting name →
+`{{company_name}}` (else `companies.name`). `dynamicVariables` = extra brand context the
+prompt can interpolate. `GET` lists them. A company with no profile (or an empty field) falls
+back to the global `RETELL_OUTBOUND_AGENT_ID` / `RETELL_FROM_NUMBER`. Apply the migration
+`20260812120000_add_company_voice_profiles.sql`.
+
+**Division of labor:** author each brand's agent + KB + prompt in Retell (its greeting uses
+`{{company_name}}` / `{{customer_name}}` + any brand dynamic variables); EmpireVu routes each
+call to the right one based on the lead's company.
+
 ### Fully retiring Cartesia (later)
 
 Once Retell outbound is proven: leave the flag on, then delete the Cartesia branch in

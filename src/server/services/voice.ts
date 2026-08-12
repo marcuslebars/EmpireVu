@@ -10,6 +10,11 @@ import {
 } from "@/server/outbound/voice";
 import { placeRetellCall, readRetellVoiceConfig } from "@/server/outbound/retell-voice";
 import { getRetellConfig } from "@/server/services/retell/config";
+import {
+  effectiveVoiceForProfile,
+  resolveCompanyVoiceProfile,
+  type CompanyVoiceProfile,
+} from "@/server/services/company-voice-profiles";
 
 type MarinaProvider = "retell" | "cartesia";
 
@@ -46,6 +51,8 @@ async function placeMarinaCall(input: {
   customerName?: string | null;
   companyName?: string | null;
   metadata: Record<string, unknown>;
+  /** Per-company profile → the brand's agent (its KB + prompt), caller ID, and context. */
+  voiceProfile?: CompanyVoiceProfile | null;
 }): Promise<MarinaCallOutcome> {
   const provider = selectMarinaProvider();
   if (!provider) {
@@ -57,14 +64,20 @@ async function placeMarinaCall(input: {
   }
 
   if (provider === "retell") {
-    const dynamicVariables: Record<string, string> = {};
-    if (input.customerName) dynamicVariables.customer_name = input.customerName;
-    if (input.companyName) dynamicVariables.company_name = input.companyName;
-    const result = await placeRetellCall({
-      toNumber: input.toNumber,
-      metadata: input.metadata,
-      dynamicVariables,
+    const globalCfg = readRetellVoiceConfig();
+    if (!globalCfg) {
+      throw new ValidationError("Retell outbound calling is not configured.");
+    }
+    // The company's profile overrides the agent (→ its knowledge base + prompt), the
+    // caller-ID number, and the brand context; falls back to the global config.
+    const { config, dynamicVariables } = effectiveVoiceForProfile(globalCfg, input.voiceProfile ?? null, {
+      customerName: input.customerName,
+      companyName: input.companyName,
     });
+    const result = await placeRetellCall(
+      { toNumber: input.toNumber, metadata: input.metadata, dynamicVariables },
+      config,
+    );
     return { agentCallId: result.callId, provider, toNumber: result.toNumber };
   }
 
@@ -126,6 +139,9 @@ export async function callContactWithMarina(
   if (!toNumber) throw new ValidationError("This lead's phone number isn't a callable number.");
 
   const name = [contact.first_name, contact.last_name].filter(Boolean).join(" ").trim();
+  // Route the call to THIS lead's brand — the company it came in from — so Marina uses
+  // that company's Retell agent (its knowledge base + prompt) and greets correctly.
+  const voiceProfile = await resolveCompanyVoiceProfile(context, contact.company_id);
   const companyName = await resolveCompanyName(context, contact.company_id);
 
   const outcome = await placeMarinaCall({
@@ -138,6 +154,7 @@ export async function callContactWithMarina(
       organizationId: context.organizationId,
       companyId: contact.company_id,
     },
+    voiceProfile,
   });
 
   // Best-effort: log the placed call on the contact's timeline. The call is already
