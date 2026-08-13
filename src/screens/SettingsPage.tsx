@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
-import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2 } from "lucide-react";
+import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
 import { useOrg } from "@/lib/org-context";
 import { useOrganizations, useCompanies, useUpdateOrganization } from "@/lib/api-hooks";
+import { VoiceSettings } from "@/components/settings/VoiceSettings";
 
 const sections = [
   { id: "org", label: "Organization", icon: Building2, description: "Manage organization name, slug, and companies" },
+  { id: "voice", label: "Voice (Marina)", icon: Phone, description: "Set each company's outbound agent, caller ID, and system prompt" },
   { id: "members", label: "Members & Permissions", icon: Users, description: "Manage team roles and access controls" },
   { id: "notifications", label: "Notifications", icon: Bell, description: "Configure notification preferences" },
   { id: "integrations", label: "Integrations", icon: Puzzle, description: "Connect third-party tools and services" },
@@ -184,6 +186,8 @@ export default function SettingsPage() {
         <div className="lg:col-span-3 bg-card border border-border rounded-xl p-4 sm:p-6">
           {active === "org" ? (
             <OrganizationSettings />
+          ) : active === "voice" ? (
+            <VoiceSettings />
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center mb-4">

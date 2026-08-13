@@ -546,7 +546,7 @@ export function useUpdateWorkflow(orgId: string) {
 
 // ─── Organizations & Companies ───────────────────────────────────────────────
 
-import { fetchOrganizations, updateOrganization, fetchCompanies, createCompany, createOrganization, type CreateCompanyInput, type CreateOrganizationInput } from "./api-client";
+import { fetchOrganizations, updateOrganization, fetchCompanies, createCompany, createOrganization, fetchVoiceProfiles, upsertVoiceProfile, type CreateCompanyInput, type CreateOrganizationInput, type UpsertVoiceProfileInput } from "./api-client";
 
 export function useOrganizations() {
   return useQuery({
@@ -591,6 +591,27 @@ export function useUpdateOrganization(orgId: string) {
     mutationFn: (input: { name?: string; slug?: string }) => updateOrganization(orgId, input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["organizations"] });
+    },
+  });
+}
+
+// ─── Voice profiles (Marina outbound) ─────────────────────────────────────────
+
+export function useVoiceProfiles(orgId: string) {
+  return useQuery({
+    queryKey: ["voice-profiles", orgId],
+    queryFn: () => fetchVoiceProfiles(orgId),
+    enabled: Boolean(orgId),
+    staleTime: 60_000,
+  });
+}
+
+export function useUpsertVoiceProfile(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpsertVoiceProfileInput) => upsertVoiceProfile(orgId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["voice-profiles", orgId] });
     },
   });
 }
