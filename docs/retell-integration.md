@@ -212,9 +212,34 @@ prompt can interpolate. `GET` lists them. A company with no profile (or an empty
 back to the global `RETELL_OUTBOUND_AGENT_ID` / `RETELL_FROM_NUMBER`. Apply the migration
 `20260812120000_add_company_voice_profiles.sql`.
 
-**Division of labor:** author each brand's agent + KB + prompt in Retell (its greeting uses
-`{{company_name}}` / `{{customer_name}}` + any brand dynamic variables); EmpireVu routes each
-call to the right one based on the lead's company.
+**Division of labor:** author each brand's agent + KB in Retell; EmpireVu routes each call to
+the right one based on the lead's company. The **prompt** can live in either place — see next.
+
+### Managing the prompt in EmpireVu
+
+Keep each brand's **system prompt in EmpireVu** (the source of truth) instead of the Retell
+dashboard. Set `systemPrompt` on the company's voice profile; at call time EmpireVu renders it
+with the call's variables (`{{customer_name}}`, `{{company_name}}`, and the brand's own
+`dynamicVariables`) and injects the result as the `system_prompt` dynamic variable.
+
+One-time Retell setup: set the agent's **general prompt to `{{system_prompt}}`** (a passthrough);
+its knowledge base stays attached to the agent. (Retell's per-call `agent_override` can't
+override the LLM prompt, so injecting via a dynamic variable is the sync-free path — EmpireVu
+stays the single source of truth, no drift.)
+
+```json
+POST /api/organizations/{organizationId}/voice-profiles
+{
+  "companyId": "<uuid>",
+  "retellOutboundAgentId": "agent_...",
+  "systemPrompt": "You are Marina calling on behalf of {{company_name}}. You're reaching out to {{customer_name}} about {{services}}. Be warm and concise...",
+  "dynamicVariables": { "services": "winterization, shrink wrapping, storage" }
+}
+```
+
+Write `{{customer_name}}` / `{{company_name}}` / any brand variable directly in the prompt —
+EmpireVu fills them in server-side before the call. Apply
+`20260812130000_add_voice_profile_system_prompt.sql`.
 
 ### Fully retiring Cartesia (later)
 

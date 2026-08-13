@@ -20,6 +20,7 @@ const upsertSchema = z.object({
   retellOutboundAgentId: z.string().max(200).nullish(),
   fromNumber: z.string().max(32).nullish(),
   brandLabel: z.string().max(200).nullish(),
+  systemPrompt: z.string().max(20000).nullish(),
   dynamicVariables: z.record(z.string(), z.string()).optional(),
   active: z.boolean().optional(),
 });
@@ -38,6 +39,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
         retellOutboundAgentId: parsed.retellOutboundAgentId ?? null,
         fromNumber: parsed.fromNumber ?? null,
         brandLabel: parsed.brandLabel ?? null,
+        systemPrompt: parsed.systemPrompt ?? null,
         dynamicVariables: parsed.dynamicVariables,
         active: parsed.active,
       },

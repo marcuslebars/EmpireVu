@@ -11,8 +11,20 @@ export interface CompanyVoiceProfile {
   retellOutboundAgentId: string | null;
   fromNumber: string | null;
   brandLabel: string | null;
+  /** EmpireVu-managed outbound system prompt; rendered + injected as {{system_prompt}}. */
+  systemPrompt: string | null;
   dynamicVariables: Record<string, string>;
   active: boolean;
+}
+
+/**
+ * Render {{key}} tokens in a prompt template from the given variables. Unknown tokens are
+ * left as-is (so a typo shows up rather than being silently dropped). Pure.
+ */
+export function renderTemplate(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (match, key: string) =>
+    Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : match,
+  );
 }
 
 /**
@@ -36,6 +48,12 @@ export function effectiveVoiceForProfile(
   const companyName = profile?.brandLabel || ctx.companyName || null;
   if (ctx.customerName) dynamicVariables.customer_name = ctx.customerName;
   if (companyName) dynamicVariables.company_name = companyName;
+  // EmpireVu-managed prompt: render it against the variables above (so {{customer_name}},
+  // {{company_name}} + brand vars resolve), then inject as {{system_prompt}} — the Retell
+  // agent's general prompt is a `{{system_prompt}}` passthrough.
+  if (profile?.systemPrompt) {
+    dynamicVariables.system_prompt = renderTemplate(profile.systemPrompt, dynamicVariables);
+  }
   return { config, dynamicVariables };
 }
 
@@ -46,6 +64,7 @@ function mapRow(row: Record<string, unknown>): CompanyVoiceProfile {
     retellOutboundAgentId: (row.retell_outbound_agent_id as string | null) ?? null,
     fromNumber: (row.from_number as string | null) ?? null,
     brandLabel: (row.brand_label as string | null) ?? null,
+    systemPrompt: (row.system_prompt as string | null) ?? null,
     dynamicVariables:
       dyn && typeof dyn === "object" && !Array.isArray(dyn) ? (dyn as Record<string, string>) : {},
     active: row.active !== false,
@@ -59,7 +78,9 @@ export async function resolveCompanyVoiceProfile(
 ): Promise<CompanyVoiceProfile | null> {
   if (!companyId) return null;
   const { data } = await tbl(ctx, "company_voice_profiles")
-    .select("company_id, retell_outbound_agent_id, from_number, brand_label, dynamic_variables, active")
+    .select(
+      "company_id, retell_outbound_agent_id, from_number, brand_label, system_prompt, dynamic_variables, active",
+    )
     .eq("organization_id", ctx.organizationId)
     .eq("company_id", companyId)
     .eq("active", true)
@@ -72,6 +93,7 @@ export interface UpsertVoiceProfileInput {
   retellOutboundAgentId?: string | null;
   fromNumber?: string | null;
   brandLabel?: string | null;
+  systemPrompt?: string | null;
   dynamicVariables?: Record<string, string>;
   active?: boolean;
 }
@@ -91,6 +113,7 @@ export async function upsertCompanyVoiceProfile(
         retell_outbound_agent_id: input.retellOutboundAgentId ?? null,
         from_number: input.fromNumber ?? null,
         brand_label: input.brandLabel ?? null,
+        system_prompt: input.systemPrompt ?? null,
         dynamic_variables: input.dynamicVariables ?? {},
         active: input.active ?? true,
         created_by: ctx.actorProfileId,
