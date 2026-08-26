@@ -1,8 +1,10 @@
 import { randomBytes } from "node:crypto";
 
 import type { Json } from "@/server/db/database.types";
+import { createActivityEvent } from "@/server/services/activity-events";
 import { LEAD_SCHEMA_VERSION } from "@/server/services/lead-intake/envelope";
 import { handleLeadIntake } from "@/server/services/lead-intake/intake";
+import type { TenantServiceContext } from "@/server/services/shared";
 import { getRetellConfig } from "./config";
 import {
   asRecord,
@@ -68,6 +70,8 @@ export interface RetellCallFields {
   callAnalysis: unknown;
   customAnalysisData: unknown;
   event: string | null;
+  /** call.metadata — arbitrary object we set when placing an outbound call (contactId, org, …). */
+  metadata: Record<string, unknown> | null;
   // Extracted from custom_analysis_data:
   name: string | null;
   email: string | null;
@@ -139,6 +143,7 @@ export function readRetellCallFields(payload: unknown): RetellCallFields {
     callAnalysis: analysis,
     customAnalysisData: custom,
     event: readString(payload, ["event"]),
+    metadata: asRecord(readPath(call, "metadata")),
     ...readAnalysisFields(custom),
   };
 }
@@ -169,6 +174,7 @@ export function readRetellFunctionFields(payload: unknown): RetellCallFields {
     callAnalysis: null,
     customAnalysisData: asRecord(args) ?? null,
     event: "capture_lead",
+    metadata: asRecord(readPath(call, "metadata")),
     ...readAnalysisFields(args),
   };
 }
@@ -253,9 +259,16 @@ export interface RetellIngestResult {
  *  or the later call_analyzed after a mid-call capture — enriches the same row. */
 async function upsertRetellCall(
   admin: RetellAdminClient,
-  args: { callId: string; tenant: RetellTenant; fields: RetellCallFields; rawPayload: unknown; leadId?: string | null },
+  args: {
+    callId: string;
+    tenant: RetellTenant;
+    fields: RetellCallFields;
+    rawPayload: unknown;
+    leadId?: string | null;
+    contactId?: string | null;
+  },
 ): Promise<void> {
-  const { callId, tenant, fields, rawPayload, leadId } = args;
+  const { callId, tenant, fields, rawPayload, leadId, contactId } = args;
   const row: Record<string, unknown> = {
     organization_id: tenant.organizationId,
     company_id: tenant.companyId,
@@ -279,6 +292,7 @@ async function upsertRetellCall(
     received_at: new Date().toISOString(),
   };
   if (leadId) row.lead_id = leadId;
+  if (contactId) row.contact_id = contactId;
   const { error } = await retellCalls(admin).upsert(row, { onConflict: "call_id" });
   if (error) throw error;
 }
@@ -344,9 +358,93 @@ async function runPhoneLeadIntake(fields: RetellCallFields, rawPayload: unknown)
   return { duplicate: false, leadId: result.leadId, callId, urgent: fields.urgent };
 }
 
-/** Webhook path: ingest a `call_analyzed` payload. */
-export async function ingestRetellCall(payload: unknown): Promise<RetellIngestResult> {
-  return runPhoneLeadIntake(readRetellCallFields(payload), payload);
+export interface RetellWebhookResult {
+  handled: "inbound" | "outbound" | "skipped";
+  leadId?: string | null;
+}
+
+/**
+ * Is this a call WE placed (outbound)? Only outbound calls carry metadata.contactId (set
+ * when dialing), so treat that as outbound even when the direction field is absent — but
+ * never override an explicit `inbound`.
+ */
+export function isOutboundCall(fields: Pick<RetellCallFields, "direction" | "metadata">): boolean {
+  return (
+    fields.direction === "outbound" ||
+    (typeof fields.metadata?.contactId === "string" && fields.direction !== "inbound")
+  );
+}
+
+/**
+ * Webhook path: ingest a `call_analyzed` payload. Branches on the call's direction:
+ *   • outbound → a Marina call WE placed; log the OUTCOME on the existing contact (never a
+ *     new lead), gated by RETELL_OUTBOUND_ENABLED;
+ *   • inbound  → a caller reached the receptionist; run the phone-lead intake, gated by
+ *     RETELL_INTAKE_ENABLED.
+ */
+export async function ingestRetellCall(payload: unknown): Promise<RetellWebhookResult> {
+  const fields = readRetellCallFields(payload);
+  const cfg = getRetellConfig();
+
+  if (isOutboundCall(fields)) {
+    if (!cfg.outboundEnabled) return { handled: "skipped" };
+    await captureOutboundOutcome(fields, payload);
+    return { handled: "outbound" };
+  }
+
+  if (!cfg.enabled) return { handled: "skipped" };
+  const result = await runPhoneLeadIntake(fields, payload);
+  return { handled: "inbound", leadId: result.leadId };
+}
+
+/**
+ * An outbound Marina call ended. Store it durably (transcript + analysis, direction
+ * outbound) and append `contact.call_completed` to the contact's timeline — matched by the
+ * metadata we sent when placing the call. Never creates a lead.
+ */
+async function captureOutboundOutcome(fields: RetellCallFields, rawPayload: unknown): Promise<void> {
+  const admin = createRetellAdminClient();
+  const meta = fields.metadata ?? {};
+  const contactId = typeof meta.contactId === "string" ? meta.contactId : null;
+  const organizationId = typeof meta.organizationId === "string" ? meta.organizationId : null;
+  const companyId = typeof meta.companyId === "string" ? meta.companyId : null;
+
+  const callId = fields.callId ?? `retell_nocid_${randomBytes(8).toString("hex")}`;
+
+  // Durable-first: store the outbound call. Upsert on call_id → idempotent on retries.
+  await upsertRetellCall(admin, {
+    callId,
+    tenant: { organizationId, companyId, sourceSite: "" },
+    fields,
+    rawPayload,
+    contactId,
+  });
+
+  // Log the outcome on the contact's timeline (best-effort; no new lead).
+  if (contactId && organizationId) {
+    try {
+      const ctx = { organizationId, actorProfileId: null, supabase: admin } as unknown as TenantServiceContext;
+      await createActivityEvent(ctx, {
+        companyId,
+        entityId: contactId,
+        entityType: "contact",
+        eventType: "contact.call_completed",
+        metadata: {
+          agent: "marina",
+          provider: "retell",
+          agentCallId: callId,
+          channel: "voice",
+          callStatus: fields.callSuccessful == null ? null : fields.callSuccessful ? "completed" : "failed",
+          summary: fields.callSummary,
+          userSentiment: fields.userSentiment,
+          inVoicemail: fields.inVoicemail,
+          toNumber: fields.toNumber,
+        },
+      });
+    } catch (err) {
+      console.error("[retell:outbound] failed to log call outcome:", err);
+    }
+  }
 }
 
 /** Mid-call custom-function path: ingest a capture-lead tool invocation. */

@@ -141,14 +141,120 @@ then it's live. RLS: org members read; only the service role (this webhook) writ
 4. Flip `RETELL_INTAKE_ENABLED=1` and redeploy.
 5. Place a test call; confirm the lead appears (and the 🚨 URGENT email if you flagged it urgent).
 
+## Outbound calling (Marina) — replacing Cartesia
+
+Retell also places **outbound** calls (the "Marina" agent), replacing the Cartesia
+`placeOutboundCall` path. All three call sites — the CRM "Call" action, the top-bar Quick Call, and
+the `call_lead` workflow action — go through `services/voice.ts`, which picks the provider:
+
+- **Retell** when `RETELL_OUTBOUND_ENABLED=1` **and** the outbound config is present, otherwise
+- **Cartesia** (fallback), so nothing breaks mid-migration.
+
+When Retell places a call it passes:
+
+- `metadata: { contactId, organizationId, companyId }` — echoed back on the call object, so the
+  `call_analyzed` webhook can attach the outcome to the right contact.
+- `retell_llm_dynamic_variables: { customer_name, company_name }` — **the fix for the old "greets
+  wrong company" bug.** Your outbound agent's prompt must reference `{{company_name}}` and
+  `{{customer_name}}` in its greeting.
+
+### The webhook behaves differently by direction
+
+The same `/api/retell/webhook` handles both directions and branches on `call.direction`:
+
+- **`outbound`** → logs a `contact.call_completed` activity on the contact (summary, sentiment,
+  voicemail, status). **Never creates a lead.** Gated by `RETELL_OUTBOUND_ENABLED`.
+- **`inbound`** → the phone-lead intake above. Gated by `RETELL_INTAKE_ENABLED`.
+
+Outbound outcomes arrive by **webhook push** — no polling. The Cartesia outcome poll skips Retell
+calls (tagged `provider: "retell"` on the placed-call event).
+
+### Env (EmpireVu Railway service)
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `RETELL_OUTBOUND_ENABLED` | to switch on | `1` routes outbound calls through Retell; else Cartesia. |
+| `RETELL_API_KEY` | yes | Same key as inbound. |
+| `RETELL_FROM_NUMBER` | yes | The Retell number to dial FROM (E.164). |
+| `RETELL_OUTBOUND_AGENT_ID` | recommended | A dedicated outbound agent (its own dial-out greeting). If unset, the from-number's default agent is used. |
+
+### Configure + go live
+
+1. Import/assign a Retell phone number to dial from → set `RETELL_FROM_NUMBER`.
+2. Build an **outbound agent** whose greeting uses `{{company_name}}` / `{{customer_name}}`; put its id in `RETELL_OUTBOUND_AGENT_ID`. Point it at the same `/api/retell/webhook` (`call_analyzed`).
+3. Flip `RETELL_OUTBOUND_ENABLED=1` and redeploy. Place a test call from the CRM; confirm a `contact.call_completed` lands on the contact (and NO new lead).
+
+### Per-company agents (a brand's own knowledge base + prompt)
+
+Marina calls each lead **as the brand the lead came in from**. Because a Retell knowledge base
+is attached to an agent, each company gets its **own Retell agent** (its KB + system prompt,
+authored in the Retell dashboard). EmpireVu maps company → agent in `company_voice_profiles`
+and, at call time, resolves the calling contact's `company_id` → that profile →
+`override_agent_id` + per-brand caller ID + merged dynamic variables.
+
+Set a profile per company (authenticated, org-scoped):
+
+```json
+POST /api/organizations/{organizationId}/voice-profiles
+{
+  "companyId": "<uuid>",
+  "retellOutboundAgentId": "agent_...",
+  "fromNumber": "+1705...",
+  "brandLabel": "A1 Marine Storage",
+  "dynamicVariables": { "services": "winterization, shrink wrapping, storage" }
+}
+```
+
+`retellOutboundAgentId` = the Retell agent for THIS brand (its KB + prompt). `fromNumber` =
+optional per-brand caller ID (else `RETELL_FROM_NUMBER`). `brandLabel` = greeting name →
+`{{company_name}}` (else `companies.name`). `dynamicVariables` = extra brand context the
+prompt can interpolate. `GET` lists them. A company with no profile (or an empty field) falls
+back to the global `RETELL_OUTBOUND_AGENT_ID` / `RETELL_FROM_NUMBER`. Apply the migration
+`20260812120000_add_company_voice_profiles.sql`.
+
+**Division of labor:** author each brand's agent + KB in Retell; EmpireVu routes each call to
+the right one based on the lead's company. The **prompt** can live in either place — see next.
+
+### Managing the prompt in EmpireVu
+
+Keep each brand's **system prompt in EmpireVu** (the source of truth) instead of the Retell
+dashboard. Set `systemPrompt` on the company's voice profile; at call time EmpireVu renders it
+with the call's variables (`{{customer_name}}`, `{{company_name}}`, and the brand's own
+`dynamicVariables`) and injects the result as the `system_prompt` dynamic variable.
+
+One-time Retell setup: set the agent's **general prompt to `{{system_prompt}}`** (a passthrough);
+its knowledge base stays attached to the agent. (Retell's per-call `agent_override` can't
+override the LLM prompt, so injecting via a dynamic variable is the sync-free path — EmpireVu
+stays the single source of truth, no drift.)
+
+```json
+POST /api/organizations/{organizationId}/voice-profiles
+{
+  "companyId": "<uuid>",
+  "retellOutboundAgentId": "agent_...",
+  "systemPrompt": "You are Marina calling on behalf of {{company_name}}. You're reaching out to {{customer_name}} about {{services}}. Be warm and concise...",
+  "dynamicVariables": { "services": "winterization, shrink wrapping, storage" }
+}
+```
+
+Write `{{customer_name}}` / `{{company_name}}` / any brand variable directly in the prompt —
+EmpireVu fills them in server-side before the call. Apply
+`20260812130000_add_voice_profile_system_prompt.sql`.
+
+### Fully retiring Cartesia (later)
+
+Once Retell outbound is proven: leave the flag on, then delete the Cartesia branch in
+`services/voice.ts` + `outbound/voice.ts` and the `CARTESIA_*` env. Until then Cartesia stays as an
+automatic fallback.
+
 ## Local dev: simulate a signed webhook
 
-`scripts/dev/retell-simulate.mjs` builds a `call_analyzed` payload, signs it exactly as Retell does,
+`scripts/dev/retell-simulate.ts` builds a `call_analyzed` payload, signs it exactly as Retell does,
 and (a) verifies the signature and (b) runs it through the field-reader → envelope → schema pipeline,
 printing the resulting canonical lead. No database required — it proves the transform end-to-end.
 
 ```bash
-node scripts/dev/retell-simulate.mjs
+npx tsx scripts/dev/retell-simulate.ts
 ```
 
 To exercise the full DB write, run the app locally with Supabase creds + `RETELL_INTAKE_ENABLED=1`

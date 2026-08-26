@@ -1003,6 +1003,39 @@ export function createCompany(orgId: string, input: CreateCompanyInput): Promise
   });
 }
 
+// ─── Voice profiles (Marina outbound) ─────────────────────────────────────────
+
+export interface VoiceProfile {
+  companyId: string;
+  retellOutboundAgentId: string | null;
+  fromNumber: string | null;
+  brandLabel: string | null;
+  systemPrompt: string | null;
+  dynamicVariables: Record<string, string>;
+  active: boolean;
+}
+
+export interface UpsertVoiceProfileInput {
+  companyId: string;
+  retellOutboundAgentId?: string | null;
+  fromNumber?: string | null;
+  brandLabel?: string | null;
+  systemPrompt?: string | null;
+  dynamicVariables?: Record<string, string>;
+  active?: boolean;
+}
+
+export function fetchVoiceProfiles(orgId: string): Promise<VoiceProfile[]> {
+  return apiFetch(`/api/organizations/${orgId}/voice-profiles`);
+}
+
+export function upsertVoiceProfile(orgId: string, input: UpsertVoiceProfileInput): Promise<VoiceProfile> {
+  return apiFetch(`/api/organizations/${orgId}/voice-profiles`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 // ─── Internal Ops ─────────────────────────────────────────────────────────────
 
 export interface OpsJobDetailResponse {
