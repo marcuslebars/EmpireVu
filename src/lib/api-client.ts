@@ -1236,3 +1236,86 @@ export function fetchOpsJobsHealth(
   const query = searchParams.toString();
   return apiFetch(`/api/organizations/${orgId}/ops/jobs-health${query ? `?${query}` : ""}`);
 }
+
+// ─── Quotes (Stripe-native) ──────────────────────────────────────────────────
+// Every route 404s while STRIPE_QUOTES_ENABLED is off, which the Quotes screen
+// surfaces as "not enabled for this org" rather than an error.
+
+export interface QuoteSummary {
+  id: string;
+  quote_number: string | null;
+  public_token: string;
+  status: string;
+  title: string | null;
+  intro_message: string | null;
+  currency: string;
+  line_items: unknown;
+  subtotal_cents: number;
+  tax_cents: number;
+  total_cents: number;
+  deposit_cents: number;
+  bundle_id: string | null;
+  input_snapshot: unknown;
+  notes: string | null;
+  valid_until: string | null;
+  sent_at: string | null;
+  auto_generated: boolean;
+  created_at: string;
+}
+
+/** The create/update payload — mirrors the route's zod schema. */
+export interface QuoteWritePayload {
+  contactId?: string;
+  companyId?: string;
+  services: {
+    serviceId: string;
+    lengthFt?: number;
+    engineType?: "outboard" | "sterndrive" | "inboard";
+    engineCount?: number;
+    quantity?: number;
+    distanceKm?: number;
+    optional?: boolean;
+    selected?: boolean;
+  }[];
+  customLines?: {
+    label: string;
+    description?: string;
+    amountCents: number;
+    optional?: boolean;
+    selected?: boolean;
+  }[];
+  hullType?: string;
+  bundleId?: string;
+  title?: string;
+  introMessage?: string;
+  notes?: string;
+}
+
+export function fetchQuotes(orgId: string): Promise<QuoteSummary[]> {
+  return apiFetch<QuoteSummary[]>(`/api/organizations/${orgId}/quotes`);
+}
+
+export function createQuote(orgId: string, payload: QuoteWritePayload): Promise<QuoteSummary> {
+  return apiFetch<QuoteSummary>(`/api/organizations/${orgId}/quotes`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateQuote(
+  orgId: string,
+  quoteId: string,
+  payload: QuoteWritePayload,
+): Promise<QuoteSummary> {
+  return apiFetch<QuoteSummary>(`/api/organizations/${orgId}/quotes/${quoteId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Draft → sent: allocates the quote number and stamps valid_until. */
+export function sendQuote(orgId: string, quoteId: string): Promise<QuoteSummary> {
+  return apiFetch<QuoteSummary>(`/api/organizations/${orgId}/quotes/${quoteId}/send`, {
+    method: "POST",
+  });
+}

@@ -18,16 +18,40 @@ const serviceSchema = z.object({
   lengthFt: z.number().positive().max(100).optional(),
   engineType: z.enum(["outboard", "sterndrive", "inboard"]).optional(),
   engineCount: z.number().int().min(1).max(8).optional(),
+  // per_unit services (batteries, PWCs, transport trips, vessel-months).
+  quantity: z.number().int().min(1).max(24).optional(),
+  // per_km services (transport beyond the extended band).
+  distanceKm: z.number().positive().max(2000).optional(),
+  // Customer-toggleable on the hosted page; off unless explicitly selected.
+  optional: z.boolean().optional(),
+  selected: z.boolean().optional(),
+});
+
+/** Hand-priced Care lines. amountCents is trusted from an authenticated org member. */
+const customLineSchema = z.object({
+  label: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  amountCents: z.number().int().min(0).max(100_000_00),
+  optional: z.boolean().optional(),
+  selected: z.boolean().optional(),
 });
 
 const createSchema = z.object({
   contactId: z.string().uuid().optional(),
   companyId: z.string().uuid().optional(),
-  services: z.array(serviceSchema).min(1).max(20),
+  // A Care-only quote has no engine services at all, so the floor is 0 — the
+  // refinement below keeps a wholly empty quote out.
+  services: z.array(serviceSchema).max(20).default([]),
+  customLines: z.array(customLineSchema).max(20).default([]),
   hullType: z.string().max(40).optional(),
   bundleId: z.string().max(40).optional(),
+  title: z.string().max(200).optional(),
+  introMessage: z.string().max(5000).optional(),
   notes: z.string().max(5000).optional(),
   source: z.string().max(80).optional(),
+}).refine((v) => v.services.length + v.customLines.length > 0, {
+  message: "A quote needs at least one service or custom line.",
+  path: ["services"],
 });
 
 /** The whole feature is inert unless STRIPE_QUOTES_ENABLED=1 — a 404 hides it until then. */
@@ -57,9 +81,22 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
           lengthFt: s.lengthFt,
           engineType: s.engineType,
           engineCount: s.engineCount,
+          quantity: s.quantity,
+          distanceKm: s.distanceKm,
+          optional: s.optional,
+          selected: s.selected,
+        })),
+        customLines: parsed.customLines.map((l) => ({
+          label: l.label,
+          description: l.description,
+          amountCents: l.amountCents,
+          optional: l.optional,
+          selected: l.selected,
         })),
         hullType: parsed.hullType,
         bundleId: parsed.bundleId,
+        title: parsed.title,
+        introMessage: parsed.introMessage,
         notes: parsed.notes,
         source: parsed.source,
       },

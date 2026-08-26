@@ -22,6 +22,7 @@ import Dashboard from "./screens/Dashboard";
 import CalendarPage from "./screens/CalendarPage";
 import TasksPage from "./screens/TasksPage";
 import CRMPage from "./screens/CRMPage";
+import QuotesPage from "./screens/QuotesPage";
 import ContactDetailPage from "./screens/ContactDetailPage";
 import AutomationsPage from "./screens/AutomationsPage";
 import SettingsPage from "./screens/SettingsPage";
@@ -310,6 +311,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <CalendarPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/quotes"
+          element={
+            <ProtectedRoute>
+              <QuotesPage />
             </ProtectedRoute>
           }
         />
