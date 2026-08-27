@@ -29,7 +29,7 @@ turn it on.
 ## Flow
 
 ```
-Caller ──dials──▶ Retell agent ──────────────────────▶ EmpireVu (api.tilotto.com)
+Caller ──dials──▶ Retell agent ──────────────────────▶ EmpireVu (api.empirevu.com)
                     │  post-call analysis                POST /api/retell/webhook   (X-Retell-Signature)
                     └── call_analyzed webhook ──────────▶  1. verify HMAC · ACK fast · process async
                                                             2. retell_calls upsert   (durable + transcript)
@@ -64,7 +64,7 @@ normally you only set `RETELL_API_KEY`.
 
 ## Environment (Railway — EmpireVu web service)
 
-Set these on the **EmpireVu** Railway service (the app that serves `api.tilotto.com`). **Never** on
+Set these on the **EmpireVu** Railway service (the app that serves `api.empirevu.com`). **Never** on
 the storage site, and **never** `VITE_`-prefixed.
 
 | Variable | Required | Default | Notes |
@@ -119,10 +119,10 @@ attention flag is the escalation.)
 
 ## Webhook + function configuration in Retell
 
-1. **Webhook URL** → `https://api.tilotto.com/api/retell/webhook`. Enable the `call_analyzed` event
+1. **Webhook URL** → `https://api.empirevu.com/api/retell/webhook`. Enable the `call_analyzed` event
    (others are harmlessly ignored). Retell signs it with the API key automatically.
 2. **(Optional) capture-lead tool** → add a custom function named `capture_lead` pointing at
-   `https://api.tilotto.com/api/retell/functions/capture-lead`, sending the header
+   `https://api.empirevu.com/api/retell/functions/capture-lead`, sending the header
    `x-empirevu-retell-secret: <RETELL_FUNCTION_SECRET>`, with arguments mirroring the field names
    above. The agent calls it once it has the caller's number + a service interest.
 

@@ -65,22 +65,24 @@ Legend: ✅ required · ➕ recommended · ○ optional · — not needed.
 - [ ] Leave the **workflow worker unchanged** (no billing env).
 - [ ] Deploy (merge to `main` triggers the web auto-deploy).
 
-### 3b. Custom domain — hub.tilotto.com
+### 3b. Custom domain — app.empirevu.com
 The app is served by the Railway **web** service; a subdomain points at that
 running service, **not** at the GitHub repo.
 - [ ] Railway → the **web** service → **Settings → Networking → Custom Domain** →
-      add `hub.tilotto.com`; copy the CNAME target Railway shows (e.g.
+      add `app.empirevu.com`; copy the CNAME target Railway shows (e.g.
       `xxxx.up.railway.app`).
-- [ ] At the `tilotto.com` DNS provider, add `CNAME  hub → <that Railway target>`.
+- [ ] At the `empirevu.com` DNS provider, add `CNAME  app → <that Railway target>`.
       Railway auto-provisions TLS; it resolves in minutes–~1h.
-- [ ] Set **`APP_BASE_URL=https://hub.tilotto.com`** on the web service — it builds
+- [ ] Set **`APP_BASE_URL=https://app.empirevu.com`** on the web service — it builds
       the Stripe Checkout/Portal return URLs (and self-booking links), so it must
       match the real host.
-- [ ] The Tilotto site's "Hub" nav link (repo `tilotto-v2`) already points here; no
-      app code change is needed (the app serves any host).
-- [ ] **Verify:** `nslookup hub.tilotto.com` resolves to the Railway target (a
+- [ ] Note: EmpireVu is a **separate brand** from Tilotto. The Tilotto marketing
+      site (repo `tilotto-v2`) still has a "Hub" nav link pointing at the old
+      `hub.tilotto.com`; update or remove it there separately if EmpireVu should no
+      longer be linked from tilotto.com (out of scope for this repo).
+- [ ] **Verify:** `nslookup app.empirevu.com` resolves to the Railway target (a
       `*.up.railway.app`, and **not** `mj0wne3m.up.railway.app` — that's the
-      marketing site), and `https://hub.tilotto.com` loads the Tilotto Hub app with
+      marketing site), and `https://app.empirevu.com` loads the EmpireVu app with
       a valid certificate. Until DNS is created, the lookup returns "Non-existent
       domain".
 

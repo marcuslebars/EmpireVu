@@ -1,22 +1,24 @@
 import { cn } from "@/lib/utils";
 
 /**
- * Tilotto Hub brand lockup.
+ * EmpireVu brand lockup.
  *
- * `public/tilotto-hub-logo.svg` is the cyan/white wordmark from the Tilotto brand
- * kit; it reads cleanly on the app's dark surfaces. If a light-background lockup
- * is ever needed (invoices, PDFs), use a dark variant of the Tilotto wordmark
- * rather than this file.
+ * `public/empirevu-logo.png` is the DARK-THEME variant, built from the supplied
+ * artwork: same letterforms, "Vu" still cyan, but "Empire" recoloured to the
+ * --foreground token. The original asset renders "Empire" in near-black
+ * (#203030), which lands at 1.40:1 against --background (222 20% 6%) — invisible
+ * on every surface this app has. If a light-background lockup is ever needed
+ * (invoices, PDFs, a marketing page), use the original artwork, not this file.
  */
 
-const LOGO_SRC = "/tilotto-hub-logo.svg";
+const LOGO_SRC = "/empirevu-logo.png";
 
-/** Full wordmark. Set the height; width follows the ~3.5:1 aspect. */
+/** Full wordmark. Set the height; width follows the ~4.5:1 aspect. */
 export function Logo({ className }: { className?: string }) {
   return (
     <img
       src={LOGO_SRC}
-      alt="Tilotto Hub"
+      alt="EmpireVu"
       className={cn("h-5 w-auto select-none", className)}
       draggable={false}
     />
