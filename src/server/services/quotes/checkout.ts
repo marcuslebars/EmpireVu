@@ -1,9 +1,9 @@
 /**
  * Deposit Checkout — turns an approved quote into a Stripe Checkout Session.
  *
- * Reuses the Phase 1 billing plumbing (getStripeClient, the shared API version,
- * the webhook's signature verification) rather than standing up a second Stripe
- * integration.
+ * Charges run on the ORG'S OWN Stripe account, resolved per org (see
+ * org-stripe.ts) — not the platform account that Phase 1 billing uses. The API
+ * version pin is shared with billing; nothing else is.
  *
  * Two details that are easy to get wrong and that the "displayed == charged"
  * requirement depends on:
@@ -25,8 +25,8 @@
  */
 import type Stripe from "stripe";
 
-import { getStripeClient } from "@/server/services/billing/stripe";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
+import { getOrgStripeClient } from "./org-stripe";
 import { recordPublicEvent } from "./public-service";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -133,7 +133,9 @@ export async function createDepositCheckoutSession(
     throw new DepositCheckoutError("Quote has no deposit amount to charge.", "no_amount");
   }
 
-  const stripe = getStripeClient();
+  // The org's OWN Stripe account — never the platform account. A deposit landing
+  // in Tilotto's account instead of the tenant's would be a real mess to unwind.
+  const stripe = await getOrgStripeClient(quote.organization_id);
 
   // Reuse an open session rather than minting a second one.
   if (quote.stripe_checkout_session_id) {
