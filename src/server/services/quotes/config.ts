@@ -13,6 +13,19 @@ export interface QuotesConfig {
   depositRateBps: number;
   /** Quote validity window (days) → expires_at. */
   expiryDays: number;
+  /**
+   * Origin for CUSTOMER-facing quote links (/q/{token}) and the Stripe Checkout
+   * return URLs.
+   *
+   * Separate from APP_BASE_URL because the hub app and the public surface may sit
+   * on different hosts (empirevu.com vs api.empirevu.com). Defaults to
+   * APP_BASE_URL so a single-host deployment needs no extra config.
+   *
+   * This must match the host a customer actually reaches, because Stripe redirects
+   * back to it after payment — a mismatch strands them on a dead URL holding a
+   * charged card.
+   */
+  publicBaseUrl: string;
 }
 
 export function getQuotesConfig(): QuotesConfig {
@@ -21,6 +34,11 @@ export function getQuotesConfig(): QuotesConfig {
     taxRateBps: intEnv("QUOTE_TAX_RATE_BPS", 1300),
     depositRateBps: intEnv("QUOTE_DEPOSIT_BPS", 2500),
     expiryDays: intEnv("QUOTE_EXPIRY_DAYS", 30),
+    publicBaseUrl: (
+      process.env.QUOTE_PUBLIC_BASE_URL ??
+      process.env.APP_BASE_URL ??
+      "http://localhost:3000"
+    ).replace(/\/$/, ""),
   };
 }
 

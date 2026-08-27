@@ -99,8 +99,13 @@ Plus `company_stripe_customers (company_id, contact_id) → stripe_customer_id`.
    ```
 
 4. **Register the webhook** in that Stripe account at
-   `https://<host>/api/webhooks/stripe/merchant/<company_id>` with
+   `https://api.empirevu.com/api/webhooks/stripe/merchant/<company_id>` with
    `checkout.session.completed` and `invoice.paid`.
+
+   The host must be the one that actually serves the app — see
+   `docs/go-live-phase-1.md` 3b. The path is host-agnostic (inbound webhooks do
+   not care which domain fronts the service), but a webhook pointed at a host
+   that does not resolve fails silently as missed payments, not as an error.
 5. **Verify** with the one-dollar runbook before enabling the flag.
 
 ## Statement descriptors
