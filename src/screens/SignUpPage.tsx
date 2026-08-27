@@ -144,7 +144,7 @@ export default function SignUpPage() {
           <CardHeader className="pb-4">
             <CardTitle className="text-xl font-semibold tracking-tight">Create your account</CardTitle>
             <CardDescription className="text-muted-foreground">
-              Get started with Tilotto Hub
+              Get started with EmpireVu
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
