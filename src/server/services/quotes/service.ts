@@ -68,6 +68,10 @@ export interface QuoteRow {
   first_viewed_at: string | null;
   auto_generated: boolean;
   source_lead_id: string | null;
+  supersedes: string | null;
+  superseded_by: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -320,4 +324,80 @@ export async function listQuotes(
     .limit(Math.min(Math.max(opts.limit ?? 50, 1), 100));
   if (error) throw error;
   return (data ?? []) as QuoteRow[];
+}
+
+/**
+ * Void-and-reissue — the revision mechanic.
+ *
+ * updateQuote refuses edits past 'viewed' because the amounts a customer saw are
+ * what we'd owe work against. But "can you change it?" is the most common reply a
+ * quote gets, so the answer is to replace rather than mutate: cancel what they saw
+ * and issue a successor pre-filled from it.
+ *
+ * The old token keeps resolving — it renders a "this quote was replaced" state and
+ * can never be approved (see derivePageState / isApprovable). Nothing is deleted,
+ * so the record of what was offered when stays intact.
+ *
+ * The successor is a DRAFT with no quote number: sending it allocates a fresh one
+ * under the normal rule, so the customer's new reference is unambiguous.
+ */
+export async function reissueQuote(
+  ctx: TenantServiceContext,
+  quoteId: string,
+  opts: { reason?: string } = {},
+): Promise<{ cancelled: QuoteRow; successor: QuoteRow }> {
+  const existing = await getQuote(ctx, quoteId);
+  if (!existing) throw new Error(`Quote ${quoteId} not found.`);
+  if (existing.status === "cancelled") {
+    throw new Error(`Quote ${quoteId} is already cancelled.`);
+  }
+  // deposit_paid/completed quotes have money against them — reissue is not the
+  // tool for those; a refund is (Phase 4).
+  assertTransition(existing.status as QuoteStatus, "cancelled");
+
+  const snap = (existing.input_snapshot ?? {}) as Partial<CreateQuoteInput>;
+  const now = new Date().toISOString();
+
+  // 1. Successor first: if this fails, the original is untouched and still live.
+  const successor = await createQuote(ctx, {
+    contactId: existing.contact_id,
+    companyId: existing.company_id,
+    services: snap.services ?? [],
+    customLines: snap.customLines ?? [],
+    hullType: snap.hullType ?? undefined,
+    bundleId: snap.bundleId ?? undefined,
+    title: existing.title ?? undefined,
+    introMessage: existing.intro_message ?? undefined,
+    notes: existing.notes ?? undefined,
+    source: existing.source ?? undefined,
+  });
+
+  const { error: linkErr } = await tbl(ctx, "quotes")
+    .update({ supersedes: existing.id })
+    .eq("id", successor.id)
+    .eq("organization_id", ctx.organizationId);
+  if (linkErr) throw linkErr;
+
+  // 2. Now retire the original and point it forward.
+  const { data, error } = await tbl(ctx, "quotes")
+    .update({
+      status: "cancelled",
+      cancelled_at: now,
+      cancel_reason: opts.reason ?? "Replaced by a revised quote",
+      superseded_by: successor.id,
+    })
+    .eq("id", existing.id)
+    .eq("organization_id", ctx.organizationId)
+    .select("*")
+    .single();
+  if (error) throw error;
+
+  const cancelled = data as QuoteRow;
+  await recordEvent(ctx, cancelled.id, "cancelled", {
+    reason: opts.reason ?? null,
+    supersededBy: successor.id,
+  });
+  await recordEvent(ctx, successor.id, "reissued", { supersedes: cancelled.id });
+
+  return { cancelled, successor: { ...successor, supersedes: cancelled.id } as QuoteRow };
 }
