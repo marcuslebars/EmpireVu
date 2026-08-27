@@ -55,43 +55,92 @@ export class DepositCheckoutError extends Error {
  * never loses the mapping, and keyed with an idempotency key so a retry cannot
  * create a duplicate customer.
  */
+/**
+ * Find-or-create the Stripe Customer for a contact, SCOPED TO THE MERCHANT
+ * ACCOUNT.
+ *
+ * Stripe Customers belong to one account, so the mapping is keyed by
+ * (company_id, contact_id): the same contact quoted by two brands on two
+ * accounts legitimately holds two different customer ids, and neither collides.
+ *
+ * This is also why the mapping is not kept on the quote. It used to be, and that
+ * meant a repeat customer got a brand-new Stripe Customer for every quote —
+ * scattering their saved cards across duplicates. Phase 4 charges the balance
+ * off-session against the saved card, so a fresh customer per quote would have
+ * left nothing to charge.
+ *
+ * The insert is upserted and then re-read, so two concurrent checkouts converge
+ * on one customer rather than racing to create two.
+ */
 async function ensureContactCustomer(quote: Db, stripe: Stripe): Promise<string> {
-  if (quote.stripe_customer_id) return quote.stripe_customer_id;
-
   const db = createSupabaseAdminClient() as Db;
-  let email: string | null = null;
-  let name: string | null = null;
 
-  if (quote.contact_id) {
-    const { data: contact } = await db
-      .from("contacts")
-      .select("email, first_name, last_name")
-      .eq("id", quote.contact_id)
-      .maybeSingle();
-    if (contact) {
-      email = contact.email ?? null;
-      name = [contact.first_name, contact.last_name].filter(Boolean).join(" ") || null;
-    }
+  if (!quote.contact_id) {
+    // No contact to key on: create an unmapped customer for this quote only.
+    const solo = await stripe.customers.create(
+      {
+        name: quote.approved_by_name ?? undefined,
+        metadata: { org_id: quote.organization_id, company_id: quote.company_id, quote_id: quote.id },
+      },
+      { idempotencyKey: `quote-customer-${quote.id}` },
+    );
+    return solo.id;
   }
+
+  const { data: existing } = await db
+    .from("company_stripe_customers")
+    .select("stripe_customer_id")
+    .eq("company_id", quote.company_id)
+    .eq("contact_id", quote.contact_id)
+    .maybeSingle();
+  if (existing?.stripe_customer_id) return existing.stripe_customer_id;
+
+  const { data: contact } = await db
+    .from("contacts")
+    .select("email, first_name, last_name")
+    .eq("id", quote.contact_id)
+    .maybeSingle();
+
+  const email = contact?.email ?? null;
+  const name = contact ? [contact.first_name, contact.last_name].filter(Boolean).join(" ") || null : null;
 
   const customer = await stripe.customers.create(
     {
       email: email ?? undefined,
       name: name ?? quote.approved_by_name ?? undefined,
-      metadata: { org_id: quote.organization_id, company_id: quote.company_id, quote_id: quote.id },
+      metadata: {
+        org_id: quote.organization_id,
+        company_id: quote.company_id,
+        contact_id: quote.contact_id,
+      },
     },
-    { idempotencyKey: `quote-customer-${quote.id}` },
+    // Keyed by company+contact so a retry cannot mint a duplicate on the account.
+    { idempotencyKey: `quote-customer-${quote.company_id}-${quote.contact_id}` },
   );
 
-  const { error } = await db
-    .from("quotes")
-    .update({ stripe_customer_id: customer.id })
-    .eq("id", quote.id);
+  const { error } = await db.from("company_stripe_customers").upsert(
+    {
+      company_id: quote.company_id,
+      organization_id: quote.organization_id,
+      contact_id: quote.contact_id,
+      stripe_customer_id: customer.id,
+    },
+    { onConflict: "company_id,contact_id", ignoreDuplicates: true },
+  );
   if (error) {
-    console.error(`[quotes] created Stripe customer ${customer.id} but failed to persist it:`, error);
+    console.error(`[quotes] failed to persist customer mapping for contact ${quote.contact_id}:`, error);
   }
 
-  return customer.id;
+  // Re-read: if a concurrent checkout won the upsert, use THEIR customer so both
+  // requests converge on one.
+  const { data: settled } = await db
+    .from("company_stripe_customers")
+    .select("stripe_customer_id")
+    .eq("company_id", quote.company_id)
+    .eq("contact_id", quote.contact_id)
+    .maybeSingle();
+
+  return settled?.stripe_customer_id ?? customer.id;
 }
 
 function depositDescription(quote: Db): string {

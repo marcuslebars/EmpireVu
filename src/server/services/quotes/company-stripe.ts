@@ -50,6 +50,9 @@ export class CompanyStripeError extends Error {
 
 export interface CompanyStripeConfig {
   companyId: string;
+  organizationId: string;
+  /** Human label for the account, e.g. "A1 Marine Storage (live)". Never a secret. */
+  accountLabel: string | null;
   /** Brand name, for the Checkout line description. */
   name: string | null;
   /**
@@ -100,14 +103,14 @@ export async function getCompanyStripeConfig(companyId: string): Promise<Company
   const { data: org, error } = await db
     .from("companies")
     .select(
-      "id, name, stripe_merchant_account_id, stripe_merchant_secret_key_env, stripe_merchant_webhook_secret_env, stripe_merchant_mode, stripe_statement_descriptor_suffix",
+      "id, name, organization_id, stripe_account_label, stripe_account_id, stripe_secret_key_ref, stripe_webhook_secret_ref, stripe_publishable_key_ref, stripe_mode, stripe_statement_descriptor_suffix",
     )
     .eq("id", companyId)
     .maybeSingle();
   if (error) throw error;
   if (!org) throw new CompanyStripeError(`Company ${companyId} not found.`, "org_not_found", companyId);
 
-  const secretKeyEnv: string | null = org.stripe_merchant_secret_key_env ?? null;
+  const secretKeyEnv: string | null = org.stripe_secret_key_ref ?? null;
   if (!secretKeyEnv) {
     throw new CompanyStripeError(
       `Company ${companyId} has no Stripe merchant account configured.`,
@@ -122,10 +125,12 @@ export async function getCompanyStripeConfig(companyId: string): Promise<Company
     statementDescriptorSuffix: sanitizeStatementDescriptorSuffix(
       org.stripe_statement_descriptor_suffix ?? org.name ?? null,
     ),
-    accountId: org.stripe_merchant_account_id ?? null,
-    mode: (org.stripe_merchant_mode as "test" | "live" | null) ?? null,
+    organizationId: org.organization_id,
+    accountLabel: org.stripe_account_label ?? null,
+    accountId: org.stripe_account_id ?? null,
+    mode: (org.stripe_mode as "test" | "live" | null) ?? null,
     secretKeyEnv,
-    webhookSecretEnv: org.stripe_merchant_webhook_secret_env ?? null,
+    webhookSecretEnv: org.stripe_webhook_secret_ref ?? null,
   };
 }
 
