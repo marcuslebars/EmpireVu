@@ -59,14 +59,20 @@ export interface PublicQuote {
   approvedAt: string | null;
   /** Set once the deposit is paid, for the confirmation state. */
   depositPaidAt: string | null;
-  org: {
+  /**
+   * The brand the customer sees. Sourced entirely from the company — the
+   * platform is never named on a customer-facing surface.
+   */
+  brand: {
     name: string | null;
     logoUrl: string | null;
-    brandPrimary: string | null;
-    brandAccent: string | null;
-    cancellationPolicy: string | null;
-    termsText: string | null;
+    primaryColor: string | null;
+    accentColor: string | null;
+    websiteUrl: string | null;
+    replyEmail: string | null;
     replyPhone: string | null;
+    termsText: string | null;
+    cancellationPolicy: string | null;
   };
 }
 
@@ -97,21 +103,28 @@ export function derivePageState(row: Db, now: Date): QuotePageState {
   return "active";
 }
 
-/** Org theming for the page. Missing columns degrade to null, never to a crash. */
-function orgTheme(org: Db | null): PublicQuote["org"] {
-  const settings = (org?.settings ?? {}) as Record<string, unknown>;
-  const str = (k: string): string | null => {
-    const v = settings[k];
-    return typeof v === "string" && v.trim().length > 0 ? v : null;
-  };
+/**
+ * Brand identity for the customer-facing page, resolved from the COMPANY.
+ *
+ * EmpireVu is the backend. A customer looking at a quote sees the brand they
+ * hired and nothing about the platform running it — so there is deliberately no
+ * platform fallback here. A company with no branding set renders neutral (plain
+ * text, default palette), never anything EmpireVu- or Tilotto-shaped.
+ */
+function companyBrand(company: Db | null): PublicQuote["brand"] {
+  const str = (v: unknown): string | null =>
+    typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+
   return {
-    name: org?.name ?? null,
-    logoUrl: str("quote_logo_url") ?? str("logo_url"),
-    brandPrimary: str("brand_primary"),
-    brandAccent: str("brand_accent"),
-    cancellationPolicy: str("cancellation_policy"),
-    termsText: str("quote_terms_text"),
-    replyPhone: str("reply_phone"),
+    name: str(company?.name),
+    logoUrl: str(company?.brand_logo_url),
+    primaryColor: str(company?.brand_primary_color),
+    accentColor: str(company?.brand_accent_color),
+    websiteUrl: str(company?.brand_website_url),
+    replyEmail: str(company?.brand_reply_email),
+    replyPhone: str(company?.brand_reply_phone),
+    termsText: str(company?.quote_terms_text),
+    cancellationPolicy: str(company?.cancellation_policy_text),
   };
 }
 
@@ -137,13 +150,14 @@ async function loadRow(token: string): Promise<Db | null> {
   return data ?? null;
 }
 
-async function loadOrg(organizationId: string): Promise<Db | null> {
+async function loadCompany(companyId: string | null): Promise<Db | null> {
+  if (!companyId) return null;
   const db = admin();
-  const { data } = await db.from("organizations").select("*").eq("id", organizationId).maybeSingle();
+  const { data } = await db.from("companies").select("*").eq("id", companyId).maybeSingle();
   return data ?? null;
 }
 
-function shape(row: Db, org: Db | null, state: QuotePageState): PublicQuote {
+function shape(row: Db, company: Db | null, state: QuotePageState): PublicQuote {
   return {
     token: row.public_token,
     quoteNumber: row.quote_number ?? null,
@@ -166,7 +180,7 @@ function shape(row: Db, org: Db | null, state: QuotePageState): PublicQuote {
     approvedByName: row.approved_by_name ?? null,
     approvedAt: row.approved_at ?? null,
     depositPaidAt: row.deposit_paid_at ?? null,
-    org: orgTheme(org),
+    brand: companyBrand(company),
   };
 }
 
@@ -192,13 +206,13 @@ export async function getPublicQuote(token: string, now = new Date()): Promise<P
 
     if (updated) {
       await recordPublicEvent(updated.organization_id, updated.id, "viewed", {});
-      const org = await loadOrg(updated.organization_id);
-      return shape(updated, org, derivePageState(updated, now));
+      const company = await loadCompany(updated.company_id);
+      return shape(updated, company, derivePageState(updated, now));
     }
   }
 
-  const org = await loadOrg(row.organization_id);
-  return shape(row, org, derivePageState(row, now));
+  const company = await loadCompany(row.company_id);
+  return shape(row, company, derivePageState(row, now));
 }
 
 /** Recompute totals for a customer's optional-line selection. Never trusts client money. */

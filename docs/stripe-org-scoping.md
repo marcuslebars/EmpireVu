@@ -149,6 +149,34 @@ would collide once tenants have separate accounts.
   that table only ever sees one account's ids. It is not shared with merchant
   events.
 
+## Customer-facing branding
+
+EmpireVu is the backend. A customer approving a quote or reading a deposit
+receipt sees the **brand they hired**, never the platform running it. Nothing on
+the hosted quote page, in the quote emails, or on the card statement may carry
+EmpireVu or Tilotto branding.
+
+Branding lives on the **company**, next to the Stripe credentials and voice
+profiles: `companies.brand_logo_url`, `brand_primary_color`,
+`brand_accent_color`, `brand_from_name`, `brand_reply_email`,
+`brand_reply_phone`, `brand_website_url`, `quote_terms_text`,
+`cancellation_policy_text`.
+
+There is deliberately **no platform fallback**. A company with nothing configured
+renders neutral — plain text on a default palette — rather than anything
+platform-shaped. `quote-branding.test.ts` asserts this.
+
+Two constraints are security, not cosmetics: colors must match `^#[0-9A-Fa-f]{6}$`
+and logo/website must be absolute `https://`. Both values are interpolated into
+the page (a style attribute and a `src`/`href`), and company settings are
+admin-editable, so the check constraints keep `javascript:` and `data:` URIs and
+style injection out.
+
+One thing that is NOT per-company: the email **sending address**. It stays a
+verified Resend domain set in env, because an arbitrary per-company From address
+would fail SPF/DKIM and land the mail in spam. `brand_from_name` sets the display
+name, which is what a recipient actually reads.
+
 ## Pricing
 
 All quote line items are dynamic `price_data` computed by `@a1/pricing-engine` at
