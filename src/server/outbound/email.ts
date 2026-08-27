@@ -19,6 +19,17 @@ export interface SendEmailInput {
   to: string;
   subject: string;
   body: string;
+  /** Optional HTML alternative. `body` remains the plain-text part. */
+  html?: string;
+  /**
+   * Display name on the From line, e.g. "A1 Marine Storage". The ADDRESS stays
+   * the configured, domain-verified sender — an arbitrary per-brand address would
+   * fail SPF/DKIM — but the display name is what a recipient reads first, so this
+   * is what makes the mail read as the brand rather than the platform.
+   */
+  fromName?: string;
+  /** Per-message reply-to, so a customer replying reaches the brand. */
+  replyTo?: string;
 }
 
 export interface OutboundEmailConfig {
@@ -66,11 +77,14 @@ export async function sendEmail(input: SendEmailInput): Promise<void> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: config.from,
+        from: formatFrom(config.from, input.fromName),
         to: [input.to],
         subject: input.subject,
         text: input.body,
-        ...(config.replyTo ? { reply_to: config.replyTo } : {}),
+        ...(input.html ? { html: input.html } : {}),
+        ...(input.replyTo || config.replyTo
+          ? { reply_to: input.replyTo || config.replyTo }
+          : {}),
       }),
     });
   } catch (error) {
@@ -85,4 +99,21 @@ export async function sendEmail(input: SendEmailInput): Promise<void> {
       `Resend rejected the email (${response.status})${detail ? `: ${detail}` : ""}`,
     );
   }
+}
+
+/**
+ * Build an RFC 5322 From value: `"Display Name" <address>`.
+ *
+ * Quotes and backslashes are stripped from the name — an unescaped quote in a
+ * brand name would break the header and get the whole message rejected, so a
+ * stray character in a company record must not be able to stop mail going out.
+ */
+export function formatFrom(address: string, displayName?: string): string {
+  const name = displayName?.trim();
+  if (!name) return address;
+  // If the configured sender is already `Name <addr>`, keep only the address.
+  const bare = address.match(/<([^>]+)>/)?.[1] ?? address;
+  const safe = name.replace(/["\\]/g, "").trim();
+  if (!safe) return bare;
+  return `"${safe}" <${bare}>`;
 }
