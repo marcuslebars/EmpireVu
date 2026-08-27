@@ -8,12 +8,12 @@
  * Org-scoping these would give the whole family one shared account.
  *
  * This is deliberately separate from `billing/stripe.ts`, which stays global:
- *   billing/stripe.ts  -> the PLATFORM account. Tilotto charging orgs for their
+ *   billing/stripe.ts  -> the PLATFORM account. EmpireVu charging orgs for their
  *                         subscription. One account, global env keys.
  *   this module        -> the MERCHANT account. A brand charging ITS customers
  *                         for quote deposits and balances. One per company.
  * Nothing here should ever be used for platform billing, or vice versa — a
- * deposit landing in Tilotto's account instead of the brand's would be a genuine
+ * deposit landing in EmpireVu's account instead of the brand's would be a genuine
  * mess to unwind.
  *
  * SECRETS: the company row stores the NAME of the Railway env var holding each

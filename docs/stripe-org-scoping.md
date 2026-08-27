@@ -10,8 +10,8 @@ painful to unwind.
 
 | | Platform billing (Phase 1) | Merchant payments (Phase 3+) |
 |---|---|---|
-| Who charges whom | Tilotto charges an org for its subscription | A brand charges **its own** customers for deposits and balances |
-| Account | Tilotto's own Stripe account | The brand's account |
+| Who charges whom | EmpireVu charges an org for its subscription | A brand charges **its own** customers for deposits and balances |
+| Account | EmpireVu's own Stripe account | The brand's account |
 | Credentials | Global env: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Per-company env refs (below) |
 | Client | `billing/stripe.ts` → `getStripeClient()` | `quotes/company-stripe.ts` → `getCompanyStripeClient(companyId)` |
 | Webhook | `/api/webhooks/stripe` | `/api/webhooks/stripe/merchant/{companyId}` |
@@ -20,7 +20,7 @@ painful to unwind.
 **The quotes path reads no global Stripe env var.** There is no fallback to the
 platform key: an unconfigured company raises `CompanyStripeError` and the
 checkout fails loudly. That is deliberate — a silent fallback would charge a
-customer into Tilotto's account.
+customer into EmpireVu's account.
 
 ## Why the company, not the organization
 
@@ -154,7 +154,7 @@ would collide once tenants have separate accounts.
 EmpireVu is the backend. A customer approving a quote or reading a deposit
 receipt sees the **brand they hired**, never the platform running it. Nothing on
 the hosted quote page, in the quote emails, or on the card statement may carry
-EmpireVu or Tilotto branding.
+EmpireVu branding.
 
 Branding lives on the **company**, next to the Stripe credentials and voice
 profiles: `companies.brand_logo_url`, `brand_primary_color`,

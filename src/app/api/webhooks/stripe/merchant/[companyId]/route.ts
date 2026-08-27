@@ -12,7 +12,7 @@
  * metadata cross-check below is what keeps the routing honest in that case.
  *
  * The platform endpoint (/api/webhooks/stripe) is unrelated and stays as it is:
- * it serves Tilotto's own account billing orgs for their subscriptions.
+ * it serves EmpireVu's own account billing orgs for their subscriptions.
  */
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";

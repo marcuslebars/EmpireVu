@@ -12,7 +12,7 @@ import { sanitizeStatementDescriptorSuffix } from "@/server/services/quotes/comp
  */
 
 /** Strings that must never reach a customer surface. */
-const PLATFORM_TERMS = ["empirevu", "tilotto", "empire vu"];
+const PLATFORM_TERMS = ["empirevu", "empire vu"];
 
 function containsPlatformBranding(value: string): boolean {
   const haystack = value.toLowerCase();
@@ -38,7 +38,7 @@ describe("customer-facing surfaces carry no platform branding", () => {
    */
   it("the platform-branding detector actually detects", () => {
     expect(containsPlatformBranding("Powered by EmpireVu")).toBe(true);
-    expect(containsPlatformBranding("tilotto hub")).toBe(true);
+    expect(containsPlatformBranding("Empire Vu Hub")).toBe(true);
     expect(containsPlatformBranding("A1 Marine Storage")).toBe(false);
   });
 });

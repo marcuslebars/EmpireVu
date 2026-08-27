@@ -51,7 +51,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const supabase = createSupabaseAdminClient();
     await recordBillingEvent(supabase, event);
-    // NOTE: this endpoint serves the PLATFORM account only (Tilotto billing orgs
+    // NOTE: this endpoint serves the PLATFORM account only (EmpireVu billing orgs
     // for their subscriptions). Quote deposits run on each org's OWN Stripe
     // account and post to /api/webhooks/stripe/merchant/{companyId}, which
     // verifies against that brand's signing secret. Do not add merchant handling
