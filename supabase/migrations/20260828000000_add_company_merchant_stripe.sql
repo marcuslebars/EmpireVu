@@ -122,6 +122,7 @@ create index if not exists company_stripe_customers_org_idx
 alter table public.company_stripe_customers enable row level security;
 
 -- Read-only to org members; the payment path writes via the service role.
+drop policy if exists "company_stripe_customers_org_members_select" on public.company_stripe_customers;
 create policy "company_stripe_customers_org_members_select" on public.company_stripe_customers
   for select using (public.is_organization_member(organization_id));
 
