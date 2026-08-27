@@ -108,7 +108,7 @@ export async function getCompanyStripeConfig(companyId: string): Promise<Company
     .eq("id", companyId)
     .maybeSingle();
   if (error) throw error;
-  if (!org) throw new CompanyStripeError(`Company ${companyId} not found.`, "org_not_found", companyId);
+  if (!org) throw new CompanyStripeError(`Company ${companyId} not found.`, "company_not_found", companyId);
 
   const secretKeyEnv: string | null = org.stripe_secret_key_ref ?? null;
   if (!secretKeyEnv) {
