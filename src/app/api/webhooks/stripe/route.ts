@@ -53,9 +53,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     await recordBillingEvent(supabase, event);
     // NOTE: this endpoint serves the PLATFORM account only (Tilotto billing orgs
     // for their subscriptions). Quote deposits run on each org's OWN Stripe
-    // account and post to /api/webhooks/stripe/merchant/{organizationId}, which
-    // verifies against that org's signing secret. Do not add merchant handling
-    // here — the signatures would not verify and the accounts would be conflated.
+    // account and post to /api/webhooks/stripe/merchant/{companyId}, which
+    // verifies against that brand's signing secret. Do not add merchant handling
+    // here — the accounts would be conflated.
 
     return NextResponse.json({ received: true }, { status: 200 });
   } catch (err) {

@@ -1,9 +1,9 @@
 /**
  * Deposit Checkout — turns an approved quote into a Stripe Checkout Session.
  *
- * Charges run on the ORG'S OWN Stripe account, resolved per org (see
- * org-stripe.ts) — not the platform account that Phase 1 billing uses. The API
- * version pin is shared with billing; nothing else is.
+ * Charges run on the BRAND'S OWN Stripe account, resolved per company (see
+ * company-stripe.ts) — not the platform account that Phase 1 billing uses, and
+ * not another brand's. The API version pin is shared with billing; nothing else is.
  *
  * Two details that are easy to get wrong and that the "displayed == charged"
  * requirement depends on:
@@ -26,7 +26,7 @@
 import type Stripe from "stripe";
 
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { getOrgStripeClient } from "./org-stripe";
+import { getCompanyStripeConfig, getCompanyStripeClient } from "./company-stripe";
 import { recordPublicEvent } from "./public-service";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -42,7 +42,7 @@ export interface DepositCheckoutResult {
 export class DepositCheckoutError extends Error {
   constructor(
     message: string,
-    readonly code: "not_approved" | "already_paid" | "no_amount" | "no_contact",
+    readonly code: "not_approved" | "already_paid" | "no_amount" | "no_contact" | "no_company",
   ) {
     super(message);
     this.name = "DepositCheckoutError";
@@ -78,7 +78,7 @@ async function ensureContactCustomer(quote: Db, stripe: Stripe): Promise<string>
     {
       email: email ?? undefined,
       name: name ?? quote.approved_by_name ?? undefined,
-      metadata: { org_id: quote.organization_id, quote_id: quote.id },
+      metadata: { org_id: quote.organization_id, company_id: quote.company_id, quote_id: quote.id },
     },
     { idempotencyKey: `quote-customer-${quote.id}` },
   );
@@ -133,9 +133,17 @@ export async function createDepositCheckoutSession(
     throw new DepositCheckoutError("Quote has no deposit amount to charge.", "no_amount");
   }
 
-  // The org's OWN Stripe account — never the platform account. A deposit landing
-  // in Tilotto's account instead of the tenant's would be a real mess to unwind.
-  const stripe = await getOrgStripeClient(quote.organization_id);
+  // The BRAND's own Stripe account — never the platform account, and never
+  // another brand's. A deposit landing in Tilotto's account, or in Marine Care's
+  // instead of Storage's, would be a real mess to unwind.
+  if (!quote.company_id) {
+    throw new DepositCheckoutError(
+      "Quote has no company, so no merchant Stripe account can be resolved.",
+      "no_company",
+    );
+  }
+  const brand = await getCompanyStripeConfig(quote.company_id);
+  const stripe = await getCompanyStripeClient(quote.company_id);
 
   // Reuse an open session rather than minting a second one.
   if (quote.stripe_checkout_session_id) {
@@ -170,7 +178,9 @@ export async function createDepositCheckoutSession(
             // See the header note: the deposit already contains HST.
             tax_behavior: "inclusive",
             product_data: {
-              name: quote.title || "Booking deposit",
+              // Brand-first so the Checkout page, the Stripe receipt and the
+              // dashboard all name the brand, not just "Booking deposit".
+              name: brand.name ? `${brand.name} — ${quote.title || "Booking deposit"}` : quote.title || "Booking deposit",
               description: depositDescription(quote),
             },
           },
@@ -179,9 +189,16 @@ export async function createDepositCheckoutSession(
       payment_intent_data: {
         // Save the card so Phase 4 can charge the balance off-session.
         setup_future_usage: "off_session",
-        metadata: { org_id: quote.organization_id, quote_id: quote.id },
+        // The A1 brands share one Stripe account, so this suffix is what tells a
+        // cardholder WHICH brand charged them. Omitted (account default applies)
+        // rather than sent malformed — Stripe rejects the charge outright if the
+        // descriptor is invalid, and a bad brand name must not fail a payment.
+        ...(brand.statementDescriptorSuffix
+          ? { statement_descriptor_suffix: brand.statementDescriptorSuffix }
+          : {}),
+        metadata: { org_id: quote.organization_id, company_id: quote.company_id, quote_id: quote.id },
       },
-      metadata: { org_id: quote.organization_id, quote_id: quote.id },
+      metadata: { org_id: quote.organization_id, company_id: quote.company_id, quote_id: quote.id },
       client_reference_id: quote.id,
       // Both land back on the quote page. Success renders the confirmation state;
       // cancel returns to the live quote with the approval still standing, so a

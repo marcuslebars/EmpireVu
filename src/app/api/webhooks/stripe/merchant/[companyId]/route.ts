@@ -1,11 +1,15 @@
 /**
- * Merchant webhook — one endpoint per org, for the org's OWN Stripe account.
+ * Merchant webhook — one endpoint per BRAND (company), for that brand's Stripe
+ * account.
  *
- * Each tenant's Stripe account is configured to post here with its own
- * organization id in the path. That matters for verification: the org is known
- * from the URL BEFORE the signature is checked, so we verify against exactly one
- * secret — that org's. There is no guessing, no trying-each-secret-in-turn, and
- * one org's signing secret can never validate another org's payload.
+ * The company id is in the path, so the brand is known BEFORE the signature is
+ * checked and exactly one secret is tried — that brand's. No guessing, no
+ * try-each-secret loop, and one brand's signing secret can never validate
+ * another's payload.
+ *
+ * Brands that share a Stripe account (the A1 group companies do) share its
+ * signing secret too, so they may point at any one of their endpoints — the
+ * metadata cross-check below is what keeps the routing honest in that case.
  *
  * The platform endpoint (/api/webhooks/stripe) is unrelated and stays as it is:
  * it serves Tilotto's own account billing orgs for their subscriptions.
@@ -14,17 +18,21 @@ import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 
 import { handleDepositCheckoutCompleted } from "@/server/services/quotes/checkout";
+import {
+  CompanyStripeError,
+  getCompanyStripeClient,
+  getCompanyWebhookSecret,
+} from "@/server/services/quotes/company-stripe";
 import { getQuotesConfig } from "@/server/services/quotes/config";
-import { getOrgStripeClient, getOrgWebhookSecret, OrgStripeError } from "@/server/services/quotes/org-stripe";
 
 export const dynamic = "force-dynamic";
 
 interface RouteContext {
-  params: { organizationId: string };
+  params: { companyId: string };
 }
 
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
-  const organizationId = context.params.organizationId;
+  const companyId = context.params.companyId;
 
   if (!getQuotesConfig().enabled) {
     return NextResponse.json({ error: "Quotes are not enabled." }, { status: 404 });
@@ -41,21 +49,21 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   let event: Stripe.Event;
   try {
     const [stripe, secret] = await Promise.all([
-      getOrgStripeClient(organizationId),
-      getOrgWebhookSecret(organizationId),
+      getCompanyStripeClient(companyId),
+      getCompanyWebhookSecret(companyId),
     ]);
     event = stripe.webhooks.constructEvent(payload, signature, secret);
   } catch (err) {
-    if (err instanceof OrgStripeError) {
-      // Misconfiguration, not a bad request: 500 so Stripe retries once the
+    if (err instanceof CompanyStripeError) {
+      // Misconfiguration, not a bad request: 500 so Stripe RETRIES once the
       // operator sets the missing var, rather than silently dropping a payment.
-      console.error(`[quotes/webhook] org ${organizationId} Stripe config error (${err.code}):`, err.message);
+      console.error(`[quotes/webhook] company ${companyId} Stripe config error (${err.code}):`, err.message);
       return NextResponse.json({ error: "Merchant Stripe is not configured." }, { status: 500 });
     }
     // Never log the payload or the signature — a failed verification is exactly
     // the case where the body may be hostile.
     console.error(
-      `[quotes/webhook] signature verification failed for org ${organizationId}:`,
+      `[quotes/webhook] signature verification failed for company ${companyId}:`,
       err instanceof Error ? err.message : err,
     );
     return NextResponse.json({ error: "Invalid signature." }, { status: 400 });
@@ -65,20 +73,20 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
 
-      // Cross-tenant guard: the session's metadata must name THIS org. Signature
-      // verification already proves the event came from this org's account, so
-      // this is defence in depth against a mis-copied endpoint URL.
-      if (session.metadata?.org_id && session.metadata.org_id !== organizationId) {
+      // Cross-brand guard. Signature verification proves the event came from the
+      // ACCOUNT — but sibling brands share that account, so it does NOT prove the
+      // event belongs to this brand. The metadata is what distinguishes them.
+      if (session.metadata?.company_id && session.metadata.company_id !== companyId) {
         console.error(
-          `[quotes/webhook] ${event.id} org mismatch: path=${organizationId} metadata=${session.metadata.org_id}`,
+          `[quotes/webhook] ${event.id} company mismatch: path=${companyId} metadata=${session.metadata.company_id}`,
         );
-        return NextResponse.json({ error: "Organization mismatch." }, { status: 400 });
+        return NextResponse.json({ error: "Company mismatch." }, { status: 400 });
       }
 
       if (session.metadata?.quote_id) {
         const result = await handleDepositCheckoutCompleted(session, event.id);
         console.log(
-          `[quotes/webhook] ${event.id} org=${organizationId} quote=${result.quoteId} outcome=${result.outcome}` +
+          `[quotes/webhook] ${event.id} company=${companyId} quote=${result.quoteId} outcome=${result.outcome}` +
             (result.reason ? ` reason=${result.reason}` : ""),
         );
       }
@@ -89,7 +97,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     // 500 so Stripe retries. The handler is idempotent on deposit_paid_at, so a
     // retry after a partial failure cannot double-apply.
     console.error(
-      `[quotes/webhook] failed to handle ${event.id} for org ${organizationId}:`,
+      `[quotes/webhook] failed to handle ${event.id} for company ${companyId}:`,
       err instanceof Error ? err.message : err,
     );
     return NextResponse.json({ error: "Could not handle the event." }, { status: 500 });
