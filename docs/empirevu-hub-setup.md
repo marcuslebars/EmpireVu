@@ -9,7 +9,8 @@ platform's (see `docs/stripe-org-scoping.md`).
 | Host | Serves | Railway |
 |---|---|---|
 | `empirevu.com` | hub app + platform webhooks | **web** service, custom domain |
-| `api.empirevu.com` | inbound integrations + customer-facing pages (`/q/{token}`) | same **web** service, second custom domain |
+| `api.empirevu.com` | inbound integrations (webhooks, intake, voice) | same **web** service, second custom domain |
+| `quotes.a1marinestorage.ca` | customer-facing quote pages (`/q/{token}`) | same **web** service, third custom domain |
 
 Railway accepts multiple custom domains on one service — no second deployment.
 The apex cannot be a CNAME: use the ALIAS/ANAME or A records Railway lists for
@@ -28,7 +29,7 @@ variables** — none of them touch Stripe or quotes.
 |---|---|---|
 | `STRIPE_MERCHANT_A1MS_SECRET_KEY` | A1MS account secret key | Test key first. The `STRIPE_MERCHANT_` prefix is **enforced** in the DB and app — other names are rejected. |
 | `STRIPE_MERCHANT_A1MS_WEBHOOK_SECRET` | A1MS webhook signing secret | From the endpoint you register below. |
-| `QUOTE_PUBLIC_BASE_URL` | `https://api.empirevu.com` | Origin for customer quote links and Stripe return URLs. Omit to fall back to `APP_BASE_URL`. |
+| `QUOTE_PUBLIC_BASE_URL` | `https://quotes.a1marinestorage.ca` | Origin for customer quote links and Stripe return URLs. Must be a **brand** host — see below. Leave unset until the domain resolves with a valid cert. |
 
 ### Changed — the domain move
 
@@ -112,31 +113,54 @@ Prefix each with `https://api.empirevu.com`.
 **Do these AFTER DNS resolves**, and verify one delivery per integration before
 retiring the old host.
 
-## Email sending — the open question
+## Why quote links use a BRAND domain
+
+The quote URL is customer-visible twice over: in the email body, and in the
+address bar once they tap it. Serving it from `api.empirevu.com` would put the
+platform's name in front of every customer — the exact thing the branding rule
+forbids, and easy to miss because nobody thinks of a URL as branding.
+
+So `/q/{token}` is served from `quotes.a1marinestorage.ca`, a CNAME to the same
+Railway web service. No code change: `QUOTE_PUBLIC_BASE_URL` selects it.
+
+`quote-emails.test.ts` asserts strictly against the platform name appearing
+anywhere in a rendered email, URL included, so pointing this back at
+`api.empirevu.com` fails the suite rather than shipping quietly.
+
+Add the domain in Railway and the CNAME at the `a1marinestorage.ca` DNS **now** —
+it is independent of the code and TLS provisioning should not be on the cutover
+critical path. It is a subdomain, so the apex and the storage site are untouched.
+Leave `QUOTE_PUBLIC_BASE_URL` unset until it resolves with a valid certificate.
+
+## Email sending
 
 `OUTBOUND_FROM_EMAIL` is a single global address, and the From line is one of the
 most visible things on a customer email. Sending quote mail from an
 `@empirevu.com` address would put the platform's name in front of customers,
 which is exactly what the branding rule forbids.
 
-Options:
+**Decided:** `OUTBOUND_FROM_EMAIL=quotes@a1marinestorage.ca`.
 
-1. **Per-brand domain (recommended).** Verify `a1marinestorage.ca` in Resend and
-   set `OUTBOUND_FROM_EMAIL=quotes@a1marinestorage.ca`. Works today with one
-   brand. Needs SPF/DKIM records on that domain.
-2. **Per-company from address.** Add a `brand_from_email` column and select per
-   company at send time. Needed once a second brand sends mail. Each brand's
-   domain must be separately verified in Resend.
+Requires `a1marinestorage.ca` verified in Resend with its SPF and DKIM records
+published, or mail will not send.
 
-`brand_from_name` already exists and sets the display name, which is what a
-recipient reads first — but the address is still visible, so option 1 is the
-minimum for A1MS.
+The display name comes from the company, so it reads
+`"A1 Marine Storage" <quotes@a1marinestorage.ca>`. `formatFrom` strips quotes and
+backslashes from the name: an unescaped quote breaks the From header and Resend
+rejects the whole message, and a stray character in a company record must not be
+able to stop mail going out.
+
+**When a second brand starts sending**, this single global address stops working
+— Marine Care mail would go out from a Storage address. That needs a
+`brand_from_email` column, per-company selection at send time, and each brand's
+domain separately verified in Resend. Not needed while A1MS is the only sender.
 
 ## Order of operations
 
-1. Add both custom domains in Railway; create the DNS records.
-2. Verify `nslookup` resolves both, and `https://empirevu.com` loads with a valid
-   certificate.
+1. Add all three custom domains in Railway (`empirevu.com`, `api.empirevu.com`,
+   `quotes.a1marinestorage.ca`); create the DNS records for each.
+2. Verify `nslookup` resolves all three, and that `https://empirevu.com` and
+   `https://quotes.a1marinestorage.ca` both load with a valid certificate.
 3. Set `APP_BASE_URL` and `QUOTE_PUBLIC_BASE_URL`.
 4. Add the two `STRIPE_MERCHANT_A1MS_*` vars (test keys).
 5. Apply pending migrations; run the `companies` update for Stripe refs and

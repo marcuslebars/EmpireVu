@@ -7,6 +7,7 @@ import {
 } from "@/server/services/shared";
 import { getQuotesConfig } from "./config";
 import { assertTransition, type QuoteStatus } from "./lifecycle";
+import { sendQuoteEmail, sendQuoteReplacedEmail } from "./notify";
 import { priceQuote, type QuotePricing, type QuotePricingInput } from "./pricing";
 
 // quotes + quote_events aren't in the generated database.types.ts (no gen-types step),
@@ -300,6 +301,13 @@ export async function sendQuote(ctx: TenantServiceContext, quoteId: string): Pro
   if (error) throw error;
   const quote = data as QuoteRow;
   await recordEvent(ctx, quote.id, "sent", { quoteNumber, validUntil });
+
+  // Email AFTER the status write: a mail failure must not leave a quote the
+  // customer can open sitting in 'draft'. sendQuoteEmail throws, so the admin
+  // learns immediately — the quote is sent and re-sending only re-mails it (the
+  // number is kept, see above).
+  await sendQuoteEmail(quote.id);
+
   return quote;
 }
 
@@ -398,6 +406,10 @@ export async function reissueQuote(
     supersededBy: successor.id,
   });
   await recordEvent(ctx, successor.id, "reissued", { supersedes: cancelled.id });
+
+  // Best-effort: both rows are already committed and correct. A mail failure
+  // must not leave the reissue half-done — it is recorded as an event instead.
+  await sendQuoteReplacedEmail(successor.id, opts.reason ?? null);
 
   return { cancelled, successor: { ...successor, supersedes: cancelled.id } as QuoteRow };
 }

@@ -27,6 +27,7 @@ import type Stripe from "stripe";
 
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { getCompanyStripeConfig, getCompanyStripeClient } from "./company-stripe";
+import { sendDepositReceiptEmail } from "./notify";
 import { recordPublicEvent } from "./public-service";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -328,6 +329,11 @@ export async function handleDepositCheckoutCompleted(
     amountTotal: session.amount_total,
     paymentIntentId,
   });
+
+  // Best-effort by design. The money has landed and the state is correct; a mail
+  // failure must not make this throw, because the webhook would then 500 and
+  // Stripe would retry an event that is already fully applied.
+  await sendDepositReceiptEmail(quoteId);
 
   return { outcome: "applied", quoteId };
 }
