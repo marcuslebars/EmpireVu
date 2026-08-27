@@ -32,7 +32,7 @@ export function getJobberConfig(): JobberConfig {
     enabled: process.env.JOBBER_SYNC_ENABLED === "1",
     clientId: process.env.JOBBER_CLIENT_ID ?? "",
     clientSecret: process.env.JOBBER_CLIENT_SECRET ?? "",
-    redirectUri: process.env.JOBBER_REDIRECT_URI ?? "https://api.tilotto.com/api/jobber/callback",
+    redirectUri: process.env.JOBBER_REDIRECT_URI ?? "https://api.empirevu.com/api/jobber/callback",
     // Pin the active dated version; confirm the latest in the Developer Center.
     graphqlVersion: process.env.JOBBER_GRAPHQL_VERSION ?? "2025-04-16",
     scopes: process.env.JOBBER_SCOPES ?? "",

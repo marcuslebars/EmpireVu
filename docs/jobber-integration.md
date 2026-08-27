@@ -82,7 +82,7 @@ Railway. Never prefix with `VITE_`.
 | `JOBBER_CLIENT_SECRET` | yes | — | OAuth client secret **and** the webhook HMAC key |
 | `JOBBER_CONNECT_SECRET` | yes | — | Guards `/api/jobber/connect` + signs the OAuth `state` |
 | `JOBBER_SCOPES` | yes | — | Space-delimited scopes (see below) |
-| `JOBBER_REDIRECT_URI` | recommended | `https://api.tilotto.com/api/jobber/callback` | Must match the app's Redirect URI exactly |
+| `JOBBER_REDIRECT_URI` | recommended | `https://api.empirevu.com/api/jobber/callback` | Must match the app's Redirect URI exactly |
 | `JOBBER_GRAPHQL_VERSION` | recommended | `2025-04-16` | `X-JOBBER-GRAPHQL-VERSION` header; confirm latest in Developer Center |
 | `JOBBER_AUTHORIZE_URL` | no | `https://api.getjobber.com/api/oauth/authorize` | |
 | `JOBBER_TOKEN_URL` | no | `https://api.getjobber.com/api/oauth/token` | |
@@ -160,7 +160,7 @@ To connect the A1 Jobber account (once, by an admin):
    `JOBBER_SCOPES`, and the matching `JOBBER_REDIRECT_URI` set. `JOBBER_SYNC_ENABLED` may
    still be `0` at this point — connecting only stores tokens.
 2. In a browser, visit:
-   `https://api.tilotto.com/api/jobber/connect?key=<JOBBER_CONNECT_SECRET>`
+   `https://api.empirevu.com/api/jobber/connect?key=<JOBBER_CONNECT_SECRET>`
 3. Approve the scopes on Jobber's screen. Jobber redirects to `/api/jobber/callback`, which
    verifies the signed `state`, exchanges the code, and stores tokens in `jobber_connections`.
 4. You should see `{ ok: true, message: "Jobber connected..." }`. Done.
@@ -172,7 +172,7 @@ To connect the A1 Jobber account (once, by an admin):
    storage site starts sending that `formType`.
 3. Complete the one-time OAuth connect above.
 4. Register the webhook (quote approval) in the Jobber app pointing at
-   `https://api.tilotto.com/api/jobber/webhook`.
+   `https://api.empirevu.com/api/jobber/webhook`.
 5. Set `JOBBER_SYNC_ENABLED=1` on the **web** and **worker** services and deploy the worker.
 6. Submit a test storage quote; confirm a `jobber_sync_jobs` row completes and the client/quote
    appears in Jobber.
