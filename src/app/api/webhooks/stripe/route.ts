@@ -1,8 +1,11 @@
+import type Stripe from "stripe";
 import { NextResponse } from "next/server";
 
 import { recordBillingEvent } from "@/server/services/billing/events";
 import { getStripeClient } from "@/server/services/billing/stripe";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
+import { getQuotesConfig } from "@/server/services/quotes/config";
+import { handleDepositCheckoutCompleted } from "@/server/services/quotes/checkout";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +54,26 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const supabase = createSupabaseAdminClient();
     await recordBillingEvent(supabase, event);
+
+    // Quote deposits ride the SAME endpoint and signing secret as billing — one
+    // webhook to register, one secret to rotate. Billing's durable write above
+    // happens first and unconditionally; this only adds quote-specific handling
+    // for the sessions that carry a quote_id.
+    //
+    // Deliberately AFTER recordBillingEvent and inside the same try: if the quote
+    // update throws we return 500 and Stripe retries, and the retry is safe
+    // because handleDepositCheckoutCompleted is idempotent on deposit_paid_at.
+    if (event.type === "checkout.session.completed" && getQuotesConfig().enabled) {
+      const session = event.data.object as Stripe.Checkout.Session;
+      if (session.metadata?.quote_id) {
+        const result = await handleDepositCheckoutCompleted(session, event.id);
+        console.log(
+          `[quotes/webhook] ${event.id} quote=${result.quoteId} outcome=${result.outcome}` +
+            (result.reason ? ` reason=${result.reason}` : ""),
+        );
+      }
+    }
+
     return NextResponse.json({ received: true }, { status: 200 });
   } catch (err) {
     // Only the durable write failing reaches here -> 500 so Stripe retries.
