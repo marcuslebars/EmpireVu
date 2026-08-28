@@ -11,6 +11,7 @@
  * this filter and that table have to agree; the tests assert both.
  */
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
+import { sendExpiryReminderEmail } from "./notify";
 import { recordPublicEvent } from "./public-service";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -63,4 +64,69 @@ export async function sweepExpiredQuotes(now = new Date(), limit = 500): Promise
   }
 
   return { scanned: rows.length, expired };
+}
+
+export interface ReminderSweepResult {
+  scanned: number;
+  reminded: string[];
+}
+
+/** Days before valid_until that the single reminder goes out. */
+export const REMINDER_LEAD_DAYS = 5;
+
+/**
+ * Send the one expiry reminder for quotes approaching valid_until.
+ *
+ * The idempotency guard is expiry_reminder_sent_at, claimed in the UPDATE's WHERE
+ * clause BEFORE the email is sent. That ordering is deliberate: claiming first
+ * risks a quote silently missing its reminder if the send then fails, while
+ * sending first risks re-sending it every night for five nights. A missed nudge
+ * is a far smaller harm than nagging a customer daily — and daily repeats are how
+ * a sending domain gets marked as spam.
+ *
+ * Only sent/viewed qualify. An approved quote does not need chasing, and an
+ * expired one is past the point where a nudge helps.
+ */
+export async function sweepExpiryReminders(
+  now = new Date(),
+  limit = 500,
+): Promise<ReminderSweepResult> {
+  const db = createSupabaseAdminClient() as Db;
+  const windowEnd = new Date(now.getTime() + REMINDER_LEAD_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await db
+    .from("quotes")
+    .select("id, organization_id, expires_at, status")
+    .in("status", EXPIRABLE_STATUSES as unknown as string[])
+    .is("expiry_reminder_sent_at", null)
+    .gt("expires_at", now.toISOString()) // not already expired
+    .lte("expires_at", windowEnd) // within the lead window
+    .limit(limit);
+  if (error) throw error;
+
+  const rows: Db[] = data ?? [];
+  const reminded: string[] = [];
+
+  for (const row of rows) {
+    // Claim it first — see the note above.
+    const { data: claimed, error: claimErr } = await db
+      .from("quotes")
+      .update({ expiry_reminder_sent_at: now.toISOString() })
+      .eq("id", row.id)
+      .is("expiry_reminder_sent_at", null)
+      .in("status", EXPIRABLE_STATUSES as unknown as string[])
+      .select("id")
+      .maybeSingle();
+
+    if (claimErr) {
+      console.error(`[quotes] reminder claim failed for ${row.id}:`, claimErr);
+      continue;
+    }
+    if (!claimed) continue; // another run claimed it, or it moved on
+
+    const sent = await sendExpiryReminderEmail(row.id, now);
+    if (sent) reminded.push(row.id);
+  }
+
+  return { scanned: rows.length, reminded };
 }

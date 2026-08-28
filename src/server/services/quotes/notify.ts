@@ -21,6 +21,7 @@ import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { getQuotesConfig } from "./config";
 import {
   renderDepositReceipt,
+  renderExpiryReminder,
   renderQuoteReplaced,
   renderQuoteSent,
   type EmailBrand,
@@ -207,6 +208,27 @@ export async function sendQuoteReplacedEmail(
         customerName: recipient?.firstName ?? null,
         currency: quote.currency ?? "CAD",
         reason,
+      }),
+    { rethrow: false },
+  );
+}
+
+/** Expiry reminder — one gentle nudge. Best-effort; a cron must not die on mail. */
+export async function sendExpiryReminderEmail(quoteId: string, now = new Date()): Promise<boolean> {
+  return dispatch(
+    quoteId,
+    "reminder_email",
+    ({ quote, company, recipient }) =>
+      renderExpiryReminder({
+        brand: brandOf(company),
+        quoteUrl: quoteUrl(quote.public_token),
+        quoteNumber: quote.quote_number,
+        title: quote.title,
+        customerName: recipient?.firstName ?? null,
+        currency: quote.currency ?? "CAD",
+        validUntil: quote.valid_until ?? quote.expires_at,
+        depositCents: quote.deposit_cents,
+        now,
       }),
     { rethrow: false },
   );

@@ -18,10 +18,20 @@ the root; `api` is a normal CNAME.
 
 ## Railway env vars
 
-Everything below goes on the **web** service (`railway.json`) unless stated. The
-four background services (`railway.worker.json`, `railway.billing-worker.json`,
-`railway.billing-reconcile.json`, `railway.jobber-sync.json`) need **no new
-variables** — none of them touch Stripe or quotes.
+Everything below goes on the **web** service (`railway.json`) unless stated.
+
+One NEW service is required: **quote-maintenance**, a nightly cron
+(`railway.quote-maintenance.json`, `0 13 * * *` UTC = 9am ET). It sends expiry
+reminders and expires stale quotes. It needs `SUPABASE_SERVICE_ROLE_KEY`,
+`RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`, `QUOTE_PUBLIC_BASE_URL` and
+`STRIPE_QUOTES_ENABLED` — but no Stripe keys, since it never charges anything.
+Create it whenever you like: while `STRIPE_QUOTES_ENABLED` is unset it logs and
+exits 0.
+
+The other background services (`railway.worker.json`,
+`railway.billing-worker.json`, `railway.billing-reconcile.json`,
+`railway.jobber-sync.json`) need **no new variables** — none of them touch Stripe
+or quotes.
 
 ### New — set these now
 
