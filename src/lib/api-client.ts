@@ -913,6 +913,7 @@ export function deleteTask(orgId: string, taskId: string): Promise<{ id: string 
 // Workflow action mutations
 
 export interface RunWorkflowNowInput {
+  dryRun?: boolean;
   eventId?: string;
   event?: {
     companyId?: string | null;
