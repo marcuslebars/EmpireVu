@@ -173,6 +173,12 @@ export interface BookingDetailResponse {
     status: Tables<"bookings">["status"];
     title: string;
   };
+  comments: Array<{
+    author: ActorSummary | null;
+    body: string;
+    createdAt: string;
+    id: string;
+  }>;
   trace: TraceRecord[];
   triggeredWorkflowRuns: Array<{
     completedAt: string | null;
@@ -239,6 +245,12 @@ export interface ContactDetailResponse {
     phone: string | null;
     stage: Tables<"contacts">["stage"];
   };
+  comments: Array<{
+    author: ActorSummary | null;
+    body: string;
+    createdAt: string;
+    id: string;
+  }>;
   financialSummary: {
     pipelineValueCents: number | null;
     realizedRevenueCents: number;
@@ -1609,8 +1621,16 @@ export async function getBookingDetailView(
     .sort((left, right) => right.created_at.localeCompare(left.created_at));
   const workflowsMap = await loadWorkflowsMap(context, triggeredWorkflowRuns.map((run) => run.workflow_id));
   const contact = booking.contact_id ? contactsMap.get(booking.contact_id) ?? null : null;
+  const comments = await listComments(context, { entityId: booking.id, entityType: "booking" });
+  const commentProfilesMap = await loadProfilesMap(context, uniq(comments.map((comment) => comment.author_profile_id)));
 
   return {
+    comments: comments.map((comment) => ({
+      author: toActorSummary(commentProfilesMap.get(comment.author_profile_id ?? "")),
+      body: comment.body,
+      createdAt: comment.created_at,
+      id: comment.id,
+    })),
     booking: {
       company: toCompanySummary(companiesMap.get(booking.company_id)),
       contact: contact
@@ -1852,6 +1872,9 @@ export async function getCRMContactDetailView(
       workflow: item.entity,
     }));
 
+  const comments = await listComments(context, { entityId: contact.id, entityType: "contact" });
+  const commentProfilesMap = await loadProfilesMap(context, uniq(comments.map((comment) => comment.author_profile_id)));
+
   const linkedQuotes = getQuotesConfig().enabled
     ? (await listQuotes(context, { limit: 100 }))
         .filter((quote) => quote.contact_id === contact.id)
@@ -1869,6 +1892,12 @@ export async function getCRMContactDetailView(
     : [];
 
   return {
+    comments: comments.map((comment) => ({
+      author: toActorSummary(commentProfilesMap.get(comment.author_profile_id ?? "")),
+      body: comment.body,
+      createdAt: comment.created_at,
+      id: comment.id,
+    })),
     contact: {
       company: toCompanySummary(companiesMap.get(contact.company_id)),
       createdAt: contact.created_at,

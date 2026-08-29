@@ -37,6 +37,7 @@ import {
   createBooking,
   updateBookingStatus,
   createTask,
+  createComment,
   updateTaskStatus,
   assignTaskUser,
   runWorkflowNow,
@@ -52,6 +53,7 @@ import {
   type CreateContactInput,
   type CreateBookingInput,
   type CreateTaskInput,
+  type CreateCommentInput,
   type RunWorkflowNowInput,
   type RunWorkflowTestInput,
 } from "./api-client";
@@ -428,6 +430,23 @@ export function useCreateTask(orgId: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["tasks", "list", orgId] });
       void qc.invalidateQueries({ queryKey: ["dashboard", "summary", orgId] });
+    },
+  });
+}
+
+// Comments (polymorphic) — refresh the relevant entity's detail so the new
+// comment appears in its thread.
+export function useCreateComment(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateCommentInput) => createComment(orgId, input),
+    onSuccess: (_data, variables) => {
+      if (variables.entityType === "task")
+        void qc.invalidateQueries({ queryKey: ["tasks", "detail", orgId, variables.entityId] });
+      if (variables.entityType === "contact")
+        void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, variables.entityId] });
+      if (variables.entityType === "booking")
+        void qc.invalidateQueries({ queryKey: ["calendar", "booking", orgId, variables.entityId] });
     },
   });
 }

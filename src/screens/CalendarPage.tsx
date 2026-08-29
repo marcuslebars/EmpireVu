@@ -28,6 +28,7 @@ import {
   ShieldAlert,
   ChevronRight as ChevronRightIcon,
   Loader2,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
@@ -36,6 +37,7 @@ import {
   useCalendarCapacity,
   useBookingDetail,
   useCreateBooking,
+  useCreateComment,
   useUpdateBookingStatus,
   useCompanies,
 } from "@/lib/api-hooks";
@@ -155,6 +157,9 @@ function BookingDetailBody({
   statusPending: boolean;
 }) {
   const navigate = useNavigate();
+  const { organizationId } = useOrg();
+  const createComment = useCreateComment(organizationId);
+  const [commentBody, setCommentBody] = useState("");
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -251,6 +256,61 @@ function BookingDetailBody({
             </div>
           </div>
         )}
+
+        {/* Comments */}
+        <div className="space-y-3">
+          <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <MessageSquare className="w-3 h-3" />
+            Comments{detailData.comments.length > 0 ? ` (${detailData.comments.length})` : ""}
+          </h4>
+          {detailData.comments.length === 0 ? (
+            <p className="text-[10px] text-muted-foreground italic">No comments yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {detailData.comments.map((c) => (
+                <div key={c.id} className="flex gap-2.5">
+                  <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[9px] font-bold text-primary shrink-0 mt-0.5">
+                    {(c.author?.name ?? "?").charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-foreground">{c.author?.name ?? "Unknown"}</span>
+                      <span className="text-[10px] text-muted-foreground">{relativeTime(c.createdAt)}</span>
+                    </div>
+                    <p className="text-xs text-foreground/80 whitespace-pre-wrap mt-0.5">{c.body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <form
+            className="relative"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const body = commentBody.trim();
+              if (!body || createComment.isPending) return;
+              createComment.mutate(
+                { entityType: "booking", entityId: detailData.booking.id, body },
+                { onSuccess: () => setCommentBody("") },
+              );
+            }}
+          >
+            <input
+              type="text"
+              value={commentBody}
+              onChange={(e) => setCommentBody(e.target.value)}
+              placeholder="Add a comment..."
+              className="w-full bg-card border border-border rounded-xl pl-4 pr-16 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+            />
+            <button
+              type="submit"
+              disabled={!commentBody.trim() || createComment.isPending}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-lg text-[10px] font-bold text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
+            >
+              {createComment.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Post"}
+            </button>
+          </form>
+        </div>
       </div>
 
       {/* Actions */}

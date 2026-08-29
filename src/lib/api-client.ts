@@ -201,6 +201,12 @@ export interface BookingDetailResponse {
     status: string;
     title: string;
   };
+  comments: Array<{
+    author: ActorSummary | null;
+    body: string;
+    createdAt: string;
+    id: string;
+  }>;
   trace: TraceRecord[];
   triggeredWorkflowRuns: Array<{
     completedAt: string | null;
@@ -279,6 +285,12 @@ export interface ContactDetailResponse {
     phone: string | null;
     stage: string;
   };
+  comments: Array<{
+    author: ActorSummary | null;
+    body: string;
+    createdAt: string;
+    id: string;
+  }>;
   financialSummary: {
     pipelineValueCents: number | null;
     realizedRevenueCents: number;
@@ -1337,5 +1349,22 @@ export function sendQuote(orgId: string, quoteId: string): Promise<QuoteSummary>
 export function voidQuote(orgId: string, quoteId: string): Promise<QuoteSummary> {
   return apiFetch<QuoteSummary>(`/api/organizations/${orgId}/quotes/${quoteId}/void`, {
     method: "POST",
+  });
+}
+
+// ─── Comments (polymorphic across entities) ──────────────────────────────────
+
+export interface CreateCommentInput {
+  body: string;
+  entityType: "company" | "contact" | "booking" | "task" | "workflow" | "workflow_run" | "activity_event";
+  entityId: string;
+  companyId?: string | null;
+}
+
+/** Post a comment on any entity; the entity's detail view returns the thread. */
+export function createComment(orgId: string, input: CreateCommentInput): Promise<{ id: string }> {
+  return apiFetch(`/api/organizations/${orgId}/comments`, {
+    method: "POST",
+    body: JSON.stringify(input),
   });
 }

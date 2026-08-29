@@ -27,7 +27,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateBooking, useUpdateContactNotes, useUpdateContactFields, useAnalyzeContactAI, useContactAIDrafts, useUpdateAIDraft, useSendAIDraft, useConfirmAIDraftSlot, useCallContact, useSyncContactCalls } from "@/lib/api-hooks";
+import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateComment, useCreateBooking, useUpdateContactNotes, useUpdateContactFields, useAnalyzeContactAI, useContactAIDrafts, useUpdateAIDraft, useSendAIDraft, useConfirmAIDraftSlot, useCallContact, useSyncContactCalls } from "@/lib/api-hooks";
 import { toast } from "@/components/ui/sonner";
 import { Modal } from "@/components/ui/Modal";
 import { LoadingCards, ErrorBanner, EmptyState, SkeletonStatCard } from "@/components/ui/StateViews";
@@ -912,6 +912,8 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const updateStage = useUpdateContactStage(orgId);
+  const createComment = useCreateComment(orgId);
+  const [commentBody, setCommentBody] = useState("");
 
   const { contact, financialSummary, linkedBookings, linkedTasks, linkedQuotes, nextAction, timeline, workflowTraces } = detail;
 
@@ -954,6 +956,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
     { key: "bookings", label: "Bookings", count: linkedBookings.length },
     { key: "tasks", label: "Tasks", count: linkedTasks.length },
     { key: "quotes", label: "Quotes", count: linkedQuotes.length },
+    { key: "comments", label: "Comments", count: detail.comments.length },
     { key: "financials", label: "Financials" },
     { key: "workflows", label: "Workflows", count: workflowTraces.length },
     { key: "notes", label: "Notes" },
@@ -1169,6 +1172,59 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Comments */}
+        {activeTab === "comments" && (
+          <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+            {detail.comments.length === 0 ? (
+              <EmptyState title="No comments yet" description="Start the conversation below." />
+            ) : (
+              <div className="space-y-4">
+                {detail.comments.map((c) => (
+                  <div key={c.id} className="flex gap-3">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-[11px] font-bold text-primary shrink-0">
+                      {(c.author?.name ?? "?").charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-foreground">{c.author?.name ?? "Unknown"}</span>
+                        <span className="text-[10px] text-muted-foreground">{relativeTime(c.createdAt)}</span>
+                      </div>
+                      <p className="text-sm text-foreground/80 whitespace-pre-wrap mt-0.5">{c.body}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <form
+              className="flex items-center gap-2 pt-1"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const body = commentBody.trim();
+                if (!body || createComment.isPending) return;
+                createComment.mutate(
+                  { entityType: "contact", entityId: contact.id, body },
+                  { onSuccess: () => setCommentBody("") },
+                );
+              }}
+            >
+              <input
+                type="text"
+                value={commentBody}
+                onChange={(e) => setCommentBody(e.target.value)}
+                placeholder="Add a comment..."
+                className="flex-1 bg-secondary/30 border border-border rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+              <button
+                type="submit"
+                disabled={!commentBody.trim() || createComment.isPending}
+                className="px-4 py-2 rounded-xl text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97] disabled:opacity-40 flex items-center gap-1.5"
+              >
+                {createComment.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Post"}
+              </button>
+            </form>
           </div>
         )}
 

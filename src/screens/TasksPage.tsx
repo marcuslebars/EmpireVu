@@ -24,6 +24,7 @@ import {
   useTasks,
   useTaskDetail,
   useCreateTask,
+  useCreateComment,
   useUpdateTaskStatus,
   useCompanies,
 } from "@/lib/api-hooks";
@@ -339,6 +340,9 @@ function TaskDetailBody({
   statusPending: boolean;
 }) {
   const navigate = useNavigate();
+  const { organizationId } = useOrg();
+  const createComment = useCreateComment(organizationId);
+  const [commentBody, setCommentBody] = useState("");
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -504,20 +508,63 @@ function TaskDetailBody({
             )}
           </div>
         </div>
+        {/* Comments */}
+        <div className="space-y-3">
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+            Comments{detail.comments.length > 0 ? ` (${detail.comments.length})` : ""}
+          </p>
+          {detail.comments.length === 0 ? (
+            <p className="text-[10px] text-muted-foreground italic">No comments yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {detail.comments.map((c) => (
+                <div key={c.id} className="flex gap-2.5">
+                  <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[9px] font-bold text-primary shrink-0 mt-0.5">
+                    {(c.author?.name ?? "?").charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-foreground">{c.author?.name ?? "Unknown"}</span>
+                      <span className="text-[10px] text-muted-foreground">{relativeTime(c.createdAt)}</span>
+                    </div>
+                    <p className="text-xs text-foreground/80 whitespace-pre-wrap mt-0.5">{c.body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Quick Comment */}
       <div className="p-4 border-t border-border bg-secondary/20">
-        <div className="relative">
+        <form
+          className="relative"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const body = commentBody.trim();
+            if (!body || createComment.isPending) return;
+            createComment.mutate(
+              { entityType: "task", entityId: detail.task.id, body },
+              { onSuccess: () => setCommentBody("") },
+            );
+          }}
+        >
           <input
             type="text"
+            value={commentBody}
+            onChange={(e) => setCommentBody(e.target.value)}
             placeholder="Add a comment..."
             className="w-full bg-card border border-border rounded-xl pl-4 pr-10 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
           />
-          <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-colors">
+          <button
+            type="submit"
+            disabled={!commentBody.trim() || createComment.isPending}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-colors disabled:opacity-40"
+          >
             <Send className="w-3.5 h-3.5" />
           </button>
-        </div>
+        </form>
       </div>
     </div>
   );
