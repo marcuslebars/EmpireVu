@@ -18,7 +18,6 @@ import {
   fetchWorkflows,
   fetchWorkflowDetail,
   fetchWorkflowJobs,
-  fetchTrace,
   fetchOrganizationMembers,
   fetchInvitations,
   createInvitation,
@@ -243,21 +242,6 @@ export function useWorkflowJobs(
     queryFn: () => fetchWorkflowJobs(orgId, params),
     enabled: Boolean(orgId),
     staleTime: 20_000,
-  });
-}
-
-// ─── System Trace ─────────────────────────────────────────────────────────────
-
-export function useTrace(
-  orgId: string,
-  entityType: "contact" | "booking" | "task" | null,
-  entityId: string | null,
-) {
-  return useQuery({
-    queryKey: ["trace", orgId, entityType, entityId],
-    queryFn: () => fetchTrace(orgId, entityType!, entityId!),
-    enabled: Boolean(orgId && entityType && entityId),
-    staleTime: 10_000,
   });
 }
 

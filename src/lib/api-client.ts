@@ -563,19 +563,6 @@ export interface TraceRecord {
   title: string;
 }
 
-export interface UnifiedTraceResponse {
-  entity: { id: string; label: string; type: string };
-  trace: TraceRecord[];
-}
-
-export function fetchTrace(
-  orgId: string,
-  entityType: "contact" | "booking" | "task",
-  entityId: string,
-): Promise<UnifiedTraceResponse> {
-  return apiFetch(`/api/organizations/${orgId}/ui/trace/${entityType}/${entityId}`);
-}
-
 // ─── Mutations ────────────────────────────────────────────────────────────────
 
 // Contact mutations

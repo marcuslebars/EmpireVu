@@ -375,6 +375,7 @@ export default function CRMPage() {
   const [view, setView] = useState<"kanban" | "list">("kanban");
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCompanyOpen, setIsCompanyOpen] = useState(false);
   const [callContact, setCallContact] = useState<CRMContactRow | null>(null);
@@ -391,10 +392,15 @@ export default function CRMPage() {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  // Reset to the first page when the search or active company changes.
+  useEffect(() => { setPage(1); }, [search, companyId]);
+
   const params = useMemo(() => ({
     companyId: companyId || undefined,
     search: search || undefined,
-  }), [companyId, search]);
+    page,
+    pageSize: 50,
+  }), [companyId, search, page]);
 
   const { data: contacts, isLoading, isError, refetch } = useCRMContacts(organizationId, params);
   const updateStage = useUpdateContactStage(organizationId);
@@ -641,6 +647,30 @@ export default function CRMPage() {
               ))}
             </tbody>
           </table>
+          </div>
+        </div>
+      )}
+
+      {contacts?.rows?.pagination && contacts.rows.pagination.totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4 shrink-0">
+          <p className="text-xs text-muted-foreground">
+            Page {contacts.rows.pagination.page} of {contacts.rows.pagination.totalPages} · {contacts.rows.pagination.total} contacts
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={contacts.rows.pagination.page <= 1}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 disabled:opacity-40 transition-colors"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={contacts.rows.pagination.page >= contacts.rows.pagination.totalPages}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 disabled:opacity-40 transition-colors"
+            >
+              Next
+            </button>
           </div>
         </div>
       )}
