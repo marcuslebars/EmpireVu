@@ -6,6 +6,7 @@ import {
   CheckSquare,
   Calendar as CalendarIcon,
   Zap,
+  FileText,
   Settings as SettingsIcon,
   UserPlus,
   Plus,
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
   { label: "CRM", to: "/crm", icon: Users, keywords: "contacts leads pipeline" },
   { label: "Tasks", to: "/tasks", icon: CheckSquare, keywords: "todo to-do" },
   { label: "Calendar", to: "/calendar", icon: CalendarIcon, keywords: "bookings schedule" },
+  { label: "Quotes", to: "/quotes", icon: FileText, keywords: "estimate proposal invoice deposit" },
   { label: "Automations", to: "/automations", icon: Zap, keywords: "workflows rules" },
   { label: "Settings", to: "/settings", icon: SettingsIcon, keywords: "preferences organization" },
 ];
