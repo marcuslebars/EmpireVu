@@ -22,6 +22,7 @@ import {
   X,
   Loader2,
   Sparkles,
+  FileText,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
@@ -912,7 +913,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
   const [isEditOpen, setIsEditOpen] = useState(false);
   const updateStage = useUpdateContactStage(orgId);
 
-  const { contact, financialSummary, linkedBookings, linkedTasks, nextAction, timeline, workflowTraces } = detail;
+  const { contact, financialSummary, linkedBookings, linkedTasks, linkedQuotes, nextAction, timeline, workflowTraces } = detail;
 
   // A placed call carries `agentCallId`; its outcome event adds `callStatus`.
   // Anything placed without a matching outcome is still unresolved.
@@ -952,6 +953,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
     { key: "ai", label: "AI" },
     { key: "bookings", label: "Bookings", count: linkedBookings.length },
     { key: "tasks", label: "Tasks", count: linkedTasks.length },
+    { key: "quotes", label: "Quotes", count: linkedQuotes.length },
     { key: "financials", label: "Financials" },
     { key: "workflows", label: "Workflows", count: workflowTraces.length },
     { key: "notes", label: "Notes" },
@@ -1285,6 +1287,55 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
         )}
 
         {/* Financials */}
+        {activeTab === "quotes" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">{linkedQuotes.length} quotes</h3>
+              <button
+                onClick={() => navigate("/quotes")}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]"
+              >
+                <Plus className="w-3 h-3" />
+                New Quote
+              </button>
+            </div>
+            {linkedQuotes.length === 0 ? (
+              <EmptyState title="No quotes" description="No quotes linked to this contact." />
+            ) : (
+              <div className="bg-card border border-border rounded-xl overflow-hidden">
+                {linkedQuotes.map((q, i) => (
+                  <a
+                    key={q.id}
+                    href={`/q/${q.publicToken}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={cn(
+                      "flex items-center justify-between px-4 py-3 hover:bg-secondary/30 transition-colors",
+                      i < linkedQuotes.length - 1 && "border-b border-border/40"
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-secondary">
+                        <FileText className="w-3.5 h-3.5 text-muted-foreground" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          {q.quoteNumber ?? "Draft"}{q.title ? ` · ${q.title}` : ""}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{formatDate(q.createdAt, "MMM d, yyyy")}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-semibold text-foreground tabular-nums">{formatCents(q.totalCents)}</span>
+                      <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-secondary text-muted-foreground">{q.status}</span>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === "financials" && (
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-3">

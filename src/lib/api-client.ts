@@ -286,6 +286,17 @@ export interface ContactDetailResponse {
   };
   linkedBookings: BookingCalendarRow[];
   linkedTasks: TaskListRow[];
+  linkedQuotes: Array<{
+    id: string;
+    quoteNumber: string | null;
+    status: string;
+    title: string | null;
+    totalCents: number;
+    depositCents: number;
+    currency: string;
+    publicToken: string;
+    createdAt: string;
+  }>;
   nextAction: NextActionSummary;
   timeline: TraceRecord[];
   workflowTraces: Array<{

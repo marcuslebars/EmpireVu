@@ -7,6 +7,8 @@ import {
   listWorkflowEventJobs,
 } from "@/server/services/workflow-event-jobs";
 import { getContactTrace, getBookingTrace, getTaskTrace } from "@/server/services/traces";
+import { getQuotesConfig } from "@/server/services/quotes/config";
+import { listQuotes } from "@/server/services/quotes/service";
 import {
   assertCompanyInOrganization,
   type TenantServiceContext,
@@ -244,6 +246,17 @@ export interface ContactDetailResponse {
   };
   linkedBookings: BookingCalendarRow[];
   linkedTasks: TaskListRow[];
+  linkedQuotes: Array<{
+    id: string;
+    quoteNumber: string | null;
+    status: string;
+    title: string | null;
+    totalCents: number;
+    depositCents: number;
+    currency: string;
+    publicToken: string;
+    createdAt: string;
+  }>;
   nextAction: NextActionSummary;
   timeline: TraceRecord[];
   workflowTraces: Array<{
@@ -1839,6 +1852,22 @@ export async function getCRMContactDetailView(
       workflow: item.entity,
     }));
 
+  const linkedQuotes = getQuotesConfig().enabled
+    ? (await listQuotes(context, { limit: 100 }))
+        .filter((quote) => quote.contact_id === contact.id)
+        .map((quote) => ({
+          id: quote.id,
+          quoteNumber: quote.quote_number,
+          status: quote.status,
+          title: quote.title,
+          totalCents: quote.total_cents,
+          depositCents: quote.deposit_cents,
+          currency: quote.currency,
+          publicToken: quote.public_token,
+          createdAt: quote.created_at,
+        }))
+    : [];
+
   return {
     contact: {
       company: toCompanySummary(companiesMap.get(contact.company_id)),
@@ -1870,6 +1899,7 @@ export async function getCRMContactDetailView(
       page: 1,
       pageSize: 500,
     })).rows.items.filter((task) => task.contact?.id === contact.id),
+    linkedQuotes,
     nextAction: getNextActionForContact({ bookings: contactBookings, contact, tasks: contactTasks }),
     timeline,
     workflowTraces,
