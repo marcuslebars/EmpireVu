@@ -413,3 +413,39 @@ export async function reissueQuote(
 
   return { cancelled, successor: { ...successor, supersedes: cancelled.id } as QuoteRow };
 }
+
+/**
+ * Void a quote — retire it with no successor. (Use reissueQuote when a revised
+ * replacement should be sent in its place.)
+ */
+export async function cancelQuote(
+  ctx: TenantServiceContext,
+  quoteId: string,
+  opts: { reason?: string } = {},
+): Promise<QuoteRow> {
+  const existing = await getQuote(ctx, quoteId);
+  if (!existing) throw new Error(`Quote ${quoteId} not found.`);
+  if (existing.status === "cancelled") {
+    throw new Error(`Quote ${quoteId} is already cancelled.`);
+  }
+  // deposit_paid/completed quotes have money against them — voiding is not the
+  // tool for those; a refund is (Phase 4).
+  assertTransition(existing.status as QuoteStatus, "cancelled");
+
+  const now = new Date().toISOString();
+  const { data, error } = await tbl(ctx, "quotes")
+    .update({
+      status: "cancelled",
+      cancelled_at: now,
+      cancel_reason: opts.reason ?? "Voided",
+    })
+    .eq("id", quoteId)
+    .eq("organization_id", ctx.organizationId)
+    .select("*")
+    .single();
+  if (error) throw error;
+
+  const cancelled = data as QuoteRow;
+  await recordEvent(ctx, cancelled.id, "cancelled", { reason: opts.reason ?? null });
+  return cancelled;
+}

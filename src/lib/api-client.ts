@@ -1321,3 +1321,10 @@ export function sendQuote(orgId: string, quoteId: string): Promise<QuoteSummary>
     method: "POST",
   });
 }
+
+/** Void a quote (status → cancelled), with no successor. */
+export function voidQuote(orgId: string, quoteId: string): Promise<QuoteSummary> {
+  return apiFetch<QuoteSummary>(`/api/organizations/${orgId}/quotes/${quoteId}/void`, {
+    method: "POST",
+  });
+}
