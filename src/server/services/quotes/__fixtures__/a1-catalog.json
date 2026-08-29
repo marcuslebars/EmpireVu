@@ -1,0 +1,338 @@
+{
+  "items": {
+    "outdoor_storage": {
+      "serviceKey": "outdoor_storage",
+      "label": "Outdoor winter storage (season)",
+      "pricingType": "per_measure",
+      "rateCents": 5000,
+      "minimumCents": 75000,
+      "unitLabel": null,
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": null,
+      "maxMeasure": null,
+      "surchargeEligible": true,
+      "sortOrder": 0
+    },
+    "shrink_wrap": {
+      "serviceKey": "shrink_wrap",
+      "label": "Shrink wrapping",
+      "pricingType": "per_measure",
+      "rateCents": 2500,
+      "minimumCents": 37500,
+      "unitLabel": null,
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": null,
+      "maxMeasure": null,
+      "surchargeEligible": true,
+      "sortOrder": 1
+    },
+    "winterization_outboard": {
+      "serviceKey": "winterization_outboard",
+      "label": "Winterization — outboard",
+      "pricingType": "per_unit_declining",
+      "rateCents": 27500,
+      "minimumCents": 0,
+      "unitLabel": "engine",
+      "additionalUnitMultiplier": 0.75,
+      "tiers": null,
+      "maxQuantity": null,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 2
+    },
+    "winterization_sterndrive": {
+      "serviceKey": "winterization_sterndrive",
+      "label": "Winterization — sterndrive",
+      "pricingType": "per_unit_declining",
+      "rateCents": 40000,
+      "minimumCents": 0,
+      "unitLabel": "engine",
+      "additionalUnitMultiplier": 0.75,
+      "tiers": null,
+      "maxQuantity": null,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 3
+    },
+    "winterization_inboard": {
+      "serviceKey": "winterization_inboard",
+      "label": "Winterization — inboard",
+      "pricingType": "per_unit_declining",
+      "rateCents": 44500,
+      "minimumCents": 0,
+      "unitLabel": "engine",
+      "additionalUnitMultiplier": 0.75,
+      "tiers": null,
+      "maxQuantity": null,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 4
+    },
+    "fall_detail": {
+      "serviceKey": "fall_detail",
+      "label": "Fall detail (wash & wax)",
+      "pricingType": "per_measure",
+      "rateCents": 2400,
+      "minimumCents": 36000,
+      "unitLabel": null,
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": null,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 5
+    },
+    "spring_commissioning": {
+      "serviceKey": "spring_commissioning",
+      "label": "Spring commissioning",
+      "pricingType": "flat",
+      "rateCents": 26500,
+      "minimumCents": 0,
+      "unitLabel": null,
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": null,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 6
+    },
+    "ceramic_upgrade": {
+      "serviceKey": "ceramic_upgrade",
+      "label": "Winter ceramic coating upgrade",
+      "pricingType": "per_measure",
+      "rateCents": 8500,
+      "minimumCents": 0,
+      "unitLabel": null,
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": null,
+      "maxMeasure": 26,
+      "surchargeEligible": false,
+      "sortOrder": 7
+    },
+    "battery_storage": {
+      "serviceKey": "battery_storage",
+      "label": "Battery storage & charging",
+      "pricingType": "per_unit",
+      "rateCents": 10000,
+      "minimumCents": 0,
+      "unitLabel": "battery",
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": null,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 8
+    },
+    "trailer_storage": {
+      "serviceKey": "trailer_storage",
+      "label": "Trailer storage (season)",
+      "pricingType": "flat",
+      "rateCents": 20000,
+      "minimumCents": 0,
+      "unitLabel": null,
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": null,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 9
+    },
+    "pwc_storage": {
+      "serviceKey": "pwc_storage",
+      "label": "PWC storage (season)",
+      "pricingType": "per_unit",
+      "rateCents": 45000,
+      "minimumCents": 0,
+      "unitLabel": "PWC",
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": 6,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 10
+    },
+    "pwc_winterization": {
+      "serviceKey": "pwc_winterization",
+      "label": "PWC winterization",
+      "pricingType": "per_unit",
+      "rateCents": 17500,
+      "minimumCents": 0,
+      "unitLabel": "PWC",
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": 6,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 11
+    },
+    "oil_change_outboard": {
+      "serviceKey": "oil_change_outboard",
+      "label": "Oil change — outboard",
+      "pricingType": "per_unit",
+      "rateCents": 17500,
+      "minimumCents": 0,
+      "unitLabel": "engine",
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": 8,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 12
+    },
+    "oil_change_pwc": {
+      "serviceKey": "oil_change_pwc",
+      "label": "Oil change — PWC",
+      "pricingType": "per_unit",
+      "rateCents": 15000,
+      "minimumCents": 0,
+      "unitLabel": "PWC",
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": 6,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 13
+    },
+    "extended_storage": {
+      "serviceKey": "extended_storage",
+      "label": "Extended storage (after April 30)",
+      "pricingType": "per_unit",
+      "rateCents": 10000,
+      "minimumCents": 0,
+      "unitLabel": "vessel-month",
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": 24,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 14
+    },
+    "transport_local": {
+      "serviceKey": "transport_local",
+      "label": "Transport — local",
+      "pricingType": "per_unit",
+      "rateCents": 15000,
+      "minimumCents": 0,
+      "unitLabel": "trip",
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": 4,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 15
+    },
+    "transport_regional": {
+      "serviceKey": "transport_regional",
+      "label": "Transport — regional",
+      "pricingType": "per_unit",
+      "rateCents": 25000,
+      "minimumCents": 0,
+      "unitLabel": "trip",
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": 4,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 16
+    },
+    "transport_extended": {
+      "serviceKey": "transport_extended",
+      "label": "Transport — extended",
+      "pricingType": "per_unit",
+      "rateCents": 37500,
+      "minimumCents": 0,
+      "unitLabel": "trip",
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": 4,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 17
+    },
+    "transport_beyond_per_km": {
+      "serviceKey": "transport_beyond_per_km",
+      "label": "Transport — beyond extended band",
+      "pricingType": "per_measure",
+      "rateCents": 350,
+      "minimumCents": 0,
+      "unitLabel": null,
+      "additionalUnitMultiplier": null,
+      "tiers": null,
+      "maxQuantity": null,
+      "maxMeasure": 2000,
+      "surchargeEligible": false,
+      "sortOrder": 18
+    },
+    "spring_wrap_removal": {
+      "serviceKey": "spring_wrap_removal",
+      "label": "Spring wrap removal & disposal",
+      "pricingType": "tiered_by_measure",
+      "rateCents": 0,
+      "minimumCents": 0,
+      "unitLabel": null,
+      "additionalUnitMultiplier": null,
+      "tiers": [
+        {
+          "maxMeasure": 26,
+          "rateCents": 15000
+        },
+        {
+          "maxMeasure": null,
+          "rateCents": 20000
+        }
+      ],
+      "maxQuantity": null,
+      "maxMeasure": null,
+      "surchargeEligible": false,
+      "sortOrder": 19
+    }
+  },
+  "bundles": {
+    "winter_ready": {
+      "bundleKey": "winter_ready",
+      "label": "Winter Ready",
+      "discountPct": 8,
+      "serviceKeys": [
+        "outdoor_storage",
+        "shrink_wrap"
+      ]
+    },
+    "winter_ready_plus": {
+      "bundleKey": "winter_ready_plus",
+      "label": "Winter Ready Plus",
+      "discountPct": 10,
+      "serviceKeys": [
+        "outdoor_storage",
+        "shrink_wrap",
+        "winterization_*"
+      ]
+    },
+    "full_care": {
+      "bundleKey": "full_care",
+      "label": "Full Care",
+      "discountPct": 12,
+      "serviceKeys": [
+        "outdoor_storage",
+        "shrink_wrap",
+        "winterization_*",
+        "fall_detail",
+        "spring_commissioning"
+      ]
+    }
+  },
+  "surcharges": {
+    "pontoon": {
+      "variantKey": "pontoon",
+      "label": "pontoon",
+      "perMeasureCents": 800
+    },
+    "tritoon": {
+      "variantKey": "tritoon",
+      "label": "tritoon",
+      "perMeasureCents": 1000
+    }
+  }
+}
