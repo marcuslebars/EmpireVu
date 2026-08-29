@@ -58,10 +58,10 @@ import {
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 
-export function useDashboardSummary(orgId: string) {
+export function useDashboardSummary(orgId: string, params: { companyId?: string } = {}) {
   return useQuery({
-    queryKey: ["dashboard", "summary", orgId],
-    queryFn: () => fetchDashboardSummary(orgId),
+    queryKey: ["dashboard", "summary", orgId, params],
+    queryFn: () => fetchDashboardSummary(orgId, params),
     enabled: Boolean(orgId),
     staleTime: 30_000,
   });

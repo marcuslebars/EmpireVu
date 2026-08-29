@@ -91,8 +91,11 @@ export interface AutomationImpact {
   totalWorkflowRuns: number;
 }
 
-export function fetchDashboardSummary(orgId: string): Promise<DashboardSummary> {
-  return apiFetch(`/api/organizations/${orgId}/ui/dashboard/summary`);
+export function fetchDashboardSummary(
+  orgId: string,
+  params: { companyId?: string } = {},
+): Promise<DashboardSummary> {
+  return apiFetch(buildUrl(`/api/organizations/${orgId}/ui/dashboard/summary`, params));
 }
 
 export async function fetchDashboardActivity(
@@ -966,11 +969,10 @@ export async function updateOrganization(
   orgId: string,
   input: { name?: string; slug?: string },
 ): Promise<OrganizationSummary> {
-  const result = await apiFetch<{ data: OrganizationSummary }>(`/api/organizations/${orgId}`, {
+  return apiFetch<OrganizationSummary>(`/api/organizations/${orgId}`, {
     method: "PATCH",
     body: JSON.stringify(input),
   });
-  return result.data;
 }
 
 export interface CreateOrganizationInput {

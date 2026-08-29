@@ -338,6 +338,7 @@ function TaskDetailBody({
   onStatusUpdate: (status: TaskStatus) => void;
   statusPending: boolean;
 }) {
+  const navigate = useNavigate();
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -400,6 +401,51 @@ function TaskDetailBody({
             <p className="text-xs font-medium text-foreground">{relativeTime(detail.task.createdAt)}</p>
           </div>
         </div>
+
+        {/* Linked records — route into the other work areas */}
+        {(detail.linkedEntities.contact || detail.linkedEntities.booking || detail.workflowOrigin.workflow || detail.linkedEntities.workflow) && (
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Linked</p>
+            <div className="space-y-1.5">
+              {detail.linkedEntities.contact && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/crm/${detail.linkedEntities.contact!.id}`)}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border hover:border-primary/50 transition-colors text-left group"
+                >
+                  <User className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-xs font-medium text-foreground truncate flex-1">{detail.linkedEntities.contact.name}</span>
+                  <ArrowUpRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                </button>
+              )}
+              {detail.linkedEntities.booking && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/calendar?booking=${detail.linkedEntities.booking!.id}`)}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border hover:border-primary/50 transition-colors text-left group"
+                >
+                  <Calendar className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-xs font-medium text-foreground truncate flex-1">{detail.linkedEntities.booking.label}</span>
+                  <ArrowUpRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                </button>
+              )}
+              {(detail.workflowOrigin.workflow ?? detail.linkedEntities.workflow) && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/automations?workflow=${(detail.workflowOrigin.workflow ?? detail.linkedEntities.workflow)!.id}`)}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border hover:border-primary/50 transition-colors text-left group"
+                >
+                  <Zap className="w-3.5 h-3.5 text-[hsl(var(--accent-violet))] shrink-0" />
+                  <span className="text-xs font-medium text-foreground truncate flex-1">
+                    {(detail.workflowOrigin.workflow ?? detail.linkedEntities.workflow)!.label}
+                    <span className="text-muted-foreground font-normal"> · automation</span>
+                  </span>
+                  <ArrowUpRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Description */}
         <div className="space-y-2">
@@ -495,6 +541,16 @@ export default function TasksPage() {
     setIsCreateOpen(true);
     const next = new URLSearchParams(searchParams);
     next.delete("new");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  // Deep link from other work areas: /tasks?task=:id opens that task.
+  useEffect(() => {
+    const taskId = searchParams.get("task");
+    if (!taskId) return;
+    setSelectedTaskId(taskId);
+    const next = new URLSearchParams(searchParams);
+    next.delete("task");
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 

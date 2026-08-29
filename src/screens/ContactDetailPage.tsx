@@ -1192,6 +1192,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
                   return (
                     <div
                       key={b.id}
+                      onClick={() => navigate(`/calendar?booking=${b.id}`)}
                       className={cn(
                         "flex items-center justify-between px-4 py-3 hover:bg-secondary/30 transition-colors cursor-pointer",
                         i < linkedBookings.length - 1 && "border-b border-border/40"
@@ -1248,6 +1249,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
                   return (
                     <div
                       key={t.id}
+                      onClick={() => navigate(`/tasks?task=${t.id}`)}
                       className={cn(
                         "flex items-center justify-between px-4 py-3 hover:bg-secondary/30 transition-colors cursor-pointer",
                         i < linkedTasks.length - 1 && "border-b border-border/40"

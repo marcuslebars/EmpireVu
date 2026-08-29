@@ -125,9 +125,9 @@ function ActivityFeedItem({ item }: { item: DashboardActivityItem }) {
   const handleClick = () => {
     if (!item.entity) return;
     if (item.entity.type === "contact") navigate(`/crm/${item.entity.id}`);
-    if (item.entity.type === "booking") navigate("/calendar");
-    if (item.entity.type === "task") navigate("/tasks");
-    if (item.entity.type === "workflow") navigate("/automations");
+    if (item.entity.type === "booking") navigate(`/calendar?booking=${item.entity.id}`);
+    if (item.entity.type === "task") navigate(`/tasks?task=${item.entity.id}`);
+    if (item.entity.type === "workflow") navigate(`/automations?workflow=${item.entity.id}`);
   };
 
   return (
@@ -167,8 +167,9 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { organizationId, companyId, isValid } = useOrg();
   const activityParams = companyId != null ? { companyId, limit: 10 } : { limit: 10 };
+  const summaryParams = companyId != null ? { companyId } : {};
 
-  const summary = useDashboardSummary(organizationId);
+  const summary = useDashboardSummary(organizationId, summaryParams);
   const activity = useDashboardActivity(organizationId, activityParams);
   const impact = useAutomationImpact(organizationId);
   const { data: orgs } = useOrganizations();
@@ -233,6 +234,7 @@ export default function Dashboard() {
               change={s ? `${s.urgentTaskCount} urgent` : ""}
               positive={false}
               icon={<CheckSquare className="w-3.5 h-3.5" />}
+              onClick={() => navigate("/tasks")}
             />
             <StatCard
               label="New Leads"
@@ -240,6 +242,7 @@ export default function Dashboard() {
               change="in pipeline"
               positive
               icon={<Users className="w-3.5 h-3.5" />}
+              onClick={() => navigate("/crm")}
             />
             <StatCard
               label="Revenue (Today)"
@@ -247,6 +250,7 @@ export default function Dashboard() {
               change={s ? `${formatCentsCompact(s.revenueSnapshot.weekCents)} this week` : ""}
               positive
               icon={<TrendingUp className="w-3.5 h-3.5" />}
+              onClick={() => navigate("/calendar")}
             />
             <StatCard
               label="Bookings Today"
@@ -254,6 +258,7 @@ export default function Dashboard() {
               change={s ? `${s.upcomingBookingCount} upcoming` : ""}
               positive
               icon={<AlertTriangle className="w-3.5 h-3.5" />}
+              onClick={() => navigate("/calendar")}
             />
           </>
         )}
@@ -291,7 +296,6 @@ export default function Dashboard() {
         <DashboardCard
           title="Live Activity Feed"
           icon={<Zap className="w-3.5 h-3.5" />}
-          action={<button onClick={() => navigate("/crm")} className="text-xs text-primary hover:underline font-medium">View all</button>}
         >
           {activity.isLoading ? (
             <LoadingCards count={3} />
@@ -363,9 +367,9 @@ export default function Dashboard() {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: "New Booking", icon: Calendar, primary: true, path: "/calendar" },
-              { label: "New Task", icon: CheckSquare, primary: false, path: "/tasks" },
-              { label: "Add Lead", icon: UserPlus, primary: false, path: "/crm" },
+              { label: "New Booking", icon: Calendar, primary: true, path: "/calendar?new=booking" },
+              { label: "New Task", icon: CheckSquare, primary: false, path: "/tasks?new=task" },
+              { label: "Add Lead", icon: UserPlus, primary: false, path: "/crm?new=contact" },
               { label: "Settings", icon: FileText, primary: false, path: "/settings" },
             ].map((action, i) => (
               <button
