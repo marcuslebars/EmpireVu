@@ -11,6 +11,8 @@ import {
   updateContactNotesInputSchema,
   updateContactFields,
   updateContactFieldsInputSchema,
+  deleteContact,
+  deleteContactInputSchema,
 } from "@/server/services/contacts";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
@@ -101,6 +103,22 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
         email: body.email,
         phone: body.phone,
       }),
+    );
+    return NextResponse.json({ data });
+  });
+}
+
+export async function DELETE(_request: Request, context: RouteContext): Promise<NextResponse> {
+  return handleRoute(async () => {
+    const supabase = createSupabaseServerClient();
+    const organization = await requireOrganizationContext(supabase, context.params.organizationId);
+    const data = await deleteContact(
+      {
+        actorProfileId: organization.user.id,
+        organizationId: organization.organizationId,
+        supabase,
+      },
+      deleteContactInputSchema.parse({ contactId: context.params.contactId }),
     );
     return NextResponse.json({ data });
   });

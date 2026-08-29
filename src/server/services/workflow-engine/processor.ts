@@ -296,18 +296,55 @@ export async function runWorkflowTest(
   return executeWorkflowForEvent(context, workflow, activityEvent, input.dryRun !== false);
 }
 
+async function getLatestEventByType(
+  context: TenantServiceContext,
+  eventType: string,
+): Promise<Tables<"activity_events"> | null> {
+  const { data, error } = await context.supabase
+    .from("activity_events")
+    .select("*")
+    .eq("organization_id", context.organizationId)
+    .eq("event_type", eventType)
+    .order("occurred_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return (data as Tables<"activity_events"> | null) ?? null;
+}
+
 export async function runWorkflowNow(
   context: TenantServiceContext,
   workflowId: string,
-  input: { event?: ManualWorkflowEventInput; eventId?: string },
+  input: { event?: ManualWorkflowEventInput; eventId?: string; dryRun?: boolean },
 ): Promise<WorkflowExecutionSummary> {
   const workflow = await getWorkflowById(context, workflowId);
+  const dryRun = input.dryRun === true;
 
-  const activityEvent = input.eventId
+  let activityEvent: Tables<"activity_events"> | null = input.eventId
     ? await getActivityEventById(context, input.eventId)
     : input.event
-      ? await ensurePersistedEvent(context, manualWorkflowEventInputSchema.parse(input.event))
+      // A real (non-dry) run persists the event so its side effects have a ledger anchor;
+      // a dry run must never write, so it works off a synthetic in-memory event instead.
+      ? dryRun
+        ? buildSyntheticActivityEvent(context, manualWorkflowEventInputSchema.parse(input.event))
+        : await ensurePersistedEvent(context, manualWorkflowEventInputSchema.parse(input.event))
       : null;
+
+  // Dry-run preview with no explicit event: run against the most recent real event
+  // matching this workflow's trigger, so conditions see realistic data. Fall back to a
+  // bare synthetic event of the right type when the org has no matching history yet.
+  if (!activityEvent && dryRun) {
+    activityEvent =
+      (await getLatestEventByType(context, workflow.trigger_event)) ??
+      buildSyntheticActivityEvent(context, {
+        entityType: workflow.trigger_event.split(".")[0] || "manual",
+        eventType: assertSupportedWorkflowTrigger(workflow.trigger_event),
+      });
+  }
 
   if (!activityEvent) {
     throw new ValidationError("run-now requires either eventId or event.");
@@ -317,5 +354,5 @@ export async function runWorkflowNow(
     throw new ValidationError("Provided event does not match the workflow trigger_event.");
   }
 
-  return executeWorkflowForEvent(context, workflow, activityEvent, false);
+  return executeWorkflowForEvent(context, workflow, activityEvent, dryRun);
 }

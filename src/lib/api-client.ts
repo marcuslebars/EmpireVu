@@ -201,6 +201,12 @@ export interface BookingDetailResponse {
     status: string;
     title: string;
   };
+  comments: Array<{
+    author: ActorSummary | null;
+    body: string;
+    createdAt: string;
+    id: string;
+  }>;
   trace: TraceRecord[];
   triggeredWorkflowRuns: Array<{
     completedAt: string | null;
@@ -279,6 +285,12 @@ export interface ContactDetailResponse {
     phone: string | null;
     stage: string;
   };
+  comments: Array<{
+    author: ActorSummary | null;
+    body: string;
+    createdAt: string;
+    id: string;
+  }>;
   financialSummary: {
     pipelineValueCents: number | null;
     realizedRevenueCents: number;
@@ -551,19 +563,6 @@ export interface TraceRecord {
   title: string;
 }
 
-export interface UnifiedTraceResponse {
-  entity: { id: string; label: string; type: string };
-  trace: TraceRecord[];
-}
-
-export function fetchTrace(
-  orgId: string,
-  entityType: "contact" | "booking" | "task",
-  entityId: string,
-): Promise<UnifiedTraceResponse> {
-  return apiFetch(`/api/organizations/${orgId}/ui/trace/${entityType}/${entityId}`);
-}
-
 // ─── Mutations ────────────────────────────────────────────────────────────────
 
 // Contact mutations
@@ -606,6 +605,92 @@ export function assignContactOwner(
     method: "PATCH",
     body: JSON.stringify({ action: "assignOwner", ownerProfileId }),
   });
+}
+
+export interface OrganizationMemberSummary {
+  email: string;
+  id: string;
+  name: string;
+  role: string;
+}
+
+/** Team members of the organization — used to populate assignee/owner pickers. */
+export function fetchOrganizationMembers(orgId: string): Promise<OrganizationMemberSummary[]> {
+  return apiFetch(`/api/organizations/${orgId}/members`);
+}
+
+export function deleteContact(orgId: string, contactId: string): Promise<{ id: string }> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}`, { method: "DELETE" });
+}
+
+// ─── Team members & invitations ──────────────────────────────────────────────
+
+export type MembershipRole = "owner" | "admin" | "member";
+
+export interface InvitationSummary {
+  createdAt: string;
+  email: string;
+  expiresAt: string;
+  id: string;
+  role: MembershipRole;
+  status: string;
+  token: string;
+}
+
+export interface CreateInvitationResult {
+  emailSent: boolean;
+  invitation: InvitationSummary;
+  inviteUrl: string;
+}
+
+export interface InvitationPreview {
+  email: string;
+  expired: boolean;
+  organizationId: string;
+  organizationName: string;
+  role: MembershipRole;
+  status: string;
+}
+
+export function fetchInvitations(orgId: string): Promise<InvitationSummary[]> {
+  return apiFetch(`/api/organizations/${orgId}/members/invitations`);
+}
+
+export function createInvitation(
+  orgId: string,
+  input: { email: string; role: "admin" | "member" },
+): Promise<CreateInvitationResult> {
+  return apiFetch(`/api/organizations/${orgId}/members/invitations`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function revokeInvitation(orgId: string, invitationId: string): Promise<{ id: string }> {
+  return apiFetch(`/api/organizations/${orgId}/members/invitations/${invitationId}`, { method: "DELETE" });
+}
+
+export function updateMemberRole(
+  orgId: string,
+  profileId: string,
+  role: MembershipRole,
+): Promise<OrganizationMemberSummary> {
+  return apiFetch(`/api/organizations/${orgId}/members/${profileId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export function removeMember(orgId: string, profileId: string): Promise<{ id: string }> {
+  return apiFetch(`/api/organizations/${orgId}/members/${profileId}`, { method: "DELETE" });
+}
+
+export function fetchInvitationPreview(token: string): Promise<InvitationPreview> {
+  return apiFetch(`/api/invitations/${token}`);
+}
+
+export function acceptInvitation(token: string): Promise<{ organizationId: string }> {
+  return apiFetch(`/api/invitations/${token}/accept`, { method: "POST" });
 }
 
 export function updateContactNotes(
@@ -804,6 +889,22 @@ export function updateBookingStatus(
   });
 }
 
+export interface RescheduleBookingInput {
+  scheduledFor: string;
+  durationMinutes?: number;
+}
+
+export function rescheduleBooking(
+  orgId: string,
+  bookingId: string,
+  input: RescheduleBookingInput,
+): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/bookings/${bookingId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
 // Task mutations
 
 export interface CreateTaskInput {
@@ -848,9 +949,28 @@ export function assignTaskUser(
   });
 }
 
+export interface UpdateTaskInput {
+  title?: string;
+  description?: string | null;
+  priority?: "low" | "medium" | "high" | "urgent";
+  dueAt?: string | null;
+}
+
+export function updateTask(orgId: string, taskId: string, input: UpdateTaskInput): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/tasks/${taskId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "updateTask", ...input }),
+  });
+}
+
+export function deleteTask(orgId: string, taskId: string): Promise<{ id: string }> {
+  return apiFetch(`/api/organizations/${orgId}/tasks/${taskId}`, { method: "DELETE" });
+}
+
 // Workflow action mutations
 
 export interface RunWorkflowNowInput {
+  dryRun?: boolean;
   eventId?: string;
   event?: {
     companyId?: string | null;
@@ -1337,5 +1457,22 @@ export function sendQuote(orgId: string, quoteId: string): Promise<QuoteSummary>
 export function voidQuote(orgId: string, quoteId: string): Promise<QuoteSummary> {
   return apiFetch<QuoteSummary>(`/api/organizations/${orgId}/quotes/${quoteId}/void`, {
     method: "POST",
+  });
+}
+
+// ─── Comments (polymorphic across entities) ──────────────────────────────────
+
+export interface CreateCommentInput {
+  body: string;
+  entityType: "company" | "contact" | "booking" | "task" | "workflow" | "workflow_run" | "activity_event";
+  entityId: string;
+  companyId?: string | null;
+}
+
+/** Post a comment on any entity; the entity's detail view returns the thread. */
+export function createComment(orgId: string, input: CreateCommentInput): Promise<{ id: string }> {
+  return apiFetch(`/api/organizations/${orgId}/comments`, {
+    method: "POST",
+    body: JSON.stringify(input),
   });
 }

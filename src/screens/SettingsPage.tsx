@@ -1,9 +1,20 @@
 import { useState, useEffect } from "react";
-import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone } from "lucide-react";
+import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone, Send, Copy, Trash2, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
 import { useOrg } from "@/lib/org-context";
-import { useOrganizations, useCompanies, useUpdateOrganization } from "@/lib/api-hooks";
+import { useAuth } from "@/lib/auth-context";
+import {
+  useOrganizations,
+  useCompanies,
+  useUpdateOrganization,
+  useOrgMembers,
+  useInvitations,
+  useCreateInvitation,
+  useRevokeInvitation,
+  useUpdateMemberRole,
+  useRemoveMember,
+} from "@/lib/api-hooks";
 import { VoiceSettings } from "@/components/settings/VoiceSettings";
 
 const sections = [
@@ -153,6 +164,204 @@ function OrganizationSettings() {
   );
 }
 
+function copyToClipboard(text: string) {
+  if (typeof navigator !== "undefined" && navigator.clipboard) {
+    void navigator.clipboard.writeText(text).then(
+      () => toast.success("Invite link copied"),
+      () => toast.error("Could not copy link"),
+    );
+  } else {
+    toast.error("Clipboard unavailable — copy the link manually");
+  }
+}
+
+const roleBadge: Record<string, string> = {
+  owner: "bg-primary/15 text-primary",
+  admin: "bg-[hsl(var(--accent-violet))]/15 text-[hsl(var(--accent-violet))]",
+  member: "bg-secondary text-muted-foreground",
+};
+
+function MembersSettings() {
+  const { organizationId } = useOrg();
+  const { user, session } = useAuth();
+  const { data: members, isLoading: membersLoading } = useOrgMembers(organizationId);
+  const { data: invitations } = useInvitations(organizationId);
+  const createInvite = useCreateInvitation(organizationId);
+  const revokeInvite = useRevokeInvitation(organizationId);
+  const updateRole = useUpdateMemberRole(organizationId);
+  const removeMember = useRemoveMember(organizationId);
+
+  const myRole = session?.organizations.find((o) => o.id === organizationId)?.membershipRole ?? "member";
+  const canManage = myRole === "owner" || myRole === "admin";
+
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<"admin" | "member">("member");
+
+  const inviteLinkFor = (token: string) =>
+    typeof window !== "undefined" ? `${window.location.origin}/invite/${token}` : `/invite/${token}`;
+
+  const handleInvite = (e: { preventDefault: () => void }) => {
+    e.preventDefault();
+    const trimmed = email.trim();
+    if (!trimmed || createInvite.isPending) return;
+    createInvite.mutate(
+      { email: trimmed, role },
+      {
+        onSuccess: (res) => {
+          setEmail("");
+          if (res.emailSent) {
+            toast.success(`Invitation emailed to ${trimmed}`);
+          } else {
+            toast.success("Invitation created — copy the link to share");
+            copyToClipboard(inviteLinkFor(res.invitation.token));
+          }
+        },
+        onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to create invitation"),
+      },
+    );
+  };
+
+  return (
+    <div className="space-y-8">
+      {canManage && (
+        <div>
+          <h3 className="text-sm font-semibold text-foreground mb-1">Invite a teammate</h3>
+          <p className="text-xs text-muted-foreground mb-3">They'll receive a link to join this organization.</p>
+          <form onSubmit={handleInvite} className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="teammate@company.com"
+              className="flex-1 px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as "admin" | "member")}
+              className="px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+            >
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button
+              type="submit"
+              disabled={createInvite.isPending || !email.trim()}
+              className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 active:scale-[0.97]"
+            >
+              {createInvite.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Invite
+            </button>
+          </form>
+        </div>
+      )}
+
+      <div>
+        <h3 className="text-sm font-semibold text-foreground mb-3">Members</h3>
+        {membersLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading members…
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {(members ?? []).map((m) => (
+              <div key={m.id} className="flex items-center gap-3 p-3 rounded-lg border border-border">
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                  {(m.name || m.email || "?").charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {m.name}
+                    {m.id === user?.id ? <span className="text-muted-foreground font-normal"> (you)</span> : null}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+                </div>
+                {canManage ? (
+                  <>
+                    <select
+                      value={m.role}
+                      onChange={(e) =>
+                        updateRole.mutate(
+                          { profileId: m.id, role: e.target.value as "owner" | "admin" | "member" },
+                          { onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to update role") },
+                        )
+                      }
+                      className="px-2 py-1.5 text-xs bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                    >
+                      <option value="owner">Owner</option>
+                      <option value="admin">Admin</option>
+                      <option value="member">Member</option>
+                    </select>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Remove ${m.name} from this organization?`)) {
+                          removeMember.mutate(m.id, {
+                            onSuccess: () => toast.success("Member removed"),
+                            onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to remove member"),
+                          });
+                        }
+                      }}
+                      title="Remove member"
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                ) : (
+                  <span className={cn("text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full", roleBadge[m.role] ?? roleBadge.member)}>
+                    {m.role}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {canManage && (invitations?.length ?? 0) > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-foreground mb-3">Pending invitations</h3>
+          <div className="space-y-2">
+            {(invitations ?? []).map((inv) => (
+              <div key={inv.id} className="flex items-center gap-3 p-3 rounded-lg border border-dashed border-border">
+                <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center shrink-0">
+                  <Mail className="w-3.5 h-3.5 text-muted-foreground" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-foreground truncate">{inv.email}</p>
+                  <p className="text-xs text-muted-foreground capitalize">{inv.role} · pending</p>
+                </div>
+                <button
+                  onClick={() => copyToClipboard(inviteLinkFor(inv.token))}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
+                >
+                  <Copy className="w-3 h-3" /> Copy link
+                </button>
+                <button
+                  onClick={() =>
+                    revokeInvite.mutate(inv.id, {
+                      onSuccess: () => toast.success("Invitation revoked"),
+                      onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to revoke"),
+                    })
+                  }
+                  title="Revoke invitation"
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!canManage && (
+        <p className="text-xs text-muted-foreground">Only owners and admins can invite or manage members.</p>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [active, setActive] = useState("org");
   const activeSection = sections.find((s) => s.id === active);
@@ -188,6 +397,8 @@ export default function SettingsPage() {
             <OrganizationSettings />
           ) : active === "voice" ? (
             <VoiceSettings />
+          ) : active === "members" ? (
+            <MembersSettings />
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center mb-4">

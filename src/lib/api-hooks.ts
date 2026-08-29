@@ -18,12 +18,20 @@ import {
   fetchWorkflows,
   fetchWorkflowDetail,
   fetchWorkflowJobs,
-  fetchTrace,
+  fetchOrganizationMembers,
+  fetchInvitations,
+  createInvitation,
+  revokeInvitation,
+  updateMemberRole,
+  removeMember,
+  fetchInvitationPreview,
+  acceptInvitation,
   createContact,
   updateContactStage,
   assignContactOwner,
   updateContactNotes,
   updateContactFields,
+  deleteContact,
   analyzeContactAI,
   confirmAIDraftSlot,
   fetchContactAIDrafts,
@@ -36,9 +44,13 @@ import {
   type UpdateContactFields,
   createBooking,
   updateBookingStatus,
+  rescheduleBooking,
   createTask,
+  createComment,
   updateTaskStatus,
   assignTaskUser,
+  updateTask,
+  deleteTask,
   runWorkflowNow,
   runWorkflowTest,
   retryWorkflowJob,
@@ -51,7 +63,10 @@ import {
   type UpdateWorkflowInput,
   type CreateContactInput,
   type CreateBookingInput,
+  type RescheduleBookingInput,
   type CreateTaskInput,
+  type CreateCommentInput,
+  type UpdateTaskInput,
   type RunWorkflowNowInput,
   type RunWorkflowTestInput,
 } from "./api-client";
@@ -227,21 +242,6 @@ export function useWorkflowJobs(
     queryFn: () => fetchWorkflowJobs(orgId, params),
     enabled: Boolean(orgId),
     staleTime: 20_000,
-  });
-}
-
-// ─── System Trace ─────────────────────────────────────────────────────────────
-
-export function useTrace(
-  orgId: string,
-  entityType: "contact" | "booking" | "task" | null,
-  entityId: string | null,
-) {
-  return useQuery({
-    queryKey: ["trace", orgId, entityType, entityId],
-    queryFn: () => fetchTrace(orgId, entityType!, entityId!),
-    enabled: Boolean(orgId && entityType && entityId),
-    staleTime: 10_000,
   });
 }
 
@@ -432,12 +432,43 @@ export function useCreateTask(orgId: string) {
   });
 }
 
+// Comments (polymorphic) — refresh the relevant entity's detail so the new
+// comment appears in its thread.
+export function useCreateComment(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateCommentInput) => createComment(orgId, input),
+    onSuccess: (_data, variables) => {
+      if (variables.entityType === "task")
+        void qc.invalidateQueries({ queryKey: ["tasks", "detail", orgId, variables.entityId] });
+      if (variables.entityType === "contact")
+        void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, variables.entityId] });
+      if (variables.entityType === "booking")
+        void qc.invalidateQueries({ queryKey: ["calendar", "booking", orgId, variables.entityId] });
+    },
+  });
+}
+
 export function useUpdateTaskStatus(orgId: string, taskId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (status: "todo" | "in_progress" | "blocked" | "completed") =>
       updateTaskStatus(orgId, taskId, status),
     onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["tasks", "list", orgId] });
+      void qc.invalidateQueries({ queryKey: ["tasks", "detail", orgId, taskId] });
+      void qc.invalidateQueries({ queryKey: ["dashboard", "summary", orgId] });
+    },
+  });
+}
+
+/** Status update keyed by task id — for the board, where any card can move columns. */
+export function useUpdateTaskStatusById(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskId, status }: { taskId: string; status: "todo" | "in_progress" | "blocked" | "completed" }) =>
+      updateTaskStatus(orgId, taskId, status),
+    onSuccess: (_data, { taskId }) => {
       void qc.invalidateQueries({ queryKey: ["tasks", "list", orgId] });
       void qc.invalidateQueries({ queryKey: ["tasks", "detail", orgId, taskId] });
       void qc.invalidateQueries({ queryKey: ["dashboard", "summary", orgId] });
@@ -453,6 +484,119 @@ export function useAssignTaskUser(orgId: string, taskId: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["tasks", "detail", orgId, taskId] });
       void qc.invalidateQueries({ queryKey: ["tasks", "list", orgId] });
+    },
+  });
+}
+
+export function useOrgMembers(orgId: string) {
+  return useQuery({
+    queryKey: ["organization", "members", orgId],
+    queryFn: () => fetchOrganizationMembers(orgId),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useInvitations(orgId: string) {
+  return useQuery({
+    queryKey: ["organization", "invitations", orgId],
+    queryFn: () => fetchInvitations(orgId),
+  });
+}
+
+export function useCreateInvitation(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { email: string; role: "admin" | "member" }) => createInvitation(orgId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["organization", "invitations", orgId] });
+    },
+  });
+}
+
+export function useRevokeInvitation(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (invitationId: string) => revokeInvitation(orgId, invitationId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["organization", "invitations", orgId] });
+    },
+  });
+}
+
+export function useUpdateMemberRole(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ profileId, role }: { profileId: string; role: "owner" | "admin" | "member" }) =>
+      updateMemberRole(orgId, profileId, role),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["organization", "members", orgId] });
+    },
+  });
+}
+
+export function useRemoveMember(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (profileId: string) => removeMember(orgId, profileId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["organization", "members", orgId] });
+    },
+  });
+}
+
+export function useInvitationPreview(token: string) {
+  return useQuery({
+    queryKey: ["invitation", token],
+    queryFn: () => fetchInvitationPreview(token),
+    retry: false,
+  });
+}
+
+export function useAcceptInvitation() {
+  return useMutation({
+    mutationFn: (token: string) => acceptInvitation(token),
+  });
+}
+
+export function useUpdateTask(orgId: string, taskId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateTaskInput) => updateTask(orgId, taskId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["tasks", "detail", orgId, taskId] });
+      void qc.invalidateQueries({ queryKey: ["tasks", "list", orgId] });
+    },
+  });
+}
+
+export function useDeleteTask(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: string) => deleteTask(orgId, taskId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["tasks", "list", orgId] });
+    },
+  });
+}
+
+export function useDeleteContact(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (contactId: string) => deleteContact(orgId, contactId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["crm", "contacts", orgId] });
+    },
+  });
+}
+
+export function useRescheduleBooking(orgId: string, bookingId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: RescheduleBookingInput) => rescheduleBooking(orgId, bookingId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["calendar", "view", orgId] });
+      void qc.invalidateQueries({ queryKey: ["calendar", "capacity", orgId] });
+      void qc.invalidateQueries({ queryKey: ["calendar", "booking", orgId, bookingId] });
     },
   });
 }
@@ -473,8 +617,8 @@ export function useRunWorkflowNow(orgId: string, workflowId: string) {
 export function useTriggerWorkflow(orgId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ workflowId, event }: { workflowId: string; event: RunWorkflowNowInput["event"] }) =>
-      runWorkflowNow(orgId, workflowId, { event }),
+    mutationFn: ({ workflowId, event, dryRun }: { workflowId: string; event?: RunWorkflowNowInput["event"]; dryRun?: boolean }) =>
+      runWorkflowNow(orgId, workflowId, { event, dryRun }),
     onSuccess: (_, { workflowId }) => {
       void qc.invalidateQueries({ queryKey: ["automations", "workflow", orgId, workflowId] });
       void qc.invalidateQueries({ queryKey: ["automations", "workflows", orgId] });

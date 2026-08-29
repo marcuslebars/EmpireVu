@@ -12,6 +12,7 @@ import { AppDiagnosticsPage } from "@/screens/AppDiagnosticsPage";
 import { OpsPage } from "@/screens/OpsPage";
 import PublicBookingPage from "@/screens/PublicBookingPage";
 import PublicQuotePage from "@/screens/PublicQuotePage";
+import AcceptInvitePage from "@/screens/AcceptInvitePage";
 import SignInPage from "./screens/SignInPage";
 import SignUpPage from "./screens/SignUpPage";
 import OAuthCallbackPage from "./screens/OAuthCallbackPage";
@@ -300,6 +301,8 @@ function AppRoutes() {
       <Route path="/book/:companyId" element={<PublicBookingPage />} />
       {/* Customer-facing quote. Public + unauthenticated: the token is the credential. */}
       <Route path="/q/:token" element={<PublicQuotePage />} />
+      {/* Team invitation. Public: the token is the credential; the page prompts sign-in if needed. */}
+      <Route path="/invite/:token" element={<AcceptInvitePage />} />
       <Route element={<AppLayout />}>
         <Route
           path="/"
