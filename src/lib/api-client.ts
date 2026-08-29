@@ -693,6 +693,61 @@ export function acceptInvitation(token: string): Promise<{ organizationId: strin
   return apiFetch(`/api/invitations/${token}/accept`, { method: "POST" });
 }
 
+// ─── Billing ─────────────────────────────────────────────────────────────────
+
+export type PurchasablePlan = "launch" | "operate" | "front_desk";
+
+export interface BillingState {
+  gating: Record<string, boolean>;
+  organization: {
+    id: string;
+    name: string;
+    plan: string;
+    subscription_status: string;
+    stripe_customer_id: string | null;
+    trial_ends_at: string | null;
+  };
+  subscription: {
+    current_period_end: string | null;
+    plan: string;
+    status: string;
+    stripe_subscription_id: string;
+  } | null;
+}
+
+export interface PlanPricing {
+  amountCents: number | null;
+  available: boolean;
+  currency: string | null;
+  features: Record<string, boolean>;
+  interval: string | null;
+  plan: PurchasablePlan;
+  priceId: string | null;
+  setupFeeCents: number | null;
+}
+
+export function fetchBilling(orgId: string): Promise<BillingState> {
+  return apiFetch(`/api/organizations/${orgId}/billing`);
+}
+
+export function fetchBillingPlans(orgId: string): Promise<PlanPricing[]> {
+  return apiFetch(`/api/organizations/${orgId}/billing/plans`);
+}
+
+export function createCheckout(orgId: string, plan: PurchasablePlan): Promise<{ sessionId: string; url: string }> {
+  return apiFetch(`/api/organizations/${orgId}/billing/checkout`, {
+    method: "POST",
+    body: JSON.stringify({ plan }),
+  });
+}
+
+export function createBillingPortal(orgId: string): Promise<{ url: string }> {
+  return apiFetch(`/api/organizations/${orgId}/billing/portal`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 export function updateContactNotes(
   orgId: string,
   contactId: string,

@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
 import { useOrg } from "@/lib/org-context";
 import { useCompanies, useUpsertVoiceProfile, useVoiceProfiles } from "@/lib/api-hooks";
+import { UpgradeNudge, useCanUseFeature } from "@/components/billing/UpgradeNudge";
 
 /** A ready-to-use outbound prompt. The owner can edit it, or start from scratch. */
 const STARTER_PROMPT = `# Identity
@@ -67,6 +68,7 @@ export function VoiceSettings() {
   const { data: companies, isLoading: companiesLoading } = useCompanies(organizationId);
   const { data: profiles } = useVoiceProfiles(organizationId);
   const upsert = useUpsertVoiceProfile(organizationId);
+  const canMarina = useCanUseFeature("marina_reception");
 
   const [companyId, setCompanyId] = useState("");
   const [agentId, setAgentId] = useState("");
@@ -150,6 +152,21 @@ export function VoiceSettings() {
     company_name: brandLabel.trim() || selectedCompany?.name || "your company",
     ...fromVarRows(vars),
   };
+
+  if (!canMarina) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Voice (Marina)</h2>
+          <p className="text-sm text-muted-foreground mt-1">Marina's AI voice reception isn't in your current plan.</p>
+        </div>
+        <UpgradeNudge
+          title="Marina voice reception isn't in your plan"
+          description="Upgrade to the Front Desk plan to have Marina answer and place calls for your team."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
