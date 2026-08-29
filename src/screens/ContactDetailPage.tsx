@@ -23,11 +23,12 @@ import {
   Loader2,
   Sparkles,
   FileText,
+  Trash2,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateComment, useCreateBooking, useUpdateContactNotes, useUpdateContactFields, useAnalyzeContactAI, useContactAIDrafts, useUpdateAIDraft, useSendAIDraft, useConfirmAIDraftSlot, useCallContact, useSyncContactCalls } from "@/lib/api-hooks";
+import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateComment, useCreateBooking, useUpdateContactNotes, useUpdateContactFields, useAssignContactOwner, useDeleteContact, useOrgMembers, useAnalyzeContactAI, useContactAIDrafts, useUpdateAIDraft, useSendAIDraft, useConfirmAIDraftSlot, useCallContact, useSyncContactCalls } from "@/lib/api-hooks";
 import { toast } from "@/components/ui/sonner";
 import { Modal } from "@/components/ui/Modal";
 import { LoadingCards, ErrorBanner, EmptyState, SkeletonStatCard } from "@/components/ui/StateViews";
@@ -917,6 +918,11 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
 
   const { contact, financialSummary, linkedBookings, linkedTasks, linkedQuotes, nextAction, timeline, workflowTraces } = detail;
 
+  const assignOwner = useAssignContactOwner(orgId, contact.id);
+  const deleteContact = useDeleteContact(orgId);
+  const { data: members } = useOrgMembers(orgId);
+  const [menuOpen, setMenuOpen] = useState(false);
+
   // A placed call carries `agentCallId`; its outcome event adds `callStatus`.
   // Anything placed without a matching outcome is still unresolved.
   const syncCalls = useSyncContactCalls(orgId, contact.id);
@@ -1042,9 +1048,47 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
                 <Edit3 className="w-3 h-3" />
                 Edit
               </button>
-              <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground">
-                <MoreHorizontal className="w-4 h-4" />
-              </button>
+              <div className="relative">
+                <button
+                  onClick={() => setMenuOpen((v) => !v)}
+                  className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+                {menuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                    <div className="absolute top-full right-0 mt-1 w-56 bg-popover border border-border rounded-lg shadow-xl z-50 p-2 animate-scale-in">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-1 pb-1">Owner</p>
+                      <select
+                        value={contact.owner?.id ?? ""}
+                        onChange={(e) => { if (e.target.value) assignOwner.mutate(e.target.value); }}
+                        disabled={assignOwner.isPending}
+                        className="w-full bg-secondary border border-border rounded-lg px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 mb-2 disabled:opacity-50"
+                      >
+                        <option value="" disabled>Unassigned</option>
+                        {(members ?? []).map((m) => (
+                          <option key={m.id} value={m.id}>{m.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          if (window.confirm(`Delete ${contact.name}? Linked bookings and tasks will be unlinked. This can't be undone.`)) {
+                            deleteContact.mutate(contact.id, {
+                              onSuccess: () => { toast.success("Contact deleted"); navigate("/crm"); },
+                              onError: () => toast.error("Failed to delete contact."),
+                            });
+                          }
+                        }}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Delete contact
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 

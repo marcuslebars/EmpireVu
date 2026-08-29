@@ -620,6 +620,22 @@ export function assignContactOwner(
   });
 }
 
+export interface OrganizationMemberSummary {
+  email: string;
+  id: string;
+  name: string;
+  role: string;
+}
+
+/** Team members of the organization — used to populate assignee/owner pickers. */
+export function fetchOrganizationMembers(orgId: string): Promise<OrganizationMemberSummary[]> {
+  return apiFetch(`/api/organizations/${orgId}/members`);
+}
+
+export function deleteContact(orgId: string, contactId: string): Promise<{ id: string }> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}`, { method: "DELETE" });
+}
+
 export function updateContactNotes(
   orgId: string,
   contactId: string,
@@ -816,6 +832,22 @@ export function updateBookingStatus(
   });
 }
 
+export interface RescheduleBookingInput {
+  scheduledFor: string;
+  durationMinutes?: number;
+}
+
+export function rescheduleBooking(
+  orgId: string,
+  bookingId: string,
+  input: RescheduleBookingInput,
+): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/bookings/${bookingId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
 // Task mutations
 
 export interface CreateTaskInput {
@@ -858,6 +890,24 @@ export function assignTaskUser(
     method: "PATCH",
     body: JSON.stringify({ action: "assignUser", assignedToProfileId }),
   });
+}
+
+export interface UpdateTaskInput {
+  title?: string;
+  description?: string | null;
+  priority?: "low" | "medium" | "high" | "urgent";
+  dueAt?: string | null;
+}
+
+export function updateTask(orgId: string, taskId: string, input: UpdateTaskInput): Promise<unknown> {
+  return apiFetch(`/api/organizations/${orgId}/tasks/${taskId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "updateTask", ...input }),
+  });
+}
+
+export function deleteTask(orgId: string, taskId: string): Promise<{ id: string }> {
+  return apiFetch(`/api/organizations/${orgId}/tasks/${taskId}`, { method: "DELETE" });
 }
 
 // Workflow action mutations

@@ -16,6 +16,8 @@ import {
   Send,
   X,
   ArrowUpRight,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -26,6 +28,10 @@ import {
   useCreateTask,
   useCreateComment,
   useUpdateTaskStatus,
+  useAssignTaskUser,
+  useUpdateTask,
+  useDeleteTask,
+  useOrgMembers,
   useCompanies,
 } from "@/lib/api-hooks";
 import { SkeletonRow, ErrorBanner, EmptyState } from "@/components/ui/StateViews";
@@ -221,6 +227,127 @@ function CreateTaskDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ─── Edit Task Dialog ─────────────────────────────────────────────────────────
+
+function EditTaskDialog({
+  task,
+  orgId,
+  onClose,
+}: {
+  task: TaskDetailResponse["task"];
+  orgId: string;
+  onClose: () => void;
+}) {
+  const updateTask = useUpdateTask(orgId, task.id);
+
+  const [title, setTitle] = useState(task.title);
+  const [description, setDescription] = useState(task.description ?? "");
+  const [priority, setPriority] = useState<"low" | "medium" | "high" | "urgent">(
+    task.priority as "low" | "medium" | "high" | "urgent",
+  );
+  const [dueAt, setDueAt] = useState(task.dueAt ? task.dueAt.slice(0, 10) : "");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    try {
+      await updateTask.mutateAsync({
+        title: title.trim(),
+        description: description.trim() || null,
+        priority,
+        dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+      });
+      toast.success("Task updated");
+      onClose();
+    } catch {
+      toast.error("Failed to update task. Please try again.");
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} size="lg">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Edit Task</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Update task details</p>
+        </div>
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <div>
+          <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Title <span className="text-destructive">*</span></label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+            className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Priority</label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as typeof priority)}
+              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Due Date</label>
+            <input
+              type="date"
+              value={dueAt}
+              onChange={(e) => setDueAt(e.target.value)}
+              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Description</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+          />
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={updateTask.isPending || !title.trim()}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[hsl(var(--accent-blue))] text-white hover:bg-[hsl(var(--accent-blue))]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]"
+          >
+            {updateTask.isPending ? (
+              <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>
+            ) : (
+              "Save Changes"
+            )}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 // ─── Status Quick-Update Dropdown ─────────────────────────────────────────────
 
 type TaskStatus = "todo" | "in_progress" | "blocked" | "completed";
@@ -343,6 +470,10 @@ function TaskDetailBody({
   const { organizationId } = useOrg();
   const createComment = useCreateComment(organizationId);
   const [commentBody, setCommentBody] = useState("");
+  const assignTask = useAssignTaskUser(organizationId, detail?.task.id ?? "");
+  const { data: members } = useOrgMembers(organizationId);
+  const deleteTask = useDeleteTask(organizationId);
+  const [isEditing, setIsEditing] = useState(false);
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -360,13 +491,33 @@ function TaskDetailBody({
   if (!detail) return null;
   return (
     <div className="flex-1 flex flex-col min-h-0">
+      {isEditing && (
+        <EditTaskDialog task={detail.task} orgId={organizationId} onClose={() => setIsEditing(false)} />
+      )}
       {/* Detail Header */}
       <div className="p-5 border-b border-border bg-secondary/10">
         <div className="flex items-start justify-between gap-2 mb-3">
           <h3 className="text-base font-bold text-foreground leading-tight">{detail.task.title}</h3>
-          <button onClick={onClose} className="p-1 hover:bg-secondary rounded-md transition-colors">
-            <X className="w-4 h-4 text-muted-foreground" />
-          </button>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button onClick={() => setIsEditing(true)} title="Edit task" className="p-1 hover:bg-secondary rounded-md transition-colors">
+              <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+            </button>
+            <button
+              onClick={() => {
+                if (window.confirm("Delete this task? This can't be undone.")) {
+                  deleteTask.mutate(detail.task.id, { onSuccess: onClose });
+                }
+              }}
+              disabled={deleteTask.isPending}
+              title="Delete task"
+              className="p-1 hover:bg-destructive/10 rounded-md transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
+            </button>
+            <button onClick={onClose} className="p-1 hover:bg-secondary rounded-md transition-colors">
+              <X className="w-4 h-4 text-muted-foreground" />
+            </button>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5", statusStyle[detail.task.status], "bg-background border border-border")}>
@@ -393,12 +544,17 @@ function TaskDetailBody({
           </div>
           <div className="space-y-1">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Assigned To</p>
-            <div className="flex items-center gap-1.5">
-              <div className="w-4 h-4 rounded-full bg-primary/10 flex items-center justify-center text-[8px] font-bold text-primary">
-                {detail.task.assignee?.initials || "—"}
-              </div>
-              <span className="text-xs font-medium text-foreground">{detail.task.assignee?.name || "Unassigned"}</span>
-            </div>
+            <select
+              value={detail.task.assignee?.id ?? ""}
+              onChange={(e) => { if (e.target.value) assignTask.mutate(e.target.value); }}
+              disabled={assignTask.isPending}
+              className="w-full bg-card border border-border rounded-lg px-2 py-1.5 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-50"
+            >
+              <option value="" disabled>Unassigned</option>
+              {(members ?? []).map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
           </div>
           <div className="space-y-1">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Created</p>

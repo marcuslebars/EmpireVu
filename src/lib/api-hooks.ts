@@ -19,11 +19,13 @@ import {
   fetchWorkflowDetail,
   fetchWorkflowJobs,
   fetchTrace,
+  fetchOrganizationMembers,
   createContact,
   updateContactStage,
   assignContactOwner,
   updateContactNotes,
   updateContactFields,
+  deleteContact,
   analyzeContactAI,
   confirmAIDraftSlot,
   fetchContactAIDrafts,
@@ -36,10 +38,13 @@ import {
   type UpdateContactFields,
   createBooking,
   updateBookingStatus,
+  rescheduleBooking,
   createTask,
   createComment,
   updateTaskStatus,
   assignTaskUser,
+  updateTask,
+  deleteTask,
   runWorkflowNow,
   runWorkflowTest,
   retryWorkflowJob,
@@ -52,8 +57,10 @@ import {
   type UpdateWorkflowInput,
   type CreateContactInput,
   type CreateBookingInput,
+  type RescheduleBookingInput,
   type CreateTaskInput,
   type CreateCommentInput,
+  type UpdateTaskInput,
   type RunWorkflowNowInput,
   type RunWorkflowTestInput,
 } from "./api-client";
@@ -472,6 +479,57 @@ export function useAssignTaskUser(orgId: string, taskId: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["tasks", "detail", orgId, taskId] });
       void qc.invalidateQueries({ queryKey: ["tasks", "list", orgId] });
+    },
+  });
+}
+
+export function useOrgMembers(orgId: string) {
+  return useQuery({
+    queryKey: ["organization", "members", orgId],
+    queryFn: () => fetchOrganizationMembers(orgId),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useUpdateTask(orgId: string, taskId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateTaskInput) => updateTask(orgId, taskId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["tasks", "detail", orgId, taskId] });
+      void qc.invalidateQueries({ queryKey: ["tasks", "list", orgId] });
+    },
+  });
+}
+
+export function useDeleteTask(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: string) => deleteTask(orgId, taskId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["tasks", "list", orgId] });
+    },
+  });
+}
+
+export function useDeleteContact(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (contactId: string) => deleteContact(orgId, contactId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["crm", "contacts", orgId] });
+    },
+  });
+}
+
+export function useRescheduleBooking(orgId: string, bookingId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: RescheduleBookingInput) => rescheduleBooking(orgId, bookingId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["calendar", "view", orgId] });
+      void qc.invalidateQueries({ queryKey: ["calendar", "capacity", orgId] });
+      void qc.invalidateQueries({ queryKey: ["calendar", "booking", orgId, bookingId] });
     },
   });
 }

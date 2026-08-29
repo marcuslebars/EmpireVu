@@ -39,6 +39,7 @@ import {
   useCreateBooking,
   useCreateComment,
   useUpdateBookingStatus,
+  useRescheduleBooking,
   useCompanies,
 } from "@/lib/api-hooks";
 import { SkeletonCard, ErrorBanner, EmptyState, LoadingCards } from "@/components/ui/StateViews";
@@ -142,6 +143,13 @@ function getDayIndex(scheduledFor: string, weekStart: Date): number {
   return diff;
 }
 
+// datetime-local wants "YYYY-MM-DDTHH:mm" in local time (no zone); convert from an ISO string.
+function toLocalDatetimeInput(iso: string): string {
+  const d = parseISO(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 /* ── Booking detail body (shared by desktop rail + mobile sheet) ── */
 function BookingDetailBody({
   detailData,
@@ -160,6 +168,10 @@ function BookingDetailBody({
   const { organizationId } = useOrg();
   const createComment = useCreateComment(organizationId);
   const [commentBody, setCommentBody] = useState("");
+  const reschedule = useRescheduleBooking(organizationId, detailData?.booking.id ?? "");
+  const [isRescheduling, setIsRescheduling] = useState(false);
+  const [newWhen, setNewWhen] = useState("");
+  const [newDuration, setNewDuration] = useState(60);
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -200,6 +212,69 @@ function BookingDetailBody({
           />
           <DetailRow icon={CalendarDays} label="Date" value={format(parseISO(detailData.booking.scheduledFor), "MMM d, yyyy")} />
           <DetailRow icon={Clock} label="Time" value={format(parseISO(detailData.booking.scheduledFor), "h:mm a")} />
+        </div>
+
+        {/* Reschedule */}
+        <div>
+          {isRescheduling ? (
+            <div className="space-y-3 p-3 rounded-lg bg-secondary/30 border border-border/50">
+              <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <RotateCcw className="w-3 h-3" /> Reschedule
+              </h4>
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Date &amp; Time</label>
+                <input
+                  type="datetime-local"
+                  value={newWhen}
+                  onChange={(e) => setNewWhen(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-card border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Duration (minutes)</label>
+                <input
+                  type="number"
+                  min={15}
+                  step={15}
+                  value={newDuration}
+                  onChange={(e) => setNewDuration(Number(e.target.value))}
+                  className="w-full px-3 py-2 text-xs bg-card border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsRescheduling(false)}
+                  className="flex-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (!newWhen) return;
+                    reschedule.mutate(
+                      { scheduledFor: new Date(newWhen).toISOString(), durationMinutes: newDuration },
+                      { onSuccess: () => setIsRescheduling(false) },
+                    );
+                  }}
+                  disabled={reschedule.isPending || !newWhen}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {reschedule.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => {
+                setNewWhen(toLocalDatetimeInput(detailData.booking.scheduledFor));
+                setNewDuration(detailData.booking.durationMinutes);
+                setIsRescheduling(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
+            >
+              <RotateCcw className="w-3 h-3" /> Reschedule
+            </button>
+          )}
         </div>
 
         {/* Description */}

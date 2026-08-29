@@ -44,6 +44,22 @@ export const assignTaskUserInputSchema = z.object({
 
 export type AssignTaskUserInput = z.infer<typeof assignTaskUserInputSchema>;
 
+export const updateTaskInputSchema = z.object({
+  description: z.string().max(3000).nullable().optional(),
+  dueAt: z.union([z.string().datetime(), z.date()]).nullable().optional(),
+  priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+  taskId: z.string().uuid(),
+  title: z.string().min(1).max(200).optional(),
+});
+
+export type UpdateTaskInput = z.infer<typeof updateTaskInputSchema>;
+
+export const deleteTaskInputSchema = z.object({
+  taskId: z.string().uuid(),
+});
+
+export type DeleteTaskInput = z.infer<typeof deleteTaskInputSchema>;
+
 interface TaskMutationOptions {
   dispatchWorkflow?: boolean;
 }
@@ -267,4 +283,83 @@ export async function assignTaskUser(
   });
 
   return updated;
+}
+
+export async function updateTask(
+  context: TenantServiceContext,
+  input: UpdateTaskInput,
+): Promise<Tables<"tasks">> {
+  await getTaskById(context, input.taskId);
+
+  const patch: Record<string, unknown> = {};
+  if (input.title !== undefined) patch.title = input.title;
+  if (input.description !== undefined) patch.description = input.description;
+  if (input.priority !== undefined) patch.priority = input.priority;
+  if (input.dueAt !== undefined) patch.due_at = input.dueAt ? toIsoDate(input.dueAt) : null;
+
+  if (Object.keys(patch).length === 0) {
+    return getTaskById(context, input.taskId);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (context.supabase.from("tasks") as any)
+    .update(patch)
+    .eq("organization_id", context.organizationId)
+    .eq("id", input.taskId)
+    .select("*")
+    .single();
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  const updated = data as Tables<"tasks">;
+
+  await createActivityEvent(context, {
+    companyId: updated.company_id,
+    entityId: updated.id,
+    entityType: "task",
+    eventType: "task.updated",
+    metadata: {
+      fields: Object.keys(patch),
+      taskId: updated.id,
+    },
+    relatedEntityId: updated.contact_id ?? updated.booking_id,
+    relatedEntityType: updated.contact_id ? "contact" : updated.booking_id ? "booking" : null,
+  });
+
+  return updated;
+}
+
+export async function deleteTask(
+  context: TenantServiceContext,
+  input: DeleteTaskInput,
+): Promise<{ id: string }> {
+  const existing = await getTaskById(context, input.taskId);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (context.supabase.from("tasks") as any)
+    .delete()
+    .eq("organization_id", context.organizationId)
+    .eq("id", input.taskId);
+
+  if (error) {
+    throw error;
+  }
+
+  await createActivityEvent(context, {
+    companyId: existing.company_id,
+    entityId: existing.id,
+    entityType: "task",
+    eventType: "task.deleted",
+    metadata: {
+      taskId: existing.id,
+      title: existing.title,
+    },
+    relatedEntityId: existing.contact_id ?? existing.booking_id,
+    relatedEntityType: existing.contact_id ? "contact" : existing.booking_id ? "booking" : null,
+  });
+
+  return { id: existing.id };
 }

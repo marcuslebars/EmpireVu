@@ -55,6 +55,12 @@ export const updateContactFieldsInputSchema = z.object({
 
 export type UpdateContactFieldsInput = z.infer<typeof updateContactFieldsInputSchema>;
 
+export const deleteContactInputSchema = z.object({
+  contactId: z.string().uuid(),
+});
+
+export type DeleteContactInput = z.infer<typeof deleteContactInputSchema>;
+
 interface ContactMutationOptions {
   dispatchWorkflow?: boolean;
 }
@@ -268,6 +274,37 @@ export async function updateContactNotes(
   }
 
   return data as Tables<"contacts">;
+}
+
+export async function deleteContact(
+  context: TenantServiceContext,
+  input: DeleteContactInput,
+): Promise<{ id: string }> {
+  const existing = await getContactById(context, input.contactId);
+
+  // Logged before the row is removed so the ledger entry references a live contact.
+  // Linked bookings/tasks/quotes are unlinked (on delete set null); AI drafts cascade.
+  await createActivityEvent(context, {
+    companyId: existing.company_id,
+    entityId: existing.id,
+    entityType: "contact",
+    eventType: "contact.deleted",
+    metadata: {
+      contactId: existing.id,
+    },
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (context.supabase.from("contacts") as any)
+    .delete()
+    .eq("organization_id", context.organizationId)
+    .eq("id", input.contactId);
+
+  if (error) {
+    throw error;
+  }
+
+  return { id: existing.id };
 }
 
 export async function updateContactFields(
