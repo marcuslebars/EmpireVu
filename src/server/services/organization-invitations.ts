@@ -145,6 +145,9 @@ export async function createInvitation(
     await sendEmail({
       to: email,
       subject: "You've been invited to join a team on EmpireVu",
+      // Brand the From display name as EmpireVu even though the address is the shared,
+      // Resend-verified OUTBOUND_FROM_EMAIL (which may sit on a tenant domain).
+      fromName: "EmpireVu",
       body: `You've been invited to join a team on EmpireVu as ${input.role}.\n\nAccept your invitation:\n${inviteUrl}\n\nThis link expires in 7 days.`,
     });
     emailSent = true;
