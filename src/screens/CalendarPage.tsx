@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft,
   ChevronRight,
@@ -27,6 +28,7 @@ import {
   ShieldAlert,
   ChevronRight as ChevronRightIcon,
   Loader2,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
@@ -35,7 +37,9 @@ import {
   useCalendarCapacity,
   useBookingDetail,
   useCreateBooking,
+  useCreateComment,
   useUpdateBookingStatus,
+  useRescheduleBooking,
   useCompanies,
 } from "@/lib/api-hooks";
 import { SkeletonCard, ErrorBanner, EmptyState, LoadingCards } from "@/components/ui/StateViews";
@@ -101,16 +105,24 @@ const capacityBarColor: Record<string, string> = {
   overloaded: "bg-destructive",
 };
 
-function DetailRow({ icon: Icon, label, value, highlight }: { icon: React.ElementType; label: string; value: string; highlight?: boolean }) {
-  return (
-    <div className="flex items-start gap-2.5">
+function DetailRow({ icon: Icon, label, value, highlight, onClick }: { icon: React.ElementType; label: string; value: string; highlight?: boolean; onClick?: () => void }) {
+  const inner = (
+    <>
       <Icon className={cn("w-3.5 h-3.5 mt-0.5 shrink-0", highlight ? "text-primary" : "text-muted-foreground")} />
       <div>
         <p className="text-[10px] text-muted-foreground">{label}</p>
-        <p className={cn("text-xs font-medium", highlight ? "text-primary" : "text-foreground")}>{value}</p>
+        <p className={cn("text-xs font-medium", highlight ? "text-primary" : "text-foreground", onClick && "hover:underline")}>{value}</p>
       </div>
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className="flex items-start gap-2.5 text-left transition-opacity hover:opacity-90">
+        {inner}
+      </button>
+    );
+  }
+  return <div className="flex items-start gap-2.5">{inner}</div>;
 }
 
 /* ── Booking position helpers ── */
@@ -131,6 +143,13 @@ function getDayIndex(scheduledFor: string, weekStart: Date): number {
   return diff;
 }
 
+// datetime-local wants "YYYY-MM-DDTHH:mm" in local time (no zone); convert from an ISO string.
+function toLocalDatetimeInput(iso: string): string {
+  const d = parseISO(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 /* ── Booking detail body (shared by desktop rail + mobile sheet) ── */
 function BookingDetailBody({
   detailData,
@@ -145,6 +164,14 @@ function BookingDetailBody({
   onStatusUpdate: (status: string) => void;
   statusPending: boolean;
 }) {
+  const navigate = useNavigate();
+  const { organizationId } = useOrg();
+  const createComment = useCreateComment(organizationId);
+  const [commentBody, setCommentBody] = useState("");
+  const reschedule = useRescheduleBooking(organizationId, detailData?.booking.id ?? "");
+  const [isRescheduling, setIsRescheduling] = useState(false);
+  const [newWhen, setNewWhen] = useState("");
+  const [newDuration, setNewDuration] = useState(60);
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -177,9 +204,77 @@ function BookingDetailBody({
         {/* Primary Info */}
         <div className="grid grid-cols-2 gap-y-4 gap-x-2">
           <DetailRow icon={Briefcase} label="Company" value={detailData.booking.company?.name || "None"} highlight />
-          <DetailRow icon={Users} label="Contact" value={detailData.booking.contact?.name || "None"} />
+          <DetailRow
+            icon={Users}
+            label="Contact"
+            value={detailData.booking.contact?.name || "None"}
+            onClick={detailData.booking.contact?.id ? () => navigate(`/crm/${detailData.booking.contact!.id}`) : undefined}
+          />
           <DetailRow icon={CalendarDays} label="Date" value={format(parseISO(detailData.booking.scheduledFor), "MMM d, yyyy")} />
           <DetailRow icon={Clock} label="Time" value={format(parseISO(detailData.booking.scheduledFor), "h:mm a")} />
+        </div>
+
+        {/* Reschedule */}
+        <div>
+          {isRescheduling ? (
+            <div className="space-y-3 p-3 rounded-lg bg-secondary/30 border border-border/50">
+              <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <RotateCcw className="w-3 h-3" /> Reschedule
+              </h4>
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Date &amp; Time</label>
+                <input
+                  type="datetime-local"
+                  value={newWhen}
+                  onChange={(e) => setNewWhen(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-card border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Duration (minutes)</label>
+                <input
+                  type="number"
+                  min={15}
+                  step={15}
+                  value={newDuration}
+                  onChange={(e) => setNewDuration(Number(e.target.value))}
+                  className="w-full px-3 py-2 text-xs bg-card border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsRescheduling(false)}
+                  className="flex-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (!newWhen) return;
+                    reschedule.mutate(
+                      { scheduledFor: new Date(newWhen).toISOString(), durationMinutes: newDuration },
+                      { onSuccess: () => setIsRescheduling(false) },
+                    );
+                  }}
+                  disabled={reschedule.isPending || !newWhen}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {reschedule.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => {
+                setNewWhen(toLocalDatetimeInput(detailData.booking.scheduledFor));
+                setNewDuration(detailData.booking.durationMinutes);
+                setIsRescheduling(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
+            >
+              <RotateCcw className="w-3 h-3" /> Reschedule
+            </button>
+          )}
         </div>
 
         {/* Description */}
@@ -227,7 +322,7 @@ function BookingDetailBody({
             </h4>
             <div className="space-y-2">
               {detailData.tasks.map((t) => (
-                <div key={t.id} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer group border border-transparent hover:border-border">
+                <div key={t.id} onClick={() => navigate(`/tasks?task=${t.id}`)} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer group border border-transparent hover:border-border">
                   <Circle className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                   <span className="text-xs text-foreground/80 group-hover:text-foreground transition-colors truncate flex-1">{t.title}</span>
                   <ArrowRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -236,6 +331,61 @@ function BookingDetailBody({
             </div>
           </div>
         )}
+
+        {/* Comments */}
+        <div className="space-y-3">
+          <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <MessageSquare className="w-3 h-3" />
+            Comments{detailData.comments.length > 0 ? ` (${detailData.comments.length})` : ""}
+          </h4>
+          {detailData.comments.length === 0 ? (
+            <p className="text-[10px] text-muted-foreground italic">No comments yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {detailData.comments.map((c) => (
+                <div key={c.id} className="flex gap-2.5">
+                  <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[9px] font-bold text-primary shrink-0 mt-0.5">
+                    {(c.author?.name ?? "?").charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-foreground">{c.author?.name ?? "Unknown"}</span>
+                      <span className="text-[10px] text-muted-foreground">{relativeTime(c.createdAt)}</span>
+                    </div>
+                    <p className="text-xs text-foreground/80 whitespace-pre-wrap mt-0.5">{c.body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <form
+            className="relative"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const body = commentBody.trim();
+              if (!body || createComment.isPending) return;
+              createComment.mutate(
+                { entityType: "booking", entityId: detailData.booking.id, body },
+                { onSuccess: () => setCommentBody("") },
+              );
+            }}
+          >
+            <input
+              type="text"
+              value={commentBody}
+              onChange={(e) => setCommentBody(e.target.value)}
+              placeholder="Add a comment..."
+              className="w-full bg-card border border-border rounded-xl pl-4 pr-16 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+            />
+            <button
+              type="submit"
+              disabled={!commentBody.trim() || createComment.isPending}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-lg text-[10px] font-bold text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
+            >
+              {createComment.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Post"}
+            </button>
+          </form>
+        </div>
       </div>
 
       {/* Actions */}
@@ -439,6 +589,26 @@ export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep link from other work areas: /calendar?booking=:id opens that booking.
+  useEffect(() => {
+    const bookingId = searchParams.get("booking");
+    if (!bookingId) return;
+    setSelectedBookingId(bookingId);
+    const next = new URLSearchParams(searchParams);
+    next.delete("booking");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  // Quick Add deep link: /calendar?new=booking opens the create dialog.
+  useEffect(() => {
+    if (searchParams.get("new") !== "booking") return;
+    setIsCreateOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("new");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const { rangeStart, rangeEnd, gridDays, headerLabel } = useMemo(() => {
     if (view === "Day") {

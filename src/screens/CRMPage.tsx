@@ -373,7 +373,9 @@ export default function CRMPage() {
   const navigate = useNavigate();
   const { organizationId, companyId } = useOrg();
   const [view, setView] = useState<"kanban" | "list">("kanban");
+  const [dragOverStage, setDragOverStage] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCompanyOpen, setIsCompanyOpen] = useState(false);
   const [callContact, setCallContact] = useState<CRMContactRow | null>(null);
@@ -390,10 +392,15 @@ export default function CRMPage() {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  // Reset to the first page when the search or active company changes.
+  useEffect(() => { setPage(1); }, [search, companyId]);
+
   const params = useMemo(() => ({
     companyId: companyId || undefined,
     search: search || undefined,
-  }), [companyId, search]);
+    page,
+    pageSize: 50,
+  }), [companyId, search, page]);
 
   const { data: contacts, isLoading, isError, refetch } = useCRMContacts(organizationId, params);
   const updateStage = useUpdateContactStage(organizationId);
@@ -520,7 +527,24 @@ export default function CRMPage() {
                 </div>
               </div>
 
-              <div className="flex-1 bg-secondary/20 rounded-xl p-2 border border-dashed border-border/50 space-y-3">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  if (dragOverStage !== stage) setDragOverStage(stage);
+                }}
+                onDragLeave={() => setDragOverStage((current) => (current === stage ? null : current))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const id = e.dataTransfer.getData("text/plain");
+                  setDragOverStage(null);
+                  if (id) handleStageChange(id, stage);
+                }}
+                className={cn(
+                  "flex-1 rounded-xl p-2 border border-dashed space-y-3 transition-colors",
+                  dragOverStage === stage ? "bg-primary/5 border-primary/50" : "bg-secondary/20 border-border/50",
+                )}
+              >
                 {kanbanColumns[stage].map((contact) => (
                   <ContactCard
                     key={contact.id}
@@ -627,6 +651,30 @@ export default function CRMPage() {
         </div>
       )}
 
+      {contacts?.rows?.pagination && contacts.rows.pagination.totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4 shrink-0">
+          <p className="text-xs text-muted-foreground">
+            Page {contacts.rows.pagination.page} of {contacts.rows.pagination.totalPages} · {contacts.rows.pagination.total} contacts
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={contacts.rows.pagination.page <= 1}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 disabled:opacity-40 transition-colors"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={contacts.rows.pagination.page >= contacts.rows.pagination.totalPages}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 disabled:opacity-40 transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+
       {isCreateOpen && <CreateContactDialog onClose={() => setIsCreateOpen(false)} />}
       {isCompanyOpen && <NewCompanyDialog onClose={() => setIsCompanyOpen(false)} />}
       {callContact && (
@@ -655,8 +703,13 @@ function ContactCard({
 }) {
   return (
     <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", contact.id);
+        e.dataTransfer.effectAllowed = "move";
+      }}
       onClick={onClick}
-      className="bg-card border border-border rounded-xl p-3 shadow-sm hover:shadow-md hover:border-primary/30 transition-all cursor-pointer group relative"
+      className="bg-card border border-border rounded-xl p-3 shadow-sm hover:shadow-md hover:border-primary/30 transition-all cursor-grab active:cursor-grabbing group relative"
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2.5">

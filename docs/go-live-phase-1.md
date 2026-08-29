@@ -65,24 +65,37 @@ Legend: ✅ required · ➕ recommended · ○ optional · — not needed.
 - [ ] Leave the **workflow worker unchanged** (no billing env).
 - [ ] Deploy (merge to `main` triggers the web auto-deploy).
 
-### 3b. Custom domain — hub.tilotto.com
-The app is served by the Railway **web** service; a subdomain points at that
-running service, **not** at the GitHub repo.
+### 3b. Custom domains — empirevu.com + api.empirevu.com
+The app is served by the Railway **web** service; subdomains point at that running
+service, **not** at the GitHub repo. Railway accepts multiple custom domains on one
+service, so both hosts below can point at the same deployment.
+
+| Host | Serves |
+|---|---|
+| `empirevu.com` | the EmpireVu hub app (sign-in, CRM, quotes admin) |
+| `api.empirevu.com` | inbound webhooks and customer-facing public pages (`/q/{token}`) |
+
 - [ ] Railway → the **web** service → **Settings → Networking → Custom Domain** →
-      add `hub.tilotto.com`; copy the CNAME target Railway shows (e.g.
-      `xxxx.up.railway.app`).
-- [ ] At the `tilotto.com` DNS provider, add `CNAME  hub → <that Railway target>`.
-      Railway auto-provisions TLS; it resolves in minutes–~1h.
-- [ ] Set **`APP_BASE_URL=https://hub.tilotto.com`** on the web service — it builds
+      add `empirevu.com`, then add `api.empirevu.com`; copy each CNAME target
+      Railway shows (e.g. `xxxx.up.railway.app`).
+- [ ] At the `empirevu.com` DNS provider add both records Railway asks for (an
+      apex ALIAS/ANAME or the A records Railway lists for the root, plus
+      `CNAME  api → <that Railway target>`). Railway auto-provisions TLS; it
+      resolves in minutes–~1h.
+- [ ] Set **`APP_BASE_URL=https://empirevu.com`** on the web service — it builds
       the Stripe Checkout/Portal return URLs (and self-booking links), so it must
       match the real host.
-- [ ] The Tilotto site's "Hub" nav link (repo `tilotto-v2`) already points here; no
-      app code change is needed (the app serves any host).
-- [ ] **Verify:** `nslookup hub.tilotto.com` resolves to the Railway target (a
-      `*.up.railway.app`, and **not** `mj0wne3m.up.railway.app` — that's the
-      marketing site), and `https://hub.tilotto.com` loads the Tilotto Hub app with
-      a valid certificate. Until DNS is created, the lookup returns "Non-existent
-      domain".
+- [ ] Set **`QUOTE_PUBLIC_BASE_URL=https://api.empirevu.com`** on the web service
+      if customer-facing quote links should live on the api host. Omit it to serve
+      quote links from `APP_BASE_URL` instead. Whatever this is, it must be the
+      host a customer can actually reach: Stripe redirects back to it after
+      payment, and a mismatch strands the customer on a dead URL holding a charged
+      card.
+- [ ] **Verify:** `nslookup empirevu.com` and `nslookup api.empirevu.com` both
+      resolve to the Railway target (a `*.up.railway.app`, and **not**
+      `mj0wne3m.up.railway.app` — that's the marketing site), and
+      `https://empirevu.com` loads the EmpireVu app with a valid certificate.
+      Until DNS is created, the lookup returns "Non-existent domain".
 
 ### 4. Verify end-to-end (exit criteria)
 Against a **non-`internal`** test org, authed as a member:

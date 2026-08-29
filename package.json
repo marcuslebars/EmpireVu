@@ -19,10 +19,11 @@
     "worker:workflow-events": "tsx src/server/workers/workflow-event-worker.ts",
     "worker:billing-events": "tsx src/server/workers/billing-event-worker.ts",
     "worker:jobber-sync": "tsx src/server/workers/jobber-sync-worker.ts",
-    "job:billing-reconcile": "tsx src/server/jobs/billing-reconcile.ts"
+    "job:billing-reconcile": "tsx src/server/jobs/billing-reconcile.ts",
+    "job:quote-maintenance": "tsx src/server/jobs/quote-maintenance.ts"
   },
   "dependencies": {
-    "@a1/pricing-engine": "github:marcuslebars/a1-pricing-engine#v1.3.0",
+    "@a1/pricing-engine": "git+https://github.com/marcuslebars/a1-pricing-engine.git#v1.3.0",
     "@anthropic-ai/sdk": "^0.111.0",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "^1.2.11",

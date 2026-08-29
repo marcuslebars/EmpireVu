@@ -7,6 +7,8 @@ import {
   listWorkflowEventJobs,
 } from "@/server/services/workflow-event-jobs";
 import { getContactTrace, getBookingTrace, getTaskTrace } from "@/server/services/traces";
+import { getQuotesConfig } from "@/server/services/quotes/config";
+import { listQuotes } from "@/server/services/quotes/service";
 import {
   assertCompanyInOrganization,
   type TenantServiceContext,
@@ -171,6 +173,12 @@ export interface BookingDetailResponse {
     status: Tables<"bookings">["status"];
     title: string;
   };
+  comments: Array<{
+    author: ActorSummary | null;
+    body: string;
+    createdAt: string;
+    id: string;
+  }>;
   trace: TraceRecord[];
   triggeredWorkflowRuns: Array<{
     completedAt: string | null;
@@ -237,6 +245,12 @@ export interface ContactDetailResponse {
     phone: string | null;
     stage: Tables<"contacts">["stage"];
   };
+  comments: Array<{
+    author: ActorSummary | null;
+    body: string;
+    createdAt: string;
+    id: string;
+  }>;
   financialSummary: {
     pipelineValueCents: number | null;
     realizedRevenueCents: number;
@@ -244,6 +258,17 @@ export interface ContactDetailResponse {
   };
   linkedBookings: BookingCalendarRow[];
   linkedTasks: TaskListRow[];
+  linkedQuotes: Array<{
+    id: string;
+    quoteNumber: string | null;
+    status: string;
+    title: string | null;
+    totalCents: number;
+    depositCents: number;
+    currency: string;
+    publicToken: string;
+    createdAt: string;
+  }>;
   nextAction: NextActionSummary;
   timeline: TraceRecord[];
   workflowTraces: Array<{
@@ -1596,8 +1621,16 @@ export async function getBookingDetailView(
     .sort((left, right) => right.created_at.localeCompare(left.created_at));
   const workflowsMap = await loadWorkflowsMap(context, triggeredWorkflowRuns.map((run) => run.workflow_id));
   const contact = booking.contact_id ? contactsMap.get(booking.contact_id) ?? null : null;
+  const comments = await listComments(context, { entityId: booking.id, entityType: "booking" });
+  const commentProfilesMap = await loadProfilesMap(context, uniq(comments.map((comment) => comment.author_profile_id)));
 
   return {
+    comments: comments.map((comment) => ({
+      author: toActorSummary(commentProfilesMap.get(comment.author_profile_id ?? "")),
+      body: comment.body,
+      createdAt: comment.created_at,
+      id: comment.id,
+    })),
     booking: {
       company: toCompanySummary(companiesMap.get(booking.company_id)),
       contact: contact
@@ -1839,7 +1872,32 @@ export async function getCRMContactDetailView(
       workflow: item.entity,
     }));
 
+  const comments = await listComments(context, { entityId: contact.id, entityType: "contact" });
+  const commentProfilesMap = await loadProfilesMap(context, uniq(comments.map((comment) => comment.author_profile_id)));
+
+  const linkedQuotes = getQuotesConfig().enabled
+    ? (await listQuotes(context, { limit: 100 }))
+        .filter((quote) => quote.contact_id === contact.id)
+        .map((quote) => ({
+          id: quote.id,
+          quoteNumber: quote.quote_number,
+          status: quote.status,
+          title: quote.title,
+          totalCents: quote.total_cents,
+          depositCents: quote.deposit_cents,
+          currency: quote.currency,
+          publicToken: quote.public_token,
+          createdAt: quote.created_at,
+        }))
+    : [];
+
   return {
+    comments: comments.map((comment) => ({
+      author: toActorSummary(commentProfilesMap.get(comment.author_profile_id ?? "")),
+      body: comment.body,
+      createdAt: comment.created_at,
+      id: comment.id,
+    })),
     contact: {
       company: toCompanySummary(companiesMap.get(contact.company_id)),
       createdAt: contact.created_at,
@@ -1870,6 +1928,7 @@ export async function getCRMContactDetailView(
       page: 1,
       pageSize: 500,
     })).rows.items.filter((task) => task.contact?.id === contact.id),
+    linkedQuotes,
     nextAction: getNextActionForContact({ bookings: contactBookings, contact, tasks: contactTasks }),
     timeline,
     workflowTraces,

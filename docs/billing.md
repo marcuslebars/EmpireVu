@@ -1,6 +1,6 @@
 # Billing (Stripe) — Phase 1
 
-The Stripe subscription-billing layer for EmpireVu/Tilotto. **Phase 1 is plumbing
+The Stripe subscription-billing layer for EmpireVu. **Phase 1 is plumbing
 only, in Stripe TEST MODE**: a subscription can be created, upgraded, downgraded,
 and canceled against an `organization`, with local state always kept correct. No
 customer-facing UI ships here, and gating is **not** yet wired into existing

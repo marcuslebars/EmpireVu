@@ -1,0 +1,29 @@
+{
+  "_comment": [
+    "STRUCTURAL FIXTURE — permanent test data, not a customer record.",
+    "Shape: engine-computed storage lines PLUS hand-priced Care lines that the",
+    "pricing engine must never compute (restoration is quoted per foot by hand;",
+    "interior detailing is a flat hand-priced job). Exercises the custom-line path",
+    "and the tax/deposit math over a mixed subtotal.",
+    "Engine lines are illustrative; the custom amounts mirror the documented shape",
+    "of a real mixed package (21ft x $90 restoration + $375 interior detail)."
+  ],
+  "title": "Winter storage + Care package",
+  "services": [
+    { "serviceId": "outdoor_storage", "lengthFt": 21 },
+    { "serviceId": "shrink_wrap", "lengthFt": 21 },
+    { "serviceId": "winterization_outboard", "engineType": "outboard", "engineCount": 1 }
+  ],
+  "customLines": [
+    { "label": "Gelcoat restoration", "description": "21 ft x $90/ft, hand-quoted", "amountCents": 189000 },
+    { "label": "Interior detailing", "description": "Full interior, hand-quoted", "amountCents": 37500 }
+  ],
+  "expected": {
+    "engineSubtotalCents": 185000,
+    "customCents": 226500,
+    "subtotalCents": 411500,
+    "taxCents": 53495,
+    "totalCents": 464995,
+    "depositCents": 116249
+  }
+}

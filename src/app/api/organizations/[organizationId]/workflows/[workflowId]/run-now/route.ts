@@ -11,10 +11,11 @@ import { createSupabaseServerClient } from "@/server/supabase/server";
 export const dynamic = "force-dynamic";
 
 const runWorkflowNowInputSchema = z.object({
+  dryRun: z.boolean().optional(),
   event: manualWorkflowEventInputSchema.optional(),
   eventId: z.string().uuid().optional(),
-}).refine((value) => value.event || value.eventId, {
-  message: "run-now requires either eventId or event.",
+}).refine((value) => value.dryRun || value.event || value.eventId, {
+  message: "run-now requires dryRun, eventId, or event.",
 });
 
 interface RouteContext {

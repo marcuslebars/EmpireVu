@@ -264,8 +264,9 @@ describe("roundHalfUpDiv", () => {
     expect(roundHalfUpDiv(14, 10)).toBe(1); // 1.4 → 1
   });
 
-  // The plan's Nestor deposit: 25% of $5,723.45 = $1,430.8625 → $1,430.86.
-  it("matches the plan's stated Nestor deposit rounding", () => {
+  // A tax-inclusive total whose 25% deposit lands exactly on a half-cent:
+  // 25% of $5,723.45 = $1,430.8625 → $1,430.86. Structural, not customer data.
+  it("rounds a half-cent deposit up at the cent boundary", () => {
     expect(roundHalfUpDiv(572_345 * 2500, 10_000)).toBe(143_086);
   });
 });

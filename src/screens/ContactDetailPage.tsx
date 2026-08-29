@@ -22,11 +22,13 @@ import {
   X,
   Loader2,
   Sparkles,
+  FileText,
+  Trash2,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
-import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateBooking, useUpdateContactNotes, useUpdateContactFields, useAnalyzeContactAI, useContactAIDrafts, useUpdateAIDraft, useSendAIDraft, useConfirmAIDraftSlot, useCallContact, useSyncContactCalls } from "@/lib/api-hooks";
+import { useContactDetail, useUpdateContactStage, useCreateTask, useCreateComment, useCreateBooking, useUpdateContactNotes, useUpdateContactFields, useAssignContactOwner, useDeleteContact, useOrgMembers, useAnalyzeContactAI, useContactAIDrafts, useUpdateAIDraft, useSendAIDraft, useConfirmAIDraftSlot, useCallContact, useSyncContactCalls } from "@/lib/api-hooks";
 import { toast } from "@/components/ui/sonner";
 import { Modal } from "@/components/ui/Modal";
 import { LoadingCards, ErrorBanner, EmptyState, SkeletonStatCard } from "@/components/ui/StateViews";
@@ -911,8 +913,15 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const updateStage = useUpdateContactStage(orgId);
+  const createComment = useCreateComment(orgId);
+  const [commentBody, setCommentBody] = useState("");
 
-  const { contact, financialSummary, linkedBookings, linkedTasks, nextAction, timeline, workflowTraces } = detail;
+  const { contact, financialSummary, linkedBookings, linkedTasks, linkedQuotes, nextAction, timeline, workflowTraces } = detail;
+
+  const assignOwner = useAssignContactOwner(orgId, contact.id);
+  const deleteContact = useDeleteContact(orgId);
+  const { data: members } = useOrgMembers(orgId);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // A placed call carries `agentCallId`; its outcome event adds `callStatus`.
   // Anything placed without a matching outcome is still unresolved.
@@ -952,6 +961,8 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
     { key: "ai", label: "AI" },
     { key: "bookings", label: "Bookings", count: linkedBookings.length },
     { key: "tasks", label: "Tasks", count: linkedTasks.length },
+    { key: "quotes", label: "Quotes", count: linkedQuotes.length },
+    { key: "comments", label: "Comments", count: detail.comments.length },
     { key: "financials", label: "Financials" },
     { key: "workflows", label: "Workflows", count: workflowTraces.length },
     { key: "notes", label: "Notes" },
@@ -1037,9 +1048,47 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
                 <Edit3 className="w-3 h-3" />
                 Edit
               </button>
-              <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground">
-                <MoreHorizontal className="w-4 h-4" />
-              </button>
+              <div className="relative">
+                <button
+                  onClick={() => setMenuOpen((v) => !v)}
+                  className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+                {menuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                    <div className="absolute top-full right-0 mt-1 w-56 bg-popover border border-border rounded-lg shadow-xl z-50 p-2 animate-scale-in">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-1 pb-1">Owner</p>
+                      <select
+                        value={contact.owner?.id ?? ""}
+                        onChange={(e) => { if (e.target.value) assignOwner.mutate(e.target.value); }}
+                        disabled={assignOwner.isPending}
+                        className="w-full bg-secondary border border-border rounded-lg px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 mb-2 disabled:opacity-50"
+                      >
+                        <option value="" disabled>Unassigned</option>
+                        {(members ?? []).map((m) => (
+                          <option key={m.id} value={m.id}>{m.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          if (window.confirm(`Delete ${contact.name}? Linked bookings and tasks will be unlinked. This can't be undone.`)) {
+                            deleteContact.mutate(contact.id, {
+                              onSuccess: () => { toast.success("Contact deleted"); navigate("/crm"); },
+                              onError: () => toast.error("Failed to delete contact."),
+                            });
+                          }
+                        }}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Delete contact
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1170,6 +1219,59 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
           </div>
         )}
 
+        {/* Comments */}
+        {activeTab === "comments" && (
+          <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+            {detail.comments.length === 0 ? (
+              <EmptyState title="No comments yet" description="Start the conversation below." />
+            ) : (
+              <div className="space-y-4">
+                {detail.comments.map((c) => (
+                  <div key={c.id} className="flex gap-3">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-[11px] font-bold text-primary shrink-0">
+                      {(c.author?.name ?? "?").charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-foreground">{c.author?.name ?? "Unknown"}</span>
+                        <span className="text-[10px] text-muted-foreground">{relativeTime(c.createdAt)}</span>
+                      </div>
+                      <p className="text-sm text-foreground/80 whitespace-pre-wrap mt-0.5">{c.body}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <form
+              className="flex items-center gap-2 pt-1"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const body = commentBody.trim();
+                if (!body || createComment.isPending) return;
+                createComment.mutate(
+                  { entityType: "contact", entityId: contact.id, body },
+                  { onSuccess: () => setCommentBody("") },
+                );
+              }}
+            >
+              <input
+                type="text"
+                value={commentBody}
+                onChange={(e) => setCommentBody(e.target.value)}
+                placeholder="Add a comment..."
+                className="flex-1 bg-secondary/30 border border-border rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+              <button
+                type="submit"
+                disabled={!commentBody.trim() || createComment.isPending}
+                className="px-4 py-2 rounded-xl text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97] disabled:opacity-40 flex items-center gap-1.5"
+              >
+                {createComment.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Post"}
+              </button>
+            </form>
+          </div>
+        )}
+
         {/* Bookings */}
         {activeTab === "bookings" && (
           <div className="space-y-3">
@@ -1192,6 +1294,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
                   return (
                     <div
                       key={b.id}
+                      onClick={() => navigate(`/calendar?booking=${b.id}`)}
                       className={cn(
                         "flex items-center justify-between px-4 py-3 hover:bg-secondary/30 transition-colors cursor-pointer",
                         i < linkedBookings.length - 1 && "border-b border-border/40"
@@ -1248,6 +1351,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
                   return (
                     <div
                       key={t.id}
+                      onClick={() => navigate(`/tasks?task=${t.id}`)}
                       className={cn(
                         "flex items-center justify-between px-4 py-3 hover:bg-secondary/30 transition-colors cursor-pointer",
                         i < linkedTasks.length - 1 && "border-b border-border/40"
@@ -1283,6 +1387,55 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
         )}
 
         {/* Financials */}
+        {activeTab === "quotes" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">{linkedQuotes.length} quotes</h3>
+              <button
+                onClick={() => navigate("/quotes")}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]"
+              >
+                <Plus className="w-3 h-3" />
+                New Quote
+              </button>
+            </div>
+            {linkedQuotes.length === 0 ? (
+              <EmptyState title="No quotes" description="No quotes linked to this contact." />
+            ) : (
+              <div className="bg-card border border-border rounded-xl overflow-hidden">
+                {linkedQuotes.map((q, i) => (
+                  <a
+                    key={q.id}
+                    href={`/q/${q.publicToken}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={cn(
+                      "flex items-center justify-between px-4 py-3 hover:bg-secondary/30 transition-colors",
+                      i < linkedQuotes.length - 1 && "border-b border-border/40"
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-secondary">
+                        <FileText className="w-3.5 h-3.5 text-muted-foreground" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          {q.quoteNumber ?? "Draft"}{q.title ? ` · ${q.title}` : ""}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{formatDate(q.createdAt, "MMM d, yyyy")}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-semibold text-foreground tabular-nums">{formatCents(q.totalCents)}</span>
+                      <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-secondary text-muted-foreground">{q.status}</span>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === "financials" && (
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-3">

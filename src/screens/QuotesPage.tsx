@@ -18,6 +18,7 @@ import {
   fetchQuotes,
   sendQuote,
   updateQuote,
+  voidQuote,
   type QuoteSummary,
   type QuoteWritePayload,
 } from "@/lib/api-client";
@@ -216,6 +217,19 @@ export default function QuotesPage() {
                     <a className="underline" href={`/q/${q.public_token}`} target="_blank" rel="noreferrer">
                       Customer view
                     </a>
+                  )}
+                  {!["cancelled", "deposit_paid", "completed"].includes(q.status) && (
+                    <button
+                      type="button"
+                      className="underline text-red-700"
+                      onClick={() => {
+                        if (window.confirm(`Void quote ${q.quote_number ?? "(draft)"}? This cannot be undone.`)) {
+                          run(() => voidQuote(orgId, q.id));
+                        }
+                      }}
+                    >
+                      Void
+                    </button>
                   )}
                 </div>
               </li>

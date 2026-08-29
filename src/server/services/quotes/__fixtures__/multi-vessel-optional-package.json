@@ -1,0 +1,36 @@
+{
+  "_comment": [
+    "STRUCTURAL FIXTURE — permanent test data, not a customer record.",
+    "Shape: two vessels (a boat and a PWC) where several lines are OPTIONAL and",
+    "the customer ticks them on the hosted page. Asserts BOTH states so the",
+    "optional-line recomputation path is exercised end to end: core-only (every",
+    "optional off, the default) and all-options (every optional on).",
+    "A deselected optional is excluded from the engine call entirely, so the two",
+    "states are separate engine computations, not arithmetic on one result."
+  ],
+  "title": "Winter storage — boat + PWC",
+  "services": [
+    { "serviceId": "outdoor_storage", "lengthFt": 24 },
+    { "serviceId": "shrink_wrap", "lengthFt": 24 },
+    { "serviceId": "winterization_outboard", "engineType": "outboard", "engineCount": 1 },
+    { "serviceId": "pwc_storage", "quantity": 1 },
+    { "serviceId": "pwc_winterization", "quantity": 1, "optional": true },
+    { "serviceId": "battery_storage", "quantity": 2, "optional": true },
+    { "serviceId": "trailer_storage", "optional": true }
+  ],
+  "customLines": [],
+  "expected": {
+    "coreOnly": {
+      "subtotalCents": 252500,
+      "taxCents": 32825,
+      "totalCents": 285325,
+      "depositCents": 71331
+    },
+    "allOptions": {
+      "subtotalCents": 310000,
+      "taxCents": 40300,
+      "totalCents": 350300,
+      "depositCents": 87575
+    }
+  }
+}

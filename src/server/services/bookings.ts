@@ -31,6 +31,14 @@ export const updateBookingStatusInputSchema = z.object({
 
 export type UpdateBookingStatusInput = z.infer<typeof updateBookingStatusInputSchema>;
 
+export const rescheduleBookingInputSchema = z.object({
+  bookingId: z.string().uuid(),
+  durationMinutes: z.number().int().positive().max(1440).optional(),
+  scheduledFor: z.union([z.string().datetime(), z.date()]),
+});
+
+export type RescheduleBookingInput = z.infer<typeof rescheduleBookingInputSchema>;
+
 interface BookingMutationOptions {
   dispatchWorkflow?: boolean;
 }
@@ -195,6 +203,52 @@ export async function updateBookingStatus(
       dispatchAsync: options.dispatchWorkflow !== false,
     });
   }
+
+  return updated;
+}
+
+export async function rescheduleBooking(
+  context: TenantServiceContext,
+  input: RescheduleBookingInput,
+): Promise<Tables<"bookings">> {
+  const existing = await getBookingById(context, input.bookingId);
+
+  const patch: Record<string, unknown> = {
+    scheduled_for: toIsoDate(input.scheduledFor),
+  };
+  if (input.durationMinutes !== undefined) {
+    patch.duration_minutes = input.durationMinutes;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (context.supabase.from("bookings") as any)
+    .update(patch)
+    .eq("organization_id", context.organizationId)
+    .eq("id", input.bookingId)
+    .select("*")
+    .single();
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  const updated = data as Tables<"bookings">;
+
+  await createActivityEvent(context, {
+    companyId: updated.company_id,
+    entityId: updated.id,
+    entityType: "booking",
+    eventType: "booking.rescheduled",
+    metadata: {
+      bookingId: updated.id,
+      durationMinutes: updated.duration_minutes,
+      previousScheduledFor: existing.scheduled_for,
+      scheduledFor: updated.scheduled_for,
+    },
+    relatedEntityId: updated.contact_id,
+    relatedEntityType: updated.contact_id ? "contact" : null,
+  });
 
   return updated;
 }

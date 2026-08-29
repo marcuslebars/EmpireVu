@@ -158,16 +158,14 @@ function WorkflowDetailPanel({
 
   const handleRunNow = async () => {
     try {
-      await runNow.mutateAsync({
-        event: {
-          entityType: workflow?.triggerType ?? "manual",
-          eventType: workflow?.triggerType ?? "manual",
-        },
-      });
-      toast.success("Workflow triggered successfully");
-      void refetch();
+      // Dry-run preview against the most recent real event matching this trigger —
+      // shows what WOULD happen with no side effects (no orphaned tasks / failed runs).
+      const summary = (await runNow.mutateAsync({ dryRun: true })) as TestRunResult;
+      setTestResult(summary);
+      setTestOpen(true);
+      toast.success("Preview ready — no changes were made");
     } catch {
-      toast.error("Failed to run workflow. Please try again.");
+      toast.error("Failed to preview workflow. Please try again.");
     }
   };
 
@@ -186,11 +184,11 @@ function WorkflowDetailPanel({
       metadata.value_cents = Number(sampleValue);
     }
     try {
-      const payload = (await runTest.mutateAsync({
+      const summary = (await runTest.mutateAsync({
         dryRun: true,
         sampleEvent: { entityType, eventType: trigger, metadata },
-      })) as { data: TestRunResult };
-      setTestResult(payload.data);
+      })) as TestRunResult;
+      setTestResult(summary);
     } catch {
       toast.error("Test run failed. Please try again.");
     }
@@ -411,8 +409,8 @@ function WorkflowDetailPanel({
                   disabled={runNow.isPending}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all disabled:opacity-50"
                 >
-                  {runNow.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                  Run Now
+                  {runNow.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+                  Preview
                 </button>
                 <button
                   onClick={() => setTestOpen((v) => !v)}
@@ -1271,15 +1269,25 @@ export default function AutomationsPage() {
 
   const workflowList = workflows?.rows?.items ?? [];
 
-  const handleQuickRun = async (id: string, triggerType: string) => {
+  const handleQuickRun = async (id: string) => {
     try {
-      await triggerWorkflow.mutateAsync({
-        workflowId: id,
-        event: { entityType: triggerType, eventType: triggerType },
-      });
-      toast.success("Workflow triggered");
+      // Dry-run preview against the latest matching event — no side effects.
+      const summary = (await triggerWorkflow.mutateAsync({ workflowId: id, dryRun: true })) as {
+        actionsExecutedCount: number;
+        createdTasksCount: number;
+        matchedConditions: boolean;
+      };
+      toast.success(
+        summary.matchedConditions
+          ? `Preview: would run ${summary.actionsExecutedCount} action${summary.actionsExecutedCount === 1 ? "" : "s"}${
+              summary.createdTasksCount > 0
+                ? `, create ${summary.createdTasksCount} task${summary.createdTasksCount === 1 ? "" : "s"}`
+                : ""
+            } — no changes made`
+          : "Preview: conditions did not match — nothing would run",
+      );
     } catch {
-      toast.error("Failed to trigger workflow");
+      toast.error("Failed to preview workflow");
     }
   };
 
@@ -1473,12 +1481,12 @@ export default function AutomationsPage() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleQuickRun(workflow.id, workflow.triggerType);
+                      handleQuickRun(workflow.id);
                     }}
                     className="p-1.5 rounded-lg bg-secondary text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-0 group-hover:opacity-100 transition-all"
-                    title="Run now"
+                    title="Preview run"
                   >
-                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <Eye className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>

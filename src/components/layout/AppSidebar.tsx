@@ -4,6 +4,7 @@ import {
   CheckSquare,
   Users,
   Zap,
+  FileText,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -19,6 +20,7 @@ const navItems = [
   { title: "Calendar", icon: Calendar, path: "/calendar" },
   { title: "Tasks", icon: CheckSquare, path: "/tasks" },
   { title: "CRM", icon: Users, path: "/crm" },
+  { title: "Quotes", icon: FileText, path: "/quotes" },
   { title: "Automations", icon: Zap, path: "/automations" },
   { title: "Settings", icon: Settings, path: "/settings" },
 ];

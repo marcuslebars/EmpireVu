@@ -77,15 +77,23 @@ export function StatCard({
   change,
   positive,
   icon,
+  onClick,
 }: {
   label: string;
   value: string;
   change?: string;
   positive?: boolean;
   icon?: React.ReactNode;
+  onClick?: () => void;
 }) {
   return (
-    <div className="bg-card border border-border rounded-xl p-5 transition-all duration-200 hover:shadow-lg hover:shadow-black/15 shadow-md shadow-black/10">
+    <div
+      onClick={onClick}
+      className={cn(
+        "bg-card border border-border rounded-xl p-5 transition-all duration-200 hover:shadow-lg hover:shadow-black/15 shadow-md shadow-black/10",
+        onClick && "cursor-pointer hover:border-primary/40",
+      )}
+    >
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           {label}

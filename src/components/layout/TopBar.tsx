@@ -275,15 +275,26 @@ function NotificationsMenu() {
             ) : (
               <div className="max-h-80 overflow-y-auto">
                 {items.map((item) => {
-                  const clickable = item.entity?.type === "contact";
+                  const target = !item.entity
+                    ? null
+                    : item.entity.type === "contact"
+                      ? `/crm/${item.entity.id}`
+                      : item.entity.type === "booking"
+                        ? `/calendar?booking=${item.entity.id}`
+                        : item.entity.type === "task"
+                          ? `/tasks?task=${item.entity.id}`
+                          : item.entity.type === "workflow"
+                            ? `/automations?workflow=${item.entity.id}`
+                            : null;
+                  const clickable = target !== null;
                   return (
                     <button
                       key={item.id}
                       disabled={!clickable}
                       onClick={() => {
-                        if (!clickable || !item.entity) return;
+                        if (!target) return;
                         setOpen(false);
-                        navigate(`/crm/${item.entity.id}`);
+                        navigate(target);
                       }}
                       className={cn(
                         "w-full text-left px-3 py-2.5 flex items-start gap-2.5 transition-colors",
