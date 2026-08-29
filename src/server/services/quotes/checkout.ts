@@ -1,9 +1,10 @@
 /**
  * Deposit Checkout — turns an approved quote into a Stripe Checkout Session.
  *
- * Charges run on the BRAND'S OWN Stripe account, resolved per company (see
- * company-stripe.ts) — not the platform account that Phase 1 billing uses, and
- * not another brand's. The API version pin is shared with billing; nothing else is.
+ * Charges are DIRECT charges on the tenant's CONNECTED Stripe account (see
+ * company-stripe.ts): the platform key plus a Stripe-Account header. Funds land
+ * in the tenant's balance, refunds hit their account, and their statement
+ * descriptor and tax registration apply — the customer never sees the platform.
  *
  * Two details that are easy to get wrong and that the "displayed == charged"
  * requirement depends on:
@@ -26,7 +27,7 @@
 import type Stripe from "stripe";
 
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { getCompanyStripeConfig, getCompanyStripeClient } from "./company-stripe";
+import { getPlatformStripe, onAccount, requireChargeableCompany } from "./company-stripe";
 import { sendDepositReceiptEmail } from "./notify";
 import { recordPublicEvent } from "./public-service";
 
@@ -73,7 +74,11 @@ export class DepositCheckoutError extends Error {
  * The insert is upserted and then re-read, so two concurrent checkouts converge
  * on one customer rather than racing to create two.
  */
-async function ensureContactCustomer(quote: Db, stripe: Stripe): Promise<string> {
+async function ensureContactCustomer(
+  quote: Db,
+  stripe: Stripe,
+  acct: Stripe.RequestOptions,
+): Promise<string> {
   const db = createSupabaseAdminClient() as Db;
 
   if (!quote.contact_id) {
@@ -83,7 +88,7 @@ async function ensureContactCustomer(quote: Db, stripe: Stripe): Promise<string>
         name: quote.approved_by_name ?? undefined,
         metadata: { org_id: quote.organization_id, company_id: quote.company_id, quote_id: quote.id },
       },
-      { idempotencyKey: `quote-customer-${quote.id}` },
+      { ...acct, idempotencyKey: `quote-customer-${quote.id}` },
     );
     return solo.id;
   }
@@ -116,7 +121,9 @@ async function ensureContactCustomer(quote: Db, stripe: Stripe): Promise<string>
       },
     },
     // Keyed by company+contact so a retry cannot mint a duplicate on the account.
-    { idempotencyKey: `quote-customer-${quote.company_id}-${quote.contact_id}` },
+    // Customers live on the CONNECTED account, which is why the mapping is
+    // company-scoped: the same contact under two tenants is two Stripe Customers.
+    { ...acct, idempotencyKey: `quote-customer-${quote.company_id}-${quote.contact_id}` },
   );
 
   const { error } = await db.from("company_stripe_customers").upsert(
@@ -192,13 +199,20 @@ export async function createDepositCheckoutSession(
       "no_company",
     );
   }
-  const brand = await getCompanyStripeConfig(quote.company_id);
-  const stripe = await getCompanyStripeClient(quote.company_id);
+  // requireChargeableCompany, not just "configured": Stripe onboarding can finish
+  // while charges_enabled is still false pending verification, and finding that
+  // out when a customer taps Pay is the worst possible moment.
+  const brand = await requireChargeableCompany(quote.company_id);
+  const stripe = getPlatformStripe();
+  // Every call below is DIRECT: created on the tenant's account, so funds land in
+  // their balance and their descriptor and tax registration apply. Omitting these
+  // options would charge into the PLATFORM account instead.
+  const acct = onAccount(brand);
 
   // Reuse an open session rather than minting a second one.
   if (quote.stripe_checkout_session_id) {
     try {
-      const existing = await stripe.checkout.sessions.retrieve(quote.stripe_checkout_session_id);
+      const existing = await stripe.checkout.sessions.retrieve(quote.stripe_checkout_session_id, acct);
       if (existing.status === "open" && existing.url) {
         return { url: existing.url, sessionId: existing.id, reused: true };
       }
@@ -208,7 +222,7 @@ export async function createDepositCheckoutSession(
     }
   }
 
-  const customerId = await ensureContactCustomer(quote, stripe);
+  const customerId = await ensureContactCustomer(quote, stripe, acct);
   const quoteUrl = `${opts.baseUrl.replace(/\/$/, "")}/q/${token}`;
 
   const session = await stripe.checkout.sessions.create(
@@ -258,7 +272,7 @@ export async function createDepositCheckoutSession(
     },
     // Keyed by quote + amount: a retry returns the same session, but a reissued
     // amount legitimately creates a new one.
-    { idempotencyKey: `quote-deposit-${quote.id}-${amount}` },
+    { ...acct, idempotencyKey: `quote-deposit-${quote.id}-${amount}` },
   );
 
   await db
@@ -286,6 +300,7 @@ export async function createDepositCheckoutSession(
 export async function handleDepositCheckoutCompleted(
   session: Stripe.Checkout.Session,
   eventId: string,
+  accountId?: string,
 ): Promise<{ outcome: "applied" | "noop"; quoteId: string | null; reason?: string }> {
   const quoteId = session.metadata?.quote_id ?? null;
   if (!quoteId) return { outcome: "noop", quoteId: null, reason: "no quote_id in metadata" };
@@ -293,6 +308,21 @@ export async function handleDepositCheckoutCompleted(
   const db = createSupabaseAdminClient() as Db;
   const { data: quote } = await db.from("quotes").select("*").eq("id", quoteId).maybeSingle();
   if (!quote) return { outcome: "noop", quoteId, reason: "quote not found" };
+
+  // Cross-tenant guard. The signature proves Stripe sent the event and
+  // event.account names the connected account it came from; this checks that the
+  // quote actually belongs to that tenant. Without it, a quote id from one tenant
+  // arriving on another's event would be applied.
+  if (accountId) {
+    const { data: company } = await db
+      .from("companies")
+      .select("stripe_connected_account_id")
+      .eq("id", quote.company_id)
+      .maybeSingle();
+    if (company?.stripe_connected_account_id !== accountId) {
+      return { outcome: "noop", quoteId, reason: "event account does not match the quote's tenant" };
+    }
+  }
 
   if (quote.deposit_paid_at) {
     return { outcome: "noop", quoteId, reason: "deposit already recorded" };
