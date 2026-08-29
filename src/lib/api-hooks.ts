@@ -478,6 +478,20 @@ export function useUpdateTaskStatus(orgId: string, taskId: string) {
   });
 }
 
+/** Status update keyed by task id — for the board, where any card can move columns. */
+export function useUpdateTaskStatusById(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskId, status }: { taskId: string; status: "todo" | "in_progress" | "blocked" | "completed" }) =>
+      updateTaskStatus(orgId, taskId, status),
+    onSuccess: (_data, { taskId }) => {
+      void qc.invalidateQueries({ queryKey: ["tasks", "list", orgId] });
+      void qc.invalidateQueries({ queryKey: ["tasks", "detail", orgId, taskId] });
+      void qc.invalidateQueries({ queryKey: ["dashboard", "summary", orgId] });
+    },
+  });
+}
+
 export function useAssignTaskUser(orgId: string, taskId: string) {
   const qc = useQueryClient();
   return useMutation({

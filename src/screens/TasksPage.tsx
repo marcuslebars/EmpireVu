@@ -28,6 +28,7 @@ import {
   useCreateTask,
   useCreateComment,
   useUpdateTaskStatus,
+  useUpdateTaskStatusById,
   useAssignTaskUser,
   useUpdateTask,
   useDeleteTask,
@@ -736,6 +737,8 @@ export default function TasksPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [view, setView] = useState<"board" | "list">("board");
+  const [dragOverStatus, setDragOverStatus] = useState<TaskStatus | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Quick Add / command-palette deep link: /tasks?new=task
@@ -767,6 +770,7 @@ export default function TasksPage() {
   const { data: tasks, isLoading, isError, refetch } = useTasks(organizationId, params);
   const { data: detail, isLoading: isDetailLoading } = useTaskDetail(organizationId, selectedTaskId);
   const updateStatus = useUpdateTaskStatus(organizationId, selectedTaskId || "");
+  const updateStatusById = useUpdateTaskStatusById(organizationId);
 
   const taskList = tasks?.rows?.items ?? [];
 
@@ -869,10 +873,98 @@ export default function TasksPage() {
             </>
           )}
         </div>
+        {/* View toggle */}
+        <div className="flex items-center gap-1 bg-secondary rounded-lg p-0.5 ml-auto">
+          <button
+            onClick={() => setView("board")}
+            className={cn("px-3 py-1.5 rounded-md text-xs font-medium transition-colors", view === "board" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+          >
+            Board
+          </button>
+          <button
+            onClick={() => setView("list")}
+            className={cn("px-3 py-1.5 rounded-md text-xs font-medium transition-colors", view === "list" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+          >
+            List
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-6 min-h-0">
-        {/* Task List */}
+        {view === "board" ? (
+          <div className="flex-1 overflow-x-auto custom-scrollbar">
+            <div className="flex gap-3 h-full min-w-[720px]">
+              {(Object.keys(statusLabel) as TaskStatus[]).map((status) => {
+                const columnTasks = taskList.filter((t) => t.status === status);
+                return (
+                  <div key={status} className="flex-1 min-w-[190px] flex flex-col">
+                    <div className="flex items-center gap-2 px-1 mb-2 shrink-0">
+                      {statusIcon[status]}
+                      <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{statusLabel[status]}</h3>
+                      <span className="text-[10px] font-bold text-muted-foreground/50 bg-secondary px-1.5 py-0.5 rounded">{columnTasks.length}</span>
+                    </div>
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        if (dragOverStatus !== status) setDragOverStatus(status);
+                      }}
+                      onDragLeave={() => setDragOverStatus((c) => (c === status ? null : c))}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const id = e.dataTransfer.getData("text/plain");
+                        setDragOverStatus(null);
+                        const moved = taskList.find((t) => t.id === id);
+                        if (moved && moved.status !== status) {
+                          updateStatusById.mutate(
+                            { taskId: id, status },
+                            { onError: () => toast.error("Failed to move task") },
+                          );
+                        }
+                      }}
+                      className={cn(
+                        "flex-1 rounded-xl p-2 border border-dashed space-y-2 overflow-y-auto custom-scrollbar transition-colors min-h-[120px]",
+                        dragOverStatus === status ? "bg-primary/5 border-primary/50" : "bg-secondary/20 border-border/50",
+                      )}
+                    >
+                      {columnTasks.map((task) => (
+                        <div
+                          key={task.id}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData("text/plain", task.id);
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
+                          onClick={() => setSelectedTaskId(task.id)}
+                          className={cn(
+                            "bg-card border rounded-xl p-3 shadow-sm hover:border-primary/40 cursor-grab active:cursor-grabbing transition-colors",
+                            selectedTaskId === task.id ? "border-primary/60" : "border-border",
+                          )}
+                        >
+                          <p className="text-xs font-semibold text-foreground leading-snug mb-2">{task.title}</p>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={cn("text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full", priorityConfig[task.priority]?.bg, priorityConfig[task.priority]?.text)}>
+                              {task.priority}
+                            </span>
+                            {task.dueAt && (
+                              <span className="text-[9px] text-muted-foreground flex items-center gap-1 shrink-0">
+                                <Calendar className="w-2.5 h-2.5" />
+                                {formatDate(task.dueAt)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {columnTasks.length === 0 && (
+                        <p className="text-[10px] text-muted-foreground/50 text-center py-6">Drop tasks here</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
         <div className="flex-1 bg-card border border-border rounded-2xl overflow-hidden flex flex-col shadow-sm">
           <div className="overflow-auto flex-1 custom-scrollbar">
             <table className="w-full min-w-[560px] text-left border-collapse">
@@ -948,6 +1040,7 @@ export default function TasksPage() {
             </table>
           </div>
         </div>
+        )}
 
         {/* Detail Panel (desktop rail) */}
         <div className="hidden lg:flex w-96 bg-card border border-border rounded-2xl flex-col shadow-sm overflow-hidden shrink-0">
