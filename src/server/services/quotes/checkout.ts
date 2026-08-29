@@ -212,7 +212,7 @@ export async function createDepositCheckoutSession(
   // Reuse an open session rather than minting a second one.
   if (quote.stripe_checkout_session_id) {
     try {
-      const existing = await stripe.checkout.sessions.retrieve(quote.stripe_checkout_session_id, acct);
+      const existing = await stripe.checkout.sessions.retrieve(quote.stripe_checkout_session_id, undefined, acct);
       if (existing.status === "open" && existing.url) {
         return { url: existing.url, sessionId: existing.id, reused: true };
       }
