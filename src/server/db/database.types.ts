@@ -260,6 +260,48 @@ export interface Database {
         };
         Relationships: [];
       };
+      organization_invitations: {
+        Row: {
+          accepted_at: string | null;
+          accepted_by_profile_id: string | null;
+          created_at: string;
+          email: string;
+          expires_at: string;
+          id: string;
+          invited_by_profile_id: string | null;
+          organization_id: string;
+          role: Database["public"]["Enums"]["membership_role"];
+          status: string;
+          token: string;
+        };
+        Insert: {
+          accepted_at?: string | null;
+          accepted_by_profile_id?: string | null;
+          created_at?: string;
+          email: string;
+          expires_at?: string;
+          id?: string;
+          invited_by_profile_id?: string | null;
+          organization_id: string;
+          role?: Database["public"]["Enums"]["membership_role"];
+          status?: string;
+          token: string;
+        };
+        Update: {
+          accepted_at?: string | null;
+          accepted_by_profile_id?: string | null;
+          created_at?: string;
+          email?: string;
+          expires_at?: string;
+          id?: string;
+          invited_by_profile_id?: string | null;
+          organization_id?: string;
+          role?: Database["public"]["Enums"]["membership_role"];
+          status?: string;
+          token?: string;
+        };
+        Relationships: [];
+      };
       organization_memberships: {
         Row: {
           created_at: string;

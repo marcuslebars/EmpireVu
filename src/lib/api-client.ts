@@ -636,6 +636,76 @@ export function deleteContact(orgId: string, contactId: string): Promise<{ id: s
   return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}`, { method: "DELETE" });
 }
 
+// ─── Team members & invitations ──────────────────────────────────────────────
+
+export type MembershipRole = "owner" | "admin" | "member";
+
+export interface InvitationSummary {
+  createdAt: string;
+  email: string;
+  expiresAt: string;
+  id: string;
+  role: MembershipRole;
+  status: string;
+  token: string;
+}
+
+export interface CreateInvitationResult {
+  emailSent: boolean;
+  invitation: InvitationSummary;
+  inviteUrl: string;
+}
+
+export interface InvitationPreview {
+  email: string;
+  expired: boolean;
+  organizationId: string;
+  organizationName: string;
+  role: MembershipRole;
+  status: string;
+}
+
+export function fetchInvitations(orgId: string): Promise<InvitationSummary[]> {
+  return apiFetch(`/api/organizations/${orgId}/members/invitations`);
+}
+
+export function createInvitation(
+  orgId: string,
+  input: { email: string; role: "admin" | "member" },
+): Promise<CreateInvitationResult> {
+  return apiFetch(`/api/organizations/${orgId}/members/invitations`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function revokeInvitation(orgId: string, invitationId: string): Promise<{ id: string }> {
+  return apiFetch(`/api/organizations/${orgId}/members/invitations/${invitationId}`, { method: "DELETE" });
+}
+
+export function updateMemberRole(
+  orgId: string,
+  profileId: string,
+  role: MembershipRole,
+): Promise<OrganizationMemberSummary> {
+  return apiFetch(`/api/organizations/${orgId}/members/${profileId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export function removeMember(orgId: string, profileId: string): Promise<{ id: string }> {
+  return apiFetch(`/api/organizations/${orgId}/members/${profileId}`, { method: "DELETE" });
+}
+
+export function fetchInvitationPreview(token: string): Promise<InvitationPreview> {
+  return apiFetch(`/api/invitations/${token}`);
+}
+
+export function acceptInvitation(token: string): Promise<{ organizationId: string }> {
+  return apiFetch(`/api/invitations/${token}/accept`, { method: "POST" });
+}
+
 export function updateContactNotes(
   orgId: string,
   contactId: string,

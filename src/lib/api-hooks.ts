@@ -20,6 +20,13 @@ import {
   fetchWorkflowJobs,
   fetchTrace,
   fetchOrganizationMembers,
+  fetchInvitations,
+  createInvitation,
+  revokeInvitation,
+  updateMemberRole,
+  removeMember,
+  fetchInvitationPreview,
+  acceptInvitation,
   createContact,
   updateContactStage,
   assignContactOwner,
@@ -488,6 +495,68 @@ export function useOrgMembers(orgId: string) {
     queryKey: ["organization", "members", orgId],
     queryFn: () => fetchOrganizationMembers(orgId),
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useInvitations(orgId: string) {
+  return useQuery({
+    queryKey: ["organization", "invitations", orgId],
+    queryFn: () => fetchInvitations(orgId),
+  });
+}
+
+export function useCreateInvitation(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { email: string; role: "admin" | "member" }) => createInvitation(orgId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["organization", "invitations", orgId] });
+    },
+  });
+}
+
+export function useRevokeInvitation(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (invitationId: string) => revokeInvitation(orgId, invitationId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["organization", "invitations", orgId] });
+    },
+  });
+}
+
+export function useUpdateMemberRole(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ profileId, role }: { profileId: string; role: "owner" | "admin" | "member" }) =>
+      updateMemberRole(orgId, profileId, role),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["organization", "members", orgId] });
+    },
+  });
+}
+
+export function useRemoveMember(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (profileId: string) => removeMember(orgId, profileId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["organization", "members", orgId] });
+    },
+  });
+}
+
+export function useInvitationPreview(token: string) {
+  return useQuery({
+    queryKey: ["invitation", token],
+    queryFn: () => fetchInvitationPreview(token),
+    retry: false,
+  });
+}
+
+export function useAcceptInvitation() {
+  return useMutation({
+    mutationFn: (token: string) => acceptInvitation(token),
   });
 }
 
