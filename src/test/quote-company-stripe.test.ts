@@ -1,122 +1,93 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
-  MERCHANT_ENV_PATTERN,
   CompanyStripeError,
-  assertKeyMatchesMode,
-  readMerchantEnv,
+  isConnectedAccountId,
+  onAccount,
   sanitizeStatementDescriptorSuffix,
+  type CompanyStripeConfig,
 } from "@/server/services/quotes/company-stripe";
 
 const CO = "11111111-1111-1111-1111-111111111111";
-const touched: string[] = [];
 
-function setEnv(name: string, value: string) {
-  process.env[name] = value;
-  touched.push(name);
-}
-
-afterEach(() => {
-  for (const n of touched.splice(0)) delete process.env[n];
+const cfg = (over: Partial<CompanyStripeConfig> = {}): CompanyStripeConfig => ({
+  companyId: CO,
+  organizationId: "22222222-2222-2222-2222-222222222222",
+  name: "A1 Marine Storage",
+  accountId: "acct_1234567890",
+  accountLabel: "A1 Marine Storage (test)",
+  mode: "test",
+  chargesEnabled: true,
+  payoutsEnabled: true,
+  detailsSubmitted: true,
+  statementDescriptorSuffix: "A1 STORAGE",
+  ...over,
 });
-
-describe("merchant env allowlist", () => {
-  it("accepts STRIPE_MERCHANT_-prefixed names", () => {
-    for (const n of ["STRIPE_MERCHANT_A1MS_SECRET_KEY", "STRIPE_MERCHANT_X", "STRIPE_MERCHANT_ORG_2_HOOK"]) {
-      expect(MERCHANT_ENV_PATTERN.test(n)).toBe(true);
-    }
-  });
-
-  it("rejects anything outside the prefix", () => {
-    for (const n of [
-      "STRIPE_SECRET_KEY", //          the PLATFORM key — must never be reachable
-      "SUPABASE_SERVICE_ROLE_KEY", //  the crown jewels
-      "PATH",
-      "stripe_merchant_lower",
-      "STRIPE_MERCHANTX", //           prefix must be exact
-      "",
-    ]) {
-      expect(MERCHANT_ENV_PATTERN.test(n)).toBe(false);
-    }
-  });
-
-  /**
-   * Org settings are admin-editable, so the env var NAME is attacker-influenced
-   * input. Without the allowlist this function is an arbitrary env reader.
-   */
-  it("refuses to read a non-allowlisted var even when it exists", () => {
-    setEnv("SUPABASE_SERVICE_ROLE_KEY", "super-secret-value");
-
-    expect(() => readMerchantEnv("SUPABASE_SERVICE_ROLE_KEY", CO)).toThrow(CompanyStripeError);
-    try {
-      readMerchantEnv("SUPABASE_SERVICE_ROLE_KEY", CO);
-    } catch (err) {
-      const e = err as CompanyStripeError;
-      expect(e.code).toBe("invalid_env_name");
-      // The secret's VALUE must never appear in the error.
-      expect(e.message).not.toContain("super-secret-value");
-    }
-  });
-
-  it("cannot be used to reach the platform Stripe key", () => {
-    setEnv("STRIPE_SECRET_KEY", "sk_live_platform_key");
-    expect(() => readMerchantEnv("STRIPE_SECRET_KEY", CO)).toThrow(/not an allowed merchant secret name/);
-  });
-
-  it("reads an allowlisted var that is set", () => {
-    setEnv("STRIPE_MERCHANT_A1MS_SECRET_KEY", "sk_test_abc123");
-    expect(readMerchantEnv("STRIPE_MERCHANT_A1MS_SECRET_KEY", CO)).toBe("sk_test_abc123");
-  });
-
-  it("throws a named, actionable error when an allowlisted var is missing", () => {
-    try {
-      readMerchantEnv("STRIPE_MERCHANT_MISSING_KEY", CO);
-      throw new Error("expected a throw");
-    } catch (err) {
-      const e = err as CompanyStripeError;
-      expect(e.code).toBe("missing_secret");
-      // The name is safe to surface and is what the operator needs to fix it.
-      expect(e.message).toContain("STRIPE_MERCHANT_MISSING_KEY");
-      expect(e.companyId).toBe(CO);
-    }
-  });
-
-  it("treats an empty or whitespace value as missing", () => {
-    setEnv("STRIPE_MERCHANT_EMPTY", "   ");
-    expect(() => readMerchantEnv("STRIPE_MERCHANT_EMPTY", CO)).toThrow(/is not set/);
-  });
-
-  it("can return null instead of throwing when the caller says it is optional", () => {
-    expect(readMerchantEnv("STRIPE_MERCHANT_ABSENT", CO, { required: false })).toBeNull();
-  });
-});
-
-describe("key/mode mismatch guard", () => {
-  it("accepts a matching pair", () => {
-    expect(() => assertKeyMatchesMode("sk_test_abc", "test")).not.toThrow();
-    expect(() => assertKeyMatchesMode("sk_live_abc", "live")).not.toThrow();
-    expect(() => assertKeyMatchesMode("rk_test_abc", "test")).not.toThrow();
-  });
-
-  it("catches a live key in a brand marked test", () => {
-    expect(() => assertKeyMatchesMode("sk_live_abc", "test")).toThrow(/test mode/);
-  });
-
-  /** The expensive direction: a test key in a live org means payments silently don't happen. */
-  it("catches a test key in a brand marked live", () => {
-    expect(() => assertKeyMatchesMode("sk_test_abc", "live")).toThrow(/live mode/);
-  });
-
-  it("is a no-op when the brand has no declared mode", () => {
-    expect(() => assertKeyMatchesMode("sk_live_abc", null)).not.toThrow();
-  });
-});
-
 
 /**
- * Statement descriptors are how a cardholder tells one A1 brand from another when
- * the brands share a Stripe account. Stripe REJECTS the charge if the descriptor
- * is malformed, so a bad brand name must never reach the API.
+ * Every merchant-side Stripe call must be directed at the tenant's connected
+ * account. Omitting the option silently executes against the PLATFORM account —
+ * money into the wrong balance, wrong merchant of record — so the seam that
+ * produces it is worth pinning down.
+ */
+describe("connected-account request options", () => {
+  it("carries the tenant's account id and nothing else", () => {
+    expect(onAccount(cfg())).toEqual({ stripeAccount: "acct_1234567890" });
+  });
+
+  it("two tenants produce different options", () => {
+    expect(onAccount(cfg({ accountId: "acct_aaa" }))).not.toEqual(
+      onAccount(cfg({ accountId: "acct_bbb" })),
+    );
+  });
+
+  it("spreads cleanly alongside an idempotency key", () => {
+    // The call sites do `{ ...acct, idempotencyKey }` — this is that shape.
+    const merged = { ...onAccount(cfg()), idempotencyKey: "quote-deposit-x-100" };
+    expect(merged.stripeAccount).toBe("acct_1234567890");
+    expect(merged.idempotencyKey).toBe("quote-deposit-x-100");
+  });
+});
+
+describe("connected account id shape", () => {
+  it("accepts real account ids", () => {
+    expect(isConnectedAccountId("acct_1A2b3C4d5E")).toBe(true);
+  });
+
+  it("rejects anything else", () => {
+    for (const v of ["cus_123", "acct", "acct_", "", null, undefined, "sk_test_x"]) {
+      expect(isConnectedAccountId(v as string)).toBe(false);
+    }
+  });
+});
+
+/**
+ * Connecting an account and being able to take money are different states.
+ * Stripe onboarding can finish with charges_enabled still false pending
+ * verification, and discovering that when a customer taps Pay is the worst
+ * possible moment.
+ */
+describe("CompanyStripeError codes", () => {
+  it("distinguishes not-connected from charges-disabled", () => {
+    const notConnected = new CompanyStripeError("x", "not_connected", CO);
+    const disabled = new CompanyStripeError("y", "charges_disabled", CO);
+
+    expect(notConnected.code).toBe("not_connected");
+    expect(disabled.code).toBe("charges_disabled");
+    expect(notConnected.companyId).toBe(CO);
+  });
+
+  it("is an Error, so it survives normal error handling", () => {
+    const err = new CompanyStripeError("nope", "company_not_found", CO);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.name).toBe("CompanyStripeError");
+  });
+});
+
+/**
+ * Statement descriptors keep tenants apart on a cardholder's statement. Stripe
+ * REJECTS the charge if the descriptor is malformed, so a bad brand name must
+ * never reach the API.
  */
 describe("statement descriptor suffix", () => {
   it("passes a clean brand name through", () => {
@@ -124,36 +95,44 @@ describe("statement descriptor suffix", () => {
   });
 
   it("strips the characters Stripe forbids", () => {
-    // < > \ " ' * are rejected outright by Stripe.
     expect(sanitizeStatementDescriptorSuffix('A1 <Marine> "Storage"')).toBe("A1 Marine Storage");
     expect(sanitizeStatementDescriptorSuffix("A1*Storage")).toBe("A1 Storage");
   });
 
-  it("caps at 22 characters and does not leave a trailing space", () => {
+  it("caps at 22 characters with no trailing space", () => {
     const out = sanitizeStatementDescriptorSuffix("A1 Marine Storage And Detailing")!;
     expect(out.length).toBeLessThanOrEqual(22);
     expect(out).toBe(out.trim());
   });
 
-  it("collapses whitespace rather than emitting runs of spaces", () => {
+  it("collapses whitespace", () => {
     expect(sanitizeStatementDescriptorSuffix("A1    Marine\n\tStorage")).toBe("A1 Marine Storage");
   });
 
   it("returns null when nothing usable survives, so the caller omits the field", () => {
-    // Stripe requires at least one letter; better to fall back to the account
-    // default than to fail the payment.
-    expect(sanitizeStatementDescriptorSuffix("***")).toBeNull();
-    expect(sanitizeStatementDescriptorSuffix("12345")).toBeNull();
-    expect(sanitizeStatementDescriptorSuffix("   ")).toBeNull();
-    expect(sanitizeStatementDescriptorSuffix(null)).toBeNull();
-    expect(sanitizeStatementDescriptorSuffix(undefined)).toBeNull();
+    for (const v of ["***", "12345", "   ", null, undefined]) {
+      expect(sanitizeStatementDescriptorSuffix(v)).toBeNull();
+    }
   });
 
   it("keeps sibling brands distinguishable", () => {
-    const storage = sanitizeStatementDescriptorSuffix("A1 Marine Storage");
-    const care = sanitizeStatementDescriptorSuffix("A1 Marine Care");
-    expect(storage).not.toBe(care);
-    expect(storage).toBeTruthy();
-    expect(care).toBeTruthy();
+    expect(sanitizeStatementDescriptorSuffix("A1 Marine Storage")).not.toBe(
+      sanitizeStatementDescriptorSuffix("A1 Marine Care"),
+    );
+  });
+});
+
+/**
+ * The whole point of moving to Connect: no tenant credentials anywhere. Under the
+ * previous scheme this object resolved an env var holding a live secret key.
+ */
+describe("no tenant secrets in the resolved config", () => {
+  it("carries an account id and no key material", () => {
+    const resolved = cfg();
+    const blob = JSON.stringify(resolved).toLowerCase();
+    expect(blob).not.toContain("sk_");
+    expect(blob).not.toContain("whsec_");
+    expect(blob).not.toContain("secret");
+    expect(resolved.accountId.startsWith("acct_")).toBe(true);
   });
 });

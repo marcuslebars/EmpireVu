@@ -1,5 +1,5 @@
 // Stripe-native quotes config. SERVER-ONLY — never import into client code. The whole
-// feature is inert unless STRIPE_QUOTES_ENABLED === "1". No Stripe secrets live here yet;
+// feature is enabled by default; set STRIPE_QUOTES_ENABLED=0 to disable. No Stripe secrets here yet;
 // Phases 3-4 add the Checkout + invoice flow, reusing the existing billing infrastructure.
 
 export interface QuotesConfig {
@@ -30,7 +30,7 @@ export interface QuotesConfig {
 
 export function getQuotesConfig(): QuotesConfig {
   return {
-    enabled: process.env.STRIPE_QUOTES_ENABLED === "1",
+    enabled: process.env.STRIPE_QUOTES_ENABLED !== "0",
     taxRateBps: intEnv("QUOTE_TAX_RATE_BPS", 1300),
     depositRateBps: intEnv("QUOTE_DEPOSIT_BPS", 2500),
     expiryDays: intEnv("QUOTE_EXPIRY_DAYS", 30),

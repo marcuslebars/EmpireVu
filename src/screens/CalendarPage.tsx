@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft,
   ChevronRight,
@@ -101,16 +102,24 @@ const capacityBarColor: Record<string, string> = {
   overloaded: "bg-destructive",
 };
 
-function DetailRow({ icon: Icon, label, value, highlight }: { icon: React.ElementType; label: string; value: string; highlight?: boolean }) {
-  return (
-    <div className="flex items-start gap-2.5">
+function DetailRow({ icon: Icon, label, value, highlight, onClick }: { icon: React.ElementType; label: string; value: string; highlight?: boolean; onClick?: () => void }) {
+  const inner = (
+    <>
       <Icon className={cn("w-3.5 h-3.5 mt-0.5 shrink-0", highlight ? "text-primary" : "text-muted-foreground")} />
       <div>
         <p className="text-[10px] text-muted-foreground">{label}</p>
-        <p className={cn("text-xs font-medium", highlight ? "text-primary" : "text-foreground")}>{value}</p>
+        <p className={cn("text-xs font-medium", highlight ? "text-primary" : "text-foreground", onClick && "hover:underline")}>{value}</p>
       </div>
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className="flex items-start gap-2.5 text-left transition-opacity hover:opacity-90">
+        {inner}
+      </button>
+    );
+  }
+  return <div className="flex items-start gap-2.5">{inner}</div>;
 }
 
 /* ── Booking position helpers ── */
@@ -145,6 +154,7 @@ function BookingDetailBody({
   onStatusUpdate: (status: string) => void;
   statusPending: boolean;
 }) {
+  const navigate = useNavigate();
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -177,7 +187,12 @@ function BookingDetailBody({
         {/* Primary Info */}
         <div className="grid grid-cols-2 gap-y-4 gap-x-2">
           <DetailRow icon={Briefcase} label="Company" value={detailData.booking.company?.name || "None"} highlight />
-          <DetailRow icon={Users} label="Contact" value={detailData.booking.contact?.name || "None"} />
+          <DetailRow
+            icon={Users}
+            label="Contact"
+            value={detailData.booking.contact?.name || "None"}
+            onClick={detailData.booking.contact?.id ? () => navigate(`/crm/${detailData.booking.contact!.id}`) : undefined}
+          />
           <DetailRow icon={CalendarDays} label="Date" value={format(parseISO(detailData.booking.scheduledFor), "MMM d, yyyy")} />
           <DetailRow icon={Clock} label="Time" value={format(parseISO(detailData.booking.scheduledFor), "h:mm a")} />
         </div>
@@ -227,7 +242,7 @@ function BookingDetailBody({
             </h4>
             <div className="space-y-2">
               {detailData.tasks.map((t) => (
-                <div key={t.id} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer group border border-transparent hover:border-border">
+                <div key={t.id} onClick={() => navigate(`/tasks?task=${t.id}`)} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer group border border-transparent hover:border-border">
                   <Circle className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                   <span className="text-xs text-foreground/80 group-hover:text-foreground transition-colors truncate flex-1">{t.title}</span>
                   <ArrowRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -439,6 +454,26 @@ export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep link from other work areas: /calendar?booking=:id opens that booking.
+  useEffect(() => {
+    const bookingId = searchParams.get("booking");
+    if (!bookingId) return;
+    setSelectedBookingId(bookingId);
+    const next = new URLSearchParams(searchParams);
+    next.delete("booking");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  // Quick Add deep link: /calendar?new=booking opens the create dialog.
+  useEffect(() => {
+    if (searchParams.get("new") !== "booking") return;
+    setIsCreateOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("new");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const { rangeStart, rangeEnd, gridDays, headerLabel } = useMemo(() => {
     if (view === "Day") {
