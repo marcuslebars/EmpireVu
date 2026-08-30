@@ -8,7 +8,7 @@ import {
 import { getQuotesConfig } from "./config";
 import { assertTransition, type QuoteStatus } from "./lifecycle";
 import { sendQuoteEmail, sendQuoteReplacedEmail } from "./notify";
-import { priceQuote, type QuotePricing, type QuotePricingInput } from "./pricing";
+import { priceQuoteForCompany, type QuotePricing, type QuotePricingInput } from "./pricing";
 
 // quotes + quote_events aren't in the generated database.types.ts (no gen-types step),
 // same as the jobber_/retell_ tables — access them via the client cast to any, shaping
@@ -123,8 +123,12 @@ function pricedColumns(pricing: QuotePricing) {
   };
 }
 
-function priceFrom(input: CreateQuoteInput): QuotePricing {
-  return priceQuote({
+/**
+ * Price from the TENANT's catalog. Async because the catalog is per-company and
+ * lives in the database — there is no built-in price list to fall back to.
+ */
+async function priceFrom(companyId: string, input: CreateQuoteInput): Promise<QuotePricing> {
+  return priceQuoteForCompany(companyId, {
     services: input.services,
     customLines: input.customLines,
     hullType: input.hullType,
@@ -167,7 +171,12 @@ export async function createQuote(ctx: TenantServiceContext, input: CreateQuoteI
   await assertContactInOrganization(ctx, input.contactId ?? undefined);
   await assertCompanyInOrganization(ctx, input.companyId ?? undefined);
 
-  const pricing = priceFrom(input);
+  // A quote must belong to a company: the catalog, the Stripe account and the
+  // branding are all company-scoped, so a company-less quote cannot be priced.
+  if (!input.companyId) {
+    throw new Error("A quote needs a company — pricing, payment and branding are all per-company.");
+  }
+  const pricing = await priceFrom(input.companyId, input);
   const cfg = getQuotesConfig();
   const expiresAt = new Date(Date.now() + cfg.expiryDays * 24 * 60 * 60 * 1000).toISOString();
 
@@ -223,7 +232,9 @@ export async function updateQuote(
     throw new Error(`Quote ${quoteId} is "${existing.status}" and can no longer be edited.`);
   }
 
-  const pricing = priceFrom(input);
+  const companyId = input.companyId ?? existing.company_id;
+  if (!companyId) throw new Error("A quote needs a company to be repriced.");
+  const pricing = await priceFrom(companyId, input);
 
   const { data, error } = await tbl(ctx, "quotes")
     .update({
