@@ -22,6 +22,7 @@ import {
   useSuggestWorkflows,
 } from "@/lib/api-hooks";
 import { SkeletonCard, ErrorBanner, EmptyState } from "@/components/ui/StateViews";
+import { UpgradeNudge, useCanUseFeature } from "@/components/billing/UpgradeNudge";
 import { relativeTime, formatPercent, formatSeconds } from "@/lib/format";
 import type { WorkflowListRow, WorkflowDetailResponse, WorkflowSuggestion } from "@/lib/api-client";
 import { toast } from "@/components/ui/sonner";
@@ -1268,6 +1269,7 @@ export default function AutomationsPage() {
   const updateStatus = useUpdateWorkflowStatus(organizationId);
 
   const workflowList = workflows?.rows?.items ?? [];
+  const canWorkflows = useCanUseFeature("workflows");
 
   const handleQuickRun = async (id: string) => {
     try {
@@ -1300,6 +1302,21 @@ export default function AutomationsPage() {
       toast.error("Failed to update workflow");
     }
   };
+
+  if (!canWorkflows) {
+    return (
+      <div className="space-y-8">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Automations</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Streamline your operations with smart workflows</p>
+        </div>
+        <UpgradeNudge
+          title="Automations aren't in your plan"
+          description="Upgrade to the Operate plan to build workflows that run your operations automatically."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">

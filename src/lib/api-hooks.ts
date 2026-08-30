@@ -26,6 +26,10 @@ import {
   removeMember,
   fetchInvitationPreview,
   acceptInvitation,
+  fetchBilling,
+  fetchBillingPlans,
+  createCheckout,
+  createBillingPortal,
   createContact,
   updateContactStage,
   assignContactOwner,
@@ -67,6 +71,7 @@ import {
   type CreateTaskInput,
   type CreateCommentInput,
   type UpdateTaskInput,
+  type PurchasablePlan,
   type RunWorkflowNowInput,
   type RunWorkflowTestInput,
 } from "./api-client";
@@ -555,6 +560,35 @@ export function useInvitationPreview(token: string) {
 export function useAcceptInvitation() {
   return useMutation({
     mutationFn: (token: string) => acceptInvitation(token),
+  });
+}
+
+export function useBilling(orgId: string) {
+  return useQuery({
+    queryKey: ["billing", orgId],
+    queryFn: () => fetchBilling(orgId),
+    enabled: Boolean(orgId),
+  });
+}
+
+export function useBillingPlans(orgId: string) {
+  return useQuery({
+    queryKey: ["billing", "plans", orgId],
+    queryFn: () => fetchBillingPlans(orgId),
+    enabled: Boolean(orgId),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useCreateCheckout(orgId: string) {
+  return useMutation({
+    mutationFn: (plan: PurchasablePlan) => createCheckout(orgId, plan),
+  });
+}
+
+export function useCreateBillingPortal(orgId: string) {
+  return useMutation({
+    mutationFn: () => createBillingPortal(orgId),
   });
 }
 
