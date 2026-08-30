@@ -1,0 +1,73 @@
+{
+  "items": {
+    "ceramic": {
+      "serviceKey": "ceramic",
+      "label": "Ceramic Coating",
+      "pricingType": "per_measure",
+      "rateCents": 3500,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "surchargeEligible": false,
+      "sortOrder": 0
+    },
+    "ceramic_second_layer": {
+      "serviceKey": "ceramic_second_layer",
+      "label": "Ceramic Coating — second layer",
+      "pricingType": "per_measure",
+      "rateCents": 800,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "surchargeEligible": false,
+      "sortOrder": 1
+    },
+    "ceramic_teak_ceramic": {
+      "serviceKey": "ceramic_teak_ceramic",
+      "label": "Teak Ceramic",
+      "pricingType": "flat",
+      "rateCents": 30000,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 2
+    },
+    "ceramic_interior_ceramic": {
+      "serviceKey": "ceramic_interior_ceramic",
+      "label": "Interior Ceramic",
+      "pricingType": "flat",
+      "rateCents": 15000,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 3
+    },
+    "graphene": {
+      "serviceKey": "graphene",
+      "label": "Graphene Coating",
+      "pricingType": "per_measure",
+      "rateCents": 4000,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "surchargeEligible": false,
+      "sortOrder": 4
+    },
+    "graphene_second_layer": {
+      "serviceKey": "graphene_second_layer",
+      "label": "Graphene Coating — second layer",
+      "pricingType": "per_measure",
+      "rateCents": 1000,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "surchargeEligible": false,
+      "sortOrder": 5
+    },
+    "graphene_teak_graphene": {
+      "serviceKey": "graphene_teak_graphene",
+      "label": "Teak Graphene",
+      "pricingType": "flat",
+      "rateCents": 35000,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 6
+    }
+  },
+  "bundles": {},
+  "surcharges": {}
+}

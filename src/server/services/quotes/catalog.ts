@@ -20,7 +20,45 @@ export type PricingType =
   | "per_unit"
   | "per_measure"
   | "per_unit_declining"
-  | "tiered_by_measure";
+  | "tiered_by_measure"
+  | "per_measure_banded";
+
+/**
+ * A choice that SCALES the rate — service tier, boat type, grade, urgency.
+ * Groups multiply together, so tier x type is one price.
+ */
+export interface ModifierOption {
+  key: string;
+  label: string;
+  multiplier: number;
+}
+
+export interface ModifierGroup {
+  key: string;
+  label: string;
+  required?: boolean;
+  options: ModifierOption[];
+}
+
+/**
+ * A combination that must NOT be auto-quoted.
+ *
+ * Some work has to be eyeballed before a number is given — a yacht deep-clean, a
+ * rush job on a hazardous site. Every `when` pair must match the customer's
+ * selection for the rule to fire. Without this the catalog would confidently
+ * quote jobs the business deliberately refuses to quote blind, which is how you
+ * underprice the biggest work you take on.
+ */
+export interface ReviewRule {
+  when: Record<string, string>;
+  reason: string;
+}
+
+/** A per-measure RATE chosen by band. Distinct from tiered_by_measure, which picks a flat price. */
+export interface RateBand {
+  maxMeasure: number | null;
+  rateCents: number;
+}
 
 export interface CatalogTier {
   /** Upper bound of the band; null is the open-ended top band. */
@@ -38,6 +76,12 @@ export interface CatalogItem {
   unitLabel?: string | null;
   additionalUnitMultiplier?: number | null;
   tiers?: CatalogTier[] | null;
+  /** per_measure_banded: the rate changes by band; the per-measure math does not. */
+  rateBands?: RateBand[] | null;
+  /** Choices that scale the rate. Groups multiply. */
+  modifierGroups?: ModifierGroup[] | null;
+  /** Combinations this business will not auto-quote. */
+  reviewRules?: ReviewRule[] | null;
   maxQuantity?: number | null;
   maxMeasure?: number | null;
   surchargeEligible: boolean;
@@ -71,6 +115,8 @@ export interface CatalogLineInput {
   quantity?: number;
   /** Free-form, carried through to the line for display. */
   note?: string;
+  /** Selected modifier options, keyed by group: { tier: "deep", boatType: "cruiser" }. */
+  modifiers?: Record<string, string>;
 }
 
 export interface CatalogPriceInput {
@@ -98,6 +144,9 @@ export interface PricedLine {
     minimumApplied?: boolean;
     surchargePerMeasureCents?: number;
     surchargeCents?: number;
+    /** Product of the selected modifier multipliers; 1 when none apply. */
+    modifierMultiplier?: number;
+    modifiers?: Record<string, string>;
     additionalUnitMultiplier?: number;
     additionalUnitCents?: number;
   };
@@ -114,7 +163,7 @@ export interface CatalogPricing {
 export class CatalogError extends Error {
   constructor(
     message: string,
-    readonly code: "unknown_service" | "bad_input" | "unknown_bundle" | "empty",
+    readonly code: "unknown_service" | "bad_input" | "unknown_bundle" | "empty" | "requires_review",
   ) {
     super(message);
     this.name = "CatalogError";
@@ -170,6 +219,76 @@ function requireQuantity(line: CatalogLineInput, item: CatalogItem): number {
     throw new CatalogError(`"${line.serviceKey}" quantity ${q} exceeds the ${cap} maximum.`, "bad_input");
   }
   return q;
+}
+
+/**
+ * Resolve the multiplier for a line's chosen modifiers.
+ *
+ * A required group with nothing chosen is an error rather than a silent 1.0: the
+ * difference between a "refresh" and a "restoration" detail is 60% of the price,
+ * and quoting the cheaper one because a field was missing is the expensive
+ * failure. An unknown option key is likewise rejected — better a 400 at creation
+ * than a customer charged at a rate nobody configured.
+ */
+export function resolveModifiers(
+  item: CatalogItem,
+  chosen: Record<string, string> | undefined,
+): { multiplier: number; selected: Record<string, string> } {
+  const groups = item.modifierGroups ?? [];
+  if (groups.length === 0) return { multiplier: 1, selected: {} };
+
+  let multiplier = 1;
+  const selected: Record<string, string> = {};
+
+  for (const group of groups) {
+    const pick = chosen?.[group.key];
+    if (!pick) {
+      if (group.required) {
+        throw new CatalogError(
+          `"${item.serviceKey}" requires a choice for "${group.label}".`,
+          "bad_input",
+        );
+      }
+      continue;
+    }
+    const option = group.options.find((o) => o.key === pick);
+    if (!option) {
+      throw new CatalogError(
+        `"${pick}" is not a valid ${group.label} for "${item.serviceKey}".`,
+        "bad_input",
+      );
+    }
+    multiplier *= option.multiplier;
+    selected[group.key] = option.key;
+  }
+
+  return { multiplier, selected };
+}
+
+/**
+ * Refuse to price a combination the business quotes by hand.
+ *
+ * Thrown, not returned as zero: a zero would flow into a subtotal and a customer
+ * could be shown a free job. An error stops the quote where a human can pick it up.
+ */
+export function assertQuotable(item: CatalogItem, selected: Record<string, string>): void {
+  for (const rule of item.reviewRules ?? []) {
+    const matches = Object.entries(rule.when).every(([group, option]) => selected[group] === option);
+    if (matches) {
+      throw new CatalogError(
+        `"${item.serviceKey}" needs a manual quote: ${rule.reason}`,
+        "requires_review",
+      );
+    }
+  }
+}
+
+/** The per-measure rate for a banded item. */
+function bandedRate(item: CatalogItem, measure: number): number {
+  const bands = item.rateBands ?? [];
+  const band = bands.find((b) => b.maxMeasure == null || measure <= b.maxMeasure) ?? bands[bands.length - 1];
+  if (!band) throw new CatalogError(`"${item.serviceKey}" has no rate bands configured.`, "bad_input");
+  return band.rateCents;
 }
 
 function surchargePerMeasure(
@@ -256,9 +375,17 @@ function priceLine(input: CatalogPriceInput, line: CatalogLineInput): PricedLine
       };
     }
 
+    case "per_measure_banded":
     case "per_measure": {
       const measure = requireMeasure(line, item);
-      const raw = money.perMeasure(item.rateCents, measure);
+      const { multiplier, selected } = resolveModifiers(item, line.modifiers);
+      assertQuotable(item, selected);
+      const baseRate =
+        item.pricingType === "per_measure_banded" ? bandedRate(item, measure) : item.rateCents;
+      // Multiplier applies to the RATE, before the minimum floor: a deep-clean
+      // minimum should scale with the work, not sit at the refresh floor.
+      const effectiveRate = Math.round(baseRate * multiplier);
+      const raw = money.perMeasure(effectiveRate, measure);
       const floored = money.atLeast(raw, item.minimumCents);
       const minimumApplied = raw < item.minimumCents;
       const perMeasure = surchargePerMeasure(input.catalog, input.variant, item.surchargeEligible);
@@ -267,7 +394,7 @@ function priceLine(input: CatalogPriceInput, line: CatalogLineInput): PricedLine
 
       let description = minimumApplied
         ? `${item.label} — ${measure} (minimum ${money.format(item.minimumCents)})`
-        : `${item.label} — ${measure} × ${money.format(item.rateCents)}`;
+        : `${item.label} — ${measure} × ${money.format(effectiveRate)}`;
       if (surcharge > 0) {
         description += ` + ${input.variant} surcharge ${money.format(perMeasure)}`;
       }
@@ -278,9 +405,11 @@ function priceLine(input: CatalogPriceInput, line: CatalogLineInput): PricedLine
         unitPriceCents: amount,
         amountCents: amount,
         detail: {
-          pricingType: "per_measure",
-          rateCents: item.rateCents,
+          pricingType: item.pricingType,
+          rateCents: effectiveRate,
           measure,
+          modifierMultiplier: multiplier,
+          modifiers: selected,
           minimumCents: item.minimumCents,
           minimumApplied,
           surchargePerMeasureCents: perMeasure,
