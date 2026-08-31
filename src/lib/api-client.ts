@@ -1515,6 +1515,60 @@ export function voidQuote(orgId: string, quoteId: string): Promise<QuoteSummary>
   });
 }
 
+// ─── Stripe Connect (per-company payment account) ────────────────────────────
+
+export interface ConnectStatus {
+  companyId: string;
+  companyName: string | null;
+  connected: boolean;
+  accountId: string | null;
+  mode: "test" | "live" | null;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  requirementsDue: string[];
+  requirementsDeadline: number | null;
+  /** Connected and chargeable differ — only this one means a customer can pay. */
+  readyToCharge: boolean;
+  updatedAt: string | null;
+}
+
+/**
+ * Read a company's Connect state. `sync` asks Stripe instead of trusting the
+ * columns the `account.updated` webhook maintains — worth it right after
+ * onboarding, wasteful on every render.
+ */
+export function fetchConnectStatus(
+  orgId: string,
+  companyId: string,
+  opts: { sync?: boolean } = {},
+): Promise<ConnectStatus> {
+  const q = opts.sync ? "?sync=1" : "";
+  return apiFetch<ConnectStatus>(
+    `/api/organizations/${orgId}/companies/${companyId}/stripe-connect${q}`,
+  );
+}
+
+export interface ConnectOnboardingLink {
+  accountId: string;
+  url: string;
+  expiresAt: number;
+}
+
+/**
+ * Mint an onboarding link. Single-use and short-lived, so redirect immediately —
+ * never store it, render it for later, or email it.
+ */
+export function startConnectOnboarding(
+  orgId: string,
+  companyId: string,
+): Promise<ConnectOnboardingLink> {
+  return apiFetch<ConnectOnboardingLink>(
+    `/api/organizations/${orgId}/companies/${companyId}/stripe-connect`,
+    { method: "POST" },
+  );
+}
+
 // ─── Comments (polymorphic across entities) ──────────────────────────────────
 
 export interface CreateCommentInput {

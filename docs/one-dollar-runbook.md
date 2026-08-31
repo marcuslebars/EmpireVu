@@ -13,37 +13,41 @@ tax registration, or deliverability — which are the three things that break.
 
 ---
 
-## Read this first: Connect onboarding has no UI
+## Step 0: connect A1MS
 
-`startConnectOnboarding()` in `src/server/services/quotes/connect.ts` is written
-and tested, but **no route or screen calls it**. There is no button to press.
+There is an API route for this now, but **no button yet** — the Settings screen
+has not been wired to it. Until it is, POST to it from the browser console while
+signed in as an owner or admin:
 
-So for this run, connect A1MS by hand. It takes two minutes, and it is not a
-workaround — the code only ever reads `companies.stripe_connected_account_id`,
-which is what the onboarding flow would have written anyway.
+```js
+await fetch(`/api/organizations/${ORG_ID}/companies/${COMPANY_ID}/stripe-connect`,
+  { method: "POST" }).then(r => r.json())
+```
 
-1. In the **platform** Stripe account, Connect → Accounts → create a **Standard**
-   account for A1 Marine Storage and complete its onboarding (business details,
-   bank account, identity). Copy the `acct_...` id.
-2. Then, in Supabase:
+That returns `{ data: { accountId, url, expiresAt } }`. Open `url` and complete
+Stripe's onboarding — business details, bank account, identity. The link is
+single-use and expires in minutes; if it goes stale, POST again for a fresh one.
+
+The route creates the Standard account with `company_id` and `organization_id` in
+its metadata, and records the id **before** minting the link, so a failure part
+way cannot orphan an account in your dashboard and create a second one next time.
+Creation is keyed by company, so a double-click cannot either.
+
+Do **not** set `stripe_charges_enabled` by hand. It defaults to false, and the
+`account.updated` webhook sets it — which makes the pre-flight below double as
+proof that your Connect webhook is wired. If it is still false once Stripe says
+onboarding is complete, the webhook is not arriving, and you would much rather
+learn that here than at the card screen.
+
+Set the descriptor while you are in Supabase — it is what a cardholder reads on
+their statement, and it is not part of onboarding:
 
 ```sql
 update public.companies
-set stripe_connected_account_id = 'acct_XXXXXXXXXXXX',
-    stripe_mode = 'live',
-    stripe_account_label = 'A1 Marine Storage',
-    stripe_statement_descriptor_suffix = 'A1 MARINE'
+set stripe_statement_descriptor_suffix = 'A1 MARINE',
+    stripe_account_label = 'A1 Marine Storage'
 where id = '<a1ms-company-id>';
 ```
-
-Leave `stripe_charges_enabled` alone. It defaults to false, and the
-`account.updated` webhook sets it — which doubles as proof the Connect webhook is
-wired correctly. If it is still false once Stripe says onboarding is complete,
-the webhook is not arriving, and you would much rather learn that here than at
-the card screen.
-
-Exposing onboarding properly later needs one route plus a button in Settings.
-Small piece of work; not a blocker tonight.
 
 ---
 
@@ -250,7 +254,8 @@ Until it is set, qualifying leads are quoted by hand exactly as they are today.
 | Email in spam | SPF/DKIM not published on `a1marinestorage.ca` |
 | Quotes screen says "not enabled" | `STRIPE_QUOTES_ENABLED=0` |
 | **Send** greyed out | Click **Edit** on the quote first |
-| Approve → "not connected" | `stripe_connected_account_id` unset |
+| Approve → "not connected" | Step 0 not done, or done against another company |
+| Onboarding link expired | POST step 0 again; links are single-use |
 | Approve → "cannot accept charges yet" | Stripe verification still pending |
 | Checkout errors on tax | No active Ontario registration on the connected account |
 | Checkout shows $4.00 | Deposit not applied — stop |

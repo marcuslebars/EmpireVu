@@ -39,12 +39,31 @@ export interface ConnectOnboardingLink {
   expiresAt: number;
 }
 
-async function loadCompany(companyId: string): Promise<Db> {
+const COMPANY_SELECT =
+  "id, name, organization_id, stripe_connected_account_id, stripe_mode, " +
+  "stripe_charges_enabled, stripe_payouts_enabled, stripe_details_submitted, " +
+  "stripe_requirements, stripe_connect_updated_at, brand_reply_email, brand_website_url";
+
+/**
+ * Load a company, scoped to its organization.
+ *
+ * `organizationId` is REQUIRED, and every exported function here takes it,
+ * because these run on the ADMIN client — RLS is not standing in the way. Without
+ * it a member of one org could aim onboarding at another org's company and
+ * attach a Stripe account to a business they do not own. Making the parameter
+ * mandatory means a future caller cannot forget: a route holding only a
+ * companyId will not compile.
+ *
+ * A company in a different org reports `company_not_found` rather than
+ * "forbidden", so the error does not confirm that the id exists.
+ */
+async function loadCompany(companyId: string, organizationId: string): Promise<Db> {
   const db = createSupabaseAdminClient() as Db;
   const { data, error } = await db
     .from("companies")
-    .select("id, name, organization_id, stripe_connected_account_id, brand_reply_email, brand_website_url")
+    .select(COMPANY_SELECT)
     .eq("id", companyId)
+    .eq("organization_id", organizationId)
     .maybeSingle();
   if (error) throw error;
   if (!data) throw new ConnectError(`Company ${companyId} not found.`, "company_not_found");
@@ -62,9 +81,10 @@ async function loadCompany(companyId: string): Promise<Db> {
  */
 export async function startConnectOnboarding(
   companyId: string,
+  organizationId: string,
   opts: { returnUrl: string; refreshUrl: string },
 ): Promise<ConnectOnboardingLink> {
-  const company = await loadCompany(companyId);
+  const company = await loadCompany(companyId, organizationId);
   const stripe = getPlatformStripe();
   let accountId: string | null = company.stripe_connected_account_id ?? null;
 
@@ -140,8 +160,11 @@ export async function syncConnectedAccountState(account: Stripe.Account): Promis
 }
 
 /** Live capability read, for the admin screen's "refresh" action. */
-export async function refreshConnectedAccount(companyId: string): Promise<Stripe.Account> {
-  const company = await loadCompany(companyId);
+export async function refreshConnectedAccount(
+  companyId: string,
+  organizationId: string,
+): Promise<Stripe.Account> {
+  const company = await loadCompany(companyId, organizationId);
   const accountId: string | null = company.stripe_connected_account_id ?? null;
   if (!accountId) {
     throw new ConnectError(`Company ${companyId} has no connected account.`, "not_connected");
@@ -151,12 +174,90 @@ export async function refreshConnectedAccount(companyId: string): Promise<Stripe
   return account;
 }
 
-/** Where Stripe sends the tenant back to after onboarding. */
-export function onboardingUrls(companyId: string): { returnUrl: string; refreshUrl: string } {
-  const base = (process.env.APP_BASE_URL ?? getQuotesConfig().publicBaseUrl).replace(/\/$/, "");
+/**
+ * What the settings screen shows. Read from the mirrored columns, not Stripe, so
+ * rendering the page costs no API call — `account.updated` keeps them fresh, and
+ * the sync action exists for when someone does not want to wait for a webhook.
+ */
+export interface ConnectStatus {
+  companyId: string;
+  companyName: string | null;
+  connected: boolean;
+  /** `acct_...`. Not a secret — it is a public identifier, unlike a key. */
+  accountId: string | null;
+  mode: "test" | "live" | null;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  /** What Stripe is still waiting for. Empty when nothing is outstanding. */
+  requirementsDue: string[];
+  /** Set when Stripe has given a deadline for `requirementsDue`. */
+  requirementsDeadline: number | null;
+  /** True only when this company can actually take money right now. */
+  readyToCharge: boolean;
+  updatedAt: string | null;
+}
+
+/** Requirement arrays Stripe may or may not populate; treat all as optional. */
+function requirementsOf(raw: unknown): { due: string[]; deadline: number | null } {
+  const r = (raw ?? {}) as {
+    currently_due?: unknown;
+    past_due?: unknown;
+    current_deadline?: unknown;
+  };
+  const list = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  // past_due first: those are the ones already blocking, and an operator reading
+  // a truncated list should see the urgent items.
+  const due = Array.from(new Set([...list(r.past_due), ...list(r.currently_due)]));
+  return { due, deadline: typeof r.current_deadline === "number" ? r.current_deadline : null };
+}
+
+export async function getConnectStatus(
+  companyId: string,
+  organizationId: string,
+): Promise<ConnectStatus> {
+  const company = await loadCompany(companyId, organizationId);
+  const accountId: string | null = company.stripe_connected_account_id ?? null;
+  const { due, deadline } = requirementsOf(company.stripe_requirements);
+  const chargesEnabled = company.stripe_charges_enabled === true;
+
   return {
-    returnUrl: `${base}/settings/payments?company=${encodeURIComponent(companyId)}&connected=1`,
-    // Account Links expire; Stripe calls refresh_url to get a fresh one.
-    refreshUrl: `${base}/settings/payments?company=${encodeURIComponent(companyId)}&refresh=1`,
+    companyId: company.id,
+    companyName: company.name ?? null,
+    connected: Boolean(accountId),
+    accountId,
+    mode: (company.stripe_mode as "test" | "live" | null) ?? null,
+    chargesEnabled,
+    payoutsEnabled: company.stripe_payouts_enabled === true,
+    detailsSubmitted: company.stripe_details_submitted === true,
+    requirementsDue: due,
+    requirementsDeadline: deadline,
+    // Connected and chargeable are different states: onboarding can finish with
+    // charges_enabled still false while Stripe verifies. Only this one means a
+    // customer can pay.
+    readyToCharge: Boolean(accountId) && chargesEnabled,
+    updatedAt: company.stripe_connect_updated_at ?? null,
+  };
+}
+
+/**
+ * Where Stripe sends the tenant after onboarding.
+ *
+ * `refreshUrl` points at our own API route, not at a screen: Account Links are
+ * single-use and expire in minutes, and Stripe fetches refresh_url expecting to
+ * be redirected onward to a NEW link. Pointing it at a page would leave the
+ * tenant staring at a settings screen with no way forward.
+ */
+export function onboardingUrls(
+  organizationId: string,
+  companyId: string,
+): { returnUrl: string; refreshUrl: string } {
+  const base = (process.env.APP_BASE_URL ?? getQuotesConfig().publicBaseUrl).replace(/\/$/, "");
+  const c = encodeURIComponent(companyId);
+  return {
+    returnUrl: `${base}/settings?company=${c}&connected=1`,
+    refreshUrl:
+      `${base}/api/organizations/${encodeURIComponent(organizationId)}` +
+      `/companies/${c}/stripe-connect/refresh`,
   };
 }
