@@ -15,23 +15,26 @@ tax registration, or deliverability — which are the three things that break.
 
 ## Step 0: connect A1MS
 
-There is an API route for this now, but **no button yet** — the Settings screen
-has not been wired to it. Until it is, POST to it from the browser console while
-signed in as an owner or admin:
+**Settings → Payments**, as an owner or admin. Pick A1 Marine Storage and press
+**Connect Stripe account**. Complete Stripe's onboarding — business details, bank
+account, identity — and it returns you to the same panel.
 
-```js
-await fetch(`/api/organizations/${ORG_ID}/companies/${COMPANY_ID}/stripe-connect`,
-  { method: "POST" }).then(r => r.json())
-```
+Payments is not Billing & Plans. Billing is what you pay for EmpireVu; Payments
+is how a company gets paid by its customers.
 
-That returns `{ data: { accountId, url, expiresAt } }`. Open `url` and complete
-Stripe's onboarding — business details, bank account, identity. The link is
-single-use and expires in minutes; if it goes stale, POST again for a fresh one.
+The account is created with `company_id` and `organization_id` in its metadata,
+and the id is recorded **before** the onboarding link is minted, so a failure part
+way through cannot orphan an account in your dashboard and create a second one on
+the next attempt. If the link goes stale — Account Links are single-use and
+expire in minutes — press the button again.
 
-The route creates the Standard account with `company_id` and `organization_id` in
-its metadata, and records the id **before** minting the link, so a failure part
-way cannot orphan an account in your dashboard and create a second one next time.
-Creation is keyed by company, so a double-click cannot either.
+When you come back, the panel asks Stripe directly rather than trusting the
+redirect. Expect one of three states, and only the third means a customer can
+pay:
+
+- **Setup unfinished** — Stripe lists what it still needs.
+- **Stripe is still verifying** — onboarding submitted, charges not yet enabled.
+- **Ready to take payments** — done.
 
 Do **not** set `stripe_charges_enabled` by hand. It defaults to false, and the
 `account.updated` webhook sets it — which makes the pre-flight below double as
@@ -255,7 +258,8 @@ Until it is set, qualifying leads are quoted by hand exactly as they are today.
 | Quotes screen says "not enabled" | `STRIPE_QUOTES_ENABLED=0` |
 | **Send** greyed out | Click **Edit** on the quote first |
 | Approve → "not connected" | Step 0 not done, or done against another company |
-| Onboarding link expired | POST step 0 again; links are single-use |
+| Onboarding link expired | Press Connect again; links are single-use |
+| Payments panel says "only an owner or admin" | Your membership role on this org |
 | Approve → "cannot accept charges yet" | Stripe verification still pending |
 | Checkout errors on tax | No active Ontario registration on the connected account |
 | Checkout shows $4.00 | Deposit not applied — stop |
