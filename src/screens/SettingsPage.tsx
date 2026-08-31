@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone, Send, Copy, Trash2, Mail, CreditCard, Landmark } from "lucide-react";
+import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone, Send, Copy, Trash2, Mail, CreditCard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
 import { useOrg } from "@/lib/org-context";
@@ -18,14 +18,12 @@ import {
 } from "@/lib/api-hooks";
 import { VoiceSettings } from "@/components/settings/VoiceSettings";
 import { BillingSettings } from "@/components/settings/BillingSettings";
-import { PaymentsSettings } from "@/components/settings/PaymentsSettings";
 
 const sections = [
   { id: "org", label: "Organization", icon: Building2, description: "Manage organization name, slug, and companies" },
   { id: "voice", label: "Voice (Marina)", icon: Phone, description: "Set each company's outbound agent, caller ID, and system prompt" },
   { id: "members", label: "Members & Permissions", icon: Users, description: "Manage team roles and access controls" },
   { id: "billing", label: "Billing & Plans", icon: CreditCard, description: "Manage your subscription and plan" },
-  { id: "payments", label: "Payments", icon: Landmark, description: "Connect each company's Stripe account to take deposits" },
   { id: "notifications", label: "Notifications", icon: Bell, description: "Configure notification preferences" },
   { id: "integrations", label: "Integrations", icon: Puzzle, description: "Connect third-party tools and services" },
   { id: "appearance", label: "Appearance", icon: Palette, description: "Customize theme and display options" },
@@ -369,13 +367,7 @@ function MembersSettings() {
 
 export default function SettingsPage() {
   const location = useLocation();
-  const [active, setActive] = useState(
-    location.pathname.endsWith("/payments")
-      ? "payments"
-      : location.pathname.endsWith("/billing")
-        ? "billing"
-        : "org",
-  );
+  const [active, setActive] = useState(location.pathname.endsWith("/billing") ? "billing" : "org");
   const activeSection = sections.find((s) => s.id === active);
 
   return (
@@ -413,8 +405,6 @@ export default function SettingsPage() {
             <MembersSettings />
           ) : active === "billing" ? (
             <BillingSettings />
-          ) : active === "payments" ? (
-            <PaymentsSettings />
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center mb-4">

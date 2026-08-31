@@ -30,9 +30,6 @@ import {
   fetchBillingPlans,
   createCheckout,
   createBillingPortal,
-  fetchConnectAccounts,
-  createConnectOnboarding,
-  refreshConnectAccount,
   createContact,
   updateContactStage,
   assignContactOwner,
@@ -592,30 +589,6 @@ export function useCreateCheckout(orgId: string) {
 export function useCreateBillingPortal(orgId: string) {
   return useMutation({
     mutationFn: () => createBillingPortal(orgId),
-  });
-}
-
-export function useConnectAccounts(orgId: string) {
-  return useQuery({
-    queryKey: ["connect", orgId],
-    queryFn: () => fetchConnectAccounts(orgId),
-    enabled: Boolean(orgId),
-  });
-}
-
-export function useCreateConnectOnboarding(orgId: string) {
-  return useMutation({
-    mutationFn: (companyId: string) => createConnectOnboarding(orgId, companyId),
-  });
-}
-
-export function useRefreshConnectAccount(orgId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (companyId: string) => refreshConnectAccount(orgId, companyId),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["connect", orgId] });
-    },
   });
 }
 

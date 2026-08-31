@@ -748,39 +748,6 @@ export function createBillingPortal(orgId: string): Promise<{ url: string }> {
   });
 }
 
-// ─── Payments (Stripe Connect) ───────────────────────────────────────────────
-
-export type ConnectState = "not_connected" | "onboarding_incomplete" | "ready";
-
-export interface CompanyConnectStatus {
-  companyId: string;
-  companyName: string | null;
-  accountId: string | null;
-  connected: boolean;
-  chargesEnabled: boolean;
-  payoutsEnabled: boolean;
-  detailsSubmitted: boolean;
-  state: ConnectState;
-}
-
-export function fetchConnectAccounts(orgId: string): Promise<CompanyConnectStatus[]> {
-  return apiFetch(`/api/organizations/${orgId}/connect`);
-}
-
-export function createConnectOnboarding(orgId: string, companyId: string): Promise<{ url: string }> {
-  return apiFetch(`/api/organizations/${orgId}/connect/${companyId}/onboarding`, {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
-}
-
-export function refreshConnectAccount(orgId: string, companyId: string): Promise<CompanyConnectStatus> {
-  return apiFetch(`/api/organizations/${orgId}/connect/${companyId}/refresh`, {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
-}
-
 export function updateContactNotes(
   orgId: string,
   contactId: string,
