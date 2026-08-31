@@ -11,6 +11,7 @@
  * and voided before anyone approves it.
  */
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
+import type { TenantServiceContext } from "@/server/services/shared";
 import type { LeadEnvelope } from "@/server/services/lead-intake/envelope";
 import { decideAutoQuote, type AutoQuoteDecision } from "./auto-quote-eligibility";
 import { loadCatalog } from "./catalog-repo";
@@ -117,11 +118,19 @@ export async function maybeAutoQuoteLead(
       return { created: false, decision };
     }
 
-    const admin = createSupabaseAdminClient();
-    const serviceCtx = {
+    // Service-role, because there is no signed-in user on an intake request —
+    // RLS would refuse the insert. organizationId is passed explicitly, so the
+    // quote is still scoped to the tenant that owns the lead.
+    //
+    // The cast is a package-typing artifact, not a real mismatch: the admin
+    // client comes from @supabase/supabase-js and the request-scoped one from
+    // the SSR helper, and their generics have different arity. Both are ordinary
+    // Supabase clients at runtime, and every other admin call in this module
+    // takes the same escape hatch.
+    const serviceCtx: TenantServiceContext = {
       organizationId: ctx.organizationId,
       actorProfileId: null, // system-created
-      supabase: admin,
+      supabase: createSupabaseAdminClient() as unknown as TenantServiceContext["supabase"],
     };
 
     const log = envelope.meta?.logistics;
