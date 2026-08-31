@@ -48,6 +48,8 @@ export default function QuotesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Distinct from `error`: the action SUCCEEDED, with something worth knowing.
+  const [notice, setNotice] = useState<string | null>(null);
   const [disabled, setDisabled] = useState(false);
 
   const load = useCallback(async () => {
@@ -78,6 +80,7 @@ export default function QuotesPage() {
   async function run(fn: () => Promise<unknown>) {
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       await fn();
       await load();
@@ -135,6 +138,13 @@ export default function QuotesPage() {
         <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">{error}</div>
       )}
 
+      {notice && (
+        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <span className="font-medium">Quote sent.</span> {notice} Use{" "}
+          <span className="font-medium">Customer view</span> below to copy the link.
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-3">
           <label className="block text-sm font-medium" htmlFor="quote-json">
@@ -170,7 +180,16 @@ export default function QuotesPage() {
             <button
               type="button"
               disabled={busy || !editingId}
-              onClick={() => editingId && run(() => sendQuote(orgId, editingId))}
+              onClick={() =>
+                editingId &&
+                run(async () => {
+                  const { email } = await sendQuote(orgId, editingId);
+                  // The quote IS sent at this point. A failed email is worth
+                  // saying out loud — otherwise the operator assumes the customer
+                  // has it — but it is a notice, not an error.
+                  setNotice(email.delivered ? null : email.reason);
+                })
+              }
               className="rounded border px-3 py-2 text-sm disabled:opacity-50"
             >
               Send

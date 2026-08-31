@@ -92,30 +92,45 @@ async function deliver(quote: Db, to: string, mail: RenderedEmail): Promise<void
   });
 }
 
-/** Shared: render + send + record, with the caller deciding whether to rethrow. */
+/**
+ * What happened to one email. `delivered: false` is never an error — the quote
+ * it belongs to is already written and payable.
+ */
+export interface EmailOutcome {
+  delivered: boolean;
+  /** Operator-facing, present only when it did not go. */
+  reason: string | null;
+}
+
+const NOT_DELIVERED = (reason: string): EmailOutcome => ({ delivered: false, reason });
+
+/**
+ * Render + send + record. NEVER THROWS.
+ *
+ * It used to rethrow for the admin path, and that was the bug: sendQuote writes
+ * the status to 'sent' BEFORE calling this, so a throw here reported failure for
+ * an operation that had already succeeded. A quote came back numbered, stamped
+ * and payable while the API answered 500 — which invites an operator to press
+ * Send again, or to assume a live quote does not exist.
+ *
+ * The email and the quote are separate concerns. A quote with no email address
+ * is a normal quote whose link gets read out over the phone; a provider outage
+ * is our problem, not a reason to hide the customer's quote. Both are reported
+ * through the return value and the event log.
+ */
 async function dispatch(
   quoteId: string,
   kind: string,
   build: (ctx: QuoteEmailContextRow) => RenderedEmail,
-  { rethrow }: { rethrow: boolean },
-): Promise<boolean> {
+): Promise<EmailOutcome> {
   const ctx = await loadContext(quoteId);
-  if (!ctx) {
-    if (rethrow) throw new Error(`Quote ${quoteId} not found.`);
-    return false;
-  }
+  if (!ctx) return NOT_DELIVERED(`Quote ${quoteId} not found.`);
 
   if (!ctx.recipient) {
-    // No email on the contact. Recorded rather than thrown even for the admin
-    // path: the quote itself is fine, and the operator needs the reason, not a
-    // stack trace.
     await recordPublicEvent(ctx.quote.organization_id, quoteId, `${kind}_skipped`, {
       reason: "contact has no email address",
     });
-    if (rethrow) {
-      throw new Error("This contact has no email address, so the quote could not be sent.");
-    }
-    return false;
+    return NOT_DELIVERED("No email address on file for this contact — share the quote link directly.");
   }
 
   try {
@@ -124,21 +139,23 @@ async function dispatch(
     await recordPublicEvent(ctx.quote.organization_id, quoteId, `${kind}_sent`, {
       subject: mail.subject,
     });
-    return true;
+    return { delivered: true, reason: null };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    // Never log the rendered body — it contains customer detail.
-    console.error(`[quotes] ${kind} email failed for quote ${quoteId}: ${message}`);
+    // Never log the rendered body — it contains customer detail. The message is
+    // capped for the same reason the event metadata is: a provider that echoes
+    // the payload back in its error would otherwise put it in the log verbatim,
+    // unbounded.
+    console.error(`[quotes] ${kind} email failed for quote ${quoteId}: ${message.slice(0, 500)}`);
     await recordPublicEvent(ctx.quote.organization_id, quoteId, `${kind}_failed`, {
       error: message.slice(0, 500),
     });
-    if (rethrow) throw err;
-    return false;
+    return NOT_DELIVERED(`The email could not be delivered: ${message.slice(0, 200)}`);
   }
 }
 
-/** The quote itself. Throws — the admin just pressed Send. */
-export async function sendQuoteEmail(quoteId: string): Promise<boolean> {
+/** The quote itself. Reports its outcome; the send already happened. */
+export async function sendQuoteEmail(quoteId: string): Promise<EmailOutcome> {
   return dispatch(
     quoteId,
     "quote_email",
@@ -155,12 +172,11 @@ export async function sendQuoteEmail(quoteId: string): Promise<boolean> {
         depositCents: quote.deposit_cents,
         validUntil: quote.valid_until ?? quote.expires_at,
       }),
-    { rethrow: true },
   );
 }
 
 /** Deposit receipt. Best-effort: the payment already succeeded. */
-export async function sendDepositReceiptEmail(quoteId: string): Promise<boolean> {
+export async function sendDepositReceiptEmail(quoteId: string): Promise<EmailOutcome> {
   return dispatch(
     quoteId,
     "receipt_email",
@@ -187,7 +203,6 @@ export async function sendDepositReceiptEmail(quoteId: string): Promise<boolean>
         purchasedLines: purchased,
       });
     },
-    { rethrow: false },
   );
 }
 
@@ -195,7 +210,7 @@ export async function sendDepositReceiptEmail(quoteId: string): Promise<boolean>
 export async function sendQuoteReplacedEmail(
   successorQuoteId: string,
   reason: string | null,
-): Promise<boolean> {
+): Promise<EmailOutcome> {
   return dispatch(
     successorQuoteId,
     "replaced_email",
@@ -209,12 +224,11 @@ export async function sendQuoteReplacedEmail(
         currency: quote.currency ?? "CAD",
         reason,
       }),
-    { rethrow: false },
   );
 }
 
 /** Expiry reminder — one gentle nudge. Best-effort; a cron must not die on mail. */
-export async function sendExpiryReminderEmail(quoteId: string, now = new Date()): Promise<boolean> {
+export async function sendExpiryReminderEmail(quoteId: string, now = new Date()): Promise<EmailOutcome> {
   return dispatch(
     quoteId,
     "reminder_email",
@@ -230,6 +244,5 @@ export async function sendExpiryReminderEmail(quoteId: string, now = new Date())
         depositCents: quote.deposit_cents,
         now,
       }),
-    { rethrow: false },
   );
 }

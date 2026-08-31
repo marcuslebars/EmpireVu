@@ -1534,11 +1534,38 @@ export function updateQuote(
   });
 }
 
-/** Draft → sent: allocates the quote number and stamps valid_until. */
-export function sendQuote(orgId: string, quoteId: string): Promise<QuoteSummary> {
-  return apiFetch<QuoteSummary>(`/api/organizations/${orgId}/quotes/${quoteId}/send`, {
+export interface EmailOutcome {
+  delivered: boolean;
+  reason: string | null;
+}
+
+export interface SendQuoteResult {
+  quote: QuoteSummary;
+  email: EmailOutcome;
+}
+
+/**
+ * Draft → sent: allocates the quote number and stamps valid_until.
+ *
+ * Resolves even when the email does not go out. The quote is sent either way —
+ * numbered, stamped and payable — and `email.delivered` says whether anyone was
+ * mailed. Treating a failed email as a failed send previously produced a 500 for
+ * a quote that was live, which is worse than saying so plainly.
+ */
+export async function sendQuote(orgId: string, quoteId: string): Promise<SendQuoteResult> {
+  const res = await fetch(`/api/organizations/${orgId}/quotes/${quoteId}/send`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
   });
+  const body = (await res.json().catch(() => ({}))) as {
+    data?: QuoteSummary;
+    email?: EmailOutcome;
+    error?: string;
+  };
+  if (!res.ok || !body.data) {
+    throw new ApiError(res.status, body.error ?? `API error ${res.status}: ${res.statusText}`, body);
+  }
+  return { quote: body.data, email: body.email ?? { delivered: true, reason: null } };
 }
 
 /** Void a quote (status → cancelled), with no successor. */

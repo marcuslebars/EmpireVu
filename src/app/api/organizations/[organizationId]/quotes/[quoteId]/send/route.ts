@@ -27,11 +27,15 @@ export async function POST(_request: Request, context: RouteContext): Promise<Ne
     const org = await requireOrganizationContext(supabase, context.params.organizationId);
 
     try {
-      const quote = await sendQuote(
+      const { quote, email } = await sendQuote(
         { organizationId: org.organizationId, actorProfileId: org.user.id, supabase },
         context.params.quoteId,
       );
-      return NextResponse.json({ data: quote });
+      // `data` stays the quote row, so every existing caller is unaffected. The
+      // email outcome rides alongside it: 200 either way, because the quote IS
+      // sent — it is numbered, stamped and payable regardless of what the mail
+      // provider did.
+      return NextResponse.json({ data: quote, email });
     } catch (err) {
       // An illegal move is the caller's mistake, not a server fault — 409, not 500.
       if (err instanceof QuoteTransitionError) {
