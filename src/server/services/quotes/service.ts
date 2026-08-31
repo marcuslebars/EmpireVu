@@ -7,7 +7,7 @@ import {
 } from "@/server/services/shared";
 import { getQuotesConfig } from "./config";
 import { assertTransition, type QuoteStatus } from "./lifecycle";
-import { sendQuoteEmail, sendQuoteReplacedEmail } from "./notify";
+import { sendQuoteEmail, sendQuoteReplacedEmail, type EmailOutcome } from "./notify";
 import { priceQuoteForCompany, type QuotePricing, type QuotePricingInput } from "./pricing";
 
 // quotes + quote_events aren't in the generated database.types.ts (no gen-types step),
@@ -285,7 +285,20 @@ async function allocateQuoteNumber(ctx: TenantServiceContext): Promise<string> {
  * Move a draft to sent: allocate its customer-facing number, stamp sent_at, and set
  * valid_until (default 30 days). Returns the row the Phase 3 email links to.
  */
-export async function sendQuote(ctx: TenantServiceContext, quoteId: string): Promise<QuoteRow> {
+/**
+ * A sent quote, and what became of its email. The two are separate outcomes: a
+ * quote with no contact email is a normal quote whose link is read out over the
+ * phone, and a provider outage is our problem, not a reason to hide it.
+ */
+export interface SendQuoteResult {
+  quote: QuoteRow;
+  email: EmailOutcome;
+}
+
+export async function sendQuote(
+  ctx: TenantServiceContext,
+  quoteId: string,
+): Promise<SendQuoteResult> {
   const existing = await getQuote(ctx, quoteId);
   if (!existing) throw new Error(`Quote ${quoteId} not found.`);
   assertTransition(existing.status, "sent");
@@ -313,13 +326,17 @@ export async function sendQuote(ctx: TenantServiceContext, quoteId: string): Pro
   const quote = data as QuoteRow;
   await recordEvent(ctx, quote.id, "sent", { quoteNumber, validUntil });
 
-  // Email AFTER the status write: a mail failure must not leave a quote the
-  // customer can open sitting in 'draft'. sendQuoteEmail throws, so the admin
-  // learns immediately — the quote is sent and re-sending only re-mails it (the
-  // number is kept, see above).
-  await sendQuoteEmail(quote.id);
+  // Email AFTER the status write, so a mail failure cannot leave a quote the
+  // customer can already open sitting in 'draft'.
+  //
+  // It does NOT throw. Throwing here reported failure for an operation that had
+  // already succeeded: the quote came back numbered, stamped and payable while
+  // the API answered 500, which invites a second Send or the belief that a live
+  // quote does not exist. The outcome rides on the return value instead, so the
+  // caller can say "sent, but not emailed, because…".
+  const email = await sendQuoteEmail(quote.id);
 
-  return quote;
+  return { quote, email };
 }
 
 export async function getQuote(ctx: TenantServiceContext, quoteId: string): Promise<QuoteRow | null> {
