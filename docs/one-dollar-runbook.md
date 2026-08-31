@@ -60,9 +60,11 @@ where id = '<a1ms-company-id>';
 - [ ] A1MS branding set — logo, colours, from-name, reply email, cancellation policy
 - [ ] `a1marinestorage.ca` verified in Resend, SPF + DKIM published
 - [ ] `quotes.a1marinestorage.ca` resolves with a valid certificate
-- [ ] Railway env on the **web** service: `QUOTE_PUBLIC_BASE_URL`,
-      `RESUME_TOKEN_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_CONNECT_WEBHOOK_SECRET`,
-      and the Resend from-address config
+- [ ] Railway env on **EmpireVu's** web service: `QUOTE_PUBLIC_BASE_URL`,
+      `STRIPE_SECRET_KEY`, `STRIPE_CONNECT_WEBHOOK_SECRET`, and the Resend
+      from-address config
+- [ ] `RESUME_TOKEN_SECRET` on **a1marinestorage**, not here — it signs the
+      calculator's PDF resume links and this app never reads it
 - [ ] Connect webhook registered at
       `https://api.empirevu.com/api/webhooks/stripe/connect`, listening on
       **connected accounts**, events `checkout.session.completed` and
