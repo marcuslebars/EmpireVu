@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone, Send, Copy, Trash2, Mail, CreditCard } from "lucide-react";
+import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone, Send, Copy, Trash2, Mail, CreditCard, Landmark } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
 import { useOrg } from "@/lib/org-context";
@@ -18,12 +18,16 @@ import {
 } from "@/lib/api-hooks";
 import { VoiceSettings } from "@/components/settings/VoiceSettings";
 import { BillingSettings } from "@/components/settings/BillingSettings";
+import { PaymentsSettings } from "@/components/settings/PaymentsSettings";
 
 const sections = [
   { id: "org", label: "Organization", icon: Building2, description: "Manage organization name, slug, and companies" },
   { id: "voice", label: "Voice (Marina)", icon: Phone, description: "Set each company's outbound agent, caller ID, and system prompt" },
   { id: "members", label: "Members & Permissions", icon: Users, description: "Manage team roles and access controls" },
   { id: "billing", label: "Billing & Plans", icon: CreditCard, description: "Manage your subscription and plan" },
+  // Payments (getting paid) sits next to Billing (paying us) deliberately — they
+  // are the two money screens — but the descriptions have to keep them apart.
+  { id: "payments", label: "Payments", icon: Landmark, description: "Connect each company's Stripe account so it can take customer payments" },
   { id: "notifications", label: "Notifications", icon: Bell, description: "Configure notification preferences" },
   { id: "integrations", label: "Integrations", icon: Puzzle, description: "Connect third-party tools and services" },
   { id: "appearance", label: "Appearance", icon: Palette, description: "Customize theme and display options" },
@@ -365,9 +369,21 @@ function MembersSettings() {
   );
 }
 
+/**
+ * Stripe returns the operator to /settings?company=…&connected=1 (or
+ * &connect_error=…). Open Payments for them: landing on Organization would hide
+ * the panel that reads those params, so the result of onboarding would be
+ * silently dropped.
+ */
+function initialSection(pathname: string, search: string): string {
+  const params = new URLSearchParams(search);
+  if (params.has("connected") || params.has("connect_error")) return "payments";
+  return pathname.endsWith("/billing") ? "billing" : "org";
+}
+
 export default function SettingsPage() {
   const location = useLocation();
-  const [active, setActive] = useState(location.pathname.endsWith("/billing") ? "billing" : "org");
+  const [active, setActive] = useState(() => initialSection(location.pathname, location.search));
   const activeSection = sections.find((s) => s.id === active);
 
   return (
@@ -405,6 +421,8 @@ export default function SettingsPage() {
             <MembersSettings />
           ) : active === "billing" ? (
             <BillingSettings />
+          ) : active === "payments" ? (
+            <PaymentsSettings />
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center mb-4">

@@ -793,3 +793,46 @@ export function useUpsertVoiceProfile(orgId: string) {
     },
   });
 }
+
+// ─── Stripe Connect (how a company gets PAID, not what it pays us) ────────────
+
+import { fetchConnectStatus, startConnectOnboarding } from "./api-client";
+
+/**
+ * A company's Connect state. Short staleTime because it changes underneath us:
+ * `account.updated` webhooks land while the operator is looking at the page.
+ */
+export function useConnectStatus(orgId: string, companyId: string) {
+  return useQuery({
+    queryKey: ["connect-status", orgId, companyId],
+    queryFn: () => fetchConnectStatus(orgId, companyId),
+    enabled: Boolean(orgId && companyId),
+    staleTime: 15_000,
+    // 403 (not an owner/admin) and 404 (company not in this org) will never
+    // succeed on retry — retrying only delays the message.
+    retry: false,
+  });
+}
+
+/** Ask Stripe directly rather than waiting for the next webhook. */
+export function useSyncConnectStatus(orgId: string, companyId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => fetchConnectStatus(orgId, companyId, { sync: true }),
+    onSuccess: (data) => {
+      // Seed the cache with what we just fetched instead of invalidating, so the
+      // panel updates without a second round trip.
+      qc.setQueryData(["connect-status", orgId, companyId], data);
+    },
+  });
+}
+
+/**
+ * Mint an onboarding link. The caller redirects immediately — the link is
+ * single-use and expires in minutes, so it is never cached or stored.
+ */
+export function useStartConnectOnboarding(orgId: string, companyId: string) {
+  return useMutation({
+    mutationFn: () => startConnectOnboarding(orgId, companyId),
+  });
+}
