@@ -270,7 +270,7 @@ for (const it of Object.values(items)) {
     `  values (v_company, v_org, ${esc(it.serviceKey)}, ${esc(it.label)}, ${esc(it.pricingType)}, ${num(it.rateCents)}, ${num(it.minimumCents)}, ${esc(it.unitLabel)}, ${num(it.additionalUnitMultiplier)}, ${jb(it.tiers)}, ${jb(it.rateBands)}, ${jb(it.modifierGroups)}, ${jb(it.reviewRules)}, ${num(it.maxQuantity)}, ${num(it.maxMeasure)}, ${it.surchargeEligible}, ${num(it.sortOrder)})`,
   );
   lines.push(
-    `  on conflict (company_id, service_key) do update set label = excluded.label, pricing_type = excluded.pricing_type, rate_cents = excluded.rate_cents, minimum_cents = excluded.minimum_cents, unit_label = excluded.unit_label, additional_unit_multiplier = excluded.additional_unit_multiplier, tiers = excluded.tiers, rate_bands = excluded.rate_bands, modifier_groups = excluded.modifier_groups, review_rules = excluded.review_rules, review_rules, max_quantity = excluded.max_quantity, max_measure = excluded.max_measure, surcharge_eligible = excluded.surcharge_eligible, sort_order = excluded.sort_order;`,
+    `  on conflict (company_id, service_key) do update set label = excluded.label, pricing_type = excluded.pricing_type, rate_cents = excluded.rate_cents, minimum_cents = excluded.minimum_cents, unit_label = excluded.unit_label, additional_unit_multiplier = excluded.additional_unit_multiplier, tiers = excluded.tiers, rate_bands = excluded.rate_bands, modifier_groups = excluded.modifier_groups, review_rules = excluded.review_rules, max_quantity = excluded.max_quantity, max_measure = excluded.max_measure, surcharge_eligible = excluded.surcharge_eligible, sort_order = excluded.sort_order;`,
   );
   lines.push("");
 }
