@@ -89,6 +89,12 @@ export async function createCheckoutSession(
   const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
     { price: getStripePriceId(params.plan), quantity: 1 },
   ];
+  // A one-time setup fee rides as a second line item. Subscription-mode Checkout
+  // DOES accept one-time prices alongside the recurring one — Stripe puts them on
+  // the initial invoice only (Checkout.Sessions line_items docs). So the setup-fee
+  // Price must be a ONE-TIME price, not recurring. (Do not move this to
+  // subscription_data.add_invoice_items — that field is not on Checkout's
+  // SubscriptionData in this API version; it exists only on the Subscriptions API.)
   const setupFeePrice = getStripeSetupFeePriceId(params.plan);
   if (setupFeePrice) {
     lineItems.push({ price: setupFeePrice, quantity: 1 });
