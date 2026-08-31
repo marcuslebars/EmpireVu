@@ -13,6 +13,8 @@ import {
 } from "@/server/services/telnyx/payload";
 import { centsToDollars, priceTelnyxQuote } from "@/server/services/telnyx/pricing";
 import { createTelnyxAdminClient, resolveTenantByCalledNumber } from "@/server/services/telnyx/tenant";
+import { loadCatalog } from "@/server/services/quotes/catalog-repo";
+import type { ServiceCatalog } from "@/server/services/quotes/catalog";
 import type { Json } from "@/server/db/database.types";
 
 export const dynamic = "force-dynamic";
@@ -51,24 +53,40 @@ export async function POST(request: Request): Promise<NextResponse> {
   const engineCount = readNumber(payload, ["engine_count", "engineCount", "engines"]);
   const conversationId = extractConversationId(payload);
 
-  const outcome = priceTelnyxQuote({
-    boatLengthFt,
-    boatType,
-    engineCount: engineCount != null ? Math.max(1, Math.round(engineCount)) : null,
-    engineType,
-    serviceType,
-    tier,
-  });
+  // Resolve the tenant up front: Marina is per-brand, so pricing reads THIS
+  // company's service catalog, and the same tenant is reused for logging below.
+  const admin = createTelnyxAdminClient();
+  const tenant = await resolveTenantByCalledNumber(
+    admin,
+    readString(payload, ["called_number", "to"]) ?? extractCalledNumber(payload),
+  );
+  let catalog: ServiceCatalog | null = null;
+  if (tenant.companyId) {
+    try {
+      catalog = await loadCatalog(tenant.companyId);
+    } catch {
+      // No catalog seeded for this brand — every service comes back unsupported,
+      // and the assistant offers a callback.
+      catalog = null;
+    }
+  }
+
+  const outcome = priceTelnyxQuote(
+    {
+      boatLengthFt,
+      boatType,
+      engineCount: engineCount != null ? Math.max(1, Math.round(engineCount)) : null,
+      engineType,
+      serviceType,
+      tier,
+    },
+    catalog,
+  );
 
   // Logging is sales intelligence, not part of the caller's answer — never let
   // it delay or break the response the assistant is waiting on.
   const logQuote = async () => {
     try {
-      const admin = createTelnyxAdminClient();
-      const tenant = await resolveTenantByCalledNumber(
-        admin,
-        readString(payload, ["called_number", "to"]) ?? extractCalledNumber(payload),
-      );
       if (!tenant.organizationId) return;
 
       await admin.from("telnyx_quotes").insert({

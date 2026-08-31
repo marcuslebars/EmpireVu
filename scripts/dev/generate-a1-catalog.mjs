@@ -5,6 +5,15 @@
  * both the SQL seed and the test fixture, so the two can never disagree — and the
  * golden fixtures then prove the extraction reproduces the engine exactly.
  *
+ * ONE-TIME MIGRATION TOOL — @a1/pricing-engine has been removed from EmpireVu's
+ * dependencies (the catalog is now the source of truth), so this no longer runs
+ * here as-is. Kept as the record of how the a1 catalogs were generated. To re-run
+ * (e.g. if engine rates change), temporarily reinstall the engine, regenerate,
+ * commit the fixtures/seeds, then remove it again:
+ *   npm i -D github:marcuslebars/a1-pricing-engine#v1.3.0
+ *   node scripts/dev/generate-a1-catalog.mjs
+ *   npm rm @a1/pricing-engine
+ *
  * Usage: node scripts/dev/generate-a1-catalog.mjs
  */
 import { writeFileSync } from "node:fs";
