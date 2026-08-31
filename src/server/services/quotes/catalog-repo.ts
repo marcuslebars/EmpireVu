@@ -42,6 +42,14 @@ function toItem(row: Db): CatalogItem {
           rateCents: Number(t.rateCents),
         }))
       : null,
+    rateBands: Array.isArray(row.rate_bands)
+      ? row.rate_bands.map((b: Db) => ({
+          maxMeasure: b.maxMeasure == null ? null : Number(b.maxMeasure),
+          rateCents: Number(b.rateCents),
+        }))
+      : null,
+    modifierGroups: Array.isArray(row.modifier_groups) ? row.modifier_groups : null,
+    reviewRules: Array.isArray(row.review_rules) ? row.review_rules : null,
     maxQuantity: row.max_quantity == null ? null : Number(row.max_quantity),
     maxMeasure: row.max_measure == null ? null : Number(row.max_measure),
     surchargeEligible: row.surcharge_eligible === true,

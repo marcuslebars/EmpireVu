@@ -1,19 +1,14 @@
 /**
- * Adapter from what a voice assistant can collect on a phone call to the
- * @a1/pricing-engine API. Pricing is NEVER computed here — this only maps
- * inputs, and refuses to guess.
+ * Adapter from what a voice assistant can collect on a phone call to a price.
+ * Pricing is NEVER computed here — this only maps inputs to a catalog line and
+ * refuses to guess.
  *
- * Two engine surfaces with different shapes and DIFFERENT UNITS:
- *   • storage  → calculateQuote()  → QuoteResult, amounts in CENTS
- *   • marine care → calculateCeramic()/calculateExterior() → PricingResult,
- *     `subtotal` in DOLLARS, and only human-readable `breakdown` strings
- * Everything below is normalized to CENTS so a 100× error can't slip through.
+ * Marina is per-brand: a call resolves to ONE company, and we price from THAT
+ * company's service catalog (priceFromCatalog, integer CENTS). A service the
+ * brand doesn't sell isn't in its catalog, so it comes back `unsupported` — the
+ * assistant offers a callback rather than quoting a neighbouring brand's price.
  */
-import {
-  calculateCeramic,
-  calculateExterior,
-  calculateQuote,
-} from "@a1/pricing-engine";
+import { priceFromCatalog, type CatalogLineInput, type ServiceCatalog } from "@/server/services/quotes/catalog";
 
 export type EngineType = "outboard" | "sterndrive" | "inboard";
 
@@ -47,8 +42,8 @@ export type QuoteOutcome =
 const DETAILING_TIERS = ["refresh", "standard", "deep", "restoration"] as const;
 
 /**
- * BUSINESS RULE, NOT PRICING-ENGINE OUTPUT: the booking deposit. The engine has
- * no deposit concept, so this is configurable rather than invented per-call.
+ * BUSINESS RULE, NOT CATALOG OUTPUT: the booking deposit. The catalog has no
+ * deposit concept, so this is configurable rather than invented per-call.
  * Flat cents (default $100) unless TELNYX_DEPOSIT_PERCENT is set.
  */
 function depositCentsFor(totalCents: number): number {
@@ -95,58 +90,34 @@ function buildSpokenSummary(
   );
 }
 
-function quotedFromStorage(
-  serviceId: string,
+/** Price one catalog line for the caller's brand, or hand off if the brand doesn't sell it. */
+function quotedFromCatalog(
   serviceLabel: string,
   input: TelnyxQuoteInput,
+  catalog: ServiceCatalog | null,
+  line: CatalogLineInput,
 ): QuoteOutcome {
-  // NOTE: hullType is deliberately not passed. Hull surcharges would change the
-  // price and a caller's free-text boat type isn't a reliable hull classifier.
-  const result = calculateQuote({
-    items: [
-      {
-        engineCount: input.engineCount ?? 1,
-        engineType: input.engineType ?? undefined,
-        lengthFt: input.boatLengthFt ?? undefined,
-        serviceId,
-      },
-    ],
-    serviceLine: "storage",
-  });
+  if (!catalog) {
+    return { reason: "Pricing isn't set up for this location yet.", status: "unsupported" };
+  }
 
-  const totalCents = result.totalCents;
+  let priced;
+  try {
+    priced = priceFromCatalog({ catalog, lines: [line] });
+  } catch {
+    // Unknown service for this brand, or an input the catalog rejects (a required
+    // modifier, a length past a cap, a manual-review combination) — hand off
+    // rather than quote a neighbouring brand's price or guess.
+    return { reason: `This location doesn't quote "${line.serviceKey}" by phone.`, status: "unsupported" };
+  }
+
+  const totalCents = priced.subtotalCents;
   const deposit = depositCentsFor(totalCents);
 
   return {
     currency: "CAD",
     depositCents: deposit,
-    lineItems: result.lineItems.map((line) => ({
-      amountCents: line.amountCents,
-      label: line.label,
-    })),
-    quoteTotalCents: totalCents,
-    spokenSummary: buildSpokenSummary(serviceLabel, input, totalCents, deposit),
-    status: "quoted",
-  };
-}
-
-/** Marine-care results are in DOLLARS and carry no structured line items. */
-function quotedFromCare(
-  serviceLabel: string,
-  input: TelnyxQuoteInput,
-  subtotalDollars: number,
-  breakdown: string[],
-): QuoteOutcome {
-  const totalCents = Math.round(subtotalDollars * 100);
-  const deposit = depositCentsFor(totalCents);
-
-  return {
-    currency: "CAD",
-    depositCents: deposit,
-    lineItems:
-      breakdown.length > 0
-        ? breakdown.map((label) => ({ amountCents: totalCents, label }))
-        : [{ amountCents: totalCents, label: serviceLabel }],
+    lineItems: priced.lines.map((l) => ({ amountCents: l.amountCents, label: l.label })),
     quoteTotalCents: totalCents,
     spokenSummary: buildSpokenSummary(serviceLabel, input, totalCents, deposit),
     status: "quoted",
@@ -154,11 +125,11 @@ function quotedFromCare(
 }
 
 /**
- * Map a collected service to a price. Returns `missing_info` (never a guess)
- * when the engine needs an input the caller hasn't given yet — the assistant
- * asks for it and retries.
+ * Map a collected service to a price against the caller's brand catalog. Returns
+ * `missing_info` (never a guess) when an input the caller hasn't given is needed,
+ * and `unsupported` when the brand doesn't sell it.
  */
-export function priceTelnyxQuote(input: TelnyxQuoteInput): QuoteOutcome {
+export function priceTelnyxQuote(input: TelnyxQuoteInput, catalog: ServiceCatalog | null): QuoteOutcome {
   const serviceType = normalizeServiceType(input.serviceType);
   if (!serviceType) {
     return { missing: ["service_type"], status: "missing_info" };
@@ -170,7 +141,10 @@ export function priceTelnyxQuote(input: TelnyxQuoteInput): QuoteOutcome {
       if (input.boatLengthFt == null) {
         return { missing: ["boat_length_ft"], status: "missing_info" };
       }
-      return quotedFromStorage("shrink_wrap", "Shrink wrap", input);
+      return quotedFromCatalog("Shrink wrap", input, catalog, {
+        serviceKey: "shrink_wrap",
+        measure: input.boatLengthFt,
+      });
     }
 
     case "outdoor_storage":
@@ -178,19 +152,21 @@ export function priceTelnyxQuote(input: TelnyxQuoteInput): QuoteOutcome {
       if (input.boatLengthFt == null) {
         return { missing: ["boat_length_ft"], status: "missing_info" };
       }
-      return quotedFromStorage("outdoor_storage", "Outdoor winter storage", input);
+      return quotedFromCatalog("Outdoor winter storage", input, catalog, {
+        serviceKey: "outdoor_storage",
+        measure: input.boatLengthFt,
+      });
     }
 
     case "winterization": {
-      // Flat per engine — the engine type picks the service, so it's required.
+      // Per engine — the engine type picks the catalog service, so it's required.
       if (!input.engineType) {
         return { missing: ["engine_type"], status: "missing_info" };
       }
-      return quotedFromStorage(
-        `winterization_${input.engineType}`,
-        `Winterization (${input.engineType})`,
-        input,
-      );
+      return quotedFromCatalog(`Winterization (${input.engineType})`, input, catalog, {
+        serviceKey: `winterization_${input.engineType}`,
+        quantity: input.engineCount ?? 1,
+      });
     }
 
     case "ceramic":
@@ -198,14 +174,10 @@ export function priceTelnyxQuote(input: TelnyxQuoteInput): QuoteOutcome {
       if (input.boatLengthFt == null) {
         return { missing: ["boat_length_ft"], status: "missing_info" };
       }
-      // Base coating only. Add-ons (second layer, teak, interior) aren't things
-      // a caller volunteers, and each changes the price — so they stay off.
-      const result = calculateCeramic(input.boatLengthFt, {
-        interiorCeramic: false,
-        secondLayer: false,
-        teakCeramic: false,
+      return quotedFromCatalog("Ceramic coating", input, catalog, {
+        serviceKey: "ceramic",
+        measure: input.boatLengthFt,
       });
-      return quotedFromCare("Ceramic coating", input, result.subtotal, result.breakdown);
     }
 
     case "detailing":
@@ -220,18 +192,11 @@ export function priceTelnyxQuote(input: TelnyxQuoteInput): QuoteOutcome {
       if (!tier || !DETAILING_TIERS.includes(tier as (typeof DETAILING_TIERS)[number])) {
         return { missing: ["tier"], status: "missing_info" };
       }
-      const result = calculateExterior(input.boatLengthFt, {
-        canvasCleaning: false,
-        exteriorOzone: false,
-        fenderCleaning: false,
-        teakCleaning: false,
-        tier: tier as (typeof DETAILING_TIERS)[number],
-      });
-      return quotedFromCare(
+      return quotedFromCatalog(
         `${tier.charAt(0).toUpperCase()}${tier.slice(1)} exterior detailing`,
         input,
-        result.subtotal,
-        result.breakdown,
+        catalog,
+        { serviceKey: "exterior_detailing", measure: input.boatLengthFt, modifiers: { tier } },
       );
     }
 

@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { priceQuote, roundHalfUpDiv, type EngineType } from "@/server/services/quotes/pricing";
+import { priceQuote as priceWithCatalog, roundHalfUpDiv, type EngineType } from "@/server/services/quotes/pricing";
+import a1Catalog from "@/server/services/quotes/__fixtures__/a1-catalog.json";
+import type { ServiceCatalog } from "@/server/services/quotes/catalog";
+
+// Tenant zero's catalog, generated from the rate card these anchors were taken
+// from. Injected once so the goldens keep pricing without a database.
+const CATALOG = a1Catalog as unknown as ServiceCatalog;
+const priceQuote = (input: Omit<Parameters<typeof priceWithCatalog>[0], "catalog">) =>
+  priceWithCatalog({ ...input, catalog: CATALOG });
 
 // Explicit rates so the goldens are independent of env (HST 13%, deposit 25%).
 const RATES = { taxRateBps: 1300, depositRateBps: 2500 } as const;

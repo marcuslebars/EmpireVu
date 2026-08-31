@@ -1,0 +1,486 @@
+{
+  "items": {
+    "gelcoat_hull": {
+      "serviceKey": "gelcoat_hull",
+      "label": "Gelcoat Restoration — hull",
+      "pricingType": "per_measure_banded",
+      "rateCents": 0,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "rateBands": [
+        {
+          "maxMeasure": 20,
+          "rateCents": 2100
+        },
+        {
+          "maxMeasure": 25,
+          "rateCents": 2300
+        },
+        {
+          "maxMeasure": 30,
+          "rateCents": 2500
+        },
+        {
+          "maxMeasure": 35,
+          "rateCents": 2700
+        },
+        {
+          "maxMeasure": 40,
+          "rateCents": 3000
+        },
+        {
+          "maxMeasure": 45,
+          "rateCents": 3400
+        },
+        {
+          "maxMeasure": null,
+          "rateCents": 3600
+        }
+      ],
+      "modifierGroups": [
+        {
+          "key": "oxidation",
+          "label": "Oxidation",
+          "required": false,
+          "options": [
+            {
+              "key": "normal",
+              "label": "normal",
+              "multiplier": 1
+            },
+            {
+              "key": "heavy",
+              "label": "heavy",
+              "multiplier": 1.2
+            }
+          ]
+        }
+      ],
+      "surchargeEligible": false,
+      "sortOrder": 0
+    },
+    "gelcoat_topsides": {
+      "serviceKey": "gelcoat_topsides",
+      "label": "Gelcoat Restoration — topsides",
+      "pricingType": "per_measure_banded",
+      "rateCents": 0,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "rateBands": [
+        {
+          "maxMeasure": 20,
+          "rateCents": 2400
+        },
+        {
+          "maxMeasure": 25,
+          "rateCents": 2600
+        },
+        {
+          "maxMeasure": 30,
+          "rateCents": 2800
+        },
+        {
+          "maxMeasure": 35,
+          "rateCents": 3100
+        },
+        {
+          "maxMeasure": 40,
+          "rateCents": 3400
+        },
+        {
+          "maxMeasure": 45,
+          "rateCents": 3700
+        },
+        {
+          "maxMeasure": null,
+          "rateCents": 4000
+        }
+      ],
+      "modifierGroups": [
+        {
+          "key": "oxidation",
+          "label": "Oxidation",
+          "required": false,
+          "options": [
+            {
+              "key": "normal",
+              "label": "normal",
+              "multiplier": 1
+            },
+            {
+              "key": "heavy",
+              "label": "heavy",
+              "multiplier": 1.2
+            }
+          ]
+        }
+      ],
+      "surchargeEligible": false,
+      "sortOrder": 1
+    },
+    "exterior_detailing": {
+      "serviceKey": "exterior_detailing",
+      "label": "Exterior Detailing",
+      "pricingType": "per_measure",
+      "rateCents": 2000,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "modifierGroups": [
+        {
+          "key": "tier",
+          "label": "Service tier",
+          "required": true,
+          "options": [
+            {
+              "key": "refresh",
+              "label": "refresh",
+              "multiplier": 1
+            },
+            {
+              "key": "standard",
+              "label": "standard",
+              "multiplier": 1.2
+            },
+            {
+              "key": "deep",
+              "label": "deep",
+              "multiplier": 1.4
+            },
+            {
+              "key": "restoration",
+              "label": "restoration",
+              "multiplier": 1.6
+            }
+          ]
+        }
+      ],
+      "surchargeEligible": false,
+      "sortOrder": 2
+    },
+    "interior_detailing": {
+      "serviceKey": "interior_detailing",
+      "label": "Interior Detailing",
+      "pricingType": "per_measure",
+      "rateCents": 1800,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "maxMeasure": 45,
+      "modifierGroups": [
+        {
+          "key": "tier",
+          "label": "Service tier",
+          "required": true,
+          "options": [
+            {
+              "key": "refresh",
+              "label": "refresh",
+              "multiplier": 1
+            },
+            {
+              "key": "standard",
+              "label": "standard",
+              "multiplier": 1.25
+            },
+            {
+              "key": "deep",
+              "label": "deep",
+              "multiplier": 1.5
+            },
+            {
+              "key": "restoration",
+              "label": "restoration",
+              "multiplier": 1.75
+            }
+          ]
+        },
+        {
+          "key": "boatType",
+          "label": "Boat type",
+          "required": true,
+          "options": [
+            {
+              "key": "Open Bow / Bowrider",
+              "label": "Open  bow /  bowrider",
+              "multiplier": 1
+            },
+            {
+              "key": "Cuddy Cabin",
+              "label": "Cuddy  cabin",
+              "multiplier": 1.1
+            },
+            {
+              "key": "Cruiser (Single Cabin)",
+              "label": "Cruiser ( single  cabin)",
+              "multiplier": 1.25
+            },
+            {
+              "key": "Express Cruiser",
+              "label": "Express  cruiser",
+              "multiplier": 1.35
+            },
+            {
+              "key": "Yacht / Multi-Cabin",
+              "label": "Yacht /  multi- cabin",
+              "multiplier": 1.6
+            }
+          ]
+        }
+      ],
+      "reviewRules": [
+        {
+          "when": {
+            "boatType": "Yacht / Multi-Cabin",
+            "tier": "deep"
+          },
+          "reason": "Yacht with a deep clean is quoted by hand"
+        },
+        {
+          "when": {
+            "boatType": "Yacht / Multi-Cabin",
+            "tier": "restoration"
+          },
+          "reason": "Yacht with a restoration clean is quoted by hand"
+        }
+      ],
+      "surchargeEligible": false,
+      "sortOrder": 3
+    },
+    "wet_sanding": {
+      "serviceKey": "wet_sanding",
+      "label": "Wet Sanding & Paint/Gelcoat Correction",
+      "pricingType": "per_measure",
+      "rateCents": 4500,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "surchargeEligible": false,
+      "sortOrder": 4
+    },
+    "bottom_painting": {
+      "serviceKey": "bottom_painting",
+      "label": "Bottom Painting",
+      "pricingType": "per_measure",
+      "rateCents": 4000,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "surchargeEligible": false,
+      "sortOrder": 5
+    },
+    "bottom_painting_second_coat": {
+      "serviceKey": "bottom_painting_second_coat",
+      "label": "Bottom painting — second coat",
+      "pricingType": "per_measure",
+      "rateCents": 1200,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "surchargeEligible": false,
+      "sortOrder": 6
+    },
+    "bottom_painting_old_paint_removal": {
+      "serviceKey": "bottom_painting_old_paint_removal",
+      "label": "Bottom painting — old paint removal",
+      "pricingType": "per_measure",
+      "rateCents": 1800,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "surchargeEligible": false,
+      "sortOrder": 7
+    },
+    "vinyl_removal": {
+      "serviceKey": "vinyl_removal",
+      "label": "Vinyl Services — removal",
+      "pricingType": "per_measure",
+      "rateCents": 1200,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "surchargeEligible": false,
+      "sortOrder": 8
+    },
+    "vinyl_install": {
+      "serviceKey": "vinyl_install",
+      "label": "Vinyl Services — install",
+      "pricingType": "per_measure",
+      "rateCents": 1500,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "surchargeEligible": false,
+      "sortOrder": 9
+    },
+    "vinyl_both": {
+      "serviceKey": "vinyl_both",
+      "label": "Vinyl Services — both",
+      "pricingType": "per_measure",
+      "rateCents": 2400,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "surchargeEligible": false,
+      "sortOrder": 10
+    },
+    "weekly_maintenance": {
+      "serviceKey": "weekly_maintenance",
+      "label": "Weekly Service",
+      "pricingType": "per_measure",
+      "rateCents": 600,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "surchargeEligible": false,
+      "sortOrder": 11
+    },
+    "biweekly_maintenance": {
+      "serviceKey": "biweekly_maintenance",
+      "label": "Bi-Weekly Service",
+      "pricingType": "per_measure",
+      "rateCents": 700,
+      "minimumCents": 0,
+      "unitLabel": "ft",
+      "surchargeEligible": false,
+      "sortOrder": 12
+    },
+    "addon_radar_arch": {
+      "serviceKey": "addon_radar_arch",
+      "label": "Radar Arch",
+      "pricingType": "flat",
+      "rateCents": 17500,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 13
+    },
+    "addon_hard_top": {
+      "serviceKey": "addon_hard_top",
+      "label": "Hard Top",
+      "pricingType": "flat",
+      "rateCents": 47500,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 14
+    },
+    "spot_wet_sanding": {
+      "serviceKey": "spot_wet_sanding",
+      "label": "Spot wet sanding (per area)",
+      "pricingType": "per_unit",
+      "rateCents": 12500,
+      "minimumCents": 0,
+      "unitLabel": "area",
+      "surchargeEligible": false,
+      "sortOrder": 27
+    },
+    "addon_teak_cleaning": {
+      "serviceKey": "addon_teak_cleaning",
+      "label": "Teak Cleaning",
+      "pricingType": "flat",
+      "rateCents": 22500,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 16
+    },
+    "addon_canvas_cleaning": {
+      "serviceKey": "addon_canvas_cleaning",
+      "label": "Canvas Cleaning",
+      "pricingType": "flat",
+      "rateCents": 15000,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 17
+    },
+    "addon_fender_cleaning": {
+      "serviceKey": "addon_fender_cleaning",
+      "label": "Fender Cleaning",
+      "pricingType": "flat",
+      "rateCents": 6000,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 18
+    },
+    "addon_exterior_ozone": {
+      "serviceKey": "addon_exterior_ozone",
+      "label": "Exterior Ozone",
+      "pricingType": "flat",
+      "rateCents": 10000,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 19
+    },
+    "addon_mold_remediation": {
+      "serviceKey": "addon_mold_remediation",
+      "label": "Mold Remediation",
+      "pricingType": "flat",
+      "rateCents": 29500,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 20
+    },
+    "addon_pet_hair_removal": {
+      "serviceKey": "addon_pet_hair_removal",
+      "label": "Pet Hair Removal",
+      "pricingType": "flat",
+      "rateCents": 15000,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 21
+    },
+    "addon_mattress_shampoo": {
+      "serviceKey": "addon_mattress_shampoo",
+      "label": "Mattress Shampoo",
+      "pricingType": "flat",
+      "rateCents": 17500,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 22
+    },
+    "addon_head_deep_clean": {
+      "serviceKey": "addon_head_deep_clean",
+      "label": "Head Deep Clean",
+      "pricingType": "flat",
+      "rateCents": 12500,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 23
+    },
+    "addon_galley_deep_clean": {
+      "serviceKey": "addon_galley_deep_clean",
+      "label": "Galley Deep Clean",
+      "pricingType": "flat",
+      "rateCents": 17500,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 24
+    },
+    "addon_ozone_interior": {
+      "serviceKey": "addon_ozone_interior",
+      "label": "Ozone Interior",
+      "pricingType": "flat",
+      "rateCents": 19500,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 25
+    },
+    "addon_deep_scratch_repair": {
+      "serviceKey": "addon_deep_scratch_repair",
+      "label": "Deep Scratch Repair",
+      "pricingType": "flat",
+      "rateCents": 27500,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 26
+    },
+    "addon_heavy_growth_removal": {
+      "serviceKey": "addon_heavy_growth_removal",
+      "label": "Heavy Growth Removal",
+      "pricingType": "flat",
+      "rateCents": 25000,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 28
+    },
+    "addon_custom_design": {
+      "serviceKey": "addon_custom_design",
+      "label": "Custom Design",
+      "pricingType": "flat",
+      "rateCents": 12500,
+      "minimumCents": 0,
+      "surchargeEligible": false,
+      "sortOrder": 29
+    }
+  },
+  "bundles": {},
+  "surcharges": {}
+}

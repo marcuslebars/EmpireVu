@@ -11,11 +11,10 @@
  *   • re-derives money server-side from the stored inputs at approval, so a
  *     tampered client total can never become a charge.
  */
-import { calculateQuote } from "@a1/pricing-engine";
 
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { assertTransition, evaluateTransition, type QuoteStatus } from "./lifecycle";
-import { priceQuote, type QuotePricing, type QuotePricingInput } from "./pricing";
+import { priceQuoteForCompany, type QuotePricing, type QuotePricingInput } from "./pricing";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = any;
@@ -236,7 +235,10 @@ export async function repriceForSelection(
     selected: l.optional ? selected.has(`custom:${i}`) : true,
   }));
 
-  return priceQuote({
+  // Priced from the tenant's own catalog, so a customer toggling options gets
+  // their supplier's prices — never a built-in default.
+  if (!row.company_id) return null;
+  return priceQuoteForCompany(row.company_id, {
     services,
     customLines,
     hullType: snap.hullType ?? undefined,
@@ -364,6 +366,3 @@ export async function recordPublicEvent(
     console.error(`[quotes] failed to record public '${eventType}' event:`, err);
   }
 }
-
-/** Exported for the engine-availability check in tests. */
-export const __enginePresent = typeof calculateQuote === "function";
