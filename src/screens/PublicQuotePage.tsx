@@ -145,6 +145,29 @@ export default function PublicQuotePage() {
 
   const brand = quote?.brand;
   const primary = brand?.primaryColor || DEFAULT_PRIMARY;
+
+  /**
+   * The tab says the COMPANY's name, not the platform's.
+   *
+   * index.html ships a single static <title>EmpireVu</title> for the whole SPA,
+   * which is right for the hub and wrong here: this is the one page a customer
+   * sees, on the company's own domain, at the moment they are about to enter a
+   * card. A tab reading the name of a business they have never heard of
+   * undermines exactly the trust the rest of this page is built to earn.
+   *
+   * Restored on unmount so navigating back into the hub does not leave a
+   * customer's company name on the operator's tab.
+   */
+  useEffect(() => {
+    if (!brand?.name) return;
+    const previous = document.title;
+    document.title = quote?.quoteNumber
+      ? `Quote ${quote.quoteNumber} — ${brand.name}`
+      : `Your quote — ${brand.name}`;
+    return () => {
+      document.title = previous;
+    };
+  }, [brand?.name, quote?.quoteNumber]);
   const view = totals ?? quote;
   const lines = (totals?.lineItems ?? quote?.lineItems ?? []) as PublicLine[];
   const canApprove = quote?.state === "active";
