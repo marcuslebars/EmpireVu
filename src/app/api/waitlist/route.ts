@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { notifyNewWaitlistSignup } from "@/server/services/waitlist/notify";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -71,20 +72,26 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const supabase = createSupabaseAdminClient();
+    const row = {
+      business: parsed.business && parsed.business.length > 0 ? parsed.business : null,
+      email: parsed.email,
+      source: "empirevu.com",
+    };
     // `waitlist` isn't in the generated Database types (hand-committed), so cast
     // the call — same convention as the other service-role writes.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase.from("waitlist") as any).upsert(
-      {
-        business: parsed.business && parsed.business.length > 0 ? parsed.business : null,
-        email: parsed.email,
-        source: "empirevu.com",
-      },
-      { onConflict: "email", ignoreDuplicates: true },
-    );
+    const { error } = await (supabase.from("waitlist") as any).insert(row);
     if (error) {
+      // Unique violation = already on the list: idempotent success, and no
+      // duplicate notification for a repeat submit.
+      if ((error as { code?: string }).code === "23505") {
+        return NextResponse.json({ data: { ok: true } }, { status: 200, headers: cors });
+      }
       throw error;
     }
+    // New signup — tell the operator. Best-effort: notify never throws, so an
+    // email/Slack hiccup can't turn a recorded signup into a visible failure.
+    await notifyNewWaitlistSignup(row);
     return NextResponse.json({ data: { ok: true } }, { status: 200, headers: cors });
   } catch (err) {
     console.error("[waitlist] insert failed:", err instanceof Error ? err.message : err);

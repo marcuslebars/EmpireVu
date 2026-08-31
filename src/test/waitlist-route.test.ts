@@ -6,16 +6,20 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const upsert = vi.fn();
+const insert = vi.fn();
 const order = vi.fn();
+const notifyNewWaitlistSignup = vi.fn();
 
 vi.mock("@/server/supabase/admin", () => ({
   createSupabaseAdminClient: () => ({
     from: () => ({
+      insert: (...a: unknown[]) => insert(...a),
       select: () => ({ order: (...a: unknown[]) => order(...a) }),
-      upsert: (...a: unknown[]) => upsert(...a),
     }),
   }),
+}));
+vi.mock("@/server/services/waitlist/notify", () => ({
+  notifyNewWaitlistSignup: (...a: unknown[]) => notifyNewWaitlistSignup(...a),
 }));
 
 import { GET, OPTIONS, POST } from "@/app/api/waitlist/route";
@@ -31,8 +35,10 @@ const req = (body: unknown, origin: string | null = "https://empirevu.com") =>
   });
 
 beforeEach(() => {
-  upsert.mockReset();
-  upsert.mockResolvedValue({ error: null });
+  insert.mockReset();
+  insert.mockResolvedValue({ error: null });
+  notifyNewWaitlistSignup.mockReset();
+  notifyNewWaitlistSignup.mockResolvedValue(undefined);
   delete process.env.WAITLIST_ALLOWED_ORIGINS;
   delete process.env.WAITLIST_ADMIN_TOKEN;
 });
@@ -42,32 +48,45 @@ afterEach(() => {
 });
 
 describe("POST /api/waitlist", () => {
-  it("stores a valid signup, lower-cased, and echoes the allowed origin", async () => {
+  it("stores a valid signup, lower-cased, echoes the allowed origin, and notifies", async () => {
     const res = await POST(req({ email: "  Sam@Harbour.CA ", business: "Harbour Detailing" }));
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe("https://empirevu.com");
-    expect(upsert).toHaveBeenCalledTimes(1);
-    const [row, opts] = upsert.mock.calls[0];
-    expect(row).toMatchObject({ email: "sam@harbour.ca", business: "Harbour Detailing", source: "empirevu.com" });
-    // idempotent — a repeat email must not error out
-    expect(opts).toMatchObject({ onConflict: "email", ignoreDuplicates: true });
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(insert.mock.calls[0][0]).toMatchObject({
+      business: "Harbour Detailing",
+      email: "sam@harbour.ca",
+      source: "empirevu.com",
+    });
+    // a genuinely new signup pings the operator
+    expect(notifyNewWaitlistSignup).toHaveBeenCalledTimes(1);
+    expect(notifyNewWaitlistSignup.mock.calls[0][0]).toMatchObject({ email: "sam@harbour.ca" });
   });
 
   it("stores business as null when omitted", async () => {
     await POST(req({ email: "a@b.com" }));
-    expect(upsert.mock.calls[0][0].business).toBeNull();
+    expect(insert.mock.calls[0][0].business).toBeNull();
+  });
+
+  it("treats a duplicate email as an idempotent no-op without re-notifying", async () => {
+    insert.mockResolvedValue({ error: { code: "23505", message: "duplicate key" } });
+    const res = await POST(req({ email: "again@b.com" }));
+    expect(res.status).toBe(200);
+    expect(notifyNewWaitlistSignup).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid email with 400 and writes nothing", async () => {
     const res = await POST(req({ email: "not-an-email" }));
     expect(res.status).toBe(400);
-    expect(upsert).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+    expect(notifyNewWaitlistSignup).not.toHaveBeenCalled();
   });
 
   it("silently accepts but drops a honeypot submission", async () => {
     const res = await POST(req({ email: "bot@spam.com", company_url: "http://spam" }));
     expect(res.status).toBe(200);
-    expect(upsert).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+    expect(notifyNewWaitlistSignup).not.toHaveBeenCalled();
   });
 
   it("does not echo an origin that isn't allow-listed", async () => {
@@ -82,8 +101,8 @@ describe("POST /api/waitlist", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:3000");
   });
 
-  it("returns 500 when the insert fails", async () => {
-    upsert.mockResolvedValue({ error: { message: "db down" } });
+  it("returns 500 when the insert fails with a non-duplicate error", async () => {
+    insert.mockResolvedValue({ error: { message: "db down" } });
     const res = await POST(req({ email: "a@b.com" }));
     expect(res.status).toBe(500);
   });
