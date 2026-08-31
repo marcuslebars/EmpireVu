@@ -20,6 +20,7 @@ import { sendLeadNotification, type ReturningInfo } from "./notify";
 import { companySlugForSourceSite, LEAD_INTAKE_ORG_SLUG } from "./routing";
 import { getJobberConfig } from "@/server/services/jobber/config";
 import { enqueueJobberSyncJob } from "@/server/services/jobber/sync-jobs";
+import { maybeAutoQuoteLead } from "@/server/services/quotes/auto-quote";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 type AsRecord = Record<string, unknown>;
@@ -396,6 +397,19 @@ export async function handleLeadIntake(rawBody: string, parsedBody: unknown): Pr
       // JOBBER_SYNC_ENABLED). Best-effort — the durable raw_leads row + the worker's
       // reconcile sweep are the safety net; this never affects the lead.
       await maybeEnqueueJobberSync(admin, { envelope, orgId, companyId, leadId, contactId: enriched.contactId });
+
+      // Additive: Phase 5 self-serve. If the lead qualifies, create and send a
+      // real quote so the customer can approve and pay a deposit without waiting
+      // for a callback. Gated by SELF_SERVE_QUOTES_ENABLED on top of the quotes
+      // flag, and NEVER THROWS — a lead that cannot be auto-quoted is a normal
+      // lead, handled exactly as it is today. Same discipline as the Jobber
+      // enqueue above.
+      await maybeAutoQuoteLead(envelope, {
+        organizationId: orgId,
+        companyId,
+        contactId: enriched.contactId,
+        leadId,
+      });
     } catch (err) {
       console.error("[intake] enrichment failed (lead kept in raw_leads):", err);
       // Enrichment failed after the durable write — flag for attention so the lead
