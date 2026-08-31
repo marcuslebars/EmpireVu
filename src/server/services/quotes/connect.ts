@@ -16,8 +16,14 @@
 import type Stripe from "stripe";
 
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
+import type { createSupabaseServerClient } from "@/server/supabase/server";
 import { getPlatformStripe } from "./company-stripe";
 import { getQuotesConfig } from "./config";
+
+/** The RLS-scoped request client. Reads below use it so a member only ever sees
+ *  their own org's companies — it is the authorization boundary for the routes
+ *  that then call the admin-client onboarding writes. */
+type ServerClient = ReturnType<typeof createSupabaseServerClient>;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = any;
@@ -159,4 +165,94 @@ export function onboardingUrls(companyId: string): { returnUrl: string; refreshU
     // Account Links expire; Stripe calls refresh_url to get a fresh one.
     refreshUrl: `${base}/settings/payments?company=${encodeURIComponent(companyId)}&refresh=1`,
   };
+}
+
+// ── Connect status reads (for the Payments settings UI) ──────────────────────
+
+/**
+ * Where a company sits in the Connect lifecycle. `charges_enabled` — NOT
+ * `details_submitted` — is what actually gates trading: onboarding can complete
+ * while Stripe is still verifying, so "ready" means chargeable, nothing less.
+ */
+export type ConnectState = "not_connected" | "onboarding_incomplete" | "ready";
+
+export interface CompanyConnectStatus {
+  companyId: string;
+  companyName: string | null;
+  accountId: string | null;
+  connected: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  state: ConnectState;
+}
+
+interface CompanyConnectRow {
+  id: string;
+  name: string | null;
+  stripe_connected_account_id: string | null;
+  stripe_charges_enabled: boolean | null;
+  stripe_payouts_enabled: boolean | null;
+  stripe_details_submitted: boolean | null;
+}
+
+const CONNECT_COLUMNS =
+  "id, name, stripe_connected_account_id, stripe_charges_enabled, " +
+  "stripe_payouts_enabled, stripe_details_submitted";
+
+function toConnectStatus(row: CompanyConnectRow): CompanyConnectStatus {
+  const accountId = row.stripe_connected_account_id ?? null;
+  const chargesEnabled = row.stripe_charges_enabled === true;
+  const connected = accountId !== null;
+  const state: ConnectState = !connected
+    ? "not_connected"
+    : chargesEnabled
+      ? "ready"
+      : "onboarding_incomplete";
+  return {
+    accountId,
+    chargesEnabled,
+    companyId: row.id,
+    companyName: row.name ?? null,
+    connected,
+    detailsSubmitted: row.stripe_details_submitted === true,
+    payoutsEnabled: row.stripe_payouts_enabled === true,
+    state,
+  };
+}
+
+/** Every company in the org with its Connect status, ordered by name. */
+export async function listCompanyConnectStatus(
+  supabase: ServerClient,
+  organizationId: string,
+): Promise<CompanyConnectStatus[]> {
+  // Columns are absent from the generated Database types (hand-committed; the
+  // Connect columns were added by migration, not regenerated), so cast the call.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from("companies") as any)
+    .select(CONNECT_COLUMNS)
+    .eq("organization_id", organizationId)
+    .order("name", { ascending: true });
+  if (error) throw error;
+  return ((data ?? []) as CompanyConnectRow[]).map(toConnectStatus);
+}
+
+/**
+ * One company's Connect status, scoped to the org. Returns null when the company
+ * is not in this org (or the member can't see it) — the routes use that as the
+ * authorization gate before any admin-client write against the company.
+ */
+export async function getCompanyConnectStatus(
+  supabase: ServerClient,
+  organizationId: string,
+  companyId: string,
+): Promise<CompanyConnectStatus | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from("companies") as any)
+    .select(CONNECT_COLUMNS)
+    .eq("organization_id", organizationId)
+    .eq("id", companyId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? toConnectStatus(data as CompanyConnectRow) : null;
 }
