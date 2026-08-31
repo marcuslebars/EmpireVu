@@ -7,12 +7,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const upsert = vi.fn();
+const order = vi.fn();
 
 vi.mock("@/server/supabase/admin", () => ({
-  createSupabaseAdminClient: () => ({ from: () => ({ upsert: (...a: unknown[]) => upsert(...a) }) }),
+  createSupabaseAdminClient: () => ({
+    from: () => ({
+      select: () => ({ order: (...a: unknown[]) => order(...a) }),
+      upsert: (...a: unknown[]) => upsert(...a),
+    }),
+  }),
 }));
 
-import { OPTIONS, POST } from "@/app/api/waitlist/route";
+import { GET, OPTIONS, POST } from "@/app/api/waitlist/route";
 
 const req = (body: unknown, origin: string | null = "https://empirevu.com") =>
   new Request("https://app.empirevu.com/api/waitlist", {
@@ -28,9 +34,11 @@ beforeEach(() => {
   upsert.mockReset();
   upsert.mockResolvedValue({ error: null });
   delete process.env.WAITLIST_ALLOWED_ORIGINS;
+  delete process.env.WAITLIST_ADMIN_TOKEN;
 });
 afterEach(() => {
   delete process.env.WAITLIST_ALLOWED_ORIGINS;
+  delete process.env.WAITLIST_ADMIN_TOKEN;
 });
 
 describe("POST /api/waitlist", () => {
@@ -87,5 +95,49 @@ describe("OPTIONS /api/waitlist (preflight)", () => {
     expect(res.status).toBe(204);
     expect(res.headers.get("access-control-allow-origin")).toBe("https://empirevu.com");
     expect(res.headers.get("access-control-allow-methods")).toContain("POST");
+  });
+});
+
+describe("GET /api/waitlist (admin read)", () => {
+  const adminReq = (token?: string, url = "https://app.empirevu.com/api/waitlist") =>
+    new Request(url, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+
+  beforeEach(() => {
+    order.mockReset();
+    order.mockResolvedValue({
+      data: [{ business: "B Co", created_at: "2026-08-31T00:00:00Z", email: "a@b.com", source: "empirevu.com" }],
+      error: null,
+    });
+  });
+
+  it("503 when the admin token isn't configured", async () => {
+    const res = await GET(adminReq("whatever"));
+    expect(res.status).toBe(503);
+    expect(order).not.toHaveBeenCalled();
+  });
+
+  it("401 without a token or with the wrong token — and never reads", async () => {
+    process.env.WAITLIST_ADMIN_TOKEN = "s3cret";
+    expect((await GET(adminReq())).status).toBe(401);
+    expect((await GET(adminReq("nope"))).status).toBe(401);
+    expect(order).not.toHaveBeenCalled();
+  });
+
+  it("200 with the right token → count + signups", async () => {
+    process.env.WAITLIST_ADMIN_TOKEN = "s3cret";
+    const res = await GET(adminReq("s3cret"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.count).toBe(1);
+    expect(body.data.signups[0].email).toBe("a@b.com");
+  });
+
+  it("exports CSV with ?format=csv", async () => {
+    process.env.WAITLIST_ADMIN_TOKEN = "s3cret";
+    const res = await GET(adminReq("s3cret", "https://app.empirevu.com/api/waitlist?format=csv"));
+    expect(res.headers.get("content-type")).toContain("text/csv");
+    const text = await res.text();
+    expect(text.split("\n")[0]).toBe("email,business,source,created_at");
+    expect(text).toContain("a@b.com");
   });
 });

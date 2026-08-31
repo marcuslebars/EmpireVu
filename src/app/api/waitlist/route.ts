@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -91,4 +93,75 @@ export async function POST(request: Request): Promise<NextResponse> {
       { status: 500, headers: cors },
     );
   }
+}
+
+// ── Admin read ───────────────────────────────────────────────────────────────
+
+/** Constant-time bearer-token check for the operator-only read. */
+function tokenMatches(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+interface WaitlistRow {
+  email: string;
+  business: string | null;
+  source: string;
+  created_at: string;
+}
+
+function csvCell(value: unknown): string {
+  const s = value == null ? "" : String(value);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function toCsv(rows: WaitlistRow[]): string {
+  const lines = ["email,business,source,created_at"];
+  for (const r of rows) {
+    lines.push([r.email, r.business, r.source, r.created_at].map(csvCell).join(","));
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Operator-only read of the signups. The app has no platform-admin identity, so
+ * this is gated by a static bearer token (WAITLIST_ADMIN_TOKEN) rather than a
+ * session — call it with `Authorization: Bearer <token>`. JSON by default;
+ * `?format=csv` returns a spreadsheet-friendly export. Unset token => 503.
+ */
+export async function GET(request: Request): Promise<NextResponse> {
+  const expected = process.env.WAITLIST_ADMIN_TOKEN;
+  if (!expected) {
+    return NextResponse.json({ error: "Admin read is not configured." }, { status: 503 });
+  }
+
+  const header = request.headers.get("authorization") ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
+  if (!token || !tokenMatches(token, expected)) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  const supabase = createSupabaseAdminClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from("waitlist") as any)
+    .select("email, business, source, created_at")
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("[waitlist] admin read failed:", error.message ?? error);
+    return NextResponse.json({ error: "Could not read the waitlist." }, { status: 500 });
+  }
+
+  const rows = (data ?? []) as WaitlistRow[];
+  if (new URL(request.url).searchParams.get("format") === "csv") {
+    return new NextResponse(toCsv(rows), {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Disposition": 'attachment; filename="waitlist.csv"',
+        "Content-Type": "text/csv; charset=utf-8",
+      },
+    });
+  }
+  return NextResponse.json({ data: { count: rows.length, signups: rows } });
 }
