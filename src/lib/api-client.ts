@@ -761,6 +761,7 @@ export interface CompanyConnectStatus {
   payoutsEnabled: boolean;
   detailsSubmitted: boolean;
   state: ConnectState;
+  requirements: string[];
 }
 
 export function fetchConnectAccounts(orgId: string): Promise<CompanyConnectStatus[]> {

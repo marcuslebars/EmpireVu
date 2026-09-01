@@ -5,6 +5,7 @@ import { Loader2, Landmark, ExternalLink, RefreshCw, Check, AlertTriangle } from
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
 import { useOrg } from "@/lib/org-context";
+import { useAuth } from "@/lib/auth-context";
 import {
   useConnectAccounts,
   useCreateConnectOnboarding,
@@ -22,7 +23,10 @@ const stateStyle: Record<string, { label: string; cls: string }> = {
 
 export function PaymentsSettings() {
   const { organizationId } = useOrg();
-  const { data: accounts, isLoading } = useConnectAccounts(organizationId);
+  const { session } = useAuth();
+  const role = session?.organizations.find((o) => o.id === organizationId)?.membershipRole ?? "member";
+  const canManage = role === "owner" || role === "admin";
+  const { data: accounts, isLoading } = useConnectAccounts(organizationId, { enabled: canManage });
   const onboarding = useCreateConnectOnboarding(organizationId);
   const refresh = useRefreshConnectAccount(organizationId);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -60,6 +64,22 @@ export function PaymentsSettings() {
       onError: (err) => toast.error(err instanceof Error ? err.message : "Could not refresh status"),
     });
   };
+
+  if (!canManage) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Payments</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Each company connects its own Stripe account to take deposits directly.
+          </p>
+        </div>
+        <div className="text-sm text-muted-foreground px-3 py-2.5 bg-secondary rounded-lg">
+          Only owners and admins can connect or manage payment accounts.
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -116,10 +136,17 @@ export function PaymentsSettings() {
                     </span>
                   </div>
                   {a.state === "onboarding_incomplete" ? (
-                    <p className="text-xs text-[hsl(var(--warning))] mt-0.5 flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3 shrink-0" />
-                      Connected, but can't take payments yet — finish Stripe onboarding.
-                    </p>
+                    <div className="mt-0.5">
+                      <p className="text-xs text-[hsl(var(--warning))] flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                        Connected, but can't take payments yet — finish Stripe onboarding.
+                      </p>
+                      {a.requirements.length > 0 && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Stripe still needs: {a.requirements.join(", ")}.
+                        </p>
+                      )}
+                    </div>
                   ) : a.state === "ready" ? (
                     <p className="text-xs text-muted-foreground mt-0.5">
                       Charges enabled{a.payoutsEnabled ? " · payouts enabled" : " · payouts pending"}.

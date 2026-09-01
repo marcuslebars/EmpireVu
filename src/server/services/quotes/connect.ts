@@ -15,6 +15,7 @@
  */
 import type Stripe from "stripe";
 
+import { AuthorizationError } from "@/server/organizations/context";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import type { createSupabaseServerClient } from "@/server/supabase/server";
 import { getPlatformStripe } from "./company-stripe";
@@ -185,6 +186,13 @@ export interface CompanyConnectStatus {
   payoutsEnabled: boolean;
   detailsSubmitted: boolean;
   state: ConnectState;
+  /** What Stripe is still waiting on, in plain words (currently/past due). */
+  requirements: string[];
+}
+
+interface StripeRequirements {
+  currently_due?: string[] | null;
+  past_due?: string[] | null;
 }
 
 interface CompanyConnectRow {
@@ -194,11 +202,42 @@ interface CompanyConnectRow {
   stripe_charges_enabled: boolean | null;
   stripe_payouts_enabled: boolean | null;
   stripe_details_submitted: boolean | null;
+  stripe_requirements: StripeRequirements | null;
 }
 
 const CONNECT_COLUMNS =
   "id, name, stripe_connected_account_id, stripe_charges_enabled, " +
-  "stripe_payouts_enabled, stripe_details_submitted";
+  "stripe_payouts_enabled, stripe_details_submitted, stripe_requirements";
+
+/** Turn Stripe's dotted requirement keys into something an operator can act on. */
+const REQUIREMENT_LABELS: Record<string, string> = {
+  external_account: "A bank account for payouts",
+  "business_profile.url": "A business website",
+  "business_profile.mcc": "A business category",
+  "business_profile.product_description": "A description of what you sell",
+  "tos_acceptance.date": "Accepting Stripe's terms of service",
+  "individual.verification.document": "A photo ID",
+  "individual.verification.additional_document": "A second ID document",
+  "company.verification.document": "A company verification document",
+};
+
+export function humanizeRequirement(key: string): string {
+  if (REQUIREMENT_LABELS[key]) {
+    return REQUIREMENT_LABELS[key];
+  }
+  // Fallback: drop the entity prefix, de-dot/underscore into readable words, so an
+  // unmapped key never surfaces as a raw dotted path.
+  const tail = key.replace(/^(individual|company|business_profile)\./, "");
+  return tail.replace(/[._]/g, " ").trim() || key;
+}
+
+function requirementList(req: StripeRequirements | null): string[] {
+  if (!req) {
+    return [];
+  }
+  const keys = [...(req.past_due ?? []), ...(req.currently_due ?? [])];
+  return Array.from(new Set(keys)).map(humanizeRequirement);
+}
 
 function toConnectStatus(row: CompanyConnectRow): CompanyConnectStatus {
   const accountId = row.stripe_connected_account_id ?? null;
@@ -217,8 +256,20 @@ function toConnectStatus(row: CompanyConnectRow): CompanyConnectStatus {
     connected,
     detailsSubmitted: row.stripe_details_submitted === true,
     payoutsEnabled: row.stripe_payouts_enabled === true,
+    requirements: requirementList(row.stripe_requirements),
     state,
   };
+}
+
+/**
+ * Connecting a Stripe account decides where a business's money lands, so it sits
+ * with the people who can manage the organization — not every member who can read
+ * a quote. Throws AuthorizationError (→ 403) for a plain member.
+ */
+export function assertCanManagePayments(role: string): void {
+  if (role !== "owner" && role !== "admin") {
+    throw new AuthorizationError("Only an owner or admin can manage payment accounts.");
+  }
 }
 
 /** Every company in the org with its Connect status, ordered by name. */
