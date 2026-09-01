@@ -152,7 +152,15 @@ export async function maybeAutoQuoteLead(
     // sendQuote allocates the customer-facing number, stamps valid_until, and
     // sends the branded quote email carrying the /q/{token} link. That email IS
     // the instant confirmation — there is no second one to write.
-    const sent = await sendQuote(serviceCtx, draft.id);
+    //
+    // It returns the email outcome alongside the row, and a NOT-delivered email
+    // is not a failure here: the quote is live and payable, and the link is what
+    // the storage site hands back to the customer on screen. Recorded so a lead
+    // that never got mailed is explainable later.
+    const { quote: sent, email } = await sendQuote(serviceCtx, draft.id);
+    if (!email.delivered) {
+      console.log(`[auto-quote] lead ${ctx.leadId} quote ${sent.quote_number} not emailed: ${email.reason}`);
+    }
 
     console.log(`[auto-quote] lead ${ctx.leadId} -> quote ${sent.quote_number} (${sent.id})`);
     return {
