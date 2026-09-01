@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Tables } from "@/server/db/database.types";
 import { slugify } from "@/server/db/helpers";
 import { ValidationError } from "@/server/organizations/context";
+import { newOrgTrialFields } from "@/server/services/billing/env";
 import type { createSupabaseServerClient } from "@/server/supabase/server";
 
 type AppSupabaseClient = ReturnType<typeof createSupabaseServerClient>;
@@ -36,12 +37,19 @@ export async function createOrganization(
     throw new Error("An organization with this slug already exists.");
   }
 
+  // A brand-new self-serve org starts on a time-boxed trial — NOT the `internal`
+  // house default (billing-exempt), which would hand every signup the whole
+  // product free. Gating enforces the trial's expiry from trial_ends_at.
+  const trial = newOrgTrialFields(new Date());
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const query = (supabase as any).from("organizations")
     .insert({
       created_by: userId,
       name: input.name,
       slug: organizationSlug,
+      plan: trial.plan,
+      subscription_status: trial.subscription_status,
+      trial_ends_at: trial.trial_ends_at,
     })
     .select("*")
     .single();

@@ -137,20 +137,42 @@ describe("orgCan — feature_flags override the plan default", () => {
   });
 });
 
+describe("orgCan — trial", () => {
+  it("full plan access while the trial is live, then gated once it lapses", async () => {
+    const live = createFakeDb({
+      organizations: [
+        { id: ORG, plan: "operate", subscription_status: "trialing", trial_ends_at: daysFromNow(10) },
+      ],
+    });
+    expect(await orgCan(live.client, ORG, "workflows")).toBe(true);
+
+    const lapsed = createFakeDb({
+      organizations: [
+        { id: ORG, plan: "operate", subscription_status: "trialing", trial_ends_at: daysFromNow(-1) },
+      ],
+    });
+    expect(await orgCan(lapsed.client, ORG, "workflows")).toBe(false);
+  });
+});
+
 describe("isBillingHealthy", () => {
   const now = new Date("2026-08-04T00:00:00.000Z");
-  it("active / trialing are healthy", () => {
-    expect(isBillingHealthy("active", null, now, 7)).toBe(true);
-    expect(isBillingHealthy("trialing", null, now, 7)).toBe(true);
+  it("active is healthy; an open-ended trial (no end date) is healthy", () => {
+    expect(isBillingHealthy("active", null, null, now, 7)).toBe(true);
+    expect(isBillingHealthy("trialing", null, null, now, 7)).toBe(true);
+  });
+  it("a trial is healthy before trial_ends_at and lapses after", () => {
+    expect(isBillingHealthy("trialing", null, "2026-08-10T00:00:00.000Z", now, 7)).toBe(true); // ends in 6d
+    expect(isBillingHealthy("trialing", null, "2026-08-01T00:00:00.000Z", now, 7)).toBe(false); // ended 3d ago
   });
   it("none / canceled are not healthy", () => {
-    expect(isBillingHealthy("none", null, now, 7)).toBe(false);
-    expect(isBillingHealthy("canceled", "2099-01-01T00:00:00Z", now, 7)).toBe(false);
+    expect(isBillingHealthy("none", null, null, now, 7)).toBe(false);
+    expect(isBillingHealthy("canceled", "2099-01-01T00:00:00Z", null, now, 7)).toBe(false);
   });
   it("past_due respects the grace window from current_period_end", () => {
-    expect(isBillingHealthy("past_due", "2026-08-01T00:00:00.000Z", now, 7)).toBe(true); // +3d < 7
-    expect(isBillingHealthy("past_due", "2026-07-20T00:00:00.000Z", now, 7)).toBe(false); // +15d > 7
-    expect(isBillingHealthy("past_due", null, now, 7)).toBe(false); // no period end -> off
+    expect(isBillingHealthy("past_due", "2026-08-01T00:00:00.000Z", null, now, 7)).toBe(true); // +3d < 7
+    expect(isBillingHealthy("past_due", "2026-07-20T00:00:00.000Z", null, now, 7)).toBe(false); // +15d > 7
+    expect(isBillingHealthy("past_due", null, null, now, 7)).toBe(false); // no period end -> off
   });
 });
 
