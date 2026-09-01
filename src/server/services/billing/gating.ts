@@ -17,6 +17,7 @@ type BillingClient = ReturnType<typeof createSupabaseServerClient>;
 interface OrgBillingState {
   plan: string;
   subscription_status: string;
+  trial_ends_at: string | null;
 }
 
 interface OrgEvaluation {
@@ -31,7 +32,7 @@ async function loadOrgBillingState(
 ): Promise<OrgBillingState | null> {
   const { data, error } = await supabase
     .from("organizations")
-    .select("plan, subscription_status")
+    .select("plan, subscription_status, trial_ends_at")
     .eq("id", organizationId)
     .maybeSingle();
 
@@ -79,20 +80,24 @@ async function loadFeatureFlag(
 }
 
 /**
- * Is a non-internal subscription in good standing for paid access? active/trialing
- * are healthy; past_due is healthy only until current_period_end + grace elapses;
- * none/canceled/unknown are not. Exported for direct unit testing.
+ * Is a non-internal subscription in good standing for paid access? `active` is
+ * healthy; `trialing` is healthy until `trial_ends_at` (a trial with no end date
+ * stays open-ended); `past_due` is healthy only until current_period_end + grace
+ * elapses; none/canceled/unknown are not. Exported for direct unit testing.
  */
 export function isBillingHealthy(
   status: string,
   currentPeriodEnd: string | null,
+  trialEndsAt: string | null,
   now: Date,
   graceDays: number,
 ): boolean {
   switch (status) {
     case "active":
-    case "trialing":
       return true;
+    case "trialing":
+      // A trial lapses at trial_ends_at; no date => open-ended trial (healthy).
+      return trialEndsAt ? now.getTime() <= new Date(trialEndsAt).getTime() : true;
     case "past_due": {
       if (!currentPeriodEnd) {
         return false;
@@ -123,6 +128,7 @@ async function evaluateOrg(
   const healthy = isBillingHealthy(
     org.subscription_status,
     periodEnd,
+    org.trial_ends_at,
     new Date(),
     getPastDueGraceDays(),
   );

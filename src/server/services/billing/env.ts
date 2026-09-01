@@ -84,6 +84,39 @@ export function getPastDueGraceDays(): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 7;
 }
 
+/** The plan a new self-serve org trials on. Configurable; defaults to `operate`. */
+export function getTrialPlan(): PurchasablePlan {
+  const raw = process.env.BILLING_TRIAL_PLAN;
+  return raw && (PURCHASABLE_PLANS as readonly string[]).includes(raw)
+    ? (raw as PurchasablePlan)
+    : "operate";
+}
+
+/** Trial length in days for a new self-serve org. Configurable; defaults to 14. */
+export function getTrialDays(): number {
+  const parsed = Number.parseInt(process.env.BILLING_TRIAL_DAYS ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 14;
+}
+
+/**
+ * Billing fields a newly-created self-serve org starts with: a time-boxed trial
+ * on a REAL plan — never the `internal` (billing-exempt house) default, which
+ * would make every signup free forever. Gating (isBillingHealthy) enforces the
+ * expiry off `trial_ends_at`.
+ */
+export function newOrgTrialFields(now: Date): {
+  plan: PurchasablePlan;
+  subscription_status: "trialing";
+  trial_ends_at: string;
+} {
+  const endsAt = new Date(now.getTime() + getTrialDays() * 24 * 60 * 60 * 1000);
+  return {
+    plan: getTrialPlan(),
+    subscription_status: "trialing",
+    trial_ends_at: endsAt.toISOString(),
+  };
+}
+
 /** Public base URL used to build Checkout/Portal return URLs. Shared with the app. */
 export function getAppBaseUrl(): string {
   return process.env.APP_BASE_URL ?? "http://localhost:3000";
