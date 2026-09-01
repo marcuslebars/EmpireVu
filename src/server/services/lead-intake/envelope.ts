@@ -65,6 +65,64 @@ export const leadEnvelopeSchema = z.object({
       // back to its retell_calls row (raw transcript + analysis).
       urgent: z.boolean().optional(),
       retell: z.object({ callId: z.string().min(1).max(200) }).optional(),
+
+      // ── Self-serve quoting (Phase 5) ───────────────────────────────────────
+      // Additive and optional, so every existing spoke and golden fixture is
+      // unaffected. They live in `meta` because LEAD_SCHEMA.md fixes the
+      // envelope's top level at schemaVersion 1 and says to version rather than
+      // mutate it.
+      //
+      // Declaring them MATTERS: this object is closed, and zod strips unknown
+      // keys SILENTLY. A spoke sending logistics without this would have it
+      // dropped on the floor with no error, and the auto-quote would see a lead
+      // with no transport and no selection.
+
+      /** Transport + add-on choices from the calculator. */
+      logistics: z
+        .object({
+          boatLocation: z.string().max(40).optional(),
+          town: z.string().max(80).optional(),
+          postalCode: z.string().max(12).optional(),
+          transportBand: z.string().max(20).optional(),
+          distanceKm: z.number().nonnegative().max(5000).optional(),
+          bandResolution: z.string().max(30).optional(),
+          pickup: z.boolean().optional(),
+          delivery: z.boolean().optional(),
+          trailerProvided: z.boolean().optional(),
+          inWaterNotice: z.boolean().optional(),
+          batteryCount: z.number().int().nonnegative().max(24).optional(),
+          extendedMonths: z.number().int().nonnegative().max(24).optional(),
+          oilChangeOutboard: z.boolean().optional(),
+          springWrapRemoval: z.boolean().optional(),
+        })
+        .optional(),
+
+      /**
+       * What the customer chose, by catalog SERVICE KEY.
+       *
+       * Required for an auto-quote. The envelope's lineItems carry priced
+       * DESCRIPTIONS, which cannot be re-priced against a tenant's catalog
+       * without string-matching a customer-facing label. Keys can.
+       */
+      selection: z
+        .object({
+          bundleKey: z.string().max(60).optional(),
+          variant: z.string().max(40).optional(),
+          services: z
+            .array(
+              z.object({
+                serviceKey: z.string().min(1).max(80),
+                measure: z.number().positive().max(2000).optional(),
+                quantity: z.number().int().positive().max(24).optional(),
+              }),
+            )
+            .max(30)
+            .optional(),
+        })
+        .optional(),
+
+      /** Short reference printed on a downloaded PDF, so the two match. */
+      quoteRef: z.string().max(40).optional(),
     })
     .optional(),
 });

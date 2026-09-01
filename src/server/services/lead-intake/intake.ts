@@ -20,6 +20,7 @@ import { sendLeadNotification, type ReturningInfo } from "./notify";
 import { companySlugForSourceSite, LEAD_INTAKE_ORG_SLUG } from "./routing";
 import { getJobberConfig } from "@/server/services/jobber/config";
 import { enqueueJobberSyncJob } from "@/server/services/jobber/sync-jobs";
+import { maybeAutoQuoteLead } from "@/server/services/quotes/auto-quote";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 type AsRecord = Record<string, unknown>;
@@ -27,6 +28,20 @@ type AsRecord = Record<string, unknown>;
 export interface IntakeResult {
   ok: true;
   leadId: string;
+  /**
+   * The customer-facing quote link, present only when this lead was
+   * auto-quoted.
+   *
+   * Returned so the SPOKE can offer "pay your deposit" on its own confirmation
+   * screen instead of promising an email that may not have been sent. It is a
+   * public, single-purpose token URL — the same one that goes in the email —
+   * and it is safe to hand back to the browser that just submitted the lead,
+   * because that browser is the customer whose quote it is.
+   *
+   * Absent whenever no quote was created, which is most leads. A spoke must
+   * treat it as optional and fall back to its existing copy.
+   */
+  quoteUrl?: string;
 }
 
 function genLeadId(): string {
@@ -349,6 +364,9 @@ async function maybeEnqueueJobberSync(
  */
 export async function handleLeadIntake(rawBody: string, parsedBody: unknown): Promise<IntakeResult> {
   const leadId = genLeadId();
+  // Set only if the lead is auto-quoted; returned to the spoke so it can offer
+  // payment on its own confirmation screen.
+  let quoteUrl: string | undefined;
   const admin = createSupabaseAdminClient();
 
   const parse = parseLeadEnvelope(parsedBody);
@@ -396,6 +414,22 @@ export async function handleLeadIntake(rawBody: string, parsedBody: unknown): Pr
       // JOBBER_SYNC_ENABLED). Best-effort — the durable raw_leads row + the worker's
       // reconcile sweep are the safety net; this never affects the lead.
       await maybeEnqueueJobberSync(admin, { envelope, orgId, companyId, leadId, contactId: enriched.contactId });
+
+      // Additive: Phase 5 self-serve. If the lead qualifies, create and send a
+      // real quote so the customer can approve and pay a deposit without waiting
+      // for a callback. Gated by SELF_SERVE_QUOTES_ENABLED on top of the quotes
+      // flag, and NEVER THROWS — a lead that cannot be auto-quoted is a normal
+      // lead, handled exactly as it is today. Same discipline as the Jobber
+      // enqueue above.
+      const auto = await maybeAutoQuoteLead(envelope, {
+        organizationId: orgId,
+        companyId,
+        contactId: enriched.contactId,
+        leadId,
+      });
+      // Handed back to the spoke so it can show a pay button. Only set when a
+      // quote actually exists and is payable.
+      if (auto.created && auto.quoteUrl) quoteUrl = auto.quoteUrl;
     } catch (err) {
       console.error("[intake] enrichment failed (lead kept in raw_leads):", err);
       // Enrichment failed after the durable write — flag for attention so the lead
@@ -436,5 +470,5 @@ export async function handleLeadIntake(rawBody: string, parsedBody: unknown): Pr
     console.error("[intake] notification failed:", err);
   }
 
-  return { ok: true, leadId };
+  return quoteUrl ? { ok: true, leadId, quoteUrl } : { ok: true, leadId };
 }
