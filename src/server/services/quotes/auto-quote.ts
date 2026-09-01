@@ -15,6 +15,7 @@ import type { TenantServiceContext } from "@/server/services/shared";
 import type { LeadEnvelope } from "@/server/services/lead-intake/envelope";
 import { decideAutoQuote, type AutoQuoteDecision } from "./auto-quote-eligibility";
 import { loadCatalog } from "./catalog-repo";
+import { getJobberConfig } from "@/server/services/jobber/config";
 import { getQuotesConfig } from "./config";
 import { createQuote, sendQuote, type QuoteRow } from "./service";
 
@@ -36,9 +37,33 @@ export interface AutoQuoteOutcome {
   quoteUrl?: string;
 }
 
-/** Self-serve is its own switch, on top of the quotes flag. */
+/**
+ * Self-serve is its own switch, on top of the quotes flag — and it will not run
+ * while Jobber sync is also on.
+ *
+ * BOTH PATHS EMAIL THE CUSTOMER A PAYMENT LINK. The Jobber sync does not merely
+ * record a quote: it creates AND sends one with a required deposit, which is
+ * what surfaces Jobber's online deposit to the client. Turning self-serve on
+ * without turning Jobber off would send the same person two quotes for the same
+ * job, each with its own payment link, in two different systems — an invitation
+ * to pay twice, and impossible to explain to them afterwards.
+ *
+ * Declining is the safe side of that choice: nobody is emailed, and the lead
+ * reaches a human exactly as it does today. Whoever flips the flag resolves it by
+ * turning Jobber off, which is the intended end state anyway.
+ */
 export function selfServeEnabled(): boolean {
-  return getQuotesConfig().enabled && process.env.SELF_SERVE_QUOTES_ENABLED === "1";
+  if (!getQuotesConfig().enabled) return false;
+  if (process.env.SELF_SERVE_QUOTES_ENABLED !== "1") return false;
+  if (getJobberConfig().enabled) {
+    console.error(
+      "[auto-quote] SELF_SERVE_QUOTES_ENABLED and JOBBER_SYNC_ENABLED are BOTH on. " +
+        "Refusing to auto-quote: the customer would receive two quotes with two " +
+        "payment links. Set JOBBER_SYNC_ENABLED=0.",
+    );
+    return false;
+  }
+  return true;
 }
 
 /** Has this lead already produced an auto-quote? The DB index is the real guard. */
