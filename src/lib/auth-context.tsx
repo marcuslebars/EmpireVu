@@ -10,6 +10,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase, getSupabaseConfigDiagnostic } from "@/lib/supabase";
+import { isPublicPath } from "@/lib/public-routes";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
@@ -129,7 +130,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       navigate("/onboarding");
     } else {
       console.log("[AuthContext] No context, navigating to signin");
-      navigate("/signin");
+      if (!isPublicPath(window.location.pathname)) {
+        navigate("/signin");
+      }
     }
   }, [navigate]);
 
@@ -200,7 +203,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (event === "SIGNED_OUT" || !supabaseSession?.user) {
         clearAuthState();
-        navigate("/signin");
+        // NOT from a public page. Supabase fires INITIAL_SESSION with a null
+        // session for everyone who is not signed in, which is most visitors to a
+        // customer-facing route — they are not signing out, they never signed in.
+        // Ejecting them sent every quote recipient to a sign-in form for a
+        // product they have never heard of, and the same for public booking and
+        // invitation links. The token in the URL is the credential on these
+        // pages; an account is not.
+        if (!isPublicPath(window.location.pathname)) {
+          navigate("/signin");
+        }
       } else if (supabaseSession?.user) {
         await fetchSessionContext({ 
           id: supabaseSession.user.id, 
