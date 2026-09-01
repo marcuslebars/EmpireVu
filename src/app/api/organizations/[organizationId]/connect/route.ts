@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 
 import { handleRoute } from "@/server/api/route";
 import { requireOrganizationContext } from "@/server/organizations/context";
-import { listCompanyConnectStatus } from "@/server/services/quotes/connect";
+import { getQuotesConfig } from "@/server/services/quotes/config";
+import { assertCanManagePayments, listCompanyConnectStatus } from "@/server/services/quotes/connect";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -20,8 +21,12 @@ interface RouteContext {
  */
 export async function GET(_request: Request, context: RouteContext): Promise<NextResponse> {
   return handleRoute(async () => {
+    if (!getQuotesConfig().enabled) {
+      return NextResponse.json({ error: "Payments are not enabled." }, { status: 404 });
+    }
     const supabase = createSupabaseServerClient();
-    await requireOrganizationContext(supabase, context.params.organizationId);
+    const org = await requireOrganizationContext(supabase, context.params.organizationId);
+    assertCanManagePayments(org.membership.role);
 
     const data = await listCompanyConnectStatus(supabase, context.params.organizationId);
     return NextResponse.json({ data });

@@ -595,11 +595,11 @@ export function useCreateBillingPortal(orgId: string) {
   });
 }
 
-export function useConnectAccounts(orgId: string) {
+export function useConnectAccounts(orgId: string, options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: ["connect", orgId],
     queryFn: () => fetchConnectAccounts(orgId),
-    enabled: Boolean(orgId),
+    enabled: Boolean(orgId) && (options.enabled ?? true),
   });
 }
 

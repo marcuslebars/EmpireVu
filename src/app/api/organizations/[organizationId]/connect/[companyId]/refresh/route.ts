@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 
 import { handleRoute } from "@/server/api/route";
 import { requireOrganizationContext, ValidationError } from "@/server/organizations/context";
+import { getQuotesConfig } from "@/server/services/quotes/config";
 import {
+  assertCanManagePayments,
   getCompanyConnectStatus,
   refreshConnectedAccount,
 } from "@/server/services/quotes/connect";
@@ -25,8 +27,12 @@ interface RouteContext {
  */
 export async function POST(_request: Request, context: RouteContext): Promise<NextResponse> {
   return handleRoute(async () => {
+    if (!getQuotesConfig().enabled) {
+      return NextResponse.json({ error: "Payments are not enabled." }, { status: 404 });
+    }
     const supabase = createSupabaseServerClient();
-    await requireOrganizationContext(supabase, context.params.organizationId);
+    const org = await requireOrganizationContext(supabase, context.params.organizationId);
+    assertCanManagePayments(org.membership.role);
 
     const company = await getCompanyConnectStatus(
       supabase,
