@@ -66,16 +66,26 @@ export function selfServeEnabled(): boolean {
   return true;
 }
 
-/** Has this lead already produced an auto-quote? The DB index is the real guard. */
+/**
+ * Has this lead already produced an auto-quote? The DB index is the real guard.
+ *
+ * THROWS on a query error rather than swallowing it. It used to destructure only
+ * `data`, so a failing query — the uuid type mismatch, for one — read as "no,
+ * go ahead and quote it". An idempotency check that fails OPEN is worse than no
+ * check: it turns a database problem into a second quote and a second email to
+ * the same customer. Failing loudly means maybeAutoQuoteLead's catch records it
+ * and the lead reaches a human, which is the right outcome for "we cannot tell".
+ */
 async function alreadyQuoted(organizationId: string, leadId: string): Promise<boolean> {
   const db = createSupabaseAdminClient() as Db;
-  const { data } = await db
+  const { data, error } = await db
     .from("quotes")
     .select("id")
     .eq("organization_id", organizationId)
     .eq("source_lead_id", leadId)
     .eq("auto_generated", true)
     .maybeSingle();
+  if (error) throw error;
   return Boolean(data);
 }
 
