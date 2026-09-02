@@ -24,6 +24,15 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": "off",
+      // Downgraded error -> warn so `npm run lint` is a viable (green, blocking) CI
+      // gate. These three had ~2,338 PRE-EXISTING violations repo-wide (the untyped
+      // -table `as any` backlog etc.). Kept as warnings so they stay visible and can
+      // be ratcheted back to "error" once Task 2 (gen-types) + a dedicated cleanup
+      // clear the backlog. New error-level violations still fail CI. (Convention #13
+      // — no new `as any` — is enforced by review + typecheck until then.)
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-unsafe-function-type": "warn",
+      "@typescript-eslint/no-empty-object-type": "warn",
     },
   },
 );

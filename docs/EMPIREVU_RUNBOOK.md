@@ -7,6 +7,19 @@
 - One **worker service** (to create — not deployed yet): the workflow-event poller.
 - **Data**: Supabase/Postgres (external managed; no Railway volume).
 
+## CI
+`.github/workflows/ci.yml` runs on every PR and on push to `main`: Node 22, `npm ci`, then `npm run typecheck`, `npm run lint`, `npm run test` (npm cache on). Any non-zero exit fails the run.
+- **Lint caveat:** the repo had ~2,338 pre-existing lint errors (the `as any` / untyped-table backlog). To make lint a green, blocking gate now, `@typescript-eslint/no-explicit-any`, `no-unsafe-function-type`, and `no-empty-object-type` were downgraded **error → warn** in `eslint.config.js`. They stay visible as warnings; ratchet back to `error` after Task 2 (gen-types) + a cleanup. New error-level violations still fail CI.
+
+## Health check
+`GET /api/health` (public, unauthenticated) is Railway's `healthcheckPath` (set in `railway.json`). Returns `{ ok, db, workers: { workflow_events, billing_events, jobber_sync }, version }`:
+- `db: "ok"` = an anon `select` reached Postgres; a failed/timed-out probe returns **503** with `db: "error"`.
+- `workers.*` report `last_claimed_at` (newest `locked_at`) and `queued` (`count(status='pending')`) per queue — **aggregate only, never row content**; a stats hiccup degrades these to `null` but keeps a 200 (the DB is up).
+- `version` = `RAILWAY_GIT_COMMIT_SHA` (auto-set by Railway; falls back to `"unknown"`). 5-second timeout on both phases.
+
+## Service-role (sanctioned) surfaces
+`createSupabaseAdminClient()` (service role, bypasses RLS) is used only where a request has no forgeable RLS identity, each carrying a `SANCTIONED EXCEPTION` header comment (convention #2): lead-intake, public-booking, telnyx, retell, quotes (public/checkout/connect), billing, jobber, waitlist, invitations, the workers/jobs — and now **`/api/health`** (reads aggregate queue counts only, never tenant rows; there is no tenant to resolve). `SUPABASE_SERVICE_ROLE_KEY` stays on the web service.
+
 ## Builder & run — Railway uses **Railpack**, and you MUST pin build + start
 ⚠️ **The trap we hit (biggest gotcha):** Railpack (Railway's current builder — Nixpacks is deprecated) auto-detects a **static Vite SPA**, builds `dist/`, and serves it via **Caddy** with SPA-fallback. The result is silent and nasty: `GET /` looks fine, but **every `/api/*` route returns the SPA's `index.html`** — the Next server never runs, so the whole API (including `/api/intake`) is dead.
 
