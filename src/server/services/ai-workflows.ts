@@ -5,6 +5,7 @@ import {
 } from "@/server/ai/workflow-author";
 import { isAIConfigured } from "@/server/ai/claude";
 import type { Json, Tables } from "@/server/db/database.types";
+import { toJson } from "@/server/db/json";
 import { ValidationError } from "@/server/organizations/context";
 import { parseWorkflowDefinition } from "@/server/services/workflow-engine/definitions";
 import type { TenantServiceContext } from "@/server/services/shared";
@@ -104,11 +105,11 @@ export async function suggestWorkflows(
 
   const compiled: WorkflowSuggestion[] = [];
   for (const suggestion of suggestions) {
-    const definition = {
+    const definition = toJson({
       version: 1,
       conditions: [],
       actions: suggestion.actions,
-    } as unknown as Json;
+    });
 
     try {
       parseWorkflowDefinition(definition);

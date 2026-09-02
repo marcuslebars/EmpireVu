@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { proposedSlotSchema, type LeadAnalysis, type ProposedSlot } from "@/server/ai/claude";
 import type { Inserts, Json, Tables } from "@/server/db/database.types";
+import { toJson } from "@/server/db/json";
 import { ValidationError } from "@/server/organizations/context";
 import { sendEmail } from "@/server/outbound/email";
 import { sendSms } from "@/server/outbound/sms";
@@ -60,8 +61,8 @@ async function updateDraftRow(
   draftId: string,
   payload: Partial<Inserts<"ai_drafts">>,
 ): Promise<AiDraft> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (context.supabase.from("ai_drafts") as any)
+  const { data, error } = await context.supabase
+    .from("ai_drafts")
     .update(payload)
     .eq("organization_id", context.organizationId)
     .eq("id", draftId)
@@ -145,14 +146,14 @@ export async function createDraftForContact(
   const analysis = await analyzeContact(context, contactId);
 
   const payload = {
-    analysis: analysis as unknown as Json,
+    analysis: toJson(analysis),
     company_id: contact.company_id,
     contact_id: contactId,
     created_by: context.actorProfileId,
     email_body: analysis.draftedEmail.body,
     email_subject: analysis.draftedEmail.subject,
     organization_id: context.organizationId,
-    proposed_slots: analysis.proposedSlots as unknown as Json,
+    proposed_slots: toJson(analysis.proposedSlots),
     sms_body: analysis.draftedSms,
     workflow_id: options.workflowId ?? null,
   } satisfies Inserts<"ai_drafts">;

@@ -46,8 +46,8 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
       },
     );
 
-    const companyIds = [...new Set(bookings.map((b) => b.company_id).filter(Boolean))];
-    const contactIds = [...new Set(bookings.map((b) => b.contact_id).filter(Boolean))];
+    const companyIds = [...new Set(bookings.map((b) => b.company_id).filter((id): id is string => id !== null))];
+    const contactIds = [...new Set(bookings.map((b) => b.contact_id).filter((id): id is string => id !== null))];
 
     const [{ data: companies }, { data: contacts }] = await Promise.all([
       companyIds.length > 0

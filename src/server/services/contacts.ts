@@ -171,8 +171,8 @@ export async function updateContactStage(
     return existing;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (context.supabase.from("contacts") as any)
+  const query = context.supabase
+    .from("contacts")
     .update({ stage: input.stage })
     .eq("organization_id", context.organizationId)
     .eq("id", input.contactId)
@@ -224,8 +224,8 @@ export async function assignContactOwner(
     assertProfileInOrganization(context, input.ownerProfileId),
   ]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (context.supabase.from("contacts") as any)
+  const query = context.supabase
+    .from("contacts")
     .update({ owner_profile_id: input.ownerProfileId })
     .eq("organization_id", context.organizationId)
     .eq("id", input.contactId)
@@ -260,8 +260,8 @@ export async function updateContactNotes(
 ): Promise<Tables<"contacts">> {
   await assertContactInOrganization(context, input.contactId);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (context.supabase.from("contacts") as any)
+  const query = context.supabase
+    .from("contacts")
     .update({ notes: input.notes })
     .eq("organization_id", context.organizationId)
     .eq("id", input.contactId)
@@ -294,8 +294,8 @@ export async function deleteContact(
     },
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (context.supabase.from("contacts") as any)
+  const { error } = await context.supabase
+    .from("contacts")
     .delete()
     .eq("organization_id", context.organizationId)
     .eq("id", input.contactId);
@@ -313,8 +313,8 @@ export async function updateContactFields(
 ): Promise<Tables<"contacts">> {
   await assertContactInOrganization(context, input.contactId);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (context.supabase.from("contacts") as any)
+  const query = context.supabase
+    .from("contacts")
     .update({
       first_name: input.firstName,
       last_name: input.lastName ?? null,

@@ -3,10 +3,6 @@
 // Developer Center at connect time — see docs/jobber-integration.md. Best-effort.
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
-type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const tbl = (admin: AdminClient, name: string): any => (admin as any).from(name);
-
 interface JobberWebhookBody {
   topic?: string;
   itemId?: string;
@@ -31,12 +27,13 @@ export async function handleJobberWebhook(rawBody: string): Promise<void> {
   // (A first-class "booked" status + positive notification is a follow-up; needs_attention
   // is what the existing ops view watches.)
   if (/QUOTE_APPROV/i.test(topic) && itemId) {
-    const { data } = await tbl(admin, "jobber_sync_jobs")
+    const { data } = await admin
+      .from("jobber_sync_jobs")
       .select("id, lead_id")
       .eq("jobber_quote_id", itemId)
       .maybeSingle();
     if (data?.lead_id) {
-      await tbl(admin, "raw_leads").update({ needs_attention: true }).eq("lead_id", data.lead_id);
+      await admin.from("raw_leads").update({ needs_attention: true }).eq("lead_id", data.lead_id);
       console.log(`[jobber] quote ${itemId} approved — DEPOSIT PAID, booking confirmed (lead ${data.lead_id}); schedule fulfilment`);
     } else {
       console.log(`[jobber] quote-approved webhook for unknown quote ${itemId}`);

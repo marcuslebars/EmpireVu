@@ -24,8 +24,28 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Typecheck (server, strict)
+        run: npm run typecheck:server
+
       - name: Lint
         run: npm run lint
 
       - name: Test
         run: npm run test
+
+      - name: Database types in sync (gen:types drift)
+        # Regenerate the types and fail if they drift from what's committed. Runs only
+        # when Supabase credentials are configured as repo secrets (remote mode); the
+        # hosted runner cannot start a local Supabase, so without them the check is
+        # skipped with a notice rather than failing. See docs/EMPIREVU_RUNBOOK.md.
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          if [ -n "$SUPABASE_PROJECT_REF" ] && [ -n "$SUPABASE_ACCESS_TOKEN" ]; then
+            npm run gen:types
+            git diff --exit-code -- src/server/db/database.types.ts \
+              || { echo "::error::database.types.ts is out of sync with the schema — run 'npm run gen:types' and commit the result."; exit 1; }
+          else
+            echo "::notice::Skipping gen:types drift check — set SUPABASE_PROJECT_REF and SUPABASE_ACCESS_TOKEN repo secrets to enforce type/schema sync."
+          fi

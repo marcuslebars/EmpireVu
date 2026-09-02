@@ -108,8 +108,8 @@ export async function createInvitation(
 
   const token = randomBytes(24).toString("hex");
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const insertQuery = (context.supabase.from("organization_invitations") as any)
+  const { data, error } = await context.supabase
+    .from("organization_invitations")
     .insert({
       email,
       invited_by_profile_id: context.actorProfileId,
@@ -119,10 +119,6 @@ export async function createInvitation(
     })
     .select("*")
     .single();
-  const { data, error } = await insertQuery as {
-    data: Tables<"organization_invitations"> | null;
-    error: { code?: string } | null;
-  };
 
   if (error) {
     // Partial unique index on (organization_id, lower(email)) where status = 'pending'.
@@ -162,15 +158,14 @@ export async function revokeInvitation(
   context: TenantServiceContext,
   invitationId: string,
 ): Promise<{ id: string }> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (context.supabase.from("organization_invitations") as any)
+  const { data, error } = await context.supabase
+    .from("organization_invitations")
     .update({ status: "revoked" })
     .eq("organization_id", context.organizationId)
     .eq("id", invitationId)
     .eq("status", "pending")
     .select("id")
     .maybeSingle();
-  const { data, error } = await query as { data: { id: string } | null; error: unknown };
 
   if (error) {
     throw error;
@@ -273,8 +268,7 @@ export async function acceptInvitation(
   }
 
   // Guarantee the FK target exists without clobbering an existing profile.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error: profileError } = await (admin.from("profiles") as any).upsert(
+  const { error: profileError } = await admin.from("profiles").upsert(
     { email: input.userEmail ?? invitation.email, id: input.userId },
     { onConflict: "id", ignoreDuplicates: true },
   );
@@ -295,8 +289,7 @@ export async function acceptInvitation(
   }
 
   if (!existingMembership) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: insertError } = await (admin.from("organization_memberships") as any).insert({
+    const { error: insertError } = await admin.from("organization_memberships").insert({
       organization_id: invitation.organization_id,
       profile_id: input.userId,
       role: invitation.role,
@@ -307,8 +300,8 @@ export async function acceptInvitation(
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error: updateError } = await (admin.from("organization_invitations") as any)
+  const { error: updateError } = await admin
+    .from("organization_invitations")
     .update({
       accepted_at: new Date().toISOString(),
       accepted_by_profile_id: input.userId,

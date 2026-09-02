@@ -41,8 +41,8 @@ export async function createOrganization(
   // house default (billing-exempt), which would hand every signup the whole
   // product free. Gating enforces the trial's expiry from trial_ends_at.
   const trial = newOrgTrialFields(new Date());
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (supabase as any).from("organizations")
+  const { data: organization, error: organizationError } = await supabase
+    .from("organizations")
     .insert({
       created_by: userId,
       name: input.name,
@@ -53,7 +53,6 @@ export async function createOrganization(
     })
     .select("*")
     .single();
-  const { data: organization, error: organizationError } = await query as { data: Tables<"organizations"> | null; error: { code?: string } | null };
 
   if (organizationError) {
     // The pre-check above can't see orgs the caller isn't a member of (RLS), so a
@@ -69,14 +68,13 @@ export async function createOrganization(
     throw new Error("Organization creation failed.");
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const insertQuery = (supabase as any).from("organization_memberships")
+  const { error: membershipError } = await supabase
+    .from("organization_memberships")
     .insert({
       organization_id: organization.id,
       profile_id: profileId,
       role: "owner",
     });
-  const { error: membershipError } = await insertQuery as { error: null };
 
   if (membershipError) {
     throw membershipError;
@@ -84,11 +82,10 @@ export async function createOrganization(
 
   const orgId = organization.id;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const updateQuery = (supabase as any).from("profiles")
+  const { error: profileError } = await supabase
+    .from("profiles")
     .update({ default_organization_id: orgId })
     .eq("id", profileId);
-  const { error: profileError } = await updateQuery as { error: null };
 
   if (profileError) {
     console.error("Failed to set default organization:", profileError);
@@ -140,17 +137,12 @@ export async function updateOrganization(
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (supabase as any)
+  const { data, error } = await supabase
     .from("organizations")
     .update(updates)
     .eq("id", organizationId)
     .select("*")
     .single();
-  const { data, error } = (await query) as {
-    data: Tables<"organizations"> | null;
-    error: { code?: string } | null;
-  };
 
   if (error) {
     // Map the DB unique-constraint collision (against orgs the caller can't see

@@ -8,8 +8,23 @@
 - **Data**: Supabase/Postgres (external managed; no Railway volume).
 
 ## CI
-`.github/workflows/ci.yml` runs on every PR and on push to `main`: Node 22, `npm ci`, then `npm run typecheck`, `npm run lint`, `npm run test` (npm cache on). Any non-zero exit fails the run.
-- **Lint caveat:** the repo had ~2,338 pre-existing lint errors (the `as any` / untyped-table backlog). To make lint a green, blocking gate now, `@typescript-eslint/no-explicit-any`, `no-unsafe-function-type`, and `no-empty-object-type` were downgraded **error → warn** in `eslint.config.js`. They stay visible as warnings; ratchet back to `error` after Task 2 (gen-types) + a cleanup. New error-level violations still fail CI.
+`.github/workflows/ci.yml` runs on every PR and on push to `main`: Node 22, `npm ci`, then `npm run typecheck` (SPA), `npm run typecheck:server` (strict), `npm run lint`, `npm run test`, and a gen:types drift check (npm cache on). Any non-zero exit fails the run.
+- **`typecheck:server`** compiles `src/server/**`, `src/app/**` and `src/middleware.ts` under `tsconfig.server.json` with `strict` + `noImplicitAny` + `strictNullChecks` on — stricter than the SPA's `tsconfig.app.json`. This is the gate that keeps the server tree fully typed.
+- **gen:types drift** runs `npm run gen:types` and fails if `src/server/db/database.types.ts` differs from the committed file. It runs only when `SUPABASE_PROJECT_REF` + `SUPABASE_ACCESS_TOKEN` are set as repo secrets (remote mode); a hosted runner can't start a local Supabase, so without them the step is **skipped with a notice**. Set those secrets to enforce type/schema sync.
+- **Lint caveat:** the repo had ~2,338 pre-existing lint errors (the `as any` / untyped-table backlog). To make lint a green, blocking gate, `@typescript-eslint/no-explicit-any`, `no-unsafe-function-type`, and `no-empty-object-type` were downgraded **error → warn** in `eslint.config.js`. Task 2 removed the untyped-table `as any` casts from the **server tree** (now strict-clean under `typecheck:server`); the SPA still carries most of the repo's `any`, so ratchet these rules back to `error` only once that backlog clears too.
+
+## Generating database types
+`src/server/db/database.types.ts` is generated from the live Postgres schema. Regenerate it after any migration that adds/changes tables, columns, enums, or functions:
+
+```
+npm run gen:types
+```
+
+`scripts/gen-types.mjs` picks its mode from the environment:
+- **remote** — when `SUPABASE_PROJECT_REF` is set (also needs `SUPABASE_ACCESS_TOKEN`): introspects the linked hosted project (`supabase gen types typescript --project-id <ref>`).
+- **local** — otherwise: introspects the local dev stack (`supabase gen types typescript --local`); start it first with `supabase start`.
+
+The script prefers a `supabase` on `PATH` and falls back to `npx supabase`, so no global install is required. Commit the regenerated file; the CI drift check (above) keeps it honest once the Supabase secrets are configured.
 
 ## Health check
 `GET /api/health` (public, unauthenticated) is Railway's `healthcheckPath` (set in `railway.json`). Returns `{ ok, db, workers: { workflow_events, billing_events, jobber_sync }, version }`:

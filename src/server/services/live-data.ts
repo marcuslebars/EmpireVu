@@ -681,9 +681,16 @@ async function listAllRows<T extends OrganizationScopedTable>(
   context: TenantServiceContext,
   table: T,
 ): Promise<TablesMap[T][]> {
+  // Generic dynamic-table read: supabase-js cannot resolve `.from(<generic>)` (the
+  // column and row types depend on a table chosen at runtime), so this helper casts
+  // the client to a minimal typed query surface — the one sanctioned generic-table
+  // escape hatch in the server tree, alongside insertRow and the json.ts boundary.
   const query = context.supabase.from(table as never) as unknown as {
     select: (columns: string) => {
-      eq: (column: string, value: string) => PromiseLike<{ data: unknown[] | null; error: unknown }>;
+      eq: (
+        column: string,
+        value: string,
+      ) => PromiseLike<{ data: TablesMap[T][] | null; error: unknown }>;
     };
   };
   const { data, error } = await query.select("*").eq("organization_id", context.organizationId);
@@ -692,7 +699,7 @@ async function listAllRows<T extends OrganizationScopedTable>(
     throw error;
   }
 
-  return (data ?? []) as unknown as TablesMap[T][];
+  return data ?? [];
 }
 
 type TablesMap = {
@@ -1259,7 +1266,7 @@ async function getNormalizedTraceForEntity(
     }),
   );
 
-  return traceItems.map((item) => {
+  return traceItems.map((item): TraceRecord => {
     if (item.kind === "activity_event") {
       const activityEvent = item.data as Tables<"activity_events">;
       const summary = buildActivityEventTraceSummary(activityEvent);

@@ -1,3 +1,4 @@
+import type { PostgrestError } from "@supabase/supabase-js";
 import type { Tables } from "@/server/db/database.types";
 import {
   getAuthenticatedUser,
@@ -69,7 +70,7 @@ export async function listUserOrganizationContexts(
         .from("organizations")
         .select("*")
         .in("id", organizationIds)
-    : { data: [], error: null };
+    : { data: [] as Tables<"organizations">[], error: null as PostgrestError | null };
 
   if (organizationsError) {
     throw organizationsError;
@@ -109,7 +110,7 @@ export async function getSessionContext(
         .from("organizations")
         .select("*")
         .in("id", contexts.map((context) => context.organizationId))
-    : { data: [], error: null };
+    : { data: [] as Tables<"organizations">[], error: null as PostgrestError | null };
 
   if (organizations.error) {
     throw organizations.error;

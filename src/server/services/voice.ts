@@ -245,7 +245,7 @@ export async function syncCallOutcomesForContact(
     .limit(100);
 
   if (error) throw error;
-  const events = data ?? [];
+  const events: Tables<"activity_events">[] = data ?? [];
 
   const resolved = new Set(
     events

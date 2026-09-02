@@ -82,7 +82,7 @@ export async function placeOutboundCall(
     );
   }
 
-  const json = (await response.json().catch(() => null)) as {
+  const json = (await response.json().catch((): null => null)) as {
     calls?: Array<{ number?: string; agent_call_id?: string }>;
   } | null;
   const call = json?.calls?.[0];
@@ -136,7 +136,7 @@ export async function fetchCallDetails(
     );
   }
 
-  const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  const json = (await response.json().catch((): null => null)) as Record<string, unknown> | null;
   const readString = (key: string): string | null =>
     typeof json?.[key] === "string" ? (json[key] as string) : null;
 

@@ -73,7 +73,7 @@ async function getEnrichedWorkflowRuns(
   }
 
   const workflowIds = [...new Set(workflowRuns.map((r) => r.workflow_id))];
-  const companyIds = [...new Set(workflowRuns.map((r) => r.company_id).filter(Boolean))];
+  const companyIds = [...new Set(workflowRuns.map((r) => r.company_id).filter((id): id is string => id !== null))];
 
   const [workflowsResult, companiesResult] = await Promise.all([
     workflowIds.length > 0

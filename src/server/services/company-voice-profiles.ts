@@ -1,11 +1,6 @@
 import type { RetellVoiceConfig } from "@/server/outbound/retell-voice";
 import { assertCompanyInOrganization, type TenantServiceContext } from "@/server/services/shared";
 
-// company_voice_profiles isn't in the generated database.types.ts (no gen-types step),
-// same as the retell_/quotes tables — access it via the client cast to any.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const tbl = (ctx: TenantServiceContext, name: string): any => (ctx.supabase as any).from(name);
-
 export interface CompanyVoiceProfile {
   companyId: string;
   retellOutboundAgentId: string | null;
@@ -77,7 +72,7 @@ export async function resolveCompanyVoiceProfile(
   companyId: string | null | undefined,
 ): Promise<CompanyVoiceProfile | null> {
   if (!companyId) return null;
-  const { data } = await tbl(ctx, "company_voice_profiles")
+  const { data } = await ctx.supabase.from("company_voice_profiles")
     .select(
       "company_id, retell_outbound_agent_id, from_number, brand_label, system_prompt, dynamic_variables, active",
     )
@@ -105,7 +100,7 @@ export async function upsertCompanyVoiceProfile(
 ): Promise<CompanyVoiceProfile> {
   await assertCompanyInOrganization(ctx, input.companyId);
 
-  const { data, error } = await tbl(ctx, "company_voice_profiles")
+  const { data, error } = await ctx.supabase.from("company_voice_profiles")
     .upsert(
       {
         organization_id: ctx.organizationId,
@@ -128,7 +123,7 @@ export async function upsertCompanyVoiceProfile(
 }
 
 export async function listCompanyVoiceProfiles(ctx: TenantServiceContext): Promise<CompanyVoiceProfile[]> {
-  const { data, error } = await tbl(ctx, "company_voice_profiles")
+  const { data, error } = await ctx.supabase.from("company_voice_profiles")
     .select("*")
     .eq("organization_id", ctx.organizationId)
     .order("created_at", { ascending: false });

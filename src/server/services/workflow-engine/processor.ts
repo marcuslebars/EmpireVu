@@ -1,4 +1,5 @@
 import type { Json, Tables } from "@/server/db/database.types";
+import { toJson } from "@/server/db/json";
 import { ValidationError } from "@/server/organizations/context";
 import { createActivityEvent, getActivityEventById } from "@/server/services/activity-events";
 import type { TenantServiceContext } from "@/server/services/shared";
@@ -26,7 +27,7 @@ function nowIso(): string {
 }
 
 function toLogJson(entry: WorkflowRunLogEntry): Json {
-  return entry as unknown as Json;
+  return toJson(entry);
 }
 
 function buildRunContextJson(
@@ -37,7 +38,7 @@ function buildRunContextJson(
   return {
     activity_event_id: eventContext.activityEvent.id,
     company_id: eventContext.companyId,
-    condition_results: conditionResults as unknown as Json,
+    condition_results: toJson(conditionResults),
     entity_id: eventContext.entityId,
     entity_type: eventContext.entityType,
     event_type: eventContext.activityEvent.event_type,
@@ -91,7 +92,7 @@ async function executeWorkflowForEvent(
     at: nowIso(),
     details: {
       matched,
-      results: results as unknown as Json,
+      results: toJson(results),
     },
     level: matched ? "info" : "warn",
     message: matched ? "Workflow conditions matched." : "Workflow conditions did not match.",

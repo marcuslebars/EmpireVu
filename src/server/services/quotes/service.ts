@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 
+import { toJson } from "@/server/db/json";
 import {
   assertCompanyInOrganization,
   assertContactInOrganization,
@@ -9,13 +10,6 @@ import { getQuotesConfig } from "./config";
 import { assertTransition, type QuoteStatus } from "./lifecycle";
 import { sendQuoteEmail, sendQuoteReplacedEmail, type EmailOutcome } from "./notify";
 import { priceQuoteForCompany, type QuotePricing, type QuotePricingInput } from "./pricing";
-
-// quotes + quote_events aren't in the generated database.types.ts (no gen-types step),
-// same as the jobber_/retell_ tables — access them via the client cast to any, shaping
-// rows with the interfaces below. Regenerating database.types.ts restores typing
-// (tracked in docs/stripe-quotes.md).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const tbl = (ctx: TenantServiceContext, name: string): any => (ctx.supabase as any).from(name);
 
 export interface CreateQuoteInput {
   contactId?: string | null;
@@ -112,7 +106,7 @@ function pricedColumns(pricing: QuotePricing) {
     currency: pricing.currency,
     // lineItems carry `optional`, `selected` and `custom` per line, which is what the
     // Phase 3 page renders its checkboxes from.
-    line_items: pricing.lineItems,
+    line_items: toJson(pricing.lineItems),
     subtotal_cents: pricing.subtotalCents,
     tax_cents: pricing.taxCents,
     total_cents: pricing.totalCents,
@@ -146,12 +140,12 @@ async function recordEvent(
   metadata: Record<string, unknown> = {},
 ): Promise<void> {
   try {
-    await tbl(ctx, "quote_events").insert({
+    await ctx.supabase.from("quote_events").insert({
       organization_id: ctx.organizationId,
       quote_id: quoteId,
       event_type: eventType,
       actor_profile_id: ctx.actorProfileId,
-      metadata,
+      metadata: toJson(metadata),
     });
   } catch (err) {
     console.error(`[quotes] failed to record '${eventType}' event:`, err);
@@ -180,7 +174,7 @@ export async function createQuote(ctx: TenantServiceContext, input: CreateQuoteI
   const cfg = getQuotesConfig();
   const expiresAt = new Date(Date.now() + cfg.expiryDays * 24 * 60 * 60 * 1000).toISOString();
 
-  const { data, error } = await tbl(ctx, "quotes")
+  const { data, error } = await ctx.supabase.from("quotes")
     .insert({
       organization_id: ctx.organizationId,
       company_id: input.companyId ?? null,
@@ -190,7 +184,7 @@ export async function createQuote(ctx: TenantServiceContext, input: CreateQuoteI
       title: input.title ?? null,
       intro_message: input.introMessage ?? null,
       ...pricedColumns(pricing),
-      input_snapshot: inputSnapshot(input),
+      input_snapshot: toJson(inputSnapshot(input)),
       notes: input.notes ?? null,
       source: input.source ?? null,
       expires_at: expiresAt,
@@ -236,14 +230,14 @@ export async function updateQuote(
   if (!companyId) throw new Error("A quote needs a company to be repriced.");
   const pricing = await priceFrom(companyId, input);
 
-  const { data, error } = await tbl(ctx, "quotes")
+  const { data, error } = await ctx.supabase.from("quotes")
     .update({
       company_id: input.companyId ?? null,
       contact_id: input.contactId ?? null,
       title: input.title ?? existing.title,
       intro_message: input.introMessage ?? existing.intro_message,
       ...pricedColumns(pricing),
-      input_snapshot: inputSnapshot(input),
+      input_snapshot: toJson(inputSnapshot(input)),
       notes: input.notes ?? existing.notes,
     })
     .eq("id", quoteId)
@@ -270,8 +264,7 @@ export async function updateQuote(
  * null: a customer-facing quote without a number is worse than a failed send.
  */
 async function allocateQuoteNumber(ctx: TenantServiceContext): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (ctx.supabase as any).rpc("next_quote_number", {
+  const { data, error } = await ctx.supabase.rpc("next_quote_number", {
     p_organization_id: ctx.organizationId,
   });
   if (error) throw error;
@@ -309,7 +302,7 @@ export async function sendQuote(
   // Keep an existing number on a re-send so the customer's reference doesn't change.
   const quoteNumber = existing.quote_number ?? (await allocateQuoteNumber(ctx));
 
-  const { data, error } = await tbl(ctx, "quotes")
+  const { data, error } = await ctx.supabase.from("quotes")
     .update({
       status: "sent",
       quote_number: quoteNumber,
@@ -340,7 +333,7 @@ export async function sendQuote(
 }
 
 export async function getQuote(ctx: TenantServiceContext, quoteId: string): Promise<QuoteRow | null> {
-  const { data, error } = await tbl(ctx, "quotes")
+  const { data, error } = await ctx.supabase.from("quotes")
     .select("*")
     .eq("id", quoteId)
     .eq("organization_id", ctx.organizationId)
@@ -371,7 +364,7 @@ export async function listQuotes(
   ctx: TenantServiceContext,
   opts: ListQuotesOptions = {},
 ): Promise<QuoteRow[]> {
-  let q = tbl(ctx, "quotes").select("*").eq("organization_id", ctx.organizationId);
+  let q = ctx.supabase.from("quotes").select("*").eq("organization_id", ctx.organizationId);
 
   if (opts.autoGenerated !== undefined) q = q.eq("auto_generated", opts.autoGenerated);
   if (opts.statuses?.length) q = q.in("status", opts.statuses);
@@ -429,14 +422,14 @@ export async function reissueQuote(
     source: existing.source ?? undefined,
   });
 
-  const { error: linkErr } = await tbl(ctx, "quotes")
+  const { error: linkErr } = await ctx.supabase.from("quotes")
     .update({ supersedes: existing.id })
     .eq("id", successor.id)
     .eq("organization_id", ctx.organizationId);
   if (linkErr) throw linkErr;
 
   // 2. Now retire the original and point it forward.
-  const { data, error } = await tbl(ctx, "quotes")
+  const { data, error } = await ctx.supabase.from("quotes")
     .update({
       status: "cancelled",
       cancelled_at: now,
@@ -482,7 +475,7 @@ export async function cancelQuote(
   assertTransition(existing.status as QuoteStatus, "cancelled");
 
   const now = new Date().toISOString();
-  const { data, error } = await tbl(ctx, "quotes")
+  const { data, error } = await ctx.supabase.from("quotes")
     .update({
       status: "cancelled",
       cancelled_at: now,

@@ -37,7 +37,7 @@ export async function listOrganizationUsers(
         .from("profiles")
         .select("*")
         .in("id", profileIds)
-    : { data: [], error: null };
+    : { data: [] as Tables<"profiles">[], error: null };
 
   if (profilesError) {
     throw profilesError;
@@ -111,8 +111,8 @@ export async function updateMemberRole(
     throw new ValidationError("An organization must have at least one owner.");
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (context.supabase.from("organization_memberships") as any)
+  const { error } = await context.supabase
+    .from("organization_memberships")
     .update({ role: input.role })
     .eq("organization_id", context.organizationId)
     .eq("profile_id", input.profileId);
@@ -146,8 +146,8 @@ export async function removeMember(
     throw new ValidationError("An organization must have at least one owner.");
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (context.supabase.from("organization_memberships") as any)
+  const { error } = await context.supabase
+    .from("organization_memberships")
     .delete()
     .eq("organization_id", context.organizationId)
     .eq("profile_id", profileId);

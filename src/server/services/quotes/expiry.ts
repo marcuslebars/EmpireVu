@@ -14,9 +14,6 @@ import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { sendExpiryReminderEmail } from "./notify";
 import { recordPublicEvent } from "./public-service";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Db = any;
-
 /** Statuses a sweep may expire. Deliberately narrow — see the note above. */
 export const EXPIRABLE_STATUSES = ["sent", "viewed"] as const;
 
@@ -26,18 +23,18 @@ export interface ExpirySweepResult {
 }
 
 export async function sweepExpiredQuotes(now = new Date(), limit = 500): Promise<ExpirySweepResult> {
-  const db = createSupabaseAdminClient() as Db;
+  const db = createSupabaseAdminClient();
   const cutoff = now.toISOString();
 
   const { data, error } = await db
     .from("quotes")
     .select("id, organization_id, quote_number, valid_until, expires_at, status")
-    .in("status", EXPIRABLE_STATUSES as unknown as string[])
+    .in("status", [...EXPIRABLE_STATUSES])
     .lte("expires_at", cutoff)
     .limit(limit);
   if (error) throw error;
 
-  const rows: Db[] = data ?? [];
+  const rows = data ?? [];
   const expired: string[] = [];
 
   for (const row of rows) {
@@ -47,7 +44,7 @@ export async function sweepExpiredQuotes(now = new Date(), limit = 500): Promise
       .from("quotes")
       .update({ status: "expired" })
       .eq("id", row.id)
-      .in("status", EXPIRABLE_STATUSES as unknown as string[])
+      .in("status", [...EXPIRABLE_STATUSES])
       .select("id, organization_id")
       .maybeSingle();
 
@@ -91,20 +88,20 @@ export async function sweepExpiryReminders(
   now = new Date(),
   limit = 500,
 ): Promise<ReminderSweepResult> {
-  const db = createSupabaseAdminClient() as Db;
+  const db = createSupabaseAdminClient();
   const windowEnd = new Date(now.getTime() + REMINDER_LEAD_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
   const { data, error } = await db
     .from("quotes")
     .select("id, organization_id, expires_at, status")
-    .in("status", EXPIRABLE_STATUSES as unknown as string[])
+    .in("status", [...EXPIRABLE_STATUSES])
     .is("expiry_reminder_sent_at", null)
     .gt("expires_at", now.toISOString()) // not already expired
     .lte("expires_at", windowEnd) // within the lead window
     .limit(limit);
   if (error) throw error;
 
-  const rows: Db[] = data ?? [];
+  const rows = data ?? [];
   const reminded: string[] = [];
 
   for (const row of rows) {
@@ -114,7 +111,7 @@ export async function sweepExpiryReminders(
       .update({ expiry_reminder_sent_at: now.toISOString() })
       .eq("id", row.id)
       .is("expiry_reminder_sent_at", null)
-      .in("status", EXPIRABLE_STATUSES as unknown as string[])
+      .in("status", [...EXPIRABLE_STATUSES])
       .select("id")
       .maybeSingle();
 

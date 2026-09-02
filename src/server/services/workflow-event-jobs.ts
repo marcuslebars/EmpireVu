@@ -238,8 +238,8 @@ export async function retryWorkflowEventJob(
   }
 
   const retryUpdate = buildWorkflowEventJobRetryUpdate();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (context.supabase.from("workflow_event_jobs") as any)
+  const query = context.supabase
+    .from("workflow_event_jobs")
     .update(retryUpdate)
     .eq("organization_id", context.organizationId)
     .eq("id", workflowEventJobId)
@@ -268,26 +268,25 @@ export async function claimWorkflowEventJobs(
   supabase: AdminSupabaseClient,
   options: ClaimWorkflowEventJobsOptions,
 ): Promise<Tables<"workflow_event_jobs">[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await ((supabase as any).rpc("claim_workflow_event_jobs", {
+  const { data, error } = await supabase.rpc("claim_workflow_event_jobs", {
     p_limit: options.limit ?? 10,
     p_stale_after_seconds: options.staleAfterSeconds ?? 900,
     p_worker_id: options.workerId,
-  }) as Promise<{ data: Tables<"workflow_event_jobs">[] | null; error: { message: string } | null }>);
+  });
 
   if (error) {
     throw error;
   }
 
-  return (data ?? []) as Tables<"workflow_event_jobs">[];
+  return data ?? [];
 }
 
 export async function completeWorkflowEventJob(
   supabase: AdminSupabaseClient,
   workflowEventJobId: string,
 ): Promise<Tables<"workflow_event_jobs">> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (supabase.from("workflow_event_jobs") as any)
+  const query = supabase
+    .from("workflow_event_jobs")
     .update({
       completed_at: nowIso(),
       last_error: null,
@@ -316,8 +315,8 @@ export async function failWorkflowEventJob(
   workflowEventJobId: string,
   failureReason: string,
 ): Promise<Tables<"workflow_event_jobs">> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (supabase.from("workflow_event_jobs") as any)
+  const query = supabase
+    .from("workflow_event_jobs")
     .update({
       completed_at: nowIso(),
       last_error: failureReason,
@@ -364,7 +363,7 @@ export async function processWorkflowEventJob(
       {
         actorProfileId: typedActivityEvent.actor_user_id,
         organizationId: workflowEventJob.organization_id,
-        supabase: supabase as unknown as TenantServiceContext["supabase"],
+        supabase,
       },
       workflowEventJob.activity_event_id,
     );

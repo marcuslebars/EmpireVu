@@ -1,0 +1,20 @@
+{
+  "//": "Strict typecheck for the server + API tree only (Task 2). The SPA keeps tsconfig.app.json's looser settings for now. Module resolution mirrors tsconfig.next.json so the same files compile; strict + noImplicitAny are the difference.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noEmit": true,
+    "jsx": "preserve",
+    "module": "esnext",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "plugins": [{ "name": "next" }]
+  },
+  "include": ["src/server/**/*", "src/app/**/*", "src/middleware.ts"],
+  "exclude": ["node_modules"]
+}

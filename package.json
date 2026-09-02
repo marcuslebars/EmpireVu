@@ -16,6 +16,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --project tsconfig.app.json --noEmit",
+    "typecheck:server": "tsc --project tsconfig.server.json --noEmit",
+    "gen:types": "node scripts/gen-types.mjs",
     "worker:workflow-events": "tsx src/server/workers/workflow-event-worker.ts",
     "worker:billing-events": "tsx src/server/workers/billing-event-worker.ts",
     "worker:jobber-sync": "tsx src/server/workers/jobber-sync-worker.ts",

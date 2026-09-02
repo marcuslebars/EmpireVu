@@ -22,23 +22,17 @@ export async function claimBillingEventJobs(
   supabase: AdminSupabaseClient,
   options: ClaimBillingEventJobsOptions,
 ): Promise<Tables<"billing_event_jobs">[]> {
-  // RPCs aren't in the generated Database types; cast for the call (same as the
-  // workflow queue service).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await ((supabase as any).rpc("claim_billing_event_jobs", {
+  const { data, error } = await supabase.rpc("claim_billing_event_jobs", {
     p_limit: options.limit ?? 10,
     p_stale_after_seconds: options.staleAfterSeconds ?? 900,
     p_worker_id: options.workerId,
-  }) as Promise<{
-    data: Tables<"billing_event_jobs">[] | null;
-    error: { message: string } | null;
-  }>);
+  });
 
   if (error) {
     throw error;
   }
 
-  return (data ?? []) as Tables<"billing_event_jobs">[];
+  return data ?? [];
 }
 
 /** Mark a claimed job completed (terminal success). */
@@ -46,8 +40,8 @@ export async function completeBillingEventJob(
   supabase: AdminSupabaseClient,
   billingEventJobId: string,
 ): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase.from("billing_event_jobs") as any)
+  const { error } = await supabase
+    .from("billing_event_jobs")
     .update({
       completed_at: nowIso(),
       last_error: null,
@@ -72,8 +66,8 @@ export async function failBillingEventJob(
   billingEventJobId: string,
   failureReason: string,
 ): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase.from("billing_event_jobs") as any)
+  const { error } = await supabase
+    .from("billing_event_jobs")
     .update({
       completed_at: nowIso(),
       last_error: failureReason,

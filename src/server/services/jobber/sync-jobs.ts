@@ -3,15 +3,13 @@
 // Exhausted retries land in manual_review, surfaced via raw_leads.needs_attention
 // (owner amendment — never a silent status).
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
+import { fromJson, toJson } from "@/server/db/json";
 import { getJobberConfig, type JobberSyncJobRow, type JobberSyncPayload } from "./config";
 import { createQuote, ensurePropertyId, findOrCreateClient, JobberRateLimitError } from "./client";
 import { ensureAccessToken } from "./oauth";
 import { sendEmail } from "@/server/outbound/email";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
-// jobber_* + raw_leads writes via the service-role client (jobber_* not yet in database.types.ts).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const tbl = (admin: AdminClient, name: string): any => (admin as any).from(name);
 const nowIso = (): string => new Date().toISOString();
 const isDupKey = (e: unknown): boolean =>
   Boolean(e && typeof e === "object" && "code" in e && (e as { code?: string }).code === "23505");
@@ -29,12 +27,12 @@ export interface EnqueueJobberSyncInput {
  *  caller; the durable raw_leads row + the reconcile sweep are the safety net. */
 export async function enqueueJobberSyncJob(admin: AdminClient, input: EnqueueJobberSyncInput): Promise<void> {
   try {
-    const { error } = await tbl(admin, "jobber_sync_jobs").insert({
+    const { error } = await admin.from("jobber_sync_jobs").insert({
       organization_id: input.organizationId,
       company_id: input.companyId,
       lead_id: input.leadId,
       contact_id: input.contactId ?? null,
-      payload: input.payload,
+      payload: toJson(input.payload),
       status: "pending",
       available_at: nowIso(),
     });
@@ -51,14 +49,13 @@ export interface ClaimOptions {
 }
 
 export async function claimJobberSyncJobs(admin: AdminClient, options: ClaimOptions): Promise<JobberSyncJobRow[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (admin as any).rpc("claim_jobber_sync_jobs", {
+  const { data, error } = await admin.rpc("claim_jobber_sync_jobs", {
     p_worker_id: options.workerId,
     p_limit: options.limit ?? 5,
     p_stale_after_seconds: options.staleAfterSeconds ?? 900,
   });
   if (error) throw error;
-  return (data ?? []) as JobberSyncJobRow[];
+  return (data ?? []).map((row) => ({ ...row, payload: fromJson<JobberSyncPayload>(row.payload) }));
 }
 
 async function completeJob(
@@ -66,7 +63,7 @@ async function completeJob(
   job: JobberSyncJobRow,
   ids: { clientId: string; quoteId: string | null },
 ): Promise<void> {
-  await tbl(admin, "jobber_sync_jobs")
+  await admin.from("jobber_sync_jobs")
     .update({
       status: "completed",
       completed_at: nowIso(),
@@ -82,14 +79,14 @@ async function completeJob(
 /** Fail with exponential backoff, or route to manual_review (surfaced) once exhausted. */
 async function failJob(admin: AdminClient, job: JobberSyncJobRow, reason: string, retryAfterMs?: number): Promise<void> {
   if (job.attempt_count >= job.max_attempts) {
-    await tbl(admin, "jobber_sync_jobs")
+    await admin.from("jobber_sync_jobs")
       .update({ status: "manual_review", completed_at: nowIso(), locked_at: null, locked_by: null, last_error: reason })
       .eq("id", job.id);
     await surfaceManualReview(admin, job, reason);
     return;
   }
   const backoffMs = retryAfterMs ?? Math.min(1000 * 2 ** job.attempt_count, 5 * 60 * 1000);
-  await tbl(admin, "jobber_sync_jobs")
+  await admin.from("jobber_sync_jobs")
     .update({
       status: "pending",
       available_at: new Date(Date.now() + backoffMs).toISOString(),
@@ -105,7 +102,7 @@ async function failJob(admin: AdminClient, job: JobberSyncJobRow, reason: string
 async function surfaceManualReview(admin: AdminClient, job: JobberSyncJobRow, reason: string): Promise<void> {
   console.error(`[jobber] MANUAL REVIEW — lead ${job.lead_id} exhausted retries: ${reason}`);
   try {
-    await tbl(admin, "raw_leads").update({ needs_attention: true }).eq("lead_id", job.lead_id);
+    await admin.from("raw_leads").update({ needs_attention: true }).eq("lead_id", job.lead_id);
   } catch (err) {
     console.error("[jobber] failed to flag raw_leads.needs_attention for manual-review job:", err);
   }
@@ -152,7 +149,7 @@ export async function processJobberSyncJob(admin: AdminClient, job: JobberSyncJo
   const cfg = getJobberConfig();
   if (!cfg.enabled) {
     // Flag off — park the job without burning a retry (the claim already incremented).
-    await tbl(admin, "jobber_sync_jobs")
+    await admin.from("jobber_sync_jobs")
       .update({
         status: "pending",
         available_at: new Date(Date.now() + 60_000).toISOString(),
@@ -245,7 +242,7 @@ export function payloadFromRawLead(raw: unknown): JobberSyncPayload {
  */
 export async function reconcileJobberSyncJobs(admin: AdminClient, lookbackHours = 72): Promise<number> {
   const since = new Date(Date.now() - lookbackHours * 3_600_000).toISOString();
-  const { data: leads, error } = await tbl(admin, "raw_leads")
+  const { data: leads, error } = await admin.from("raw_leads")
     .select("lead_id, organization_id, company_id, contact_id, raw_payload, form_type")
     .in("form_type", ["winter-storage-quote", "quote"])
     .eq("source_site", "a1marinestorage")
@@ -257,7 +254,7 @@ export async function reconcileJobberSyncJobs(admin: AdminClient, lookbackHours 
   let enqueued = 0;
   for (const lead of (leads ?? []) as RawLeadRow[]) {
     if (!lead.organization_id) continue;
-    const { data: existing } = await tbl(admin, "jobber_sync_jobs")
+    const { data: existing } = await admin.from("jobber_sync_jobs")
       .select("id")
       .eq("lead_id", lead.lead_id)
       .maybeSingle();

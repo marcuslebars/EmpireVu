@@ -94,6 +94,6 @@ export async function placeRetellCall(
     );
   }
 
-  const json = (await response.json().catch(() => null)) as { call_id?: string } | null;
+  const json = (await response.json().catch((): null => null)) as { call_id?: string } | null;
   return { callId: json?.call_id ?? null, toNumber: input.toNumber };
 }

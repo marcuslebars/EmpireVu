@@ -53,7 +53,7 @@ function resolveJsonValue(value: Json, context: WorkflowEventContext): Json {
 
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [key, resolveJsonValue(entry, context)]),
+      Object.entries(value).map(([key, entry]) => [key, resolveJsonValue(entry ?? null, context)]),
     ) as Json;
   }
 

@@ -17,6 +17,9 @@ dist-ssr
 /public/index.html
 /public/assets
 
+# Supabase CLI scratch (created by `supabase`/`npm run gen:types`)
+supabase/.temp/
+
 # Env
 .env
 .env*.local
