@@ -677,6 +677,9 @@ function getNextActionForContact(input: ContactNextActionInput): NextActionSumma
 
 type OrganizationScopedTable = keyof TablesMap;
 
+/** PostgREST caps a single response at 1,000 rows, so listAllRows MUST page. */
+const LIST_ALL_ROWS_PAGE_SIZE = 1000;
+
 async function listAllRows<T extends OrganizationScopedTable>(
   context: TenantServiceContext,
   table: T,
@@ -685,21 +688,51 @@ async function listAllRows<T extends OrganizationScopedTable>(
   // column and row types depend on a table chosen at runtime), so this helper casts
   // the client to a minimal typed query surface — the one sanctioned generic-table
   // escape hatch in the server tree, alongside insertRow and the json.ts boundary.
-  const query = context.supabase.from(table as never) as unknown as {
+  //
+  // TOURNIQUET (Task 3, step 1): page through in 1,000-row chunks with an explicit
+  // deterministic order until a short page returns. Before this, the implicit 1,000-row
+  // PostgREST cap silently truncated every table read — dashboard counts and joins were
+  // wrong for any org past 1,000 rows in a table. Still O(all-rows); the SQL read
+  // models (later steps) replace the in-memory joins entirely.
+  const builder = context.supabase.from(table as never) as unknown as {
     select: (columns: string) => {
       eq: (
         column: string,
         value: string,
-      ) => PromiseLike<{ data: TablesMap[T][] | null; error: unknown }>;
+      ) => {
+        order: (
+          column: string,
+          opts: { ascending: boolean },
+        ) => {
+          range: (
+            from: number,
+            to: number,
+          ) => PromiseLike<{ data: TablesMap[T][] | null; error: unknown }>;
+        };
+      };
     };
   };
-  const { data, error } = await query.select("*").eq("organization_id", context.organizationId);
 
-  if (error) {
-    throw error;
+  const rows: TablesMap[T][] = [];
+  for (let offset = 0; ; offset += LIST_ALL_ROWS_PAGE_SIZE) {
+    const { data, error } = await builder
+      .select("*")
+      .eq("organization_id", context.organizationId)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + LIST_ALL_ROWS_PAGE_SIZE - 1);
+
+    if (error) {
+      throw error;
+    }
+
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < LIST_ALL_ROWS_PAGE_SIZE) {
+      break;
+    }
   }
 
-  return data ?? [];
+  return rows;
 }
 
 type TablesMap = {
