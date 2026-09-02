@@ -7,7 +7,7 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { BILLING_FEATURES } from "@/server/services/billing/config";
+import { BILLING_FEATURES, PLAN_FEATURE_DEFAULTS } from "@/server/services/billing/config";
 import { isBillingHealthy, orgCan, orgLimit, requireFeature } from "@/server/services/billing/gating";
 
 type Row = Record<string, any>;
@@ -78,6 +78,28 @@ describe("orgCan — plan defaults", () => {
       subscriptions: [{ current_period_end: daysFromNow(20), organization_id: ORG }],
     });
     expect(await orgCan(fake.client, ORG, "marina_reception")).toBe(true);
+  });
+
+  it("front_desk (active) now allows workflows + sms_sequences (superset of operate)", async () => {
+    const fake = createFakeDb({
+      organizations: [{ id: ORG, plan: "front_desk", subscription_status: "active" }],
+      subscriptions: [{ current_period_end: daysFromNow(20), organization_id: ORG }],
+    });
+    expect(await orgCan(fake.client, ORG, "workflows")).toBe(true);
+    expect(await orgCan(fake.client, ORG, "sms_sequences")).toBe(true);
+  });
+});
+
+describe("PLAN_FEATURE_DEFAULTS — front_desk is a strict superset of operate", () => {
+  it("grants every feature operate grants, plus marina_reception", () => {
+    for (const feature of BILLING_FEATURES) {
+      if (PLAN_FEATURE_DEFAULTS.operate[feature]) {
+        expect(PLAN_FEATURE_DEFAULTS.front_desk[feature]).toBe(true);
+      }
+    }
+    // marina_reception stays front_desk-only among the purchasable plans.
+    expect(PLAN_FEATURE_DEFAULTS.front_desk.marina_reception).toBe(true);
+    expect(PLAN_FEATURE_DEFAULTS.operate.marina_reception).toBe(false);
   });
 });
 

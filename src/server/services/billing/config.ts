@@ -39,15 +39,17 @@ export const BILLING_FEATURES = [
 export type BillingFeature = (typeof BILLING_FEATURES)[number];
 
 /**
- * Per-plan boolean access. `marina_reception` is front_desk-only (per the phase
- * spec); `internal` is all-true by invariant. Tune freely — this table is the
- * only place plan/feature access is defined.
+ * Per-plan boolean access. `front_desk` is a strict superset of `operate` — it
+ * adds `marina_reception` on top of everything operate includes. `marina_reception`
+ * is offered only on `front_desk` among the purchasable plans; `internal` is
+ * all-true by invariant. Tune freely — this table is the only place plan/feature
+ * access is defined.
  */
 export const PLAN_FEATURE_DEFAULTS: Record<BillingPlan, Record<BillingFeature, boolean>> = {
   internal:   { lead_intake: true, bookings: true, tasks: true, workflows: true,  sms_sequences: true,  marina_reception: true  },
   launch:     { lead_intake: true, bookings: true, tasks: true, workflows: false, sms_sequences: false, marina_reception: false },
   operate:    { lead_intake: true, bookings: true, tasks: true, workflows: true,  sms_sequences: true,  marina_reception: false },
-  front_desk: { lead_intake: true, bookings: true, tasks: true, workflows: false, sms_sequences: false, marina_reception: true  },
+  front_desk: { lead_intake: true, bookings: true, tasks: true, workflows: true,  sms_sequences: true,  marina_reception: true  },
 };
 
 /**

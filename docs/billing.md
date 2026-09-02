@@ -147,8 +147,20 @@ identical state.
 (`active`/`trialing`, or `past_due` within `current_period_end + grace`), and a
 `feature_flags` row (if any) overrides the plan default. Server-side only.
 
-Plan → feature access lives in one config module:
-`src/server/services/billing/config.ts`.
+Plan → feature access lives in one config module
+(`src/server/services/billing/config.ts`, `PLAN_FEATURE_DEFAULTS`). Current matrix:
+
+| Feature | internal | launch | operate | front_desk |
+|---|:--:|:--:|:--:|:--:|
+| lead_intake | ✅ | ✅ | ✅ | ✅ |
+| bookings | ✅ | ✅ | ✅ | ✅ |
+| tasks | ✅ | ✅ | ✅ | ✅ |
+| workflows | ✅ | ❌ | ✅ | ✅ |
+| sms_sequences | ✅ | ❌ | ✅ | ✅ |
+| marina_reception | ✅ | ❌ | ❌ | ✅ |
+
+`front_desk` is a **strict superset of `operate`** (it adds `marina_reception`);
+`internal` (house tenants) is billing-exempt and all-true.
 
 ---
 
