@@ -1513,8 +1513,22 @@ export interface QuoteWritePayload {
   notes?: string;
 }
 
-export function fetchQuotes(orgId: string): Promise<QuoteSummary[]> {
-  return apiFetch<QuoteSummary[]>(`/api/organizations/${orgId}/quotes`);
+export interface FetchQuotesOptions {
+  /**
+   * The auto-quote review window: machine-written quotes that are out with a
+   * customer and not yet paid — the only window where a wrong price can still be
+   * voided and reissued for free.
+   */
+  review?: boolean;
+  limit?: number;
+}
+
+export function fetchQuotes(orgId: string, opts: FetchQuotesOptions = {}): Promise<QuoteSummary[]> {
+  const params = new URLSearchParams();
+  if (opts.review) params.set("review", "1");
+  if (opts.limit) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return apiFetch<QuoteSummary[]>(`/api/organizations/${orgId}/quotes${qs ? `?${qs}` : ""}`);
 }
 
 export function createQuote(orgId: string, payload: QuoteWritePayload): Promise<QuoteSummary> {

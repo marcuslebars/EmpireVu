@@ -51,18 +51,25 @@ export default function QuotesPage() {
   // Distinct from `error`: the action SUCCEEDED, with something worth knowing.
   const [notice, setNotice] = useState<string | null>(null);
   const [disabled, setDisabled] = useState(false);
+  /**
+   * "review" = machine-written quotes still out with a customer and unpaid.
+   * That is the only window where a wrong auto-quote can be voided and reissued
+   * for free; after approval the customer has agreed to a number, and after
+   * payment the fix is a refund.
+   */
+  const [view, setView] = useState<"all" | "review">("all");
 
   const load = useCallback(async () => {
     if (!orgId) return;
     try {
-      setQuotes(await fetchQuotes(orgId));
+      setQuotes(await fetchQuotes(orgId, { review: view === "review" }));
       setDisabled(false);
     } catch (err) {
       // 404 = the feature flag is off, which is a state, not a failure.
       if (err instanceof ApiError && err.status === 404) setDisabled(true);
       else setError(err instanceof Error ? err.message : String(err));
     }
-  }, [orgId]);
+  }, [orgId, view]);
 
   useEffect(() => {
     void load();
@@ -211,8 +218,37 @@ export default function QuotesPage() {
         </div>
 
         <div className="space-y-2">
-          <h2 className="text-sm font-medium">Recent quotes</h2>
-          {quotes.length === 0 && <p className="text-sm text-muted-foreground">None yet.</p>}
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-medium">
+              {view === "review" ? "Auto-quotes awaiting the customer" : "Recent quotes"}
+            </h2>
+            <div className="flex gap-1 text-xs">
+              {(["all", "review"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setView(v)}
+                  className={`rounded px-2 py-1 ${
+                    view === v ? "bg-slate-900 text-white" : "border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {v === "all" ? "All" : "Needs review"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {view === "review" && (
+            <p className="text-xs text-muted-foreground">
+              Sent or viewed, not yet paid. Void one here and the customer cannot pay a
+              wrong price; after they approve, the number is one they agreed to.
+            </p>
+          )}
+          {quotes.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              {view === "review" ? "Nothing waiting — every auto-quote has been actioned." : "None yet."}
+            </p>
+          )}
           <ul className="space-y-2">
             {quotes.map((q) => (
               <li
