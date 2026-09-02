@@ -1,6 +1,6 @@
 # EmpireVu hub — env vars and webhook endpoints
 
-Single reference for the move to `empirevu.com`. EmpireVu is the backend for
+Single reference for the EmpireVu hosts. The hub is `app.empirevu.com`. EmpireVu is the backend for
 everything; customer-facing surfaces carry the **brand's** identity, never the
 platform's (see `docs/stripe-org-scoping.md`).
 
@@ -8,9 +8,17 @@ platform's (see `docs/stripe-org-scoping.md`).
 
 | Host | Serves | Railway |
 |---|---|---|
-| `empirevu.com` | hub app + platform webhooks | **web** service, custom domain |
+| `app.empirevu.com` | hub app + platform webhooks | **web** service, custom domain |
 | `api.empirevu.com` | inbound integrations (webhooks, intake, voice) | same **web** service, second custom domain |
 | `quotes.a1marinestorage.ca` | customer-facing quote pages (`/q/{token}`) | same **web** service, third custom domain |
+| `empirevu.com` | **marketing / early-access site — a DIFFERENT service** | not the hub |
+
+⚠️ `empirevu.com` is NOT the hub. It serves the early-access marketing SPA, whose
+catch-all answers ANY unmatched path with 200 and index.html. Pointing an
+integration at it therefore looks like success and silently discards the payload:
+`EMPIREVU_INTAKE_URL` was set to `https://empirevu.com/api/intake` and every lead
+from the storage site was posted into a void, with "forwarded" in the log. Point
+integrations at `api.empirevu.com`, and the hub UI is `app.empirevu.com`.
 
 Railway accepts multiple custom domains on one service — no second deployment.
 The apex cannot be a CNAME: use the ALIAS/ANAME or A records Railway lists for
@@ -45,7 +53,7 @@ or quotes.
 
 | Variable | Was | Now |
 |---|---|---|
-| `APP_BASE_URL` | `https://hub.tilotto.com` | `https://empirevu.com` |
+| `APP_BASE_URL` | `https://hub.tilotto.com` | `https://app.empirevu.com` |
 
 Builds Stripe Checkout/Portal return URLs and self-booking links, so it must
 match a host customers can actually reach.
@@ -97,7 +105,7 @@ another's payload.
 ### Stripe — platform account (re-point)
 
 ```
-https://empirevu.com/api/webhooks/stripe
+https://app.empirevu.com/api/webhooks/stripe
 ```
 
 Same path as before; **the host changed**. If this is still registered against
@@ -169,7 +177,7 @@ domain separately verified in Resend. Not needed while A1MS is the only sender.
 
 1. Add all three custom domains in Railway (`empirevu.com`, `api.empirevu.com`,
    `quotes.a1marinestorage.ca`); create the DNS records for each.
-2. Verify `nslookup` resolves all three, and that `https://empirevu.com` and
+2. Verify `nslookup` resolves all three, and that `https://app.empirevu.com` and
    `https://quotes.a1marinestorage.ca` both load with a valid certificate.
 3. Set `APP_BASE_URL` and `QUOTE_PUBLIC_BASE_URL`.
 4. Add the two `STRIPE_MERCHANT_A1MS_*` vars (test keys).
