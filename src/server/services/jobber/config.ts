@@ -2,10 +2,10 @@
 // code. All secrets come from Railway env (no VITE_ prefix). The integration is
 // inert unless JOBBER_SYNC_ENABLED === "1".
 //
-// The jobber_* tables are not yet in the generated database.types.ts (no gen-types
-// step here), so we access them via the admin client cast to any and shape results
-// with the row interfaces below. Regenerating database.types.ts after this migration
-// (supabase gen types) restores first-class typing — tracked in docs/jobber-integration.md.
+// The jobber_* tables are typed in database.types.ts, so the services access them
+// through the typed admin client (`admin.from("jobber_sync_jobs")` etc.). The row
+// interfaces below are the DOMAIN shapes — identical to the generated rows except
+// `payload` is the decoded JobberSyncPayload rather than raw Json.
 
 export interface JobberConfig {
   enabled: boolean;

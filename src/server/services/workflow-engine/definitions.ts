@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { Json } from "@/server/db/database.types";
+import { fromJson } from "@/server/db/json";
 import { ValidationError } from "@/server/organizations/context";
 import type {
   SupportedWorkflowTriggerEventType,
@@ -121,16 +122,16 @@ export function parseWorkflowDefinition(definition: Json): WorkflowDefinition {
       : {};
 
   const actionsJson = Array.isArray(rawDefinition.actions_json)
-    ? (rawDefinition.actions_json as unknown as WorkflowAction[])
+    ? fromJson<WorkflowAction[]>(rawDefinition.actions_json)
     : undefined;
   const actions = Array.isArray(rawDefinition.actions)
-    ? (rawDefinition.actions as unknown as WorkflowAction[])
+    ? fromJson<WorkflowAction[]>(rawDefinition.actions)
     : undefined;
   const conditionsJson = Array.isArray(rawDefinition.conditions_json)
-    ? (rawDefinition.conditions_json as unknown as WorkflowCondition[])
+    ? fromJson<WorkflowCondition[]>(rawDefinition.conditions_json)
     : undefined;
   const conditions = Array.isArray(rawDefinition.conditions)
-    ? (rawDefinition.conditions as unknown as WorkflowCondition[])
+    ? fromJson<WorkflowCondition[]>(rawDefinition.conditions)
     : undefined;
 
   const normalized = {

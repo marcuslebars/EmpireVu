@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 
-import type { Tables } from "@/server/db/database.types";
+import type { Inserts, Tables, Updates } from "@/server/db/database.types";
+import { fromJson, toJson } from "@/server/db/json";
 import { isBillingPlan, type SubscriptionStatus } from "@/server/services/billing/config";
 import { planForStripePriceId } from "@/server/services/billing/env";
 import {
@@ -71,7 +72,7 @@ export function mapStripeStatus(stripeStatus: string): SubscriptionStatus {
  * resolves again at process time, so returning null here is fine.
  */
 export function stripeCustomerIdFromEvent(event: Stripe.Event): string | null {
-  return customerIdOf(event.data?.object as unknown as StripeEventObject | undefined);
+  return customerIdOf(event.data?.object as StripeEventObject | undefined);
 }
 
 function customerIdOf(object: StripeEventObject | undefined): string | null {
@@ -112,15 +113,13 @@ export async function recordBillingEvent(
   supabase: AdminSupabaseClient,
   event: Stripe.Event,
 ): Promise<string | null> {
-  // RPCs aren't in the generated Database types (Functions is empty), so we cast
-  // the client for the call — same convention as claim_workflow_event_jobs.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await ((supabase as any).rpc("record_billing_event", {
-    p_organization_id: null,
-    p_payload: event,
+  const { data, error } = await supabase.rpc("record_billing_event", {
+    // p_organization_id defaults to null in the DB function — the org is resolved at
+    // process time, not here.
+    p_payload: toJson(event),
     p_stripe_event_id: event.id,
     p_type: event.type,
-  }) as Promise<{ data: string | null; error: { message: string } | null }>);
+  });
 
   if (error) {
     throw new Error(`record_billing_event failed: ${error.message}`);
@@ -153,10 +152,9 @@ async function resolveOrgByCustomer(
 async function updateOrganization(
   supabase: AdminSupabaseClient,
   organizationId: string,
-  patch: Record<string, unknown>,
+  patch: Updates<"organizations">,
 ): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase.from("organizations") as any).update(patch).eq("id", organizationId);
+  const { error } = await supabase.from("organizations").update(patch).eq("id", organizationId);
   if (error) {
     throw error;
   }
@@ -178,7 +176,7 @@ async function upsertSubscription(
     currentPeriodEnd?: string | null;
   },
 ): Promise<void> {
-  const row: Record<string, unknown> = {
+  const row: Inserts<"subscriptions"> = {
     organization_id: params.organizationId,
     plan: params.plan,
     status: params.status,
@@ -188,8 +186,7 @@ async function upsertSubscription(
     row.current_period_end = params.currentPeriodEnd;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase.from("subscriptions") as any).upsert(row, {
+  const { error } = await supabase.from("subscriptions").upsert(row, {
     onConflict: "stripe_subscription_id",
   });
   if (error) {
@@ -342,8 +339,8 @@ export async function applyBillingEvent(
     return { organizationId: ledger.organization_id };
   }
 
-  const event = ledger.payload as unknown as Stripe.Event;
-  const object = event.data?.object as unknown as StripeEventObject;
+  const event = fromJson<Stripe.Event>(ledger.payload);
+  const object = event.data?.object as StripeEventObject;
 
   switch (ledger.type) {
     case "checkout.session.completed":
@@ -366,13 +363,12 @@ async function markBillingEventProcessed(
   eventId: string,
   organizationId: string | null,
 ): Promise<void> {
-  const patch: Record<string, unknown> = { processed_at: nowIso() };
+  const patch: Updates<"billing_events"> = { processed_at: nowIso() };
   if (organizationId) {
     // Backfill the ledger row's org so tenants can see their own event rows.
     patch.organization_id = organizationId;
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase.from("billing_events") as any).update(patch).eq("id", eventId);
+  const { error } = await supabase.from("billing_events").update(patch).eq("id", eventId);
   if (error) {
     throw error;
   }

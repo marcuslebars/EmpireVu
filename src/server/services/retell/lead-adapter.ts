@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-import type { Json } from "@/server/db/database.types";
+import type { Inserts, Json } from "@/server/db/database.types";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { LEAD_SCHEMA_VERSION } from "@/server/services/lead-intake/envelope";
 import { handleLeadIntake } from "@/server/services/lead-intake/intake";
@@ -25,13 +25,6 @@ import {
   type RetellAdminClient,
   type RetellTenant,
 } from "./tenant";
-
-// retell_calls isn't in the generated database.types.ts (no gen-types step), same as
-// the jobber_* tables — access it via the admin client cast to any, shaping rows with
-// the interfaces in this module. Regenerating database.types.ts restores first-class
-// typing (tracked in docs/retell-integration.md).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const retellCalls = (admin: RetellAdminClient): any => (admin as any).from("retell_calls");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The custom_analysis_data field-name contract.
@@ -269,7 +262,7 @@ async function upsertRetellCall(
   },
 ): Promise<void> {
   const { callId, tenant, fields, rawPayload, leadId, contactId } = args;
-  const row: Record<string, unknown> = {
+  const row: Inserts<"retell_calls"> = {
     organization_id: tenant.organizationId,
     company_id: tenant.companyId,
     call_id: callId,
@@ -293,7 +286,7 @@ async function upsertRetellCall(
   };
   if (leadId) row.lead_id = leadId;
   if (contactId) row.contact_id = contactId;
-  const { error } = await retellCalls(admin).upsert(row, { onConflict: "call_id" });
+  const { error } = await admin.from("retell_calls").upsert(row, { onConflict: "call_id" });
   if (error) throw error;
 }
 
@@ -318,7 +311,7 @@ async function runPhoneLeadIntake(fields: RetellCallFields, rawPayload: unknown)
   const callId = fields.callId ?? `retell_nocid_${randomBytes(8).toString("hex")}`;
 
   if (fields.callId) {
-    const { data: existing } = await retellCalls(admin)
+    const { data: existing } = await admin.from("retell_calls")
       .select("lead_id")
       .eq("call_id", fields.callId)
       .maybeSingle();
@@ -344,7 +337,7 @@ async function runPhoneLeadIntake(fields: RetellCallFields, rawPayload: unknown)
       .select("contact_id")
       .eq("lead_id", result.leadId)
       .maybeSingle();
-    await retellCalls(admin)
+    await admin.from("retell_calls")
       .update({
         lead_id: result.leadId,
         contact_id: rawLead?.contact_id ?? null,
@@ -423,7 +416,7 @@ async function captureOutboundOutcome(fields: RetellCallFields, rawPayload: unkn
   // Log the outcome on the contact's timeline (best-effort; no new lead).
   if (contactId && organizationId) {
     try {
-      const ctx = { organizationId, actorProfileId: null, supabase: admin } as unknown as TenantServiceContext;
+      const ctx: TenantServiceContext = { organizationId, actorProfileId: null, supabase: admin };
       await createActivityEvent(ctx, {
         companyId,
         entityId: contactId,

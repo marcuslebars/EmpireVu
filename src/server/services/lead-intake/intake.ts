@@ -235,11 +235,11 @@ async function parseIntoRecords(
   args: { orgId: string; companyId: string; envelope: LeadEnvelope; leadId: string },
 ): Promise<{ contactId: string; matched: boolean; returning: ReturningInfo | null; crossBrandBrands: string[] }> {
   const { orgId, companyId, envelope, leadId } = args;
-  const ctx = {
+  const ctx: TenantServiceContext = {
     organizationId: orgId,
     actorProfileId: null,
     supabase: admin,
-  } as unknown as TenantServiceContext;
+  };
 
   // Match only within THIS brand (the form's company); the same person can be a
   // separate contact per brand. Cross-brand overlap is surfaced as a flag, not a merge.

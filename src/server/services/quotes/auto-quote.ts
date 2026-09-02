@@ -125,9 +125,9 @@ export async function maybeAutoQuoteLead(
 
     // Load the catalog only when there is a company and the feature is on —
     // otherwise this is a needless query on every single lead.
-    let catalog = null;
+    let catalog: Awaited<ReturnType<typeof loadCatalog>> | null = null;
     if (enabled && ctx.companyId) {
-      catalog = await loadCatalog(ctx.companyId).catch(() => null);
+      catalog = await loadCatalog(ctx.companyId).catch((): null => null);
     }
 
     const decision = decideAutoQuote({
@@ -156,16 +156,10 @@ export async function maybeAutoQuoteLead(
     // Service-role, because there is no signed-in user on an intake request —
     // RLS would refuse the insert. organizationId is passed explicitly, so the
     // quote is still scoped to the tenant that owns the lead.
-    //
-    // The cast is a package-typing artifact, not a real mismatch: the admin
-    // client comes from @supabase/supabase-js and the request-scoped one from
-    // the SSR helper, and their generics have different arity. Both are ordinary
-    // Supabase clients at runtime, and every other admin call in this module
-    // takes the same escape hatch.
     const serviceCtx: TenantServiceContext = {
       organizationId: ctx.organizationId,
       actorProfileId: null, // system-created
-      supabase: createSupabaseAdminClient() as unknown as TenantServiceContext["supabase"],
+      supabase: createSupabaseAdminClient(),
     };
 
     const log = envelope.meta?.logistics;

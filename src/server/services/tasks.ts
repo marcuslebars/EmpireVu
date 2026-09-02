@@ -186,8 +186,8 @@ export async function updateTaskStatus(
     return existing;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (context.supabase.from("tasks") as any)
+  const query = context.supabase
+    .from("tasks")
     .update({ status: input.status })
     .eq("organization_id", context.organizationId)
     .eq("id", input.taskId)
@@ -253,8 +253,8 @@ export async function assignTaskUser(
     assertProfileInOrganization(context, input.assignedToProfileId),
   ]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (context.supabase.from("tasks") as any)
+  const query = context.supabase
+    .from("tasks")
     .update({ assigned_to_profile_id: input.assignedToProfileId })
     .eq("organization_id", context.organizationId)
     .eq("id", input.taskId)
@@ -301,8 +301,8 @@ export async function updateTask(
     return getTaskById(context, input.taskId);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (context.supabase.from("tasks") as any)
+  const query = context.supabase
+    .from("tasks")
     .update(patch)
     .eq("organization_id", context.organizationId)
     .eq("id", input.taskId)
@@ -338,8 +338,8 @@ export async function deleteTask(
 ): Promise<{ id: string }> {
   const existing = await getTaskById(context, input.taskId);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (context.supabase.from("tasks") as any)
+  const { error } = await context.supabase
+    .from("tasks")
     .delete()
     .eq("organization_id", context.organizationId)
     .eq("id", input.taskId);

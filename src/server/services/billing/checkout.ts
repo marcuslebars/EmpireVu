@@ -52,8 +52,8 @@ async function ensureStripeCustomer(
     { idempotencyKey: `org-customer-${org.id}` },
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase.from("organizations") as any)
+  const { error } = await supabase
+    .from("organizations")
     .update({ stripe_customer_id: customer.id })
     .eq("id", org.id);
 

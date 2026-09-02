@@ -12,9 +12,6 @@ import {
 } from "./config";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
-// The jobber_* tables aren't in the generated database.types.ts yet (see config.ts).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const tbl = (admin: AdminClient, name: string): any => (admin as any).from(name);
 
 const EXPIRY_BUFFER_SECONDS = 60; // refresh a minute before actual expiry
 const REFRESH_LOCK_TTL_MS = 30_000; // a stale refresh lock is reclaimable after this
@@ -66,12 +63,12 @@ function tokenFresh(conn: JobberConnectionRow): boolean {
 }
 
 async function loadConnection(admin: AdminClient, organizationId: string): Promise<JobberConnectionRow | null> {
-  const { data, error } = await tbl(admin, "jobber_connections")
+  const { data, error } = await admin.from("jobber_connections")
     .select("*")
     .eq("organization_id", organizationId)
     .maybeSingle();
   if (error) throw error;
-  return (data as JobberConnectionRow) ?? null;
+  return data ?? null;
 }
 
 /** One-time connect: exchange the authorization code for tokens and store the connection. */
@@ -87,7 +84,7 @@ export async function exchangeCodeAndStore(
     code,
     redirect_uri: cfg.redirectUri,
   });
-  const { error } = await tbl(admin, "jobber_connections").upsert(
+  const { error } = await admin.from("jobber_connections").upsert(
     {
       organization_id: organizationId,
       access_token: token.access_token,
@@ -125,13 +122,14 @@ export async function ensureAccessToken(
   // callers block on the row lock and re-evaluate the WHERE, so exactly one wins.
   const staleBefore = new Date(Date.now() - REFRESH_LOCK_TTL_MS).toISOString();
   const nowIso = new Date().toISOString();
-  const { data: locked, error: lockErr } = await tbl(admin, "jobber_connections")
+  const { data: locked, error: lockErr } = await admin.from("jobber_connections")
     .update({ refresh_lock_at: nowIso })
     .eq("organization_id", organizationId)
     .or(`refresh_lock_at.is.null,refresh_lock_at.lt.${staleBefore}`)
     .select("*");
   if (lockErr) throw lockErr;
-  const gotLock = Array.isArray(locked) && locked.length > 0;
+  const rows = locked ?? [];
+  const gotLock = rows.length > 0;
 
   if (!gotLock) {
     // Another refresh is in progress — wait for it to publish a fresh token.
@@ -143,7 +141,7 @@ export async function ensureAccessToken(
     throw new Error("Timed out waiting for a concurrent Jobber token refresh.");
   }
 
-  const current = (locked as JobberConnectionRow[])[0];
+  const current = rows[0];
   let token: TokenResponse;
   try {
     token = await requestToken(cfg, {
@@ -152,12 +150,12 @@ export async function ensureAccessToken(
     });
   } catch (err) {
     // Refresh failed — release the lock so a later attempt can retry.
-    await tbl(admin, "jobber_connections").update({ refresh_lock_at: null }).eq("organization_id", organizationId);
+    await admin.from("jobber_connections").update({ refresh_lock_at: null }).eq("organization_id", organizationId);
     throw err;
   }
 
   // Persist the NEW refresh token (+ access token) BEFORE returning/using them.
-  const { error: saveErr } = await tbl(admin, "jobber_connections")
+  const { error: saveErr } = await admin.from("jobber_connections")
     .update({
       access_token: token.access_token,
       refresh_token: token.refresh_token,

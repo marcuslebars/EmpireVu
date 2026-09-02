@@ -18,6 +18,7 @@ import type Stripe from "stripe";
 import { AuthorizationError } from "@/server/organizations/context";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import type { createSupabaseServerClient } from "@/server/supabase/server";
+import { fromJson, toJson } from "@/server/db/json";
 import { getPlatformStripe } from "./company-stripe";
 import { getQuotesConfig } from "./config";
 
@@ -25,9 +26,6 @@ import { getQuotesConfig } from "./config";
  *  their own org's companies — it is the authorization boundary for the routes
  *  that then call the admin-client onboarding writes. */
 type ServerClient = ReturnType<typeof createSupabaseServerClient>;
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Db = any;
 
 export class ConnectError extends Error {
   constructor(
@@ -46,8 +44,17 @@ export interface ConnectOnboardingLink {
   expiresAt: number;
 }
 
-async function loadCompany(companyId: string): Promise<Db> {
-  const db = createSupabaseAdminClient() as Db;
+interface LoadedCompany {
+  id: string;
+  name: string | null;
+  organization_id: string;
+  stripe_connected_account_id: string | null;
+  brand_reply_email: string | null;
+  brand_website_url: string | null;
+}
+
+async function loadCompany(companyId: string): Promise<LoadedCompany> {
+  const db = createSupabaseAdminClient();
   const { data, error } = await db
     .from("companies")
     .select("id, name, organization_id, stripe_connected_account_id, brand_reply_email, brand_website_url")
@@ -91,7 +98,7 @@ export async function startConnectOnboarding(
     );
     accountId = account.id;
 
-    const db = createSupabaseAdminClient() as Db;
+    const db = createSupabaseAdminClient();
     const { error } = await db
       .from("companies")
       .update({ stripe_connected_account_id: accountId, stripe_connect_updated_at: new Date().toISOString() })
@@ -123,7 +130,7 @@ export async function startConnectOnboarding(
  * while Stripe verifies.
  */
 export async function syncConnectedAccountState(account: Stripe.Account): Promise<void> {
-  const db = createSupabaseAdminClient() as Db;
+  const db = createSupabaseAdminClient();
 
   const { data, error } = await db
     .from("companies")
@@ -131,7 +138,7 @@ export async function syncConnectedAccountState(account: Stripe.Account): Promis
       stripe_charges_enabled: account.charges_enabled === true,
       stripe_payouts_enabled: account.payouts_enabled === true,
       stripe_details_submitted: account.details_submitted === true,
-      stripe_requirements: account.requirements ?? null,
+      stripe_requirements: toJson(account.requirements ?? null),
       stripe_connect_updated_at: new Date().toISOString(),
     })
     .eq("stripe_connected_account_id", account.id)
@@ -205,9 +212,10 @@ interface CompanyConnectRow {
   stripe_requirements: StripeRequirements | null;
 }
 
+// One string literal (not a concatenation) so supabase-js parses it and types the
+// selected rows, rather than falling back to GenericStringError.
 const CONNECT_COLUMNS =
-  "id, name, stripe_connected_account_id, stripe_charges_enabled, " +
-  "stripe_payouts_enabled, stripe_details_submitted, stripe_requirements";
+  "id, name, stripe_connected_account_id, stripe_charges_enabled, stripe_payouts_enabled, stripe_details_submitted, stripe_requirements";
 
 /** Turn Stripe's dotted requirement keys into something an operator can act on. */
 const REQUIREMENT_LABELS: Record<string, string> = {
@@ -277,15 +285,15 @@ export async function listCompanyConnectStatus(
   supabase: ServerClient,
   organizationId: string,
 ): Promise<CompanyConnectStatus[]> {
-  // Columns are absent from the generated Database types (hand-committed; the
-  // Connect columns were added by migration, not regenerated), so cast the call.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase.from("companies") as any)
+  const { data, error } = await supabase
+    .from("companies")
     .select(CONNECT_COLUMNS)
     .eq("organization_id", organizationId)
     .order("name", { ascending: true });
   if (error) throw error;
-  return ((data ?? []) as CompanyConnectRow[]).map(toConnectStatus);
+  return (data ?? []).map((row) =>
+    toConnectStatus({ ...row, stripe_requirements: fromJson<StripeRequirements>(row.stripe_requirements) }),
+  );
 }
 
 /**
@@ -298,12 +306,14 @@ export async function getCompanyConnectStatus(
   organizationId: string,
   companyId: string,
 ): Promise<CompanyConnectStatus | null> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase.from("companies") as any)
+  const { data, error } = await supabase
+    .from("companies")
     .select(CONNECT_COLUMNS)
     .eq("organization_id", organizationId)
     .eq("id", companyId)
     .maybeSingle();
   if (error) throw error;
-  return data ? toConnectStatus(data as CompanyConnectRow) : null;
+  return data
+    ? toConnectStatus({ ...data, stripe_requirements: fromJson<StripeRequirements>(data.stripe_requirements) })
+    : null;
 }

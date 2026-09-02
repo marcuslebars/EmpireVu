@@ -46,8 +46,8 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
       },
     );
 
-    const assigneeProfileIds = [...new Set(tasks.map((t) => t.assigned_to_profile_id).filter(Boolean))];
-    const companyIds = [...new Set(tasks.map((t) => t.company_id).filter(Boolean))];
+    const assigneeProfileIds = [...new Set(tasks.map((t) => t.assigned_to_profile_id).filter((id): id is string => id !== null))];
+    const companyIds = [...new Set(tasks.map((t) => t.company_id).filter((id): id is string => id !== null))];
 
     const [{ data: profiles }, { data: companies }] = await Promise.all([
       assigneeProfileIds.length > 0

@@ -157,8 +157,8 @@ export async function updateBookingStatus(
     return existing;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (context.supabase.from("bookings") as any)
+  const query = context.supabase
+    .from("bookings")
     .update({ status: input.status })
     .eq("organization_id", context.organizationId)
     .eq("id", input.bookingId)
@@ -220,8 +220,8 @@ export async function rescheduleBooking(
     patch.duration_minutes = input.durationMinutes;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (context.supabase.from("bookings") as any)
+  const query = context.supabase
+    .from("bookings")
     .update(patch)
     .eq("organization_id", context.organizationId)
     .eq("id", input.bookingId)

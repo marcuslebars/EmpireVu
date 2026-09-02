@@ -1,3 +1,4 @@
+import type { PostgrestError } from "@supabase/supabase-js";
 import type { Tables } from "@/server/db/database.types";
 import {
   assertBookingInOrganization,
@@ -100,7 +101,7 @@ export async function getContactTrace(
         .eq("organization_id", context.organizationId)
         .in("trigger_event_id", eventIds)
         .order("created_at", { ascending: false })
-    : { data: [], error: null };
+    : { data: [] as Tables<"workflow_runs">[], error: null as PostgrestError | null };
 
   if (workflowRunsResult.error) {
     throw workflowRunsResult.error;
@@ -188,7 +189,7 @@ export async function getBookingTrace(
         .eq("organization_id", context.organizationId)
         .in("trigger_event_id", eventIds)
         .order("created_at", { ascending: false })
-    : { data: [], error: null };
+    : { data: [] as Tables<"workflow_runs">[], error: null as PostgrestError | null };
 
   if (workflowRunsResult.error) {
     throw workflowRunsResult.error;
@@ -259,7 +260,7 @@ export async function getTaskTrace(
         .eq("organization_id", context.organizationId)
         .in("trigger_event_id", eventIds)
         .order("created_at", { ascending: false })
-    : { data: [], error: null };
+    : { data: [] as Tables<"workflow_runs">[], error: null as PostgrestError | null };
 
   if (workflowRunsResult.error) {
     throw workflowRunsResult.error;

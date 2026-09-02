@@ -21,10 +21,10 @@ export async function handleRoute(
   }
 }
 
-export async function parseJsonBody<T>(
+export async function parseJsonBody<S extends z.ZodTypeAny>(
   request: Request,
-  schema: z.ZodType<T>,
-): Promise<T> {
+  schema: S,
+): Promise<z.output<S>> {
   const body = await request.json();
   return schema.parse(body);
 }

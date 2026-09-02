@@ -127,8 +127,8 @@ export async function updateWorkflowStatus(
   context: TenantServiceContext,
   input: UpdateWorkflowStatusInput,
 ): Promise<Tables<"workflows">> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (context.supabase.from("workflows") as any)
+  const query = context.supabase
+    .from("workflows")
     .update({ status: input.status })
     .eq("organization_id", context.organizationId)
     .eq("id", input.workflowId)
@@ -165,8 +165,8 @@ export async function updateWorkflow(
   if (input.definition !== undefined) updates.definition = input.definition;
   if (input.status !== undefined) updates.status = input.status;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query = (context.supabase.from("workflows") as any)
+  const query = context.supabase
+    .from("workflows")
     .update(updates)
     .eq("organization_id", context.organizationId)
     .eq("id", input.workflowId)
