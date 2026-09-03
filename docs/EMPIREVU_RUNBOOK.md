@@ -26,6 +26,13 @@ npm run gen:types
 
 The script prefers a `supabase` on `PATH` and falls back to `npx supabase`, so no global install is required. Commit the regenerated file; the CI drift check (above) keeps it honest once the Supabase secrets are configured.
 
+## Read models (/ui/*)
+The dashboard `/ui/*` endpoints read purpose-built SQL views/RPCs (migration `20260903120000_read_models.sql`) instead of loading whole tables into `live-data.ts` and joining in JS. All are `security invoker`, so the caller's RLS applies (no new service-role surface). Naming: `ui_*_v` = view, `ui_*(...)` = function.
+- **Summary/list surfaces are wired**: `ui_dashboard_summary`, `ui_automation_impact`, `ui_activity_feed` (keyset primitive), `ui_calendar_bookings`, `ui_contact_list_v`, `ui_task_list_v`, `ui_workflow_list_v`. Search is a trigram `ilike` on `contacts.search_text` (generated).
+- **The 1,000-row truncation is fixed everywhere** by the `listAllRows` tourniquet (it now pages), which the **detail** views (contact/booking/task/workflow) still use while their read models (`ui_contact_detail`, `ui_task_detail`, `ui_workflow_detail`) are wired in a follow-up.
+- **After applying the migration, run `npm run gen:types`** so the new views/functions are typed (they are hand-written until then), then commit the result.
+- **Verify before merge (needs a DB with seed data):** snapshot each `/ui/*` JSON response before vs. after and confirm they match; confirm each call issues ≤ 3 queries. The SQL was authored without a reachable Postgres here, so this verification is the acceptance gate.
+
 ## Health check
 `GET /api/health` (public, unauthenticated) is Railway's `healthcheckPath` (set in `railway.json`). Returns `{ ok, db, workers: { workflow_events, billing_events, jobber_sync }, version }`:
 - `db: "ok"` = an anon `select` reached Postgres; a failed/timed-out probe returns **503** with `db: "error"`.
