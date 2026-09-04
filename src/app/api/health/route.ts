@@ -22,15 +22,15 @@ export const dynamic = "force-dynamic";
 
 const TIMEOUT_MS = 5_000;
 
-// The three DB-backed queues, each with the same claim/queue columns
-// (status='pending' = queued, locked_at = last claimed). jobber_sync_jobs is not
-// yet in database.types.ts (Task 2 gen-types), so these reads go through the
-// library's default (loosely-typed) SupabaseClient — a type annotation, not an
-// `as any` cast. They are aggregate-only.
+// The DB-backed queues, each with the same shape (status='pending' = queued) and a
+// "last claimed" timestamp column — `locked_at` for the older queues, `claimed_at` for
+// the inbound-webhook queue. Reads go through the library's default (loosely-typed)
+// SupabaseClient so the claim column can be chosen by name; they are aggregate-only.
 const WORKER_TABLES = {
-  workflow_events: "workflow_event_jobs",
-  billing_events: "billing_event_jobs",
-  jobber_sync: "jobber_sync_jobs",
+  workflow_events: { table: "workflow_event_jobs", claimedColumn: "locked_at" },
+  billing_events: { table: "billing_event_jobs", claimedColumn: "locked_at" },
+  jobber_sync: { table: "jobber_sync_jobs", claimedColumn: "locked_at" },
+  inbound_webhooks: { table: "inbound_webhook_jobs", claimedColumn: "claimed_at" },
 } as const;
 
 type WorkerKey = keyof typeof WORKER_TABLES;
@@ -49,22 +49,29 @@ function withTimeout<T>(work: PromiseLike<T>, ms: number): Promise<T> {
   ]);
 }
 
-async function readWorkerHealth(admin: SupabaseClient, table: string): Promise<WorkerHealth> {
+async function readWorkerHealth(
+  admin: SupabaseClient,
+  table: string,
+  claimedColumn: string,
+): Promise<WorkerHealth> {
   const queued = await admin
     .from(table)
     .select("*", { count: "exact", head: true })
     .eq("status", "pending");
 
+  // Select "*" (a literal) rather than the dynamic `claimedColumn`: the loosely-typed
+  // client can't parse a runtime string into a row shape (it degrades to GenericStringError),
+  // whereas "*" yields a permissive row we can index by column name.
   const claimed = await admin
     .from(table)
-    .select("locked_at")
-    .not("locked_at", "is", null)
-    .order("locked_at", { ascending: false })
+    .select("*")
+    .not(claimedColumn, "is", null)
+    .order(claimedColumn, { ascending: false })
     .limit(1)
     .maybeSingle();
 
   return {
-    last_claimed_at: (claimed.data as { locked_at: string | null } | null)?.locked_at ?? null,
+    last_claimed_at: (claimed.data as Record<string, string | null> | null)?.[claimedColumn] ?? null,
     queued: queued.count ?? 0,
   };
 }
@@ -95,7 +102,9 @@ export async function GET(): Promise<NextResponse> {
     const admin: SupabaseClient = createSupabaseAdminClient();
     const keys = Object.keys(WORKER_TABLES) as WorkerKey[];
     const results = await withTimeout(
-      Promise.all(keys.map((key) => readWorkerHealth(admin, WORKER_TABLES[key]))),
+      Promise.all(
+        keys.map((key) => readWorkerHealth(admin, WORKER_TABLES[key].table, WORKER_TABLES[key].claimedColumn)),
+      ),
       TIMEOUT_MS,
     );
     workers = Object.fromEntries(keys.map((key, i) => [key, results[i]])) as Record<WorkerKey, WorkerHealth>;

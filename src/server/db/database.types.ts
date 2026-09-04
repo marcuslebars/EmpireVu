@@ -1764,6 +1764,60 @@ export interface Database {
         };
         Relationships: [];
       };
+      inbound_webhook_jobs: {
+        Row: {
+          attempts: number;
+          claimed_at: string | null;
+          claimed_by: string | null;
+          company_id: string | null;
+          created_at: string;
+          external_id: string;
+          id: string;
+          last_error: string | null;
+          max_attempts: number;
+          organization_id: string | null;
+          payload: Json;
+          provider: string;
+          run_at: string;
+          status: string;
+          updated_at: string;
+        };
+        Insert: {
+          attempts?: number;
+          claimed_at?: string | null;
+          claimed_by?: string | null;
+          company_id?: string | null;
+          created_at?: string;
+          external_id: string;
+          id?: string;
+          last_error?: string | null;
+          max_attempts?: number;
+          organization_id?: string | null;
+          payload: Json;
+          provider: string;
+          run_at?: string;
+          status?: string;
+          updated_at?: string;
+        };
+        Update: {
+          attempts?: number;
+          claimed_at?: string | null;
+          claimed_by?: string | null;
+          company_id?: string | null;
+          created_at?: string;
+          external_id?: string;
+          id?: string;
+          last_error?: string | null;
+          max_attempts?: number;
+          organization_id?: string | null;
+          payload?: Json;
+          provider?: string;
+          run_at?: string;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       ui_contact_list_v: {
@@ -1881,6 +1935,14 @@ export interface Database {
           p_stale_after_seconds?: number;
         };
         Returns: Database["public"]["Tables"]["billing_event_jobs"]["Row"][];
+      };
+      claim_inbound_webhook_jobs: {
+        Args: {
+          p_batch?: number;
+          p_worker_id?: string;
+          p_stale_after_seconds?: number;
+        };
+        Returns: Database["public"]["Tables"]["inbound_webhook_jobs"]["Row"][];
       };
       claim_jobber_sync_jobs: {
         Args: {

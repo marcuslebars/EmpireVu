@@ -34,10 +34,18 @@ The dashboard `/ui/*` endpoints read purpose-built SQL views/RPCs (migration `20
 - **Verify before merge (needs a DB with seed data):** snapshot each `/ui/*` JSON response before vs. after and confirm they match; confirm each call issues ≤ 3 queries. The SQL was authored without a reachable Postgres here, so this verification is the acceptance gate.
 
 ## Health check
-`GET /api/health` (public, unauthenticated) is Railway's `healthcheckPath` (set in `railway.json`). Returns `{ ok, db, workers: { workflow_events, billing_events, jobber_sync }, version }`:
+`GET /api/health` (public, unauthenticated) is Railway's `healthcheckPath` (set in `railway.json`). Returns `{ ok, db, workers: { workflow_events, billing_events, jobber_sync, inbound_webhooks }, version }`:
 - `db: "ok"` = an anon `select` reached Postgres; a failed/timed-out probe returns **503** with `db: "error"`.
-- `workers.*` report `last_claimed_at` (newest `locked_at`) and `queued` (`count(status='pending')`) per queue — **aggregate only, never row content**; a stats hiccup degrades these to `null` but keeps a 200 (the DB is up).
+- `workers.*` report `last_claimed_at` (newest claim timestamp — `locked_at` for the older queues, `claimed_at` for `inbound_webhooks`) and `queued` (`count(status='pending')`) per queue — **aggregate only, never row content**; a stats hiccup degrades these to `null` but keeps a 200 (the DB is up).
 - `version` = `RAILWAY_GIT_COMMIT_SHA` (auto-set by Railway; falls back to `"unknown"`). 5-second timeout on both phases.
+
+## Durable-first inbound webhooks
+Inbound provider webhooks (Retell, Jobber) are **persisted before they ACK**, so nothing is lost between the `200` and processing (convention: durable-first / never-drop-a-lead). Migration `20260904120000_inbound_webhook_jobs.sql`.
+- **`inbound_webhook_jobs`** is one queue for all raw inbound webhooks, modeled on `workflow_event_jobs` (same claim RPC shape: `FOR UPDATE SKIP LOCKED`, stale-lock reclaim, `attempts++`, backoff). `unique (provider, external_id)` makes a redelivery a no-op. RLS is **on with no member policies** — service-role only (webhook routes insert, worker claims).
+- **Route flow** (`/api/retell/webhook`, `/api/jobber/webhook`): verify signature → parse → *(Retell only)* upsert the raw payload into `retell_calls` on `call_id` → `INSERT … ON CONFLICT DO NOTHING` into `inbound_webhook_jobs` → **return 200**. No fire-and-forget processing on the request path. `external_id` = Retell `call_id`, or Jobber's event id / a `sha256` of the raw body.
+- **Worker** (`workflow-event-worker.ts`, same process/service): each tick it drains `inbound_webhook_jobs` alongside the workflow queue and dispatches by provider back into the **unchanged** handlers — `ingestRetellCall` (identical lead to the old synchronous path) and `handleJobberWebhook`. Success → `completed`; failure → backoff and retry up to `max_attempts` (default 5), then terminal `failed` with `last_error`.
+- **Retry a stuck/failed job:** `POST /api/organizations/{organizationId}/inbound-webhook-jobs/{jobId}/retry` (org-membership authz, then a service-role reset scoped to the caller's org or an unresolved null-org job). Mirrors the workflow-event-jobs retry.
+- **Ops:** `/api/organizations/{organizationId}/ops/jobs-health` includes `inboundWebhookJobs: { pending, running, failed }`; `/api/health` includes the `inbound_webhooks` worker row.
 
 ## Service-role (sanctioned) surfaces
 `createSupabaseAdminClient()` (service role, bypasses RLS) is used only where a request has no forgeable RLS identity, each carrying a `SANCTIONED EXCEPTION` header comment (convention #2): lead-intake, public-booking, telnyx, retell, quotes (public/checkout/connect), billing, jobber, waitlist, invitations, the workers/jobs — and now **`/api/health`** (reads aggregate queue counts only, never tenant rows; there is no tenant to resolve). `SUPABASE_SERVICE_ROLE_KEY` stays on the web service.
@@ -100,7 +108,7 @@ When pointing the service at a **new** Supabase project:
 4. **No org until Phase 3** — a fresh project has no org, so a valid lead is stored + emailed but flagged "needs attention" with no contact created until `a1-group` is seeded.
 
 ## Worker service
-Second Railway service, same repo. Start `npm run worker:workflow-events`. Env: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (+ optional `WORKFLOW_EVENT_WORKER_POLL_MS`/`_BATCH_SIZE`/`_STALE_AFTER_SECONDS`/`_ID`). No volume. Until it runs, workflow jobs queue but don't execute — fine, since intake writes + notifies directly.
+Second Railway service, same repo. Start `npm run worker:workflow-events`. Env: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (+ optional `WORKFLOW_EVENT_WORKER_POLL_MS`/`_BATCH_SIZE`/`_STALE_AFTER_SECONDS`/`_ID`). No volume. Until it runs, workflow jobs queue but don't execute — fine, since intake writes + notifies directly. **The same process also drains `inbound_webhook_jobs`** (Retell/Jobber) each tick — see [Durable-first inbound webhooks](#durable-first-inbound-webhooks) — so once inbound webhooks are live this service must be deployed for calls/events to be processed (they persist safely either way).
 
 ### ⚠ `ANTHROPIC_API_KEY` must ALSO be on the worker
 Workflow actions execute **in the worker**, so the `ai_analyze` action (the
