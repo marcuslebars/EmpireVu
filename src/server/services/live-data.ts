@@ -567,6 +567,31 @@ function toCompanySummary(company: Tables<"companies"> | null | undefined): Comp
   };
 }
 
+// Build the same CompanySummary / UserSummary shapes from the flat columns the read
+// -model views/RPCs return (id + joined name/stage/email), instead of a full row.
+function companySummaryFromFields(
+  id: string | null | undefined,
+  name: string | null | undefined,
+  stage: string | null | undefined,
+): CompanySummary | null {
+  if (!id || name === null || name === undefined) {
+    return null;
+  }
+  return { id, name, stage: stage as Tables<"companies">["stage"] };
+}
+
+function userSummaryFromFields(
+  id: string | null | undefined,
+  fullName: string | null | undefined,
+  email: string | null | undefined,
+): UserSummary | null {
+  if (!id || email === null || email === undefined) {
+    return null;
+  }
+  const name = fullName?.trim() || email;
+  return { id, initials: getInitials(name), name };
+}
+
 function isTaskOpen(task: Tables<"tasks">): boolean {
   return task.status !== "completed";
 }
@@ -677,7 +702,13 @@ function getNextActionForContact(input: ContactNextActionInput): NextActionSumma
 
 type OrganizationScopedTable = keyof TablesMap;
 
-async function listAllRows<T extends OrganizationScopedTable>(
+/** PostgREST caps a single response at 1,000 rows, so listAllRows MUST page. */
+const LIST_ALL_ROWS_PAGE_SIZE = 1000;
+
+// Exported for the pagination unit test; the detail views (contact/booking/task/
+// workflow) still use it while their SQL read models (ui_*_detail) are wired in a
+// follow-up. The list/summary endpoints now read the views/RPCs directly.
+export async function listAllRows<T extends OrganizationScopedTable>(
   context: TenantServiceContext,
   table: T,
 ): Promise<TablesMap[T][]> {
@@ -685,21 +716,51 @@ async function listAllRows<T extends OrganizationScopedTable>(
   // column and row types depend on a table chosen at runtime), so this helper casts
   // the client to a minimal typed query surface — the one sanctioned generic-table
   // escape hatch in the server tree, alongside insertRow and the json.ts boundary.
-  const query = context.supabase.from(table as never) as unknown as {
+  //
+  // TOURNIQUET (Task 3, step 1): page through in 1,000-row chunks with an explicit
+  // deterministic order until a short page returns. Before this, the implicit 1,000-row
+  // PostgREST cap silently truncated every table read — dashboard counts and joins were
+  // wrong for any org past 1,000 rows in a table. Still O(all-rows); the SQL read
+  // models (later steps) replace the in-memory joins entirely.
+  const builder = context.supabase.from(table as never) as unknown as {
     select: (columns: string) => {
       eq: (
         column: string,
         value: string,
-      ) => PromiseLike<{ data: TablesMap[T][] | null; error: unknown }>;
+      ) => {
+        order: (
+          column: string,
+          opts: { ascending: boolean },
+        ) => {
+          range: (
+            from: number,
+            to: number,
+          ) => PromiseLike<{ data: TablesMap[T][] | null; error: unknown }>;
+        };
+      };
     };
   };
-  const { data, error } = await query.select("*").eq("organization_id", context.organizationId);
 
-  if (error) {
-    throw error;
+  const rows: TablesMap[T][] = [];
+  for (let offset = 0; ; offset += LIST_ALL_ROWS_PAGE_SIZE) {
+    const { data, error } = await builder
+      .select("*")
+      .eq("organization_id", context.organizationId)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + LIST_ALL_ROWS_PAGE_SIZE - 1);
+
+    if (error) {
+      throw error;
+    }
+
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < LIST_ALL_ROWS_PAGE_SIZE) {
+      break;
+    }
   }
 
-  return data ?? [];
+  return rows;
 }
 
 type TablesMap = {
@@ -1399,36 +1460,29 @@ export async function getDashboardSummary(
   input: { companyId?: string | null } = {},
 ): Promise<DashboardSummary> {
   await assertCompanyInOrganization(context, input.companyId);
-  const [tasks, bookings, contacts, workflows, workflowJobs, activityEvents] = await Promise.all([
-    listAllRows(context, "tasks"),
-    listAllRows(context, "bookings"),
-    listAllRows(context, "contacts"),
-    listAllRows(context, "workflows"),
-    listAllRows(context, "workflow_event_jobs"),
-    listAllRows(context, "activity_events"),
-  ]);
-  const now = new Date();
-  const todayStart = startOfUtcDay(now);
-  const todayEnd = endOfUtcDay(now);
-  const scopedTasks = tasks.filter((task) => matchesCompanyScope(task.company_id, input.companyId));
-  const scopedBookings = bookings.filter((booking) => matchesCompanyScope(booking.company_id, input.companyId));
-  const scopedContacts = contacts.filter((contact) => matchesCompanyScope(contact.company_id, input.companyId));
-  const scopedWorkflows = workflows.filter((workflow) => matchesCompanyScope(workflow.company_id, input.companyId));
-  const scopedWorkflowJobs = workflowJobs.filter((job) => matchesCompanyScope(job.company_id, input.companyId));
-  const scopedActivityEvents = activityEvents.filter((event) => matchesCompanyScope(event.company_id, input.companyId));
+  // One SQL round trip: ui_dashboard_summary computes every count/aggregate with
+  // filter(where …) aggregates, replacing six whole-table listAllRows loads.
+  const { data, error } = await context.supabase.rpc("ui_dashboard_summary", {
+    p_org_id: context.organizationId,
+    p_company_id: input.companyId ?? undefined,
+  });
+  if (error) {
+    throw error;
+  }
+  const row = data?.[0];
 
   return {
-    activeWorkflowCount: scopedWorkflows.filter((workflow) => workflow.status === "active").length,
-    failedWorkflowJobCount: scopedWorkflowJobs.filter((job) => job.status === "failed").length,
-    newLeadCount: scopedContacts.filter((contact) => contact.stage === "lead").length,
-    overdueTaskCount: scopedTasks.filter((task) => isTaskOverdue(task, now)).length,
-    revenueSnapshot: summarizeRevenueFromEvents(scopedActivityEvents.filter((event) => event.entity_type === "booking")),
-    todayBookingCount: scopedBookings.filter((booking) => {
-      const scheduled = new Date(booking.scheduled_for);
-      return scheduled >= todayStart && scheduled <= todayEnd;
-    }).length,
-    upcomingBookingCount: scopedBookings.filter((booking) => new Date(booking.scheduled_for) > now).length,
-    urgentTaskCount: scopedTasks.filter((task) => task.priority === "urgent" && task.status !== "completed").length,
+    activeWorkflowCount: row?.active_workflow_count ?? 0,
+    failedWorkflowJobCount: row?.failed_workflow_job_count ?? 0,
+    newLeadCount: row?.new_lead_count ?? 0,
+    overdueTaskCount: row?.overdue_task_count ?? 0,
+    revenueSnapshot: {
+      todayCents: Number(row?.revenue_today_cents ?? 0),
+      weekCents: Number(row?.revenue_week_cents ?? 0),
+    },
+    todayBookingCount: row?.today_booking_count ?? 0,
+    upcomingBookingCount: row?.upcoming_booking_count ?? 0,
+    urgentTaskCount: row?.urgent_task_count ?? 0,
   };
 }
 
@@ -1436,21 +1490,34 @@ export async function getDashboardActivityFeed(
   context: TenantServiceContext,
   input: PaginationInput & { companyId?: string | null },
 ): Promise<PaginatedResult<DashboardActivityFeedItem>> {
-  const activityEvents = (await listAllRows(context, "activity_events"))
-    .filter((event) => !input.companyId || event.company_id === input.companyId)
-    .sort((left, right) => right.occurred_at.localeCompare(left.occurred_at));
-  const companiesMap = await loadCompaniesMap(context, uniq(activityEvents.map((event) => event.company_id)));
+  // SQL pagination + count instead of loading every event and slicing in JS. Only
+  // the current page's events are then enriched (company + entity references).
+  const offset = (input.page - 1) * input.pageSize;
+  let query = context.supabase
+    .from("activity_events")
+    .select("*", { count: "exact" })
+    .eq("organization_id", context.organizationId);
+  if (input.companyId) {
+    query = query.eq("company_id", input.companyId);
+  }
+  const { data, count, error } = await query
+    .order("occurred_at", { ascending: false })
+    .range(offset, offset + input.pageSize - 1);
+  if (error) {
+    throw error;
+  }
+  const events = data ?? [];
+  const companiesMap = await loadCompaniesMap(context, uniq(events.map((event) => event.company_id)));
   const entityReferenceMap = await buildEntityReferenceMap(
     context,
-    activityEvents.flatMap((event) => [
+    events.flatMap((event) => [
       { id: event.entity_id, type: event.entity_type },
       { id: event.related_entity_id, type: event.related_entity_type },
     ]),
   );
-  const paginated = paginateItems(activityEvents, input);
 
   return {
-    items: paginated.items.map((event) => ({
+    items: events.map((event) => ({
       company: toCompanySummary(companiesMap.get(event.company_id ?? "")),
       entity: event.entity_id ? entityReferenceMap.get(`${event.entity_type}:${event.entity_id}`) ?? null : null,
       eventType: event.event_type,
@@ -1461,7 +1528,7 @@ export async function getDashboardActivityFeed(
         ? entityReferenceMap.get(`${event.related_entity_type}:${event.related_entity_id}`) ?? null
         : null,
     })),
-    pagination: paginated.pagination,
+    pagination: buildPaginationMeta(count ?? 0, input.page, input.pageSize),
   };
 }
 
@@ -1470,20 +1537,22 @@ export async function getAutomationImpact(
   input: { companyId?: string | null } = {},
 ): Promise<AutomationImpactSummary> {
   await assertCompanyInOrganization(context, input.companyId);
-  const [workflowRuns, workflowJobs] = await Promise.all([
-    listAllRows(context, "workflow_runs"),
-    listAllRows(context, "workflow_event_jobs"),
-  ]);
-  const scopedWorkflowRuns = workflowRuns.filter((run) => matchesCompanyScope(run.company_id, input.companyId));
-  const scopedWorkflowJobs = workflowJobs.filter((job) => matchesCompanyScope(job.company_id, input.companyId));
-  const totalWorkflowRuns = scopedWorkflowRuns.length;
-  const successfulRuns = scopedWorkflowRuns.filter((run) => run.status === "completed").length;
+  const { data, error } = await context.supabase.rpc("ui_automation_impact", {
+    p_org_id: context.organizationId,
+    p_company_id: input.companyId ?? undefined,
+  });
+  if (error) {
+    throw error;
+  }
+  const row = data?.[0];
+  const totalWorkflowRuns = row?.total_workflow_runs ?? 0;
+  const successfulRuns = row?.successful_runs ?? 0;
 
   return {
-    estimatedTimeSavedSeconds: scopedWorkflowRuns.reduce((sum, run) => sum + run.time_saved_seconds, 0),
-    failedJobsCount: scopedWorkflowJobs.filter((job) => job.status === "failed").length,
+    estimatedTimeSavedSeconds: Number(row?.estimated_time_saved_seconds ?? 0),
+    failedJobsCount: row?.failed_jobs_count ?? 0,
     successRate: totalWorkflowRuns === 0 ? 0 : Number(((successfulRuns / totalWorkflowRuns) * 100).toFixed(1)),
-    tasksAutoCreated: scopedWorkflowRuns.reduce((sum, run) => sum + run.created_tasks_count, 0),
+    tasksAutoCreated: Number(row?.tasks_auto_created ?? 0),
     totalWorkflowRuns,
   };
 }
@@ -1497,77 +1566,58 @@ export async function getCalendarView(
     start: string;
   },
 ): Promise<CalendarViewResponse> {
-  const [bookings, tasks, contacts, companies] = await Promise.all([
-    listAllRows(context, "bookings"),
-    listAllRows(context, "tasks"),
-    listAllRows(context, "contacts"),
-    listAllRows(context, "companies"),
-  ]);
-  const companiesMap = new Map(companies.map((company) => [company.id, company]));
-  const contactsMap = new Map(contacts.map((contact) => [contact.id, contact]));
-  const profilesMap = await loadProfilesMap(context, uniq(tasks.map((task) => task.assigned_to_profile_id)));
-  const bookingsInRange = bookings.filter((booking) => {
-    if (input.companyId && booking.company_id !== input.companyId) {
-      return false;
-    }
-
-    return isWithinRange(booking.scheduled_for, input.start, input.end);
+  // ui_calendar_bookings filters the window + company, rolls up each booking's tasks
+  // (count, highest priority, assigned profile ids) and revenue in SQL. Only profile
+  // names are resolved here; the assigned-user filter and aggregation stay in TS.
+  const { data, error } = await context.supabase.rpc("ui_calendar_bookings", {
+    p_org_id: context.organizationId,
+    p_company_id: input.companyId ?? undefined,
+    p_from_ts: input.start,
+    p_to_ts: input.end,
   });
-  const tasksByBooking = new Map<string, Tables<"tasks">[]>();
-
-  for (const task of tasks) {
-    if (!task.booking_id) {
-      continue;
-    }
-
-    const bucket = tasksByBooking.get(task.booking_id) ?? [];
-    bucket.push(task);
-    tasksByBooking.set(task.booking_id, bucket);
+  if (error) {
+    throw error;
   }
+  const rpcRows = data ?? [];
+  const profilesMap = await loadProfilesMap(
+    context,
+    uniq(rpcRows.flatMap((row) => row.assigned_profile_ids ?? [])),
+  );
+  const filteredBookings = input.assignedUserId
+    ? rpcRows.filter((row) => (row.assigned_profile_ids ?? []).includes(input.assignedUserId as string))
+    : rpcRows;
+  const rows = filteredBookings.map((row) => {
+    const users = uniq(row.assigned_profile_ids ?? [])
+      .map((profileId) => toUserSummary(profilesMap.get(profileId)))
+      .filter((user): user is UserSummary => Boolean(user));
 
-  const filteredBookings = bookingsInRange.filter((booking) => {
-    if (!input.assignedUserId) {
-      return true;
-    }
-
-    return (tasksByBooking.get(booking.id) ?? []).some((task) => task.assigned_to_profile_id === input.assignedUserId);
+    return {
+      assignedUserSummary: {
+        count: users.length,
+        primary: users[0] ?? null,
+        users,
+      },
+      company: companySummaryFromFields(row.company_id, row.company_name, row.company_stage),
+      contact: row.contact_id
+        ? {
+            company: companySummaryFromFields(row.contact_company_id, row.contact_company_name, row.contact_company_stage),
+            email: row.contact_email,
+            id: row.contact_id,
+            name: row.contact_name ?? "",
+            phone: row.contact_phone,
+            stage: (row.contact_stage ?? "lead") as Tables<"contacts">["stage"],
+          }
+        : null,
+      durationMinutes: row.duration_minutes,
+      id: row.id,
+      priority: (row.highest_priority ?? null) as Tables<"tasks">["priority"] | null,
+      revenueCents: row.revenue_cents !== null ? Number(row.revenue_cents) : null,
+      scheduledFor: row.scheduled_for,
+      status: row.status as Tables<"bookings">["status"],
+      taskCount: row.task_count,
+      title: row.title,
+    } satisfies BookingCalendarRow;
   });
-  const revenueMap = await buildBookingRevenueMap(context, filteredBookings, contactsMap);
-  const rows = filteredBookings
-    .sort((left, right) => left.scheduled_for.localeCompare(right.scheduled_for))
-    .map((booking) => {
-      const linkedTasks = tasksByBooking.get(booking.id) ?? [];
-      const users = uniq(linkedTasks.map((task) => task.assigned_to_profile_id))
-        .map((profileId) => toUserSummary(profilesMap.get(profileId)))
-        .filter((user): user is UserSummary => Boolean(user));
-
-      return {
-        assignedUserSummary: {
-          count: users.length,
-          primary: users[0] ?? null,
-          users,
-        },
-        company: toCompanySummary(companiesMap.get(booking.company_id)),
-        contact: booking.contact_id
-          ? {
-              company: toCompanySummary(companiesMap.get(contactsMap.get(booking.contact_id)?.company_id ?? "")),
-              email: contactsMap.get(booking.contact_id)?.email ?? null,
-              id: booking.contact_id,
-              name: getContactName(contactsMap.get(booking.contact_id) as Tables<"contacts">),
-              phone: contactsMap.get(booking.contact_id)?.phone ?? null,
-              stage: contactsMap.get(booking.contact_id)?.stage ?? "lead",
-            }
-          : null,
-        durationMinutes: booking.duration_minutes,
-        id: booking.id,
-        priority: getHighestPriority(linkedTasks),
-        revenueCents: revenueMap.get(booking.id) ?? null,
-        scheduledFor: booking.scheduled_for,
-        status: booking.status,
-        taskCount: linkedTasks.length,
-        title: booking.title,
-      } satisfies BookingCalendarRow;
-    });
   const assignedUsers = [...new Map(
     rows
       .flatMap((row) => row.assignedUserSummary.users.map((user) => user.id))
@@ -1756,89 +1806,96 @@ export async function getCRMContactsView(
     stage?: Tables<"contacts">["stage"] | null;
   },
 ): Promise<CRMContactsResponse> {
-  const [contacts, bookings, tasks, activityEvents, companies] = await Promise.all([
-    listAllRows(context, "contacts"),
-    listAllRows(context, "bookings"),
-    listAllRows(context, "tasks"),
-    listAllRows(context, "activity_events"),
-    listAllRows(context, "companies"),
-  ]);
-  const filteredContacts = contacts.filter((contact) => {
-    if (input.companyId && contact.company_id !== input.companyId) {
-      return false;
-    }
+  // Two queries against ui_contact_list_v (SQL does the joins/aggregates/next-action):
+  // the whole filtered set's stage + pipeline value (for the pipeline summary + total),
+  // and the current page's fully-computed rows.
+  let summaryQuery = context.supabase
+    .from("ui_contact_list_v")
+    .select("stage, pipeline_value_cents")
+    .eq("organization_id", context.organizationId);
+  let pageQuery = context.supabase
+    .from("ui_contact_list_v")
+    .select("*")
+    .eq("organization_id", context.organizationId);
+  if (input.companyId) {
+    summaryQuery = summaryQuery.eq("company_id", input.companyId);
+    pageQuery = pageQuery.eq("company_id", input.companyId);
+  }
+  if (input.stage) {
+    summaryQuery = summaryQuery.eq("stage", input.stage);
+    pageQuery = pageQuery.eq("stage", input.stage);
+  }
+  if (input.ownerProfileId) {
+    summaryQuery = summaryQuery.eq("owner_profile_id", input.ownerProfileId);
+    pageQuery = pageQuery.eq("owner_profile_id", input.ownerProfileId);
+  }
+  if (input.nextAction) {
+    summaryQuery = summaryQuery.eq("next_action_type", input.nextAction);
+    pageQuery = pageQuery.eq("next_action_type", input.nextAction);
+  }
+  const search = input.search?.trim().toLowerCase();
+  if (search) {
+    summaryQuery = summaryQuery.ilike("search_text", `%${search}%`);
+    pageQuery = pageQuery.ilike("search_text", `%${search}%`);
+  }
+  const [{ data: summaryRows, error: summaryError }, { data: pageRows, error: pageError }] =
+    await Promise.all([
+      summaryQuery,
+      pageQuery
+        .order("name", { ascending: true })
+        .range((input.page - 1) * input.pageSize, input.page * input.pageSize - 1),
+    ]);
+  if (summaryError) {
+    throw summaryError;
+  }
+  if (pageError) {
+    throw pageError;
+  }
 
-    if (input.stage && contact.stage !== input.stage) {
-      return false;
-    }
-
-    if (input.ownerProfileId && contact.owner_profile_id !== input.ownerProfileId) {
-      return false;
-    }
-
-    return matchesSearch(
-      [
-        contact.first_name,
-        contact.last_name,
-        contact.email,
-        contact.phone,
-        getContactName(contact),
-      ],
-      input.search,
-    );
-  });
-  const contactIds = filteredContacts.map((contact) => contact.id);
-  const relatedBookings = bookings.filter((booking) => contactIds.includes(booking.contact_id ?? ""));
-  const relatedTasks = tasks.filter((task) => contactIds.includes(task.contact_id ?? ""));
-  const companiesMap = new Map(companies.map((company) => [company.id, company]));
-  const profilesMap = await loadProfilesMap(context, uniq(filteredContacts.map((contact) => contact.owner_profile_id)));
-  const contactRevenueMap = new Map(filteredContacts.map((contact) => [contact.id, extractValueCents(contact.metadata) ?? 0]));
-  const bookingRevenueMap = await buildBookingRevenueMap(context, relatedBookings, new Map(contacts.map((contact) => [contact.id, contact])));
-  const rows = filteredContacts.map((contact) => {
-    const contactBookings = relatedBookings.filter((booking) => booking.contact_id === contact.id);
-    const contactTasks = relatedTasks.filter((task) => task.contact_id === contact.id);
-    const nextAction = getNextActionForContact({ bookings: contactBookings, contact, tasks: contactTasks });
-    const lastActivityEvent = activityEvents
-      .filter((event) => (event.entity_type === "contact" && event.entity_id === contact.id) || (event.related_entity_type === "contact" && event.related_entity_id === contact.id))
-      .sort((left, right) => right.occurred_at.localeCompare(left.occurred_at))[0];
-    const realizedRevenueCents = contactBookings.reduce((sum, booking) => sum + (bookingRevenueMap.get(booking.id) ?? 0), 0);
-
-    return {
-      bookingsCount: contactBookings.length,
-      company: toCompanySummary(companiesMap.get(contact.company_id)),
-      email: contact.email,
-      id: contact.id,
-      lastActivity: lastActivityEvent
-        ? {
-            eventType: lastActivityEvent.event_type,
-            occurredAt: lastActivityEvent.occurred_at,
-            title: lastActivityEvent.event_type,
-          }
-        : null,
-      name: getContactName(contact),
-      nextAction,
-      owner: toUserSummary(profilesMap.get(contact.owner_profile_id ?? "")),
-      phone: contact.phone,
-      pipelineValueCents: contactRevenueMap.get(contact.id) ?? null,
-      realizedRevenueCents,
-      stage: contact.stage,
-      upcomingBookingsCount: contactBookings.filter((booking) => new Date(booking.scheduled_for) > new Date() && booking.status !== "completed").length,
-    } satisfies CRMContactRow;
-  }).filter((row) => !input.nextAction || row.nextAction.type === input.nextAction);
-  const paginatedRows = paginateItems(rows.sort((left, right) => left.name.localeCompare(right.name)), input);
+  const allFiltered = summaryRows ?? [];
   const pipelineSummary = (["lead", "qualified", "active", "closed"] as Array<Tables<"contacts">["stage"]>)
     .map((stage) => {
-      const stageRows = rows.filter((row) => row.stage === stage);
+      const stageRows = allFiltered.filter((row) => row.stage === stage);
       return {
         count: stageRows.length,
         stage,
-        valueCents: stageRows.reduce((sum, row) => sum + (row.pipelineValueCents ?? 0), 0),
+        valueCents: stageRows.reduce((sum, row) => sum + (row.pipeline_value_cents ?? 0), 0),
       };
     });
 
+  const rows: CRMContactRow[] = (pageRows ?? []).map((row) => ({
+    bookingsCount: row.bookings_count ?? 0,
+    company: companySummaryFromFields(row.company_id, row.company_name, row.company_stage),
+    email: row.email,
+    id: row.id ?? "",
+    lastActivity: row.last_activity_at
+      ? {
+          eventType: row.last_activity_event_type ?? "",
+          occurredAt: row.last_activity_at,
+          title: row.last_activity_event_type ?? "",
+        }
+      : null,
+    name: row.name ?? "",
+    nextAction: {
+      detail: row.next_action_detail ?? "",
+      dueAt: row.next_action_due_at,
+      label: row.next_action_label ?? "",
+      type: (row.next_action_type ?? "action") as NextActionType,
+    },
+    owner: userSummaryFromFields(row.owner_id, row.owner_full_name, row.owner_email),
+    phone: row.phone,
+    pipelineValueCents: row.pipeline_value_cents,
+    realizedRevenueCents: row.realized_revenue_cents ?? 0,
+    stage: (row.stage ?? "lead") as Tables<"contacts">["stage"],
+    upcomingBookingsCount: row.upcoming_bookings_count ?? 0,
+  }));
+
   return {
     pipelineSummary,
-    rows: paginatedRows,
+    rows: {
+      items: rows,
+      pagination: buildPaginationMeta(allFiltered.length, input.page, input.pageSize),
+    },
   };
 }
 
@@ -1953,79 +2010,95 @@ export async function getTasksListView(
     status?: Tables<"tasks">["status"] | null;
   },
 ): Promise<TasksListResponse> {
-  const [tasks, contacts, bookings, companies] = await Promise.all([
-    listAllRows(context, "tasks"),
-    listAllRows(context, "contacts"),
-    listAllRows(context, "bookings"),
-    listAllRows(context, "companies"),
-  ]);
-  const filteredTasks = tasks.filter((task) => {
-    if (input.companyId && task.company_id !== input.companyId) {
-      return false;
-    }
+  // ui_task_list_v does the joins, comment count, and overdue flag in SQL. Summary +
+  // total over the whole filtered set (status + is_overdue only); rows for the page.
+  let summaryQuery = context.supabase
+    .from("ui_task_list_v")
+    .select("status, is_overdue")
+    .eq("organization_id", context.organizationId);
+  let pageQuery = context.supabase
+    .from("ui_task_list_v")
+    .select("*")
+    .eq("organization_id", context.organizationId);
+  if (input.companyId) {
+    summaryQuery = summaryQuery.eq("company_id", input.companyId);
+    pageQuery = pageQuery.eq("company_id", input.companyId);
+  }
+  if (input.status) {
+    summaryQuery = summaryQuery.eq("status", input.status);
+    pageQuery = pageQuery.eq("status", input.status);
+  }
+  if (input.priority) {
+    summaryQuery = summaryQuery.eq("priority", input.priority);
+    pageQuery = pageQuery.eq("priority", input.priority);
+  }
+  if (input.assigneeId) {
+    summaryQuery = summaryQuery.eq("assigned_to_profile_id", input.assigneeId);
+    pageQuery = pageQuery.eq("assigned_to_profile_id", input.assigneeId);
+  }
+  if (input.overdue) {
+    summaryQuery = summaryQuery.eq("is_overdue", true);
+    pageQuery = pageQuery.eq("is_overdue", true);
+  }
+  const search = input.search?.trim().toLowerCase();
+  if (search) {
+    summaryQuery = summaryQuery.ilike("search_text", `%${search}%`);
+    pageQuery = pageQuery.ilike("search_text", `%${search}%`);
+  }
+  const [{ data: summaryRows, error: summaryError }, { data: pageRows, error: pageError }] =
+    await Promise.all([
+      summaryQuery,
+      pageQuery
+        .order("created_at", { ascending: false })
+        .range((input.page - 1) * input.pageSize, input.page * input.pageSize - 1),
+    ]);
+  if (summaryError) {
+    throw summaryError;
+  }
+  if (pageError) {
+    throw pageError;
+  }
 
-    if (input.status && task.status !== input.status) {
-      return false;
-    }
-
-    if (input.priority && task.priority !== input.priority) {
-      return false;
-    }
-
-    if (input.assigneeId && task.assigned_to_profile_id !== input.assigneeId) {
-      return false;
-    }
-
-    if (input.overdue && !isTaskOverdue(task)) {
-      return false;
-    }
-
-    return matchesSearch([task.id, task.title, task.description], input.search);
-  });
-  const contactsMap = new Map(contacts.map((contact) => [contact.id, contact]));
-  const bookingsMap = new Map(bookings.map((booking) => [booking.id, booking]));
-  const companiesMap = new Map(companies.map((company) => [company.id, company]));
-  const profilesMap = await loadProfilesMap(context, uniq(filteredTasks.map((task) => task.assigned_to_profile_id)));
-  const workflowsMap = await loadWorkflowsMap(context, uniq(filteredTasks.map((task) => task.workflow_id)));
-  const comments = await listAllRows(context, "comments");
-  const rows = filteredTasks
-    .sort((left, right) => right.created_at.localeCompare(left.created_at))
-    .map((task) => ({
-      assignee: toUserSummary(profilesMap.get(task.assigned_to_profile_id ?? "")),
-      booking: task.booking_id && bookingsMap.get(task.booking_id)
-        ? { id: task.booking_id, label: bookingsMap.get(task.booking_id)?.title ?? task.booking_id, type: "booking" }
-        : null,
-      commentsCount: comments.filter((comment) => comment.entity_type === "task" && comment.entity_id === task.id).length,
-      company: toCompanySummary(companiesMap.get(task.company_id ?? "")),
-      contact: task.contact_id && contactsMap.get(task.contact_id)
-        ? {
-            company: toCompanySummary(companiesMap.get(contactsMap.get(task.contact_id)?.company_id ?? "")),
-            email: contactsMap.get(task.contact_id)?.email ?? null,
-            id: task.contact_id,
-            name: getContactName(contactsMap.get(task.contact_id) as Tables<"contacts">),
-            phone: contactsMap.get(task.contact_id)?.phone ?? null,
-            stage: contactsMap.get(task.contact_id)?.stage ?? "lead",
-          }
-        : null,
-      dueAt: task.due_at,
-      id: task.id,
-      isOverdue: isTaskOverdue(task),
-      priority: task.priority,
-      status: task.status,
-      title: task.title,
-      workflow: task.workflow_id && workflowsMap.get(task.workflow_id)
-        ? { id: task.workflow_id, label: workflowsMap.get(task.workflow_id)?.name ?? task.workflow_id, type: "workflow" }
-        : null,
-    } satisfies TaskListRow));
+  const allFiltered = summaryRows ?? [];
+  const rows: TaskListRow[] = (pageRows ?? []).map((row) => ({
+    assignee: userSummaryFromFields(row.assignee_id, row.assignee_full_name, row.assignee_email),
+    booking: row.booking_id
+      ? { id: row.booking_id, label: row.booking_title ?? row.booking_id, type: "booking" }
+      : null,
+    commentsCount: row.comments_count ?? 0,
+    company: companySummaryFromFields(row.company_id, row.company_name, row.company_stage),
+    contact: row.contact_id
+      ? {
+          company: companySummaryFromFields(row.contact_company_id, row.contact_company_name, row.contact_company_stage),
+          email: row.contact_email,
+          id: row.contact_id,
+          name: [row.contact_first_name, row.contact_last_name].filter(Boolean).join(" ").trim(),
+          phone: row.contact_phone,
+          stage: (row.contact_stage ?? "lead") as Tables<"contacts">["stage"],
+        }
+      : null,
+    dueAt: row.due_at,
+    id: row.id ?? "",
+    isOverdue: row.is_overdue ?? false,
+    priority: (row.priority ?? "medium") as Tables<"tasks">["priority"],
+    status: (row.status ?? "todo") as Tables<"tasks">["status"],
+    title: row.title ?? "",
+    workflow: row.workflow_id
+      ? { id: row.workflow_id, label: row.workflow_name ?? row.workflow_id, type: "workflow" }
+      : null,
+  }));
 
   return {
-    rows: paginateItems(rows, input),
+    rows: {
+      items: rows,
+      pagination: buildPaginationMeta(allFiltered.length, input.page, input.pageSize),
+    },
     summary: {
-      blockedCount: rows.filter((row) => row.status === "blocked").length,
-      completedCount: rows.filter((row) => row.status === "completed").length,
-      inProgressCount: rows.filter((row) => row.status === "in_progress").length,
-      overdueCount: rows.filter((row) => row.isOverdue).length,
-      todoCount: rows.filter((row) => row.status === "todo").length,
+      blockedCount: allFiltered.filter((row) => row.status === "blocked").length,
+      completedCount: allFiltered.filter((row) => row.status === "completed").length,
+      inProgressCount: allFiltered.filter((row) => row.status === "in_progress").length,
+      overdueCount: allFiltered.filter((row) => row.is_overdue).length,
+      todoCount: allFiltered.filter((row) => row.status === "todo").length,
     },
   };
 }
@@ -2124,59 +2197,66 @@ export async function getWorkflowsListView(
     triggerType?: string | null;
   },
 ): Promise<WorkflowsListResponse> {
-  const [workflows, companies, workflowRuns] = await Promise.all([
-    listAllRows(context, "workflows"),
-    listAllRows(context, "companies"),
-    listAllRows(context, "workflow_runs"),
-  ]);
-  const companiesMap = new Map(companies.map((company) => [company.id, company]));
-  const rows = workflows
-    .filter((workflow) => {
-      if (input.companyId && workflow.company_id !== input.companyId) {
-        return false;
-      }
+  // ui_workflow_list_v rolls up each workflow's run metrics in SQL. One query with a
+  // count gives the page + total; the run rollups are computed only for the page.
+  let query = context.supabase
+    .from("ui_workflow_list_v")
+    .select("*", { count: "exact" })
+    .eq("organization_id", context.organizationId);
+  if (input.companyId) {
+    query = query.eq("company_id", input.companyId);
+  }
+  if (input.status) {
+    query = query.eq("status", input.status);
+  }
+  if (input.triggerType) {
+    query = query.eq("trigger_type", input.triggerType);
+  }
+  // Sanitise the term to plain words before interpolating into a PostgREST or() filter
+  // (guards against filter injection); ilike is case-insensitive over name/description/trigger.
+  const search = input.search?.replace(/[^a-z0-9 ]/gi, " ").trim().toLowerCase();
+  if (search) {
+    query = query.or(
+      `name.ilike.%${search}%,description.ilike.%${search}%,trigger_type.ilike.%${search}%`,
+    );
+  }
+  const { data, count, error } = await query
+    .order("created_at", { ascending: false })
+    .range((input.page - 1) * input.pageSize, input.page * input.pageSize - 1);
+  if (error) {
+    throw error;
+  }
 
-      if (input.status && workflow.status !== input.status) {
-        return false;
-      }
-
-      if (input.triggerType && workflow.trigger_event !== input.triggerType) {
-        return false;
-      }
-
-      return matchesSearch([workflow.name, workflow.description, workflow.trigger_event], input.search);
-    })
-    .map((workflow) => {
-      const relatedRuns = workflowRuns.filter((run) => run.workflow_id === workflow.id);
-      const successfulRuns = relatedRuns.filter((run) => run.status === "completed").length;
-      const failedRuns = relatedRuns.filter((run) => run.status === "failed").length;
-      const lastRun = [...relatedRuns].sort((left, right) => right.created_at.localeCompare(left.created_at))[0];
-
-      return {
-        company: toCompanySummary(companiesMap.get(workflow.company_id ?? "")),
-        createdAt: workflow.created_at,
-        description: workflow.description,
-        id: workflow.id,
-        metrics: {
-          failedRuns,
-          successRate: relatedRuns.length === 0 ? 0 : Number(((successfulRuns / relatedRuns.length) * 100).toFixed(1)),
-          successfulRuns,
-          totalRuns: relatedRuns.length,
-        },
-        name: workflow.name,
-        recentRunSummary: {
-          lastRunAt: lastRun?.created_at ?? null,
-          lastRunStatus: lastRun?.status ?? null,
-          recentRunsCount: relatedRuns.filter((run) => new Date(run.created_at) >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)).length,
-        },
-        status: workflow.status,
-        triggerType: workflow.trigger_event,
-      } satisfies WorkflowListRow;
-    })
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const rows: WorkflowListRow[] = (data ?? []).map((row) => {
+    const totalRuns = row.total_runs ?? 0;
+    const successfulRuns = row.successful_runs ?? 0;
+    return {
+      company: companySummaryFromFields(row.company_id, row.company_name, row.company_stage),
+      createdAt: row.created_at ?? "",
+      description: row.description,
+      id: row.id ?? "",
+      metrics: {
+        failedRuns: row.failed_runs ?? 0,
+        successRate: totalRuns === 0 ? 0 : Number(((successfulRuns / totalRuns) * 100).toFixed(1)),
+        successfulRuns,
+        totalRuns,
+      },
+      name: row.name ?? "",
+      recentRunSummary: {
+        lastRunAt: row.last_run_at,
+        lastRunStatus: (row.last_run_status ?? null) as Tables<"workflow_runs">["status"] | null,
+        recentRunsCount: row.recent_runs_count ?? 0,
+      },
+      status: (row.status ?? "draft") as Tables<"workflows">["status"],
+      triggerType: row.trigger_type ?? "",
+    };
+  });
 
   return {
-    rows: paginateItems(rows, input),
+    rows: {
+      items: rows,
+      pagination: buildPaginationMeta(count ?? 0, input.page, input.pageSize),
+    },
   };
 }
 
@@ -2293,25 +2373,35 @@ export async function getWorkflowJobsListView(
     status?: Tables<"workflow_event_jobs">["status"] | null;
   },
 ): Promise<WorkflowJobsListResponse> {
-  const [workflowEventJobs, companies, activityEvents, summary] = await Promise.all([
+  const [workflowEventJobs, summary] = await Promise.all([
     listWorkflowEventJobs(context, {
       companyId: input.companyId,
       recentFailuresOnly: input.recentFailuresOnly,
       status: input.status,
     }),
-    listAllRows(context, "companies"),
-    listAllRows(context, "activity_events"),
     getWorkflowEventJobsHealthSummary(context, { companyId: input.companyId }),
   ]);
-  const companiesMap = new Map(companies.map((company) => [company.id, company]));
-  const activityEventMap = new Map(activityEvents.map((activityEvent) => [activityEvent.id, activityEvent]));
+  // Enrich only the companies/events these jobs reference — not the whole tables.
+  const companiesMap = await loadCompaniesMap(
+    context,
+    uniq(workflowEventJobs.map((job) => job.company_id)),
+  );
+  const eventIds = uniq(workflowEventJobs.map((job) => job.activity_event_id));
+  const { data: eventRows } = eventIds.length
+    ? await context.supabase
+        .from("activity_events")
+        .select("id, event_type")
+        .eq("organization_id", context.organizationId)
+        .in("id", eventIds)
+    : { data: [] as { id: string; event_type: string }[] };
+  const activityEventMap = new Map((eventRows ?? []).map((event) => [event.id, event.event_type]));
   const rows = workflowEventJobs
     .sort((left, right) => right.created_at.localeCompare(left.created_at))
     .map((job) => ({
-      activityEvent: activityEventMap.get(job.activity_event_id)
+      activityEvent: activityEventMap.has(job.activity_event_id)
         ? {
             id: job.activity_event_id,
-            label: activityEventMap.get(job.activity_event_id)?.event_type ?? job.activity_event_id,
+            label: activityEventMap.get(job.activity_event_id) ?? job.activity_event_id,
             type: "activity_event",
           }
         : null,

@@ -12,17 +12,24 @@ export interface TenantServiceContext {
 
 export type CommentEntityType = Tables<"comments">["entity_type"];
 
-type SupabaseQueryBuilder = ReturnType<AppSupabaseClient['from']>;
-
 export async function insertRow<T extends TableName>(
   context: TenantServiceContext,
   table: T,
   payload: Inserts<T>,
 ): Promise<Tables<T>> {
-  const { data, error } = await (context.supabase.from(table) as unknown as SupabaseQueryBuilder)
-    .insert(payload)
-    .select("*")
-    .single();
+  // Generic-table insert: supabase-js cannot resolve `.insert()` on a table chosen
+  // at runtime (the payload parameter collapses to `never`, and with views in the
+  // schema the builder is a wide union), so cast to a minimal insert surface keyed
+  // to Tables<T>. One sanctioned generic-table escape hatch, like the live-data
+  // reader and the json.ts boundary.
+  const builder = context.supabase.from(table as never) as unknown as {
+    insert: (payload: Inserts<T>) => {
+      select: (columns: string) => {
+        single: () => PromiseLike<{ data: Tables<T> | null; error: unknown }>;
+      };
+    };
+  };
+  const { data, error } = await builder.insert(payload).select("*").single();
 
   if (error) {
     throw error;
@@ -32,7 +39,7 @@ export async function insertRow<T extends TableName>(
     throw new Error(`${table} insert returned no data.`);
   }
 
-  return data as Tables<T>;
+  return data;
 }
 
 export async function assertCompanyInOrganization(

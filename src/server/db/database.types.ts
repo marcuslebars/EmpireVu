@@ -279,6 +279,8 @@ export interface Database {
           phone: string | null;
           /** Generated (stored): last 10 digits of `phone`, else null. Read-only. */
           phone_last10: string | null;
+          /** Generated (stored): lower(name + email + phone) for trigram search. Read-only. */
+          search_text: string;
           stage: Database["public"]["Enums"]["contact_stage"];
           updated_at: string;
         };
@@ -1763,7 +1765,114 @@ export interface Database {
         Relationships: [];
       };
     };
-    Views: Record<string, never>;
+    Views: {
+      ui_contact_list_v: {
+        Row: {
+          bookings_count: number | null;
+          company_id: string | null;
+          company_name: string | null;
+          company_stage: string | null;
+          email: string | null;
+          id: string | null;
+          last_activity_at: string | null;
+          last_activity_event_type: string | null;
+          name: string | null;
+          next_action_detail: string | null;
+          next_action_due_at: string | null;
+          next_action_label: string | null;
+          next_action_type: string | null;
+          organization_id: string | null;
+          owner_email: string | null;
+          owner_full_name: string | null;
+          owner_id: string | null;
+          owner_profile_id: string | null;
+          phone: string | null;
+          pipeline_value_cents: number | null;
+          realized_revenue_cents: number | null;
+          search_text: string | null;
+          stage: string | null;
+          upcoming_bookings_count: number | null;
+        };
+        Relationships: [];
+      };
+      ui_task_list_v: {
+        Row: {
+          assigned_to_profile_id: string | null;
+          assignee_email: string | null;
+          assignee_full_name: string | null;
+          assignee_id: string | null;
+          booking_id: string | null;
+          booking_title: string | null;
+          comments_count: number | null;
+          company_id: string | null;
+          company_name: string | null;
+          company_stage: string | null;
+          contact_company_id: string | null;
+          contact_company_name: string | null;
+          contact_company_stage: string | null;
+          contact_email: string | null;
+          contact_first_name: string | null;
+          contact_last_name: string | null;
+          contact_id: string | null;
+          contact_phone: string | null;
+          contact_stage: string | null;
+          created_at: string | null;
+          description: string | null;
+          due_at: string | null;
+          id: string | null;
+          is_overdue: boolean | null;
+          organization_id: string | null;
+          priority: string | null;
+          search_text: string | null;
+          status: string | null;
+          title: string | null;
+          workflow_id: string | null;
+          workflow_name: string | null;
+        };
+        Relationships: [];
+      };
+      ui_workflow_jobs_v: {
+        Row: {
+          activity_event_id: string | null;
+          activity_event_type: string | null;
+          attempt_count: number | null;
+          available_at: string | null;
+          company_id: string | null;
+          company_name: string | null;
+          company_stage: string | null;
+          completed_at: string | null;
+          created_at: string | null;
+          id: string | null;
+          last_attempted_at: string | null;
+          last_error: string | null;
+          locked_at: string | null;
+          organization_id: string | null;
+          status: string | null;
+        };
+        Relationships: [];
+      };
+      ui_workflow_list_v: {
+        Row: {
+          company_id: string | null;
+          company_name: string | null;
+          company_stage: string | null;
+          created_at: string | null;
+          description: string | null;
+          failed_runs: number | null;
+          id: string | null;
+          last_run_at: string | null;
+          last_run_status: string | null;
+          name: string | null;
+          organization_id: string | null;
+          recent_runs_count: number | null;
+          status: string | null;
+          successful_runs: number | null;
+          total_runs: number | null;
+          trigger_type: string | null;
+        };
+        Relationships: [];
+      };
+    };
     Functions: {
       claim_billing_event_jobs: {
         Args: {
@@ -1803,6 +1912,90 @@ export interface Database {
           p_organization_id?: string;
         };
         Returns: string;
+      };
+      ui_activity_feed: {
+        Args: {
+          p_org_id: string;
+          p_company_id?: string;
+          p_limit?: number;
+          p_before_ts?: string;
+        };
+        Returns: Database["public"]["Tables"]["activity_events"]["Row"][];
+      };
+      ui_automation_impact: {
+        Args: {
+          p_org_id: string;
+          p_company_id?: string;
+          p_since_ts?: string;
+        };
+        Returns: {
+          estimated_time_saved_seconds: number;
+          failed_jobs_count: number;
+          successful_runs: number;
+          tasks_auto_created: number;
+          total_workflow_runs: number;
+        }[];
+      };
+      ui_calendar_bookings: {
+        Args: {
+          p_org_id: string;
+          p_company_id?: string;
+          p_from_ts?: string;
+          p_to_ts?: string;
+        };
+        Returns: {
+          id: string;
+          scheduled_for: string;
+          duration_minutes: number;
+          status: string;
+          title: string;
+          description: string | null;
+          company_id: string | null;
+          company_name: string | null;
+          company_stage: string | null;
+          contact_id: string | null;
+          contact_name: string | null;
+          contact_email: string | null;
+          contact_phone: string | null;
+          contact_stage: string | null;
+          contact_company_id: string | null;
+          contact_company_name: string | null;
+          contact_company_stage: string | null;
+          task_count: number;
+          highest_priority: string | null;
+          assigned_profile_ids: string[];
+          revenue_cents: number | null;
+        }[];
+      };
+      ui_contact_detail: {
+        Args: { p_org_id: string; p_contact_id: string };
+        Returns: Json;
+      };
+      ui_dashboard_summary: {
+        Args: { p_org_id: string; p_company_id?: string };
+        Returns: {
+          active_workflow_count: number;
+          failed_workflow_job_count: number;
+          new_lead_count: number;
+          overdue_task_count: number;
+          revenue_today_cents: number;
+          revenue_week_cents: number;
+          today_booking_count: number;
+          upcoming_booking_count: number;
+          urgent_task_count: number;
+        }[];
+      };
+      ui_task_detail: {
+        Args: { p_org_id: string; p_task_id: string };
+        Returns: Json;
+      };
+      ui_value_cents: {
+        Args: { p: Json };
+        Returns: number;
+      };
+      ui_workflow_detail: {
+        Args: { p_org_id: string; p_workflow_id: string };
+        Returns: Json;
       };
     };
     Enums: {
