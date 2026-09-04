@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { verifyIntakeSignature } from "@/server/services/lead-intake/hmac";
 import { handleLeadIntake } from "@/server/services/lead-intake/intake";
+import { enforceWebhookBackstop } from "@/server/services/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,9 @@ export const dynamic = "force-dynamic";
  * and the response echoes no data (write-only in effect).
  */
 export async function POST(request: Request): Promise<NextResponse> {
+  const backstop = await enforceWebhookBackstop(request, "intake");
+  if (backstop) return backstop;
+
   const secret = process.env.LEAD_INTAKE_SECRET;
   const rawBody = await request.text();
 

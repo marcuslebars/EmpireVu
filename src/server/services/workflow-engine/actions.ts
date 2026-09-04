@@ -8,6 +8,7 @@ import type { TenantServiceContext } from "@/server/services/shared";
 import { assignTaskUser, createTask, updateTaskStatus } from "@/server/services/tasks";
 import { createDraftForContact } from "@/server/services/ai-drafts";
 import { callContactWithMarina } from "@/server/services/voice";
+import { assertPaidActionAllowed, unauthenticatedSource } from "@/server/services/workflow-engine/guards";
 import type {
   WorkflowAction,
   WorkflowEventContext,
@@ -210,7 +211,11 @@ export async function executeWorkflowActions(
         projectedActions.push({ action, resolvedPayload: { contact_id: contactId } });
 
         if (!options.dryRun) {
-          await callContactWithMarina(context, contactId);
+          // Abuse guard for this PAID action: refuse (cooldown / daily cap) when the
+          // trigger came from an unauthenticated source; authenticated triggers pass.
+          const triggerSource = unauthenticatedSource(eventContext);
+          await assertPaidActionAllowed(context, eventContext, action, contactId);
+          await callContactWithMarina(context, contactId, { triggerSource });
         }
 
         actionsExecutedCount += 1;

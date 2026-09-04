@@ -119,6 +119,15 @@ export function toE164(raw: string): string | null {
 export async function callContactWithMarina(
   context: TenantServiceContext,
   contactId: string,
+  options?: {
+    /**
+     * The unauthenticated trigger source, when this call was placed by an automation
+     * reacting to a public/unverified event (public_booking, waitlist, …). Recorded on
+     * the call_placed event so the abuse guard can count unauthenticated-sourced calls
+     * toward the daily cap. Null/omitted for owner-initiated (authenticated) calls.
+     */
+    triggerSource?: string | null;
+  },
 ): Promise<PlaceCallResult> {
   const { data, error } = await context.supabase
     .from("contacts")
@@ -172,6 +181,9 @@ export async function callContactWithMarina(
         agentCallId: outcome.agentCallId,
         channel: "voice",
         toNumber: outcome.toNumber,
+        // Tag unauthenticated-sourced calls so the abuse guard can count them (Task 5);
+        // omitted for owner-initiated calls so they don't count toward the public cap.
+        ...(options?.triggerSource ? { triggerSource: options.triggerSource } : {}),
       },
     });
   } catch {

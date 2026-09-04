@@ -1818,6 +1818,24 @@ export interface Database {
         };
         Relationships: [];
       };
+      rate_limit_buckets: {
+        Row: {
+          bucket_key: string;
+          hits: number;
+          window_started_at: string;
+        };
+        Insert: {
+          bucket_key: string;
+          hits?: number;
+          window_started_at?: string;
+        };
+        Update: {
+          bucket_key?: string;
+          hits?: number;
+          window_started_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       ui_contact_list_v: {
@@ -1959,6 +1977,14 @@ export interface Database {
           p_stale_after_seconds?: number;
         };
         Returns: Database["public"]["Tables"]["workflow_event_jobs"]["Row"][];
+      };
+      consume_rate_limit: {
+        Args: {
+          p_key: string;
+          p_limit: number;
+          p_window_seconds: number;
+        };
+        Returns: boolean;
       };
       next_quote_number: {
         Args: {

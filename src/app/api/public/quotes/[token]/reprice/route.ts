@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { handleRoute } from "@/server/api/route";
+import { enforceRateLimit } from "@/server/services/rate-limit";
 import { getQuotesConfig } from "@/server/services/quotes/config";
 import { getPublicQuote, isApprovable, repriceForSelection } from "@/server/services/quotes/public-service";
 
@@ -34,6 +35,15 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     }
 
     const token = context.params.token;
+
+    const limited = await enforceRateLimit(request, {
+      scope: "public_quote_reprice",
+      limit: 20,
+      windowSeconds: 600,
+      keyParts: [token],
+    });
+    if (limited) return limited;
+
     const quote = await getPublicQuote(token);
     if (!quote) return NextResponse.json({ error: "Not found." }, { status: 404 });
 

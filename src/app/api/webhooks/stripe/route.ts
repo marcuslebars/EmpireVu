@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { recordBillingEvent } from "@/server/services/billing/events";
 import { getStripeClient } from "@/server/services/billing/stripe";
+import { enforceWebhookBackstop } from "@/server/services/rate-limit";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,9 @@ export const dynamic = "force-dynamic";
  * Only a durable-write failure returns 500, so Stripe retries the delivery.
  */
 export async function POST(request: Request): Promise<NextResponse> {
+  const backstop = await enforceWebhookBackstop(request, "stripe_webhook");
+  if (backstop) return backstop;
+
   const rawBody = await request.text();
   const signature = request.headers.get("stripe-signature");
 

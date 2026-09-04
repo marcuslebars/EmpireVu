@@ -21,10 +21,14 @@ import { handleDepositCheckoutCompleted } from "@/server/services/quotes/checkou
 import { getQuotesConfig } from "@/server/services/quotes/config";
 import { getPlatformStripe } from "@/server/services/quotes/company-stripe";
 import { syncConnectedAccountState } from "@/server/services/quotes/connect";
+import { enforceWebhookBackstop } from "@/server/services/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<NextResponse> {
+  const backstop = await enforceWebhookBackstop(request, "stripe_connect_webhook");
+  if (backstop) return backstop;
+
   const secret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
   if (!secret) {
     // Misconfiguration, not a bad request: 500 so Stripe RETRIES once the

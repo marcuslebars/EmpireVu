@@ -11,6 +11,7 @@ import {
   readString,
 } from "@/server/services/telnyx/payload";
 import { createTelnyxAdminClient, resolveTenantByCalledNumber } from "@/server/services/telnyx/tenant";
+import { enforceWebhookBackstop } from "@/server/services/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,9 @@ export const dynamic = "force-dynamic";
  * response stays fast.
  */
 export async function POST(request: Request): Promise<NextResponse> {
+  const backstop = await enforceWebhookBackstop(request, "telnyx_insights");
+  if (backstop) return backstop;
+
   if (!verifyTelnyxSecret(request)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }

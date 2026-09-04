@@ -3,6 +3,8 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { clientIp, enforceRateLimit } from "@/server/services/rate-limit";
+import { assessFormSignals, verifyTurnstile } from "@/server/services/turnstile";
 import { notifyNewWaitlistSignup } from "@/server/services/waitlist/notify";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
@@ -44,8 +46,16 @@ function corsHeaders(origin: string | null): Record<string, string> {
 const bodySchema = z.object({
   email: z.string().trim().toLowerCase().email().max(320),
   business: z.string().trim().max(200).optional(),
-  // Honeypot: a hidden field a real person never fills; bots do. Present => drop.
+  // Honeypots: hidden fields a real person never fills; bots do. Present => drop.
+  // `company_url` predates Task 5; `website` is the shared honeypot name used across
+  // the public forms. Either being filled trips the trap.
   company_url: z.string().max(200).optional(),
+  website: z.string().max(200).optional(),
+  // Client timestamp (epoch ms or ISO) captured when the form was first shown; a
+  // sub-3s submission is treated as a bot. Optional — absence is not a failure.
+  formStartedAt: z.union([z.number(), z.string()]).optional(),
+  // Cloudflare Turnstile token; verified only once TURNSTILE_SECRET_KEY is set.
+  turnstileToken: z.string().max(4000).optional(),
 });
 
 export async function OPTIONS(request: Request): Promise<NextResponse> {
@@ -58,6 +68,16 @@ export async function OPTIONS(request: Request): Promise<NextResponse> {
 export async function POST(request: Request): Promise<NextResponse> {
   const cors = corsHeaders(request.headers.get("origin"));
 
+  // 3 signups per hour per IP. A generous cap for a real person; a wall for a script.
+  const limited = await enforceRateLimit(request, {
+    scope: "waitlist_post",
+    limit: 3,
+    windowSeconds: 3600,
+    keyParts: [clientIp(request)],
+    responseHeaders: cors,
+  });
+  if (limited) return limited;
+
   let parsed: z.infer<typeof bodySchema>;
   try {
     parsed = bodySchema.parse(await request.json());
@@ -65,9 +85,25 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Enter a valid email." }, { status: 400, headers: cors });
   }
 
-  // Honeypot tripped — behave like success, persist nothing.
-  if (parsed.company_url && parsed.company_url.trim().length > 0) {
+  // Honeypot (either field) or an implausibly fast submit — behave like success, persist
+  // nothing. Silent so a bot can't tell it was caught.
+  const signals = assessFormSignals({
+    honeypot: parsed.website ?? parsed.company_url,
+    formStartedAt: parsed.formStartedAt,
+  });
+  if (!signals.ok) {
     return NextResponse.json({ data: { ok: true } }, { status: 200, headers: cors });
+  }
+
+  // Cloudflare Turnstile — skipped until TURNSTILE_SECRET_KEY is set (fail-open), then
+  // a missing/invalid token is rejected. The empirevu.com form must render the widget
+  // and post `turnstileToken` before the secret is enabled (see RUNBOOK).
+  const turnstile = await verifyTurnstile(request, parsed.turnstileToken);
+  if (!turnstile.ok) {
+    return NextResponse.json(
+      { error: "Please complete the verification and try again." },
+      { status: 400, headers: cors },
+    );
   }
 
   try {

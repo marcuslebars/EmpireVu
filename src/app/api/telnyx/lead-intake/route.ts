@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { logTelnyxPayload, verifyTelnyxSecret } from "@/server/services/telnyx/auth";
 import { ingestTelnyxLead } from "@/server/services/telnyx/lead-adapter";
+import { enforceWebhookBackstop } from "@/server/services/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,9 @@ export const dynamic = "force-dynamic";
  * lead instead of creating a duplicate.
  */
 export async function POST(request: Request): Promise<NextResponse> {
+  const backstop = await enforceWebhookBackstop(request, "telnyx_lead_intake");
+  if (backstop) return backstop;
+
   if (!verifyTelnyxSecret(request)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }

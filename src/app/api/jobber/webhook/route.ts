@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { getJobberConfig } from "@/server/services/jobber/config";
 import { verifyJobberWebhook } from "@/server/services/jobber/hmac";
 import { enqueueInboundWebhookJob } from "@/server/services/inbound-webhook-jobs";
+import { enforceWebhookBackstop } from "@/server/services/rate-limit";
 // Jobber is a sanctioned service-role surface (convention #2); the webhook has no user
 // session, so the durable enqueue runs on the admin client.
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
@@ -31,6 +32,9 @@ function jobberEventId(payload: unknown): string | null {
  * app client secret.
  */
 export async function POST(request: Request): Promise<NextResponse> {
+  const backstop = await enforceWebhookBackstop(request, "jobber_webhook");
+  if (backstop) return backstop;
+
   const cfg = getJobberConfig();
   const rawBody = await request.text();
   const signature = request.headers.get("x-jobber-hmac-sha256");
