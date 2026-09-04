@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
+import { processInboundWebhookJobs } from "@/server/services/inbound-webhook-jobs";
 import {
   claimWorkflowEventJobs,
   processWorkflowEventJob,
@@ -33,11 +34,6 @@ async function main(): Promise<void> {
       workerId,
     });
 
-    if (claimedJobs.length === 0) {
-      await sleep(pollIntervalMs);
-      continue;
-    }
-
     for (const job of claimedJobs) {
       try {
         await processWorkflowEventJob(supabase, job);
@@ -47,6 +43,25 @@ async function main(): Promise<void> {
           jobId: job.id,
         });
       }
+    }
+
+    // Same process, same tick: drain the durable inbound-webhook queue (Retell/Jobber).
+    // processInboundWebhookJobs handles per-job success/backoff/dead-letter internally.
+    let inboundProcessed = 0;
+    try {
+      inboundProcessed = await processInboundWebhookJobs(supabase, {
+        batch: claimLimit,
+        staleAfterSeconds,
+        workerId,
+      });
+    } catch (error) {
+      console.error("inbound-webhook drain failed", {
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+
+    if (claimedJobs.length === 0 && inboundProcessed === 0) {
+      await sleep(pollIntervalMs);
     }
   }
 }

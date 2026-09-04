@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 
 import { handleRoute } from "@/server/api/route";
 import { requireOrganizationContext } from "@/server/organizations/context";
+import { getInboundWebhookJobsHealth } from "@/server/services/inbound-webhook-jobs";
 import { getWorkflowEventJobsHealthSummary } from "@/server/services/workflow-event-jobs";
+// Aggregate-only read of the platform inbound-webhook queue (service-role; the table
+// has no member RLS). No tenant rows are read — just pending/running/failed counts.
+import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +34,8 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
         staleAfterSeconds: 900,
       },
     );
+    const inboundWebhookJobs = await getInboundWebhookJobsHealth(createSupabaseAdminClient());
 
-    return NextResponse.json({ data: summary });
+    return NextResponse.json({ data: { ...summary, inboundWebhookJobs } });
   });
 }

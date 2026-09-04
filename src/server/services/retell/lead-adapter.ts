@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 import type { Inserts, Json } from "@/server/db/database.types";
+import { toJson } from "@/server/db/json";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { LEAD_SCHEMA_VERSION } from "@/server/services/lead-intake/envelope";
 import { handleLeadIntake } from "@/server/services/lead-intake/intake";
@@ -388,6 +389,27 @@ export async function ingestRetellCall(payload: unknown): Promise<RetellWebhookR
   if (!cfg.enabled) return { handled: "skipped" };
   const result = await runPhoneLeadIntake(fields, payload);
   return { handled: "inbound", leadId: result.leadId };
+}
+
+/**
+ * Durable-first landing write for the webhook route: persist the raw call into
+ * retell_calls (INSERT … ON CONFLICT (call_id) DO NOTHING) BEFORE the route enqueues
+ * and ACKs, so the call is never lost between the 200 and processing. Deliberately a
+ * do-nothing insert: it never clobbers a row an earlier event (e.g. a mid-call
+ * capture) already enriched — the worker's ingestRetellCall does the full, tenant
+ * -resolved upsert. Returns the call_id (used as the inbound_webhook_jobs external_id).
+ */
+export async function persistRetellCallRaw(admin: RetellAdminClient, payload: unknown): Promise<string> {
+  const fields = readRetellCallFields(payload);
+  const callId = fields.callId ?? `retell_nocid_${randomBytes(8).toString("hex")}`;
+  const { error } = await admin.from("retell_calls").upsert(
+    { call_id: callId, raw_payload: toJson(payload), received_at: new Date().toISOString() },
+    { onConflict: "call_id", ignoreDuplicates: true },
+  );
+  if (error) {
+    throw error;
+  }
+  return callId;
 }
 
 /**
