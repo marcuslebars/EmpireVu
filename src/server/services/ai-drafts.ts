@@ -10,6 +10,7 @@ import { createActivityEvent } from "@/server/services/activity-events";
 import { analyzeContact } from "@/server/services/ai";
 import { createBooking } from "@/server/services/bookings";
 import { assertContactInOrganization, insertRow, type TenantServiceContext } from "@/server/services/shared";
+import { recordUsageSafe } from "@/server/services/usage";
 
 export type AiDraft = Tables<"ai_drafts">;
 
@@ -232,8 +233,9 @@ export async function sendDraftEmail(
     throw new ValidationError("This contact has no email address to send to.");
   }
 
+  let emailResult: { id: string | null } | undefined;
   try {
-    await sendEmail({ body, subject, to: contact.email });
+    emailResult = await sendEmail({ body, subject, to: contact.email });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await updateDraftRow(context, draftId, { email_error: message, email_status: "failed" });
@@ -249,6 +251,18 @@ export async function sendDraftEmail(
   await recordDraftEvent(context, sent, "ai_draft.email_sent", {
     subject,
     to: contact.email,
+  });
+
+  // Meter the customer email (Task 6). Best-effort — never fails a send that landed.
+  await recordUsageSafe({
+    organizationId: context.organizationId,
+    companyId: draft.company_id,
+    kind: "email_sent",
+    quantity: 1,
+    unit: "message",
+    provider: "resend",
+    providerRef: emailResult?.id ?? null,
+    metadata: { draftId: draft.id },
   });
 
   return sent;
@@ -274,8 +288,9 @@ export async function sendDraftSms(
     throw new ValidationError("This contact has no phone number to send to.");
   }
 
+  let smsResult: { sid: string | null } | undefined;
   try {
-    await sendSms({ body, to: contact.phone });
+    smsResult = await sendSms({ body, to: contact.phone });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await updateDraftRow(context, draftId, { sms_error: message, sms_status: "failed" });
@@ -289,6 +304,18 @@ export async function sendDraftSms(
   });
 
   await recordDraftEvent(context, sent, "ai_draft.sms_sent", { to: contact.phone });
+
+  // Meter the customer SMS (Task 6). Best-effort.
+  await recordUsageSafe({
+    organizationId: context.organizationId,
+    companyId: draft.company_id,
+    kind: "sms_sent",
+    quantity: 1,
+    unit: "message",
+    provider: "twilio",
+    providerRef: smsResult?.sid ?? null,
+    metadata: { draftId: draft.id },
+  });
 
   return sent;
 }

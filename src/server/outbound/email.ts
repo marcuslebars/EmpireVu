@@ -59,7 +59,12 @@ export function isEmailSendConfigured(): boolean {
   return readEmailConfig() !== null;
 }
 
-export async function sendEmail(input: SendEmailInput): Promise<void> {
+/** The Resend message id, when returned — used as the usage idempotency key. */
+export interface SendEmailResult {
+  id: string | null;
+}
+
+export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
   const config = readEmailConfig();
 
   if (!config) {
@@ -99,6 +104,17 @@ export async function sendEmail(input: SendEmailInput): Promise<void> {
       `Resend rejected the email (${response.status})${detail ? `: ${detail}` : ""}`,
     );
   }
+
+  let id: string | null = null;
+  try {
+    const payload = (await response.json()) as unknown;
+    if (payload && typeof payload === "object" && "id" in payload) {
+      id = String((payload as { id: unknown }).id);
+    }
+  } catch {
+    // No/invalid JSON body — we simply won't have a provider id for metering.
+  }
+  return { id };
 }
 
 /**

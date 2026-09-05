@@ -5,6 +5,7 @@ import { ZodError } from "zod";
 import {
   AuthenticationError,
   AuthorizationError,
+  UsageCapExceeded,
   ValidationError,
 } from "@/server/organizations/context";
 
@@ -96,6 +97,10 @@ function getStatusCode(error: unknown): number {
 
   if (error instanceof AuthorizationError) {
     return 403;
+  }
+
+  if (error instanceof UsageCapExceeded) {
+    return 402;
   }
 
   if (error instanceof ValidationError || error instanceof ZodError) {

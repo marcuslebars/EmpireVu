@@ -28,11 +28,16 @@ function fakeSupabase(tables: Record<string, unknown>) {
   return { from } as unknown as TenantServiceContext["supabase"] & { from: typeof from };
 }
 
+// The guard now checks the usage cap first (Task 6). An internal org has an unlimited
+// allowance (orgUsageRemaining → null), so the cap is skipped and the abuse checks below
+// behave as before unless a test overrides `organizations`.
+const INTERNAL_ORG = { plan: "internal", subscription_status: "active", trial_ends_at: null };
+
 function context(tables: Record<string, unknown>): TenantServiceContext {
   return {
     actorProfileId: null,
     organizationId: "org-1",
-    supabase: fakeSupabase(tables),
+    supabase: fakeSupabase({ organizations: INTERNAL_ORG, ...tables }),
   } as unknown as TenantServiceContext;
 }
 
@@ -67,10 +72,22 @@ describe("unauthenticatedSource", () => {
 });
 
 describe("assertPaidActionAllowed", () => {
-  it("bypasses entirely for authenticated triggers (no DB reads)", async () => {
+  it("passes an authenticated trigger with headroom (no cooldown/cap refusal)", async () => {
     const ctx = context({});
     await expect(assertPaidActionAllowed(ctx, authEvent(), CALL_LEAD, "contact-1")).resolves.toBeUndefined();
-    expect((ctx.supabase as unknown as { from: ReturnType<typeof vi.fn> }).from).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the Front Desk monthly voice-minutes cap is spent (guard:usage_cap)", async () => {
+    const ctx = context({
+      organizations: { plan: "front_desk", subscription_status: "active", trial_ends_at: null },
+      subscriptions: null,
+      feature_flags: null,
+      usage_monthly_v: [{ kind: "voice_minutes", quantity: 500, cost_cents: 0, company_id: null }],
+    });
+    // Applies regardless of source — an authenticated trigger is still capped.
+    await expect(assertPaidActionAllowed(ctx, authEvent(), CALL_LEAD, "contact-1")).rejects.toThrowError(
+      "guard:usage_cap",
+    );
   });
 
   it("refuses a second call to the same phone within 24h (guard:cooldown)", async () => {

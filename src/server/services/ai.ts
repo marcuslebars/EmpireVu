@@ -1,6 +1,7 @@
 import type { Tables } from "@/server/db/database.types";
 import { ValidationError } from "@/server/organizations/context";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { recordAiUsageSafe } from "@/server/services/usage";
 import {
   analyzeLead,
   isAIConfigured,
@@ -126,7 +127,7 @@ export async function analyzeContact(
   const bookingUrl =
     appBaseUrl && contact.company_id ? `${appBaseUrl}/book/${contact.company_id}` : null;
 
-  return analyzeLead({
+  const { analysis, usage } = await analyzeLead({
     firstName: contact.first_name,
     lastName: contact.last_name,
     email: contact.email,
@@ -139,4 +140,13 @@ export async function analyzeContact(
     scheduling,
     bookingUrl,
   });
+
+  // Meter AI token usage (Task 6). Best-effort — never fails the analysis.
+  await recordAiUsageSafe({
+    organizationId: context.organizationId,
+    companyId: contact.company_id,
+    ...usage,
+  });
+
+  return analysis;
 }

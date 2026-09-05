@@ -38,7 +38,12 @@ export function isSmsSendConfigured(): boolean {
   return readSmsConfig() !== null;
 }
 
-export async function sendSms(input: SendSmsInput): Promise<void> {
+/** The Twilio message SID, when the API returned one — used as the usage idempotency key. */
+export interface SendSmsResult {
+  sid: string | null;
+}
+
+export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
   const config = readSmsConfig();
 
   if (!config) {
@@ -88,4 +93,15 @@ export async function sendSms(input: SendSmsInput): Promise<void> {
       `Twilio rejected the message (${response.status})${detail ? `: ${detail}` : ""}`,
     );
   }
+
+  let sid: string | null = null;
+  try {
+    const payload = (await response.json()) as unknown;
+    if (payload && typeof payload === "object" && "sid" in payload) {
+      sid = String((payload as { sid: unknown }).sid);
+    }
+  } catch {
+    // No/invalid JSON body — we simply won't have a provider id for metering.
+  }
+  return { sid };
 }

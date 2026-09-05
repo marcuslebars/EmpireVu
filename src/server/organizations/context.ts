@@ -8,6 +8,8 @@ type AppSupabaseClient = ReturnType<typeof createSupabaseServerClient>;
 export class AuthenticationError extends Error {}
 export class AuthorizationError extends Error {}
 export class ValidationError extends Error {}
+/** A metered allowance for the month is exhausted (Task 6). Maps to HTTP 402 in handleRoute. */
+export class UsageCapExceeded extends Error {}
 
 export interface OrganizationContext {
   membership: Tables<"organization_memberships">;

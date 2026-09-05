@@ -27,6 +27,7 @@ import {
   fetchInvitationPreview,
   acceptInvitation,
   fetchBilling,
+  fetchMonthlyUsage,
   fetchBillingPlans,
   createCheckout,
   createBillingPortal,
@@ -580,6 +581,15 @@ export function useBillingPlans(orgId: string) {
     queryFn: () => fetchBillingPlans(orgId),
     enabled: Boolean(orgId),
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useMonthlyUsage(orgId: string) {
+  return useQuery({
+    queryKey: ["usage", "monthly", orgId],
+    queryFn: () => fetchMonthlyUsage(orgId),
+    enabled: Boolean(orgId),
+    staleTime: 60 * 1000,
   });
 }
 

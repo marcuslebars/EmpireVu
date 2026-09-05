@@ -10,6 +10,7 @@ import {
   useBillingPlans,
   useCreateCheckout,
   useCreateBillingPortal,
+  useMonthlyUsage,
 } from "@/lib/api-hooks";
 import type { PlanPricing, PurchasablePlan } from "@/lib/api-client";
 
@@ -48,6 +49,53 @@ function formatPrice(p: PlanPricing): string {
   }).format(p.amountCents / 100);
   const per = p.interval === "year" ? "/yr" : p.interval === "month" ? "/mo" : "";
   return `${amount}${per}`;
+}
+
+function UsageStat({ label, value, sub, warn }: { label: string; value: string; sub?: string; warn?: boolean }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-3">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="mt-1 text-lg font-bold text-foreground">{value}</p>
+      {sub && (
+        <p className={cn("text-[11px] mt-0.5", warn ? "text-[hsl(var(--warning))]" : "text-muted-foreground")}>{sub}</p>
+      )}
+    </div>
+  );
+}
+
+/** This month's metered usage — minutes vs cap, messages, and the AI cost estimate (Task 6). */
+function ThisMonthPanel({ organizationId }: { organizationId: string }) {
+  const { data, isLoading } = useMonthlyUsage(organizationId);
+
+  const money = (cents: number) =>
+    new Intl.NumberFormat("en", { style: "currency", currency: "USD" }).format(cents / 100);
+
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-foreground mb-3">This month</h3>
+      {isLoading || !data ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading usage…
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <UsageStat
+            label="Marina minutes"
+            value={
+              data.voiceMinutesCap != null
+                ? `${data.voiceMinutes} / ${data.voiceMinutesCap}`
+                : String(data.voiceMinutes)
+            }
+            sub={data.voiceOverageMinutes > 0 ? `${data.voiceOverageMinutes} min over cap` : undefined}
+            warn={data.voiceOverageMinutes > 0}
+          />
+          <UsageStat label="SMS sent" value={String(data.smsSent)} />
+          <UsageStat label="Emails sent" value={String(data.emailsSent)} />
+          <UsageStat label="AI cost (est.)" value={money(data.aiCostCents)} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function BillingSettings() {
@@ -161,6 +209,9 @@ export function BillingSettings() {
           )}
         </div>
       </div>
+
+      {/* This month's metered usage */}
+      <ThisMonthPanel organizationId={organizationId} />
 
       {/* Plan comparison */}
       <div>
