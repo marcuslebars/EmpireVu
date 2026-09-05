@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 
+import { getWorkflowsModel } from "@/server/ai/config";
+import { extractAiUsage, type AiUsageMeta } from "@/server/ai/claude";
 import { supportedWorkflowTriggerEventTypes } from "@/server/services/workflow-engine/types";
 
 /**
@@ -138,13 +140,17 @@ function stripJsonFences(text: string): string {
     .trim();
 }
 
-export async function proposeWorkflows(snapshot: BusinessSnapshot): Promise<SuggestedWorkflow[]> {
+export async function proposeWorkflows(
+  snapshot: BusinessSnapshot,
+): Promise<{ suggestions: SuggestedWorkflow[]; usage: AiUsageMeta }> {
   const client = new Anthropic();
+  const model = getWorkflowsModel();
 
   const response = await client.messages.create({
-    model: "claude-opus-4-8",
+    model,
     max_tokens: 4096,
-    system: SYSTEM_PROMPT,
+    // Cache the static system prompt (Task 6) — identical across every snapshot.
+    system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
     messages: [
       {
         role: "user",
@@ -152,6 +158,7 @@ export async function proposeWorkflows(snapshot: BusinessSnapshot): Promise<Sugg
       },
     ],
   });
+  const usage = extractAiUsage(response, model);
 
   const textBlock = response.content.find((block) => block.type === "text");
   const raw = textBlock && textBlock.type === "text" ? textBlock.text : "";
@@ -168,10 +175,13 @@ export async function proposeWorkflows(snapshot: BusinessSnapshot): Promise<Sugg
   // Belt and braces: the prompt says not to propose ai_analyze when AI is off,
   // but a suggestion that can only fail shouldn't reach the owner either way.
   if (snapshot.aiConfigured) {
-    return result.suggestions;
+    return { suggestions: result.suggestions, usage };
   }
 
-  return result.suggestions.filter(
-    (suggestion) => !suggestion.actions.some((action) => action.type === "ai_analyze"),
-  );
+  return {
+    suggestions: result.suggestions.filter(
+      (suggestion) => !suggestion.actions.some((action) => action.type === "ai_analyze"),
+    ),
+    usage,
+  };
 }

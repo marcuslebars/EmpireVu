@@ -9,6 +9,7 @@ import { toJson } from "@/server/db/json";
 import { ValidationError } from "@/server/organizations/context";
 import { parseWorkflowDefinition } from "@/server/services/workflow-engine/definitions";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { recordAiUsageSafe } from "@/server/services/usage";
 
 /** A suggestion plus the engine-ready definition it compiles to. */
 export interface WorkflowSuggestion extends SuggestedWorkflow {
@@ -101,7 +102,10 @@ export async function suggestWorkflows(
   }
 
   const snapshot = await loadBusinessSnapshot(context);
-  const suggestions = await proposeWorkflows(snapshot);
+  const { suggestions, usage } = await proposeWorkflows(snapshot);
+
+  // Meter AI token usage (Task 6). Org-level suggestion, so no company. Best-effort.
+  await recordAiUsageSafe({ organizationId: context.organizationId, companyId: null, ...usage });
 
   const compiled: WorkflowSuggestion[] = [];
   for (const suggestion of suggestions) {

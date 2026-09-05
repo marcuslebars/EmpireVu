@@ -1,4 +1,5 @@
 import type { Json } from "@/server/db/database.types";
+import { orgUsageRemaining } from "@/server/services/billing/gating";
 import type { TenantServiceContext } from "@/server/services/shared";
 import type { WorkflowAction, WorkflowEventContext } from "@/server/services/workflow-engine/types";
 
@@ -17,7 +18,7 @@ export const PUBLIC_OUTBOUND_CALLS_DAILY_FEATURE = "public_outbound_calls_daily"
 const DEFAULT_DAILY_CAP = 20;
 const COOLDOWN_HOURS = 24;
 
-export type PaidActionGuardReason = "guard:cooldown" | "guard:daily_cap";
+export type PaidActionGuardReason = "guard:cooldown" | "guard:daily_cap" | "guard:usage_cap";
 
 /**
  * A deliberate, expected refusal — NOT a crash. Its message is the reason string, so the
@@ -92,9 +93,18 @@ export async function assertPaidActionAllowed(
   action: WorkflowAction,
   contactId: string | null,
 ): Promise<void> {
+  // Usage cap (Task 6): an outbound paid call is refused once the month's metered
+  // allowance (Front Desk voice minutes) is spent — regardless of trigger source.
+  // Unlimited plans (or features with no cap) return null and pass.
+  const remaining = await orgUsageRemaining(context.supabase, context.organizationId, "marina_reception");
+  if (remaining !== null && remaining <= 0) {
+    logRefusal("guard:usage_cap", action, context.organizationId, eventContext.companyId);
+    throw new PaidActionGuardError("guard:usage_cap");
+  }
+
   const source = unauthenticatedSource(eventContext);
   if (!source) {
-    return; // authenticated or trusted — no throttle
+    return; // authenticated or trusted — no further throttle
   }
 
   // The call targets the contact's company; fall back to the event's company.

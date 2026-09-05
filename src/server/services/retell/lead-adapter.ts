@@ -6,6 +6,7 @@ import { createActivityEvent } from "@/server/services/activity-events";
 import { LEAD_SCHEMA_VERSION } from "@/server/services/lead-intake/envelope";
 import { handleLeadIntake } from "@/server/services/lead-intake/intake";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { recordUsage } from "@/server/services/usage";
 import { getRetellConfig } from "./config";
 import {
   asRecord,
@@ -15,6 +16,7 @@ import {
   normalizePhoneLast10,
   readBoolean,
   readFirst,
+  readNumber,
   readPath,
   readString,
   readStringArray,
@@ -66,6 +68,12 @@ export interface RetellCallFields {
   event: string | null;
   /** call.metadata — arbitrary object we set when placing an outbound call (contactId, org, …). */
   metadata: Record<string, unknown> | null;
+  // Call metering (from the post-call analyzed payload; null for a mid-call capture):
+  durationMs: number | null;
+  startTimestamp: string | null;
+  endTimestamp: string | null;
+  callCostCents: number | null;
+  costBreakdown: unknown;
   // Extracted from custom_analysis_data:
   name: string | null;
   email: string | null;
@@ -78,6 +86,11 @@ export interface RetellCallFields {
   onTrailer: boolean | null;
   servicesRequested: string[];
   urgent: boolean;
+}
+
+/** Retell start/end timestamps are epoch milliseconds; store as ISO. */
+function epochMsToIso(ms: number | null): string | null {
+  return ms != null && Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
 /** Read the extractable lead fields from a `custom_analysis_data`-shaped object. */
@@ -122,6 +135,20 @@ export function readRetellCallFields(payload: unknown): RetellCallFields {
   const analysis = readPath(call, "call_analysis") ?? null;
   const custom = readPath(call, "call_analysis.custom_analysis_data") ?? null;
 
+  // Metering fields (present on the post-call `call_analyzed` payload). Retell timestamps
+  // are epoch ms; duration_ms is provided directly but fall back to end-start. call_cost
+  // .combined_cost is already in cents.
+  const startMs = readNumber(call, ["start_timestamp", "start_time"]);
+  const endMs = readNumber(call, ["end_timestamp", "end_time"]);
+  const durationMs =
+    readNumber(call, ["duration_ms"]) ??
+    (startMs != null && endMs != null && endMs >= startMs ? endMs - startMs : null);
+  const combinedCost = readNumber(call, [
+    "call_cost.combined_cost",
+    "call_cost.total_cost",
+    "combined_cost",
+  ]);
+
   return {
     callId: readString(call, ["call_id", "callId"]),
     agentId: readString(call, ["agent_id", "agentId"]),
@@ -138,6 +165,11 @@ export function readRetellCallFields(payload: unknown): RetellCallFields {
     customAnalysisData: custom,
     event: readString(payload, ["event"]),
     metadata: asRecord(readPath(call, "metadata")),
+    durationMs,
+    startTimestamp: epochMsToIso(startMs),
+    endTimestamp: epochMsToIso(endMs),
+    callCostCents: combinedCost != null ? Math.round(combinedCost) : null,
+    costBreakdown: readPath(call, "call_cost") ?? null,
     ...readAnalysisFields(custom),
   };
 }
@@ -169,6 +201,12 @@ export function readRetellFunctionFields(payload: unknown): RetellCallFields {
     customAnalysisData: asRecord(args) ?? null,
     event: "capture_lead",
     metadata: asRecord(readPath(call, "metadata")),
+    // A mid-call capture carries no post-call metering.
+    durationMs: null,
+    startTimestamp: null,
+    endTimestamp: null,
+    callCostCents: null,
+    costBreakdown: null,
     ...readAnalysisFields(args),
   };
 }
@@ -282,6 +320,11 @@ async function upsertRetellCall(
     custom_analysis_data: (fields.customAnalysisData ?? null) as Json,
     is_urgent: fields.urgent,
     event: fields.event,
+    duration_ms: fields.durationMs,
+    start_timestamp: fields.startTimestamp,
+    end_timestamp: fields.endTimestamp,
+    call_cost_cents: fields.callCostCents,
+    cost_breakdown: (fields.costBreakdown ?? null) as Json,
     raw_payload: (rawPayload ?? {}) as Json,
     received_at: new Date().toISOString(),
   };
@@ -289,6 +332,29 @@ async function upsertRetellCall(
   if (contactId) row.contact_id = contactId;
   const { error } = await admin.from("retell_calls").upsert(row, { onConflict: "call_id" });
   if (error) throw error;
+
+  // Meter voice minutes (Task 6). Idempotent on call_id, so the enrich/retry paths and a
+  // duplicate delivery record it once. Only the post-call analyzed payload carries a
+  // duration; a mid-call capture (durationMs null) records nothing. Best-effort: a
+  // metering write must never fail ingest.
+  if (tenant.organizationId && fields.durationMs != null && fields.durationMs > 0) {
+    try {
+      await recordUsage(admin, {
+        organizationId: tenant.organizationId,
+        companyId: tenant.companyId,
+        kind: "voice_minutes",
+        quantity: fields.durationMs / 60000,
+        unit: "minutes",
+        costCents: fields.callCostCents ?? null,
+        provider: "retell",
+        providerRef: callId,
+        occurredAt: fields.endTimestamp ?? undefined,
+        metadata: { direction: fields.direction, callId },
+      });
+    } catch (err) {
+      console.error("[retell] failed to meter voice minutes:", err instanceof Error ? err.message : err);
+    }
+  }
 }
 
 /**

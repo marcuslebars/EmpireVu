@@ -1,6 +1,7 @@
 import { isBillingFeature, planDefault, planLimit, type BillingFeature } from "@/server/services/billing/config";
 import { getPastDueGraceDays } from "@/server/services/billing/env";
-import { AuthorizationError } from "@/server/organizations/context";
+import { AuthorizationError, UsageCapExceeded } from "@/server/organizations/context";
+import { getUsageForFeature } from "@/server/services/usage";
 import type { createSupabaseServerClient } from "@/server/supabase/server";
 
 /**
@@ -198,9 +199,28 @@ export async function orgLimit(
 }
 
 /**
+ * How much of a metered feature's monthly allowance is left, or null when the feature is
+ * unlimited (internal tenants, or a feature with no cap). Negative is possible (overage).
+ * Consults usage_monthly_v via the caller's RLS client (Task 6).
+ */
+export async function orgUsageRemaining(
+  supabase: BillingClient,
+  organizationId: string,
+  feature: string,
+): Promise<number | null> {
+  const limit = await orgLimit(supabase, organizationId, feature);
+  if (limit === null) {
+    return null; // unlimited
+  }
+  const used = await getUsageForFeature(supabase, organizationId, feature);
+  return limit - used;
+}
+
+/**
  * Route-level enforcement guard: throws AuthorizationError (→ 403 via handleRoute)
- * unless the org may use `feature`. Call it right after requireOrganizationContext.
- * internal/house tenants (and healthy paid plans that include the feature) pass.
+ * unless the org may use `feature`, then UsageCapExceeded (→ 402) if the month's metered
+ * allowance is spent. Call it right after requireOrganizationContext. internal/house
+ * tenants and features with no cap always pass the usage check (remaining === null).
  */
 export async function requireFeature(
   supabase: BillingClient,
@@ -210,5 +230,10 @@ export async function requireFeature(
   const allowed = await orgCan(supabase, organizationId, feature);
   if (!allowed) {
     throw new AuthorizationError(`Your plan does not include this feature (${feature}).`);
+  }
+
+  const remaining = await orgUsageRemaining(supabase, organizationId, feature);
+  if (remaining !== null && remaining <= 0) {
+    throw new UsageCapExceeded(`This month's included allowance for ${feature} is used up.`);
   }
 }

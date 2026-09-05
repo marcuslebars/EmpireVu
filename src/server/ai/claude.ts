@@ -1,6 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 
+import { getDraftsModel } from "@/server/ai/config";
+import type { AiTokenUsage } from "@/server/ai/pricing";
+
 /**
  * Server-side Claude integration. All AI runs here (never in the browser); the
  * API key is read from the ANTHROPIC_API_KEY environment variable on the server.
@@ -8,6 +11,28 @@ import { z } from "zod";
 
 export function isAIConfigured(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY);
+}
+
+/** The response id + model + token counts from one model call, for usage metering. */
+export interface AiUsageMeta {
+  responseId: string;
+  model: string;
+  usage: AiTokenUsage;
+}
+
+/** Pull the metering fields off an Anthropic response (usage may be partial). */
+export function extractAiUsage(response: Anthropic.Message, fallbackModel: string): AiUsageMeta {
+  const usage = response.usage;
+  return {
+    responseId: response.id,
+    model: response.model ?? fallbackModel,
+    usage: {
+      inputTokens: usage?.input_tokens ?? 0,
+      outputTokens: usage?.output_tokens ?? 0,
+      cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
+      cacheWriteTokens: usage?.cache_creation_input_tokens ?? 0,
+    },
+  };
 }
 
 /** A booking time the AI proposes. A proposal only — a human confirms it into a real booking. */
@@ -181,14 +206,19 @@ function stripJsonFences(text: string): string {
     .trim();
 }
 
-export async function analyzeLead(lead: LeadForAnalysis): Promise<LeadAnalysis> {
+export async function analyzeLead(
+  lead: LeadForAnalysis,
+): Promise<{ analysis: LeadAnalysis; usage: AiUsageMeta }> {
   // The zero-arg client reads ANTHROPIC_API_KEY from the environment.
   const client = new Anthropic();
+  const model = getDraftsModel();
 
   const response = await client.messages.create({
-    model: "claude-opus-4-8",
+    model,
     max_tokens: 4096,
-    system: SYSTEM_PROMPT,
+    // Cache the static system prompt (Task 6): it's identical across every lead, so a
+    // cache read replaces re-billing it at full input rate on each call.
+    system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
     messages: [
       {
         role: "user",
@@ -210,7 +240,10 @@ export async function analyzeLead(lead: LeadForAnalysis): Promise<LeadAnalysis> 
   const analysis = leadAnalysisSchema.parse(parsed);
 
   return {
-    ...analysis,
-    proposedSlots: sanitizeProposedSlots(analysis.proposedSlots, lead.scheduling),
+    analysis: {
+      ...analysis,
+      proposedSlots: sanitizeProposedSlots(analysis.proposedSlots, lead.scheduling),
+    },
+    usage: extractAiUsage(response, model),
   };
 }

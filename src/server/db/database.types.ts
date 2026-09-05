@@ -1240,6 +1240,11 @@ export interface Database {
           transcript_object: Json | null;
           updated_at: string;
           user_sentiment: string | null;
+          call_cost_cents: number | null;
+          cost_breakdown: Json | null;
+          duration_ms: number | null;
+          end_timestamp: string | null;
+          start_timestamp: string | null;
         };
         Insert: {
           agent_id?: string | null;
@@ -1268,6 +1273,11 @@ export interface Database {
           transcript_object?: Json | null;
           updated_at?: string;
           user_sentiment?: string | null;
+          call_cost_cents?: number | null;
+          cost_breakdown?: Json | null;
+          duration_ms?: number | null;
+          end_timestamp?: string | null;
+          start_timestamp?: string | null;
         };
         Update: {
           agent_id?: string | null;
@@ -1296,6 +1306,11 @@ export interface Database {
           transcript_object?: Json | null;
           updated_at?: string;
           user_sentiment?: string | null;
+          call_cost_cents?: number | null;
+          cost_breakdown?: Json | null;
+          duration_ms?: number | null;
+          end_timestamp?: string | null;
+          start_timestamp?: string | null;
         };
         Relationships: [];
       };
@@ -1836,6 +1851,51 @@ export interface Database {
         };
         Relationships: [];
       };
+      usage_events: {
+        Row: {
+          company_id: string | null;
+          cost_cents: number | null;
+          created_at: string;
+          id: string;
+          kind: string;
+          metadata: Json | null;
+          occurred_at: string;
+          organization_id: string;
+          provider: string | null;
+          provider_ref: string | null;
+          quantity: number;
+          unit: string;
+        };
+        Insert: {
+          company_id?: string | null;
+          cost_cents?: number | null;
+          created_at?: string;
+          id?: string;
+          kind: string;
+          metadata?: Json | null;
+          occurred_at?: string;
+          organization_id: string;
+          provider?: string | null;
+          provider_ref?: string | null;
+          quantity: number;
+          unit: string;
+        };
+        Update: {
+          company_id?: string | null;
+          cost_cents?: number | null;
+          created_at?: string;
+          id?: string;
+          kind?: string;
+          metadata?: Json | null;
+          occurred_at?: string;
+          organization_id?: string;
+          provider?: string | null;
+          provider_ref?: string | null;
+          quantity?: number;
+          unit?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       ui_contact_list_v: {
@@ -1941,6 +2001,17 @@ export interface Database {
           successful_runs: number | null;
           total_runs: number | null;
           trigger_type: string | null;
+        };
+        Relationships: [];
+      };
+      usage_monthly_v: {
+        Row: {
+          company_id: string | null;
+          cost_cents: number | null;
+          kind: string | null;
+          month: string | null;
+          organization_id: string | null;
+          quantity: number | null;
         };
         Relationships: [];
       };

@@ -748,6 +748,21 @@ export function createBillingPortal(orgId: string): Promise<{ url: string }> {
   });
 }
 
+export interface MonthlyUsage {
+  voiceMinutes: number;
+  voiceMinutesCap: number | null;
+  voiceOverageMinutes: number;
+  smsSent: number;
+  smsReceived: number;
+  emailsSent: number;
+  aiCostCents: number;
+  totalCostCents: number;
+}
+
+export function fetchMonthlyUsage(orgId: string): Promise<MonthlyUsage> {
+  return apiFetch(`/api/organizations/${orgId}/usage/monthly`);
+}
+
 // ─── Payments (Stripe Connect) ───────────────────────────────────────────────
 
 export type ConnectState = "not_connected" | "onboarding_incomplete" | "ready";

@@ -54,14 +54,19 @@ export const PLAN_FEATURE_DEFAULTS: Record<BillingPlan, Record<BillingFeature, b
 
 /**
  * Optional numeric caps per plan+feature. Absent => unlimited (null). A
- * `feature_flags.limit_value` row overrides these at runtime (see `orgLimit`).
- * No caps are defined in Phase 1; the shape is here for Phase 2.
+ * `feature_flags.limit_value` row overrides these at runtime (see `orgLimit`), and the
+ * monthly cap is enforced against real usage by `orgUsageRemaining` (Task 6).
+ *
+ * `front_desk.marina_reception = 500` is the included monthly voice-minutes allowance.
+ * OUTBOUND calls (quick-call, the call_lead automation) are refused once it's exhausted;
+ * INBOUND receptionist calls are never refused — crossing the cap surfaces an "overage"
+ * state in billing instead (a stopped receptionist is worse than overage).
  */
 export const PLAN_FEATURE_LIMITS: Record<BillingPlan, Partial<Record<BillingFeature, number>>> = {
   internal: {},
   launch: {},
   operate: {},
-  front_desk: {},
+  front_desk: { marina_reception: 500 },
 };
 
 export function isBillingPlan(value: string): value is BillingPlan {

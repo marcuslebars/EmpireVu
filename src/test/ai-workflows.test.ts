@@ -100,9 +100,19 @@ describe("business snapshot", () => {
   });
 });
 
+// proposeWorkflows now returns { suggestions, usage } (Task 6 metering).
+const withUsage = (suggestions: unknown[]) => ({
+  suggestions,
+  usage: {
+    responseId: "msg_test",
+    model: "claude-opus-4-8",
+    usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+  },
+});
+
 describe("suggestWorkflows", () => {
   it("compiles a valid suggestion into an engine-ready definition", async () => {
-    proposeWorkflowsMock.mockResolvedValue([VALID]);
+    proposeWorkflowsMock.mockResolvedValue(withUsage([VALID]));
 
     const [suggestion] = await suggestWorkflows(context);
 
@@ -115,13 +125,15 @@ describe("suggestWorkflows", () => {
   });
 
   it("drops a suggestion whose actions don't compile against the engine schema", async () => {
-    proposeWorkflowsMock.mockResolvedValue([
-      VALID,
-      // create_task with no title — the engine's schema requires one.
-      { ...VALID, name: "Broken", actions: [{ type: "create_task" }] },
-      // An action type the engine has never heard of.
-      { ...VALID, name: "Invented", actions: [{ type: "send_carrier_pigeon", to: "jane" }] },
-    ]);
+    proposeWorkflowsMock.mockResolvedValue(
+      withUsage([
+        VALID,
+        // create_task with no title — the engine's schema requires one.
+        { ...VALID, name: "Broken", actions: [{ type: "create_task" }] },
+        // An action type the engine has never heard of.
+        { ...VALID, name: "Invented", actions: [{ type: "send_carrier_pigeon", to: "jane" }] },
+      ]),
+    );
 
     const result = await suggestWorkflows(context);
 
@@ -129,7 +141,7 @@ describe("suggestWorkflows", () => {
   });
 
   it("returns an empty list when the model has nothing to add", async () => {
-    proposeWorkflowsMock.mockResolvedValue([]);
+    proposeWorkflowsMock.mockResolvedValue(withUsage([]));
     await expect(suggestWorkflows(context)).resolves.toEqual([]);
   });
 
@@ -140,7 +152,7 @@ describe("suggestWorkflows", () => {
   });
 
   it("passes the real snapshot to the model rather than a canned one", async () => {
-    proposeWorkflowsMock.mockResolvedValue([]);
+    proposeWorkflowsMock.mockResolvedValue(withUsage([]));
     await suggestWorkflows(context);
 
     const snapshot = proposeWorkflowsMock.mock.calls[0][0];
