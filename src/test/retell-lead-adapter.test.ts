@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { parseLeadEnvelope } from "@/server/services/lead-intake/envelope";
 import {
   buildPhoneLeadEnvelope,
+  classifyRetellCall,
   readRetellCallFields,
   readRetellFunctionFields,
 } from "@/server/services/retell/lead-adapter";
@@ -124,5 +125,31 @@ describe("retell mid-call capture-lead function → envelope", () => {
     expect(parsed.envelope?.asset?.lengthFt).toBe(22);
     expect(parsed.envelope?.services).toEqual(["winterization"]);
     expect(parsed.envelope?.meta?.retell?.callId).toBe("call_mid_1");
+  });
+});
+
+describe("classifyRetellCall (call.missed vs call.completed trigger)", () => {
+  it("counts a voicemail as missed", () => {
+    expect(classifyRetellCall({ durationMs: 30000, inVoicemail: true, callSuccessful: true })).toBe("missed");
+  });
+
+  it("counts a sub-5s call as missed", () => {
+    expect(classifyRetellCall({ durationMs: 3000, inVoicemail: false, callSuccessful: true })).toBe("missed");
+  });
+
+  it("counts an unsuccessful call as missed", () => {
+    expect(classifyRetellCall({ durationMs: 30000, inVoicemail: false, callSuccessful: false })).toBe("missed");
+  });
+
+  it("counts a normal answered call as completed", () => {
+    expect(classifyRetellCall({ durationMs: 30000, inVoicemail: false, callSuccessful: true })).toBe("completed");
+  });
+
+  it("treats a 5s call as completed (boundary is < 5s)", () => {
+    expect(classifyRetellCall({ durationMs: 5000, inVoicemail: false, callSuccessful: true })).toBe("completed");
+  });
+
+  it("defaults to completed when signals are unknown (e.g. mid-call capture)", () => {
+    expect(classifyRetellCall({ durationMs: null, inVoicemail: null, callSuccessful: null })).toBe("completed");
   });
 });

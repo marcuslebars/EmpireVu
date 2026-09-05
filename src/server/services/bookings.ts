@@ -204,6 +204,26 @@ export async function updateBookingStatus(
     });
   }
 
+  // Task 9 triggers: fire booking.cancelled / booking.no_show on the transition into them.
+  const transitionTrigger: Record<string, string> = {
+    cancelled: "booking.cancelled",
+    no_show: "booking.no_show",
+  };
+  const trigger = transitionTrigger[updated.status];
+  if (trigger && existing.status !== updated.status) {
+    await emitActivityEventAndDispatch(context, {
+      companyId: updated.company_id,
+      entityId: updated.id,
+      entityType: "booking",
+      eventType: trigger,
+      metadata: { bookingId: updated.id, previousStatus: existing.status, status: updated.status },
+      relatedEntityId: updated.contact_id,
+      relatedEntityType: updated.contact_id ? "contact" : null,
+    }, {
+      dispatchAsync: options.dispatchWorkflow !== false,
+    });
+  }
+
   return updated;
 }
 

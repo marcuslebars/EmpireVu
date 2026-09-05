@@ -173,6 +173,7 @@ export interface Database {
           stripe_statement_descriptor_suffix: string | null;
           updated_at: string;
           website: string | null;
+          timezone: string | null;
         };
         Insert: {
           brand_accent_color?: string | null;
@@ -205,6 +206,7 @@ export interface Database {
           stripe_statement_descriptor_suffix?: string | null;
           updated_at?: string;
           website?: string | null;
+          timezone?: string | null;
         };
         Update: {
           brand_accent_color?: string | null;
@@ -237,6 +239,7 @@ export interface Database {
           stripe_statement_descriptor_suffix?: string | null;
           updated_at?: string;
           website?: string | null;
+          timezone?: string | null;
         };
         Relationships: [];
       };
@@ -613,6 +616,8 @@ export interface Database {
           status: Database["public"]["Enums"]["workflow_run_status"];
           time_saved_seconds: number;
           trigger_event_id: string | null;
+          current_step_index: number;
+          resume_at: string | null;
           updated_at: string;
           workflow_id: string;
         };
@@ -631,6 +636,8 @@ export interface Database {
           status?: Database["public"]["Enums"]["workflow_run_status"];
           time_saved_seconds?: number;
           trigger_event_id?: string | null;
+          current_step_index?: number;
+          resume_at?: string | null;
           updated_at?: string;
           workflow_id: string;
         };
@@ -649,6 +656,8 @@ export interface Database {
           status?: Database["public"]["Enums"]["workflow_run_status"];
           time_saved_seconds?: number;
           trigger_event_id?: string | null;
+          current_step_index?: number;
+          resume_at?: string | null;
           updated_at?: string;
           workflow_id?: string;
         };
@@ -2046,6 +2055,42 @@ export interface Database {
         };
         Relationships: [];
       };
+      workflow_schedule_ticks: {
+        Row: {
+          claimed_at: string | null;
+          claimed_by: string | null;
+          created_at: string;
+          id: string;
+          last_error: string | null;
+          organization_id: string;
+          scheduled_for: string;
+          status: string;
+          workflow_id: string;
+        };
+        Insert: {
+          claimed_at?: string | null;
+          claimed_by?: string | null;
+          created_at?: string;
+          id?: string;
+          last_error?: string | null;
+          organization_id: string;
+          scheduled_for: string;
+          status?: string;
+          workflow_id: string;
+        };
+        Update: {
+          claimed_at?: string | null;
+          claimed_by?: string | null;
+          created_at?: string;
+          id?: string;
+          last_error?: string | null;
+          organization_id?: string;
+          scheduled_for?: string;
+          status?: string;
+          workflow_id?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       ui_contact_list_v: {
@@ -2174,6 +2219,21 @@ export interface Database {
           p_stale_after_seconds?: number;
         };
         Returns: Database["public"]["Tables"]["billing_event_jobs"]["Row"][];
+      };
+      claim_waiting_workflow_runs: {
+        Args: {
+          p_batch?: number;
+          p_stale_after_seconds?: number;
+        };
+        Returns: Database["public"]["Tables"]["workflow_runs"]["Row"][];
+      };
+      claim_workflow_schedule_ticks: {
+        Args: {
+          p_batch?: number;
+          p_worker_id?: string;
+          p_stale_after_seconds?: number;
+        };
+        Returns: Database["public"]["Tables"]["workflow_schedule_ticks"]["Row"][];
       };
       claim_inbound_webhook_jobs: {
         Args: {
@@ -2330,7 +2390,7 @@ export interface Database {
       task_priority: "low" | "medium" | "high" | "urgent";
       task_status: "todo" | "in_progress" | "blocked" | "completed";
       workflow_event_job_status: "pending" | "running" | "completed" | "failed";
-      workflow_run_status: "pending" | "running" | "completed" | "failed";
+      workflow_run_status: "pending" | "running" | "completed" | "failed" | "waiting";
       workflow_status: "draft" | "active" | "paused" | "archived";
     };
     CompositeTypes: Record<string, never>;

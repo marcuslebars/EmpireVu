@@ -4,6 +4,7 @@ import {
   claimWorkflowEventJobs,
   processWorkflowEventJob,
 } from "@/server/services/workflow-event-jobs";
+import { resumeDueWorkflowRuns, runScheduler } from "@/server/services/workflow-engine/scheduler";
 
 function getNumberEnv(name: string, fallback: number): number {
   const value = process.env[name];
@@ -26,6 +27,8 @@ async function main(): Promise<void> {
   const claimLimit = getNumberEnv("WORKFLOW_EVENT_WORKER_BATCH_SIZE", 10);
   const pollIntervalMs = getNumberEnv("WORKFLOW_EVENT_WORKER_POLL_MS", 2000);
   const staleAfterSeconds = getNumberEnv("WORKFLOW_EVENT_WORKER_STALE_AFTER_SECONDS", 900);
+  const schedulerIntervalMs = getNumberEnv("WORKFLOW_SCHEDULER_INTERVAL_MS", 60_000);
+  let lastSchedulerRun = 0;
 
   for (;;) {
     const claimedJobs = await claimWorkflowEventJobs(supabase, {
@@ -60,7 +63,27 @@ async function main(): Promise<void> {
       });
     }
 
-    if (claimedJobs.length === 0 && inboundProcessed === 0) {
+    // Resume durable waits whose resume_at is due (Task 9).
+    let resumedRuns = 0;
+    try {
+      resumedRuns = await resumeDueWorkflowRuns(supabase, { batch: claimLimit, staleAfterSeconds });
+    } catch (error) {
+      console.error("workflow resume failed", { error: error instanceof Error ? error.message : error });
+    }
+
+    // Scheduler pass on its own cadence (default every 60s): materialize + process
+    // schedule.daily ticks and scan the entity-driven time triggers.
+    const now = Date.now();
+    if (now - lastSchedulerRun >= schedulerIntervalMs) {
+      lastSchedulerRun = now;
+      try {
+        await runScheduler(supabase, { workerId });
+      } catch (error) {
+        console.error("workflow scheduler failed", { error: error instanceof Error ? error.message : error });
+      }
+    }
+
+    if (claimedJobs.length === 0 && inboundProcessed === 0 && resumedRuns === 0) {
       await sleep(pollIntervalMs);
     }
   }

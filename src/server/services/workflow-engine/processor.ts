@@ -1,5 +1,5 @@
 import type { Json, Tables } from "@/server/db/database.types";
-import { toJson } from "@/server/db/json";
+import { fromJson, toJson } from "@/server/db/json";
 import { ValidationError } from "@/server/organizations/context";
 import { createActivityEvent, getActivityEventById } from "@/server/services/activity-events";
 import type { TenantServiceContext } from "@/server/services/shared";
@@ -21,7 +21,11 @@ import {
 import { buildWorkflowEventContext } from "@/server/services/workflow-engine/context";
 import { PaidActionGuardError } from "@/server/services/workflow-engine/guards";
 import { matchActiveWorkflows } from "@/server/services/workflow-engine/matcher";
-import type { WorkflowConditionResult, WorkflowExecutionSummary } from "@/server/services/workflow-engine/types";
+import type {
+  WorkflowCondition,
+  WorkflowConditionResult,
+  WorkflowExecutionSummary,
+} from "@/server/services/workflow-engine/types";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -126,6 +130,7 @@ async function executeWorkflowForEvent(
           createdTasksCount: 0,
           projectedActions: [],
           timeSavedSeconds: 0,
+          pause: null,
         };
 
     if (matched) {
@@ -142,6 +147,41 @@ async function executeWorkflowForEvent(
     }
 
     const timeSavedSeconds = actionResult.timeSavedSeconds + (definition.estimated_time_saved_seconds ?? 0);
+
+    // A durable wait paused the run — persist where to resume and return (Task 9).
+    if (!dryRun && run && actionResult.pause) {
+      const pause = actionResult.pause;
+      logs.push({
+        at: nowIso(),
+        details: { resume_at: pause.resumeAt, next_step_index: pause.nextIndex },
+        level: "info",
+        message: "Workflow paused for a wait.",
+      });
+      run = await updateWorkflowRun(context, run.id, {
+        actions_executed_count: actionResult.actionsExecutedCount,
+        context_json: withResumeConditions(runContextJson, pause.resumeConditions),
+        created_tasks_count: actionResult.createdTasksCount,
+        current_step_index: pause.nextIndex,
+        logs_json: logs.map(toLogJson),
+        resume_at: pause.resumeAt,
+        status: "waiting",
+        time_saved_seconds: timeSavedSeconds,
+      });
+      return {
+        actionsExecutedCount: actionResult.actionsExecutedCount,
+        conditionResults: results,
+        createdTasksCount: actionResult.createdTasksCount,
+        dryRun,
+        failureReason: null,
+        logs: logs.map(toLogJson),
+        matchedConditions: matched,
+        projectedActions: actionResult.projectedActions,
+        run,
+        skippedReason: "waiting",
+        timeSavedSeconds,
+        workflow,
+      };
+    }
 
     if (!dryRun && run) {
       run = await updateWorkflowRun(context, run.id, {
@@ -365,4 +405,126 @@ export async function runWorkflowNow(
   }
 
   return executeWorkflowForEvent(context, workflow, activityEvent, dryRun);
+}
+
+// ── Durable-wait resume (Task 9) ─────────────────────────────────────────────
+
+function withResumeConditions(runContextJson: Json, conditions: WorkflowCondition[] | null): Json {
+  const base =
+    runContextJson && typeof runContextJson === "object" && !Array.isArray(runContextJson)
+      ? (runContextJson as Record<string, Json>)
+      : {};
+  return { ...base, _resume_conditions: toJson(conditions ?? []) };
+}
+
+function readResumeConditions(contextJson: Json): WorkflowCondition[] {
+  const record =
+    contextJson && typeof contextJson === "object" && !Array.isArray(contextJson)
+      ? (contextJson as Record<string, Json>)
+      : {};
+  const raw = record._resume_conditions;
+  return Array.isArray(raw) ? fromJson<WorkflowCondition[]>(raw) : [];
+}
+
+function readLogEntries(logsJson: Json): WorkflowRunLogEntry[] {
+  return Array.isArray(logsJson) ? fromJson<WorkflowRunLogEntry[]>(logsJson) : [];
+}
+
+/**
+ * Resume a run that a `wait` paused. Rebuilds the original event context from the stored
+ * trigger event, re-checks resume_conditions (stop the sequence if they no longer hold),
+ * then executes from current_step_index — pausing again on the next wait or finishing.
+ */
+export async function resumeWorkflowRun(
+  context: TenantServiceContext,
+  run: Tables<"workflow_runs">,
+): Promise<void> {
+  const logs = readLogEntries(run.logs_json);
+
+  if (!run.trigger_event_id) {
+    // No anchor event to rebuild context from — finish rather than loop forever.
+    await updateWorkflowRun(context, run.id, { completed_at: nowIso(), resume_at: null, status: "completed" });
+    return;
+  }
+
+  const workflow = await getWorkflowById(context, run.workflow_id);
+  const definition = parseWorkflowDefinition(workflow.definition);
+  const activityEvent = await getActivityEventById(context, run.trigger_event_id);
+  const eventContext = await buildWorkflowEventContext(context, activityEvent);
+
+  const resumeConditions = readResumeConditions(run.context_json);
+  if (resumeConditions.length > 0) {
+    const { matched } = evaluateWorkflowConditions(resumeConditions, eventContext);
+    if (!matched) {
+      logs.push({ at: nowIso(), level: "info", message: "Resume conditions no longer match — sequence stopped." });
+      await updateWorkflowRun(context, run.id, {
+        completed_at: nowIso(),
+        logs_json: logs.map(toLogJson),
+        resume_at: null,
+        status: "completed",
+      });
+      return;
+    }
+  }
+
+  logs.push({
+    at: nowIso(),
+    details: { from_step_index: run.current_step_index },
+    level: "info",
+    message: "Workflow resumed.",
+  });
+
+  try {
+    const actionResult = await executeWorkflowActions(context, eventContext, definition.actions, {
+      dryRun: false,
+      workflow,
+      workflowRunId: run.id,
+      startIndex: run.current_step_index,
+    });
+
+    if (actionResult.pause) {
+      logs.push({
+        at: nowIso(),
+        details: { next_step_index: actionResult.pause.nextIndex, resume_at: actionResult.pause.resumeAt },
+        level: "info",
+        message: "Workflow paused for a wait.",
+      });
+      await updateWorkflowRun(context, run.id, {
+        actions_executed_count: run.actions_executed_count + actionResult.actionsExecutedCount,
+        context_json: withResumeConditions(run.context_json, actionResult.pause.resumeConditions),
+        current_step_index: actionResult.pause.nextIndex,
+        logs_json: logs.map(toLogJson),
+        resume_at: actionResult.pause.resumeAt,
+        status: "waiting",
+        time_saved_seconds: run.time_saved_seconds + actionResult.timeSavedSeconds,
+      });
+      return;
+    }
+
+    await updateWorkflowRun(context, run.id, {
+      actions_executed_count: run.actions_executed_count + actionResult.actionsExecutedCount,
+      completed_at: nowIso(),
+      created_tasks_count: run.created_tasks_count + actionResult.createdTasksCount,
+      logs_json: logs.map(toLogJson),
+      resume_at: null,
+      status: "completed",
+      time_saved_seconds: run.time_saved_seconds + actionResult.timeSavedSeconds,
+    });
+  } catch (error) {
+    const failureReason = error instanceof Error ? error.message : "Workflow resume failed.";
+    const isGuardRefusal = error instanceof PaidActionGuardError;
+    logs.push({
+      at: nowIso(),
+      details: { failureReason },
+      level: isGuardRefusal ? "warn" : "error",
+      message: isGuardRefusal ? "Workflow action blocked by abuse guard." : "Workflow resume failed.",
+    });
+    await updateWorkflowRun(context, run.id, {
+      completed_at: nowIso(),
+      failure_reason: failureReason,
+      logs_json: logs.map(toLogJson),
+      resume_at: null,
+      status: "failed",
+    });
+  }
 }

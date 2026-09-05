@@ -396,6 +396,7 @@ export interface WorkflowDetailResponse {
     createdTasksCount: number;
     failureReason: string | null;
     id: string;
+    resumeAt: string | null;
     status: Tables<"workflow_runs">["status"];
     timeSavedSeconds: number;
     triggerEvent: EntityReferenceSummary | null;
@@ -2323,6 +2324,7 @@ export async function getWorkflowDetailView(
       createdTasksCount: run.created_tasks_count,
       failureReason: run.failure_reason,
       id: run.id,
+      resumeAt: run.resume_at,
       status: run.status,
       timeSavedSeconds: run.time_saved_seconds,
       triggerEvent: run.trigger_event_id && activityEventMap.get(run.trigger_event_id)

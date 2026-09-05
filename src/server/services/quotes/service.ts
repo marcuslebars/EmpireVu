@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 import { toJson } from "@/server/db/json";
+import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import {
   assertCompanyInOrganization,
   assertContactInOrganization,
@@ -318,6 +319,22 @@ export async function sendQuote(
   if (error) throw error;
   const quote = data as QuoteRow;
   await recordEvent(ctx, quote.id, "sent", { quoteNumber, validUntil });
+
+  // Task 9 trigger: quote.sent, anchored to the contact (or company). Best-effort.
+  const quoteAnchorId = quote.contact_id ?? quote.company_id;
+  if (quoteAnchorId) {
+    try {
+      await emitActivityEventAndDispatch(ctx, {
+        companyId: quote.company_id,
+        entityId: quoteAnchorId,
+        entityType: quote.contact_id ? "contact" : "company",
+        eventType: "quote.sent",
+        metadata: { quoteId: quote.id },
+      });
+    } catch (err) {
+      console.error("[quotes] failed to emit quote.sent:", err instanceof Error ? err.message : err);
+    }
+  }
 
   // Email AFTER the status write, so a mail failure cannot leave a quote the
   // customer can already open sitting in 'draft'.

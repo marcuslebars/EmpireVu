@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import type { Inserts, Json } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import { createActivityEvent } from "@/server/services/activity-events";
+import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import { LEAD_SCHEMA_VERSION } from "@/server/services/lead-intake/envelope";
 import { handleLeadIntake } from "@/server/services/lead-intake/intake";
 import type { TenantServiceContext } from "@/server/services/shared";
@@ -412,16 +413,18 @@ async function runPhoneLeadIntake(fields: RetellCallFields, rawPayload: unknown)
   );
 
   // (4) Link the call row to its lead + contact (best-effort; the lead is already durable).
+  let linkedContactId: string | null = null;
   try {
     const { data: rawLead } = await admin
       .from("raw_leads")
       .select("contact_id")
       .eq("lead_id", result.leadId)
       .maybeSingle();
+    linkedContactId = (rawLead as { contact_id: string | null } | null)?.contact_id ?? null;
     await admin.from("retell_calls")
       .update({
         lead_id: result.leadId,
-        contact_id: rawLead?.contact_id ?? null,
+        contact_id: linkedContactId,
         processed_at: new Date().toISOString(),
       })
       .eq("call_id", callId);
@@ -429,7 +432,68 @@ async function runPhoneLeadIntake(fields: RetellCallFields, rawPayload: unknown)
     console.error("[retell:lead] failed to link call to lead:", err);
   }
 
+  // (5) Task 9 triggers: call.missed / call.completed (+ call.urgent). Only on a fresh
+  //     ingest (the duplicate path returned above), so a retry doesn't re-fire them.
+  await emitRetellCallTriggers(admin, {
+    organizationId: tenant.organizationId,
+    companyId: tenant.companyId,
+    contactId: linkedContactId,
+    fields,
+  });
+
   return { duplicate: false, leadId: result.leadId, callId, urgent: fields.urgent };
+}
+
+/** call.missed = inbound reached voicemail, ended in <5s, or was not successful; else
+ *  call.completed. Precise + exported for tests/docs (docs/retell-integration.md). */
+export function classifyRetellCall(fields: Pick<RetellCallFields, "durationMs" | "inVoicemail" | "callSuccessful">): "missed" | "completed" {
+  const tooShort = fields.durationMs != null && fields.durationMs < 5000;
+  if (fields.inVoicemail === true || tooShort || fields.callSuccessful === false) {
+    return "missed";
+  }
+  return "completed";
+}
+
+/** Emit the call.* workflow triggers for a processed call. Anchored to the contact when
+ *  known, else the company. Best-effort — never fails ingest. */
+async function emitRetellCallTriggers(
+  admin: RetellAdminClient,
+  args: { organizationId: string | null; companyId: string | null; contactId: string | null; fields: RetellCallFields },
+): Promise<void> {
+  if (!args.organizationId) return;
+  const anchorId = args.contactId ?? args.companyId;
+  if (!anchorId) return;
+  const anchorType = args.contactId ? "contact" : "company";
+  const context: TenantServiceContext = {
+    organizationId: args.organizationId,
+    actorProfileId: null,
+    supabase: admin,
+  };
+  const base = {
+    companyId: args.companyId,
+    entityId: anchorId,
+    entityType: anchorType,
+    metadata: {
+      callId: args.fields.callId,
+      contactId: args.contactId,
+      direction: args.fields.direction,
+      durationMs: args.fields.durationMs,
+      inVoicemail: args.fields.inVoicemail,
+      callSuccessful: args.fields.callSuccessful,
+    },
+  };
+  try {
+    const kind = classifyRetellCall(args.fields);
+    await emitActivityEventAndDispatch(context, {
+      ...base,
+      eventType: kind === "missed" ? "call.missed" : "call.completed",
+    });
+    if (args.fields.urgent) {
+      await emitActivityEventAndDispatch(context, { ...base, eventType: "call.urgent" });
+    }
+  } catch (err) {
+    console.error("[retell] failed to emit call triggers:", err instanceof Error ? err.message : err);
+  }
 }
 
 export interface RetellWebhookResult {

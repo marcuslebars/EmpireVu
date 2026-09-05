@@ -17,8 +17,10 @@ import {
   type ConsentContact,
   type OwnerContacts,
 } from "@/server/services/workflow-engine/messaging";
+import { computeResumeAt } from "@/server/services/workflow-engine/timing";
 import type {
   WorkflowAction,
+  WorkflowCondition,
   WorkflowEventContext,
   WorkflowProjectionAction,
 } from "@/server/services/workflow-engine/types";
@@ -28,6 +30,15 @@ export interface ExecuteWorkflowActionsOptions {
   workflow: Tables<"workflows">;
   /** The run these actions belong to — stamped on message_log rows (Task 8). */
   workflowRunId?: string | null;
+  /** Resume from this action index (Task 9 durable waits); defaults to 0. */
+  startIndex?: number;
+}
+
+/** A durable wait paused the sequence: where to resume and when. */
+export interface WorkflowPause {
+  nextIndex: number;
+  resumeAt: string;
+  resumeConditions: WorkflowCondition[] | null;
 }
 
 function asStr(value: unknown): string | null {
@@ -69,6 +80,8 @@ export interface ExecuteWorkflowActionsResult {
   createdTasksCount: number;
   projectedActions: WorkflowProjectionAction[];
   timeSavedSeconds: number;
+  /** Set when a `wait` paused the sequence (real runs only). */
+  pause: WorkflowPause | null;
 }
 
 function interpolateString(template: string, context: WorkflowEventContext): string {
@@ -152,7 +165,9 @@ export async function executeWorkflowActions(
     return ownerContacts;
   };
 
-  for (const action of actions) {
+  let pause: WorkflowPause | null = null;
+  for (let index = options.startIndex ?? 0; index < actions.length; index++) {
+    const action = actions[index];
     switch (action.type) {
       case "create_task": {
         const resolvedPayload = {
@@ -390,6 +405,21 @@ export async function executeWorkflowActions(
         timeSavedSeconds += action.time_saved_seconds ?? 0;
         break;
       }
+      case "wait": {
+        const data = await getTemplateData();
+        const resumeAt = computeResumeAt({ duration: action.duration, until: action.until }, data);
+        projectedActions.push({
+          action,
+          resolvedPayload: { resume_at: resumeAt, duration: action.duration ?? null, until: action.until ?? null },
+        });
+        // A dry-run just previews the resume time; a real run pauses the sequence here.
+        if (!options.dryRun) {
+          pause = { nextIndex: index + 1, resumeAt, resumeConditions: action.resume_conditions ?? null };
+        }
+        actionsExecutedCount += 1;
+        timeSavedSeconds += action.time_saved_seconds ?? 0;
+        break;
+      }
       case "assign_user": {
         const targetEntity =
           action.target_entity ??
@@ -531,6 +561,8 @@ export async function executeWorkflowActions(
         break;
       }
     }
+    // A durable wait paused the sequence — stop here; the worker resumes later.
+    if (pause) break;
   }
 
   return {
@@ -538,5 +570,6 @@ export async function executeWorkflowActions(
     createdTasksCount,
     projectedActions,
     timeSavedSeconds,
+    pause,
   };
 }

@@ -124,6 +124,12 @@ function describeTestAction(p: TestProjectionAction): string {
       return `Send email → ${payload.to ? String(payload.to) : "contact"}: ${payload.subject ? String(payload.subject) : ""}`;
     case "notify_owner":
       return `Notify owner (${payload.channel ? String(payload.channel) : "email"}): ${payload.body ? String(payload.body) : ""}`;
+    case "wait": {
+      const spec = payload.duration ? String(payload.duration) : payload.until ? String(payload.until) : "?";
+      const resumeAt = payload.resume_at ? new Date(String(payload.resume_at)) : null;
+      const when = resumeAt && !Number.isNaN(resumeAt.getTime()) ? relativeTime(resumeAt.toISOString()) : "later";
+      return `Wait ${spec} → resume ${when}`;
+    }
     default:
       return p.action.type;
   }
@@ -339,7 +345,9 @@ function WorkflowDetailPanel({
                     const summary =
                       run.status === "failed"
                         ? run.failureReason ?? "Failed"
-                        : run.status === "running"
+                        : run.status === "waiting"
+                          ? run.resumeAt ? `Waiting — resumes ${relativeTime(run.resumeAt)}` : "Waiting…"
+                          : run.status === "running"
                           ? "Running…"
                           : run.actionsExecutedCount > 0
                             ? `${run.actionsExecutedCount} action${run.actionsExecutedCount === 1 ? "" : "s"}${run.createdTasksCount > 0 ? `, ${run.createdTasksCount} task${run.createdTasksCount === 1 ? "" : "s"}` : ""}`
@@ -357,6 +365,7 @@ function WorkflowDetailPanel({
                             "w-2 h-2 rounded-full shrink-0",
                             run.status === "completed" ? "bg-[hsl(var(--success))]" :
                             run.status === "failed" ? "bg-[hsl(var(--urgent))]" :
+                            run.status === "waiting" ? "bg-[hsl(var(--accent-violet))]" :
                             "bg-[hsl(var(--warning))]"
                           )} />
                           <div className="flex-1 min-w-0">
@@ -520,12 +529,24 @@ function WorkflowDetailPanel({
 const triggerLabel: Record<string, string> = {
   "contact.created": "New contact added",
   "contact.stage_changed": "Contact stage changes",
+  "contact.stale": "Lead goes stale",
   "booking.created": "Booking created",
   "booking.completed": "Booking completed",
+  "booking.upcoming": "Booking upcoming",
+  "booking.cancelled": "Booking cancelled",
+  "booking.no_show": "Booking no-show",
   "task.completed": "Task completed",
+  "call.missed": "Call missed",
+  "call.completed": "Call completed",
+  "call.urgent": "Urgent call",
+  "quote.sent": "Quote sent",
+  "quote.viewed": "Quote viewed",
+  "quote.approved": "Quote approved",
+  "quote.expiring": "Quote expiring",
+  "schedule.daily": "Every day (scheduled)",
 };
 
-function describeAction(action: { type: string; title?: string; priority?: string; status?: string }): string {
+function describeAction(action: { type: string; title?: string; priority?: string; status?: string; duration?: string; until?: string }): string {
   switch (action.type) {
     case "create_task":
       return `Create task "${action.title}"${action.priority ? ` (${action.priority})` : ""}`;
@@ -541,6 +562,8 @@ function describeAction(action: { type: string; title?: string; priority?: strin
       return "Notify the owner";
     case "update_status":
       return `Set status to ${action.status}`;
+    case "wait":
+      return action.until ? `Wait until ${action.until}` : `Wait ${action.duration ?? ""}`.trim();
     default:
       return action.type;
   }
@@ -800,18 +823,42 @@ function StarterTemplatesPanel({ orgId, onClose }: { orgId: string; onClose: () 
 const WORKFLOW_TRIGGERS = [
   { value: "contact.created", label: "New contact added" },
   { value: "contact.stage_changed", label: "CRM stage changed" },
+  { value: "contact.stale", label: "Lead goes stale" },
   { value: "booking.created", label: "Booking created" },
   { value: "booking.completed", label: "Booking completed" },
+  { value: "booking.upcoming", label: "Booking upcoming" },
+  { value: "booking.cancelled", label: "Booking cancelled" },
+  { value: "booking.no_show", label: "Booking no-show" },
   { value: "task.completed", label: "Task completed" },
+  { value: "call.missed", label: "Call missed" },
+  { value: "call.completed", label: "Call completed" },
+  { value: "call.urgent", label: "Urgent call" },
+  { value: "quote.sent", label: "Quote sent" },
+  { value: "quote.viewed", label: "Quote viewed" },
+  { value: "quote.approved", label: "Quote approved" },
+  { value: "quote.expiring", label: "Quote expiring" },
+  { value: "schedule.daily", label: "Every day (scheduled)" },
 ];
 
 // Which entity each trigger fires on — drives the update_status options.
 const TRIGGER_ENTITY: Record<string, "contact" | "booking" | "task"> = {
   "contact.created": "contact",
   "contact.stage_changed": "contact",
+  "contact.stale": "contact",
   "booking.created": "booking",
   "booking.completed": "booking",
+  "booking.upcoming": "booking",
+  "booking.cancelled": "booking",
+  "booking.no_show": "booking",
   "task.completed": "task",
+  "call.missed": "contact",
+  "call.completed": "contact",
+  "call.urgent": "contact",
+  "quote.sent": "contact",
+  "quote.viewed": "contact",
+  "quote.approved": "contact",
+  "quote.expiring": "contact",
+  "schedule.daily": "contact",
 };
 
 const ENTITY_STATUS_OPTIONS: Record<"contact" | "booking" | "task", { value: string; label: string }[]> = {
@@ -871,7 +918,7 @@ interface UICondition {
 
 interface UIAction {
   id: string;
-  type: "create_task" | "update_status" | "ai_analyze" | "call_lead" | "send_sms" | "send_email" | "notify_owner";
+  type: "create_task" | "update_status" | "ai_analyze" | "call_lead" | "send_sms" | "send_email" | "notify_owner" | "wait";
   // create_task
   title: string;
   priority: "low" | "medium" | "high" | "urgent";
@@ -885,6 +932,10 @@ interface UIAction {
   subject: string;
   toTarget: "contact" | "owner";
   notifyChannel: "sms" | "email" | "both";
+  // wait
+  waitMode: "duration" | "until";
+  waitDuration: string;
+  waitUntil: string;
 }
 
 function newAction(type: UIAction["type"], id: string, statusValue: string): UIAction {
@@ -901,6 +952,9 @@ function newAction(type: UIAction["type"], id: string, statusValue: string): UIA
     subject: "",
     toTarget: "contact",
     notifyChannel: "email",
+    waitMode: "duration",
+    waitDuration: "2d",
+    waitUntil: "",
   };
 }
 
@@ -968,6 +1022,17 @@ function parseDefActions(def: unknown): UIAction[] {
     }
     if (act.type === "update_status") {
       return newAction("update_status", `a-${i}`, typeof act.status === "string" ? act.status : "lead");
+    }
+    if (act.type === "wait") {
+      const base = newAction("wait", `a-${i}`, "lead");
+      const until = typeof act.until === "string" ? act.until : "";
+      const duration = typeof act.duration === "string" ? act.duration : "";
+      return {
+        ...base,
+        waitMode: until ? "until" : "duration",
+        waitDuration: duration || (until ? "" : "2d"),
+        waitUntil: until,
+      };
     }
     const base = newAction("create_task", `a-${i}`, "lead");
     const priority = ["low", "medium", "high", "urgent"].includes(act.priority as string)
@@ -1056,7 +1121,9 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
             ? a.body.trim().length > 0 && a.subject.trim().length > 0
             : a.type === "send_sms" || a.type === "notify_owner"
               ? a.body.trim().length > 0
-              : true,
+              : a.type === "wait"
+                ? (a.waitMode === "until" ? a.waitUntil.trim().length > 0 : a.waitDuration.trim().length > 0)
+                : true,
     );
   const canSubmit = name.trim().length > 0 && actionsValid && !pending;
 
@@ -1108,6 +1175,11 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
           ...(a.subject.trim() ? { subject: a.subject.trim() } : {}),
           body: a.body.trim(),
         };
+      }
+      if (a.type === "wait") {
+        return a.waitMode === "until"
+          ? { type: "wait", until: a.waitUntil.trim() }
+          : { type: "wait", duration: a.waitDuration.trim() };
       }
       // update_status: no target_entity => the engine acts on the triggering record.
       return { type: "update_status", status: a.statusValue };
@@ -1229,6 +1301,7 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
                       <option value="send_sms">Send an SMS</option>
                       <option value="send_email">Send an email</option>
                       <option value="notify_owner">Notify the owner</option>
+                      <option value="wait">Wait / delay</option>
                     </select>
                     {actions.length > 1 && (
                       <button type="button" onClick={() => removeAction(a.id)} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground shrink-0">
@@ -1325,6 +1398,33 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
                         <p className="text-[11px] text-muted-foreground/70 mt-1.5">Alerts you (the owner) — no consent needed. Falls back to OWNER_EMAIL / the org owner.</p>
                       </div>
                     </>
+                  ) : a.type === "wait" ? (
+                    <>
+                      <div>
+                        <label className={labelCls}>Wait for</label>
+                        <select value={a.waitMode} onChange={(e) => updateAction(a.id, { waitMode: e.target.value as UIAction["waitMode"] })} className={selectCls}>
+                          <option value="duration">A fixed delay</option>
+                          <option value="until">Until a time relative to the record</option>
+                        </select>
+                      </div>
+                      {a.waitMode === "duration" ? (
+                        <div>
+                          <label className={labelCls}>Delay <span className="text-destructive">*</span></label>
+                          <input type="text" value={a.waitDuration} onChange={(e) => updateAction(a.id, { waitDuration: e.target.value })} placeholder="e.g., 2d, 4h, 30m" className={inputCls} />
+                          <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+                            Pause the sequence this long, then run the steps below. Use <span className="font-mono">m</span> (minutes), <span className="font-mono">h</span> (hours), <span className="font-mono">d</span> (days), <span className="font-mono">w</span> (weeks).
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <label className={labelCls}>Until <span className="text-destructive">*</span></label>
+                          <input type="text" value={a.waitUntil} onChange={(e) => updateAction(a.id, { waitUntil: e.target.value })} placeholder={"booking.scheduled_for - 24h"} className={inputCls} />
+                          <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+                            A field on the triggering record, optionally offset. e.g. <span className="font-mono">booking.scheduled_for - 24h</span> resumes a day before the booking. If the time is already past, the sequence continues immediately.
+                          </p>
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <div>
                       <label className={labelCls}>Set {ENTITY_STATUS_NOUN[triggerEntity]} to</label>
@@ -1358,6 +1458,9 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
               </button>
               <button type="button" onClick={() => addAction("notify_owner")} className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--accent-violet))] hover:opacity-80 transition-opacity">
                 <Plus className="w-3.5 h-3.5" /> Notify owner
+              </button>
+              <button type="button" onClick={() => addAction("wait")} className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--accent-violet))] hover:opacity-80 transition-opacity">
+                <Clock className="w-3.5 h-3.5" /> Wait
               </button>
             </div>
           </div>
