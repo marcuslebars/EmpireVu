@@ -7,12 +7,18 @@ This is the **contract** every lead source (spoke) emits and the EmpireVu intake
 ```
 POST /api/intake
 Content-Type: application/json
-X-EmpireVu-Signature: sha256=<hex HMAC-SHA256 of the raw request body, keyed by LEAD_INTAKE_SECRET>
+X-EmpireVu-Key: <per-tenant intake key>              # key mode (preferred)
+X-EmpireVu-Signature: sha256=<hex HMAC-SHA256 of the raw request body>
 ```
 
 - **Auth is HMAC**, not a bare shared secret: the spoke signs the exact bytes it sends. A missing/invalid signature → `401` (this is the only rejection the endpoint makes).
+- **Two modes** (Task 7 — [tenant provisioning](tenant-provisioning.md)):
+  - **Key mode (preferred):** send `X-EmpireVu-Key`; the **org + company are pinned by the key** (nothing in the payload can change them), and the body signature is keyed by **that intake key**. A brand-new tenant works with no env change or deploy — issue it a key in Settings → Integrations.
+  - **Legacy mode:** no key header; the body signature is keyed by `LEAD_INTAKE_SECRET` and the company is resolved from `sourceSite`. This is the A1 spokes until they are cut over; each use logs `intake.legacy_auth_used` (once/hour/sourceSite).
+- In **both** modes the body signature is mandatory, and `sourceSite` is stored on the lead as a **free-text tag** — in key mode it does NOT choose the tenant; in legacy mode it still routes.
 - **A valid signature is never rejected for schema reasons** (see *Never drop a lead*).
 - The endpoint is **not** subject to session auth (the middleware matcher excludes `/api/*`).
+- Sign + send a test lead with `node scripts/dev/sign-intake.mjs --key <key> [--send]`.
 
 ## Envelope
 

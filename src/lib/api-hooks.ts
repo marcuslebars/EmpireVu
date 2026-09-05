@@ -28,6 +28,12 @@ import {
   acceptInvitation,
   fetchBilling,
   fetchMonthlyUsage,
+  fetchIntakeKeys,
+  createIntakeKey,
+  revokeIntakeKey,
+  fetchVoiceNumbers,
+  createVoiceNumber,
+  deactivateVoiceNumber,
   fetchBillingPlans,
   createCheckout,
   createBillingPortal,
@@ -590,6 +596,60 @@ export function useMonthlyUsage(orgId: string) {
     queryFn: () => fetchMonthlyUsage(orgId),
     enabled: Boolean(orgId),
     staleTime: 60 * 1000,
+  });
+}
+
+export function useIntakeKeys(orgId: string) {
+  return useQuery({
+    queryKey: ["intake-keys", orgId],
+    queryFn: () => fetchIntakeKeys(orgId),
+    enabled: Boolean(orgId),
+  });
+}
+
+export function useCreateIntakeKey(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { companyId?: string | null; label?: string | null }) => createIntakeKey(orgId, input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["intake-keys", orgId] }),
+  });
+}
+
+export function useRevokeIntakeKey(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (keyId: string) => revokeIntakeKey(orgId, keyId),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["intake-keys", orgId] }),
+  });
+}
+
+export function useVoiceNumbers(orgId: string) {
+  return useQuery({
+    queryKey: ["voice-numbers", orgId],
+    queryFn: () => fetchVoiceNumbers(orgId),
+    enabled: Boolean(orgId),
+  });
+}
+
+export function useCreateVoiceNumber(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      companyId: string;
+      phone: string;
+      provider: "retell" | "telnyx";
+      providerAgentId?: string | null;
+      brandLabel?: string | null;
+    }) => createVoiceNumber(orgId, input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["voice-numbers", orgId] }),
+  });
+}
+
+export function useDeactivateVoiceNumber(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (numberId: string) => deactivateVoiceNumber(orgId, numberId),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["voice-numbers", orgId] }),
   });
 }
 

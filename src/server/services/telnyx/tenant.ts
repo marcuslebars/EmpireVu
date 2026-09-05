@@ -10,7 +10,7 @@
 // company. No other route may import createSupabaseAdminClient.
 // ─────────────────────────────────────────────────────────────────────────────
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { SOURCE_SITE_TO_COMPANY_SLUG } from "@/server/services/lead-intake/routing";
+import { sourceSiteForCompanySlug } from "@/server/services/lead-intake/routing";
 import { toE164 } from "./payload";
 
 export type TelnyxAdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -34,14 +34,12 @@ export const EMPTY_TENANT: TelnyxTenant = {
   sourceSite: null,
 };
 
-const COMPANY_SLUG_TO_SOURCE_SITE: Record<string, string> = Object.fromEntries(
-  Object.entries(SOURCE_SITE_TO_COMPANY_SLUG).map(([site, slug]) => [slug, site]),
-);
-
 /**
- * The dialled number decides the brand. Falls back to TELNYX_DEFAULT_TENANT_ID
- * (a company id) when the number isn't mapped, so an unmapped number still
- * routes somewhere rather than dropping the call's lead.
+ * The dialled number decides the brand. Reads voice_numbers (provider 'telnyx') — the
+ * unified table Task 7 introduced — and derives the sourceSite tag from the company slug
+ * (A1 brands keep their exact tag). Falls back to TELNYX_DEFAULT_TENANT_ID (a company id)
+ * when the number isn't mapped, so an unmapped number still routes somewhere rather than
+ * dropping the call's lead.
  */
 export async function resolveTenantByCalledNumber(
   admin: TelnyxAdminClient,
@@ -51,18 +49,27 @@ export async function resolveTenantByCalledNumber(
 
   if (e164) {
     const { data } = await admin
-      .from("telnyx_numbers")
-      .select("organization_id, company_id, source_site, brand_label")
+      .from("voice_numbers")
+      .select("organization_id, company_id, brand_label")
       .eq("phone_e164", e164)
+      .eq("provider", "telnyx")
       .eq("active", true)
       .maybeSingle();
 
     if (data) {
+      const row = data as { organization_id: string; company_id: string; brand_label: string | null };
+      const { data: company } = await admin
+        .from("companies")
+        .select("slug")
+        .eq("organization_id", row.organization_id)
+        .eq("id", row.company_id)
+        .maybeSingle();
+      const slug = (company as { slug: string } | null)?.slug ?? null;
       return {
-        brandLabel: data.brand_label,
-        companyId: data.company_id,
-        organizationId: data.organization_id,
-        sourceSite: data.source_site,
+        brandLabel: row.brand_label,
+        companyId: row.company_id,
+        organizationId: row.organization_id,
+        sourceSite: sourceSiteForCompanySlug(slug),
       };
     }
   }
@@ -90,6 +97,6 @@ export async function resolveDefaultTenant(admin: TelnyxAdminClient): Promise<Te
     brandLabel: data.name,
     companyId: data.id,
     organizationId: data.organization_id,
-    sourceSite: COMPANY_SLUG_TO_SOURCE_SITE[data.slug] ?? null,
+    sourceSite: sourceSiteForCompanySlug(data.slug),
   };
 }

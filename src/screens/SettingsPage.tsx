@@ -19,6 +19,7 @@ import {
 import { VoiceSettings } from "@/components/settings/VoiceSettings";
 import { BillingSettings } from "@/components/settings/BillingSettings";
 import { PaymentsSettings } from "@/components/settings/PaymentsSettings";
+import { IntegrationsSettings } from "@/components/settings/IntegrationsSettings";
 
 const sections = [
   { id: "org", label: "Organization", icon: Building2, description: "Manage organization name, slug, and companies" },
@@ -415,6 +416,8 @@ export default function SettingsPage() {
             <BillingSettings />
           ) : active === "payments" ? (
             <PaymentsSettings />
+          ) : active === "integrations" ? (
+            <IntegrationsSettings />
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center mb-4">

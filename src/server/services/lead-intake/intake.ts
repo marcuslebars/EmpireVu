@@ -86,6 +86,31 @@ async function resolveTarget(
   return { orgId, companyId: company?.id ?? null, companyName: company?.name ?? null };
 }
 
+/**
+ * Key-mode target (Task 7): the tenant is pinned by the intake key / voice number, so the
+ * payload's sourceSite is NOT consulted for routing (it stays a free-text tag). Only the
+ * company name is looked up, for the notification.
+ */
+async function resolvePinnedTarget(
+  admin: AdminClient,
+  target: { organizationId: string; companyId: string | null },
+): Promise<{ orgId: string | null; companyId: string | null; companyName: string | null }> {
+  if (!target.companyId) {
+    return { orgId: target.organizationId, companyId: null, companyName: null };
+  }
+  const { data } = await admin
+    .from("companies")
+    .select("name")
+    .eq("organization_id", target.organizationId)
+    .eq("id", target.companyId)
+    .maybeSingle();
+  return {
+    orgId: target.organizationId,
+    companyId: target.companyId,
+    companyName: (data as { name: string } | null)?.name ?? null,
+  };
+}
+
 async function insertRawLead(
   admin: AdminClient,
   row: {
@@ -362,7 +387,20 @@ async function maybeEnqueueJobberSync(
  *   2) parse valid envelopes into contacts/activity/bookings — errors degrade, lead is kept;
  *   3) notify — best-effort, never fails the request.
  */
-export async function handleLeadIntake(rawBody: string, parsedBody: unknown): Promise<IntakeResult> {
+export interface HandleLeadIntakeOptions {
+  /**
+   * When set (key mode / voice number), the tenant is pinned by the caller and the
+   * payload's sourceSite is NOT used for routing — only stored as a tag. When omitted
+   * (legacy HMAC mode), the org/company are resolved from sourceSite as before.
+   */
+  target?: { organizationId: string; companyId: string | null };
+}
+
+export async function handleLeadIntake(
+  rawBody: string,
+  parsedBody: unknown,
+  options: HandleLeadIntakeOptions = {},
+): Promise<IntakeResult> {
   const leadId = genLeadId();
   // Set only if the lead is auto-quoted; returned to the spoke so it can offer
   // payment on its own confirmation screen.
@@ -376,7 +414,9 @@ export async function handleLeadIntake(rawBody: string, parsedBody: unknown): Pr
   const schemaVersion = typeof bodyRecord?.schemaVersion === "number" ? bodyRecord.schemaVersion : null;
   const rawPayload = (bodyRecord ?? { _unparseable: rawBody }) as Json;
 
-  const { orgId, companyId, companyName } = await resolveTarget(admin, envelope?.sourceSite ?? null);
+  const { orgId, companyId, companyName } = options.target
+    ? await resolvePinnedTarget(admin, options.target)
+    : await resolveTarget(admin, envelope?.sourceSite ?? null);
 
   // (1) DURABLE-FIRST. If this throws, the caller returns 500 — we never confirm
   // success without a durable record.
