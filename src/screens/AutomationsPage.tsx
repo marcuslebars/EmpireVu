@@ -20,6 +20,8 @@ import {
   useUpdateWorkflow,
   useCompanies,
   useSuggestWorkflows,
+  useRecipeCatalog,
+  useInstallRecipes,
 } from "@/lib/api-hooks";
 import { SkeletonCard, ErrorBanner, EmptyState } from "@/components/ui/StateViews";
 import { UpgradeNudge, useCanUseFeature } from "@/components/billing/UpgradeNudge";
@@ -732,6 +734,136 @@ const STARTER_TEMPLATES: StarterTemplate[] = [
   },
 ];
 
+/**
+ * The recipe library (Task 10): proven automations every company can install in one click.
+ * Install writes real workflows (idempotent by slug); anything needing an unconfigured
+ * channel installs as a draft. "Customize" opens the installed workflow to edit.
+ */
+function RecipesPanel({
+  orgId,
+  companyId,
+  onClose,
+  onOpenWorkflow,
+}: {
+  orgId: string;
+  companyId: string;
+  onClose: () => void;
+  onOpenWorkflow: (workflowId: string) => void;
+}) {
+  const { data: recipes, isLoading, isError, refetch } = useRecipeCatalog(orgId, companyId || null);
+  const installRecipes = useInstallRecipes(orgId);
+  const [pendingSlug, setPendingSlug] = useState<string | null>(null);
+
+  const install = async (only?: string[]) => {
+    if (!companyId) return;
+    setPendingSlug(only?.[0] ?? "__all__");
+    try {
+      const res = await installRecipes.mutateAsync({ companyId, only });
+      const n = res.installed.length;
+      const drafts = res.installed.filter((r) => r.status === "draft").length;
+      toast.success(
+        n === 0
+          ? "All set — nothing new to install"
+          : `Installed ${n} recipe${n === 1 ? "" : "s"}${drafts > 0 ? ` (${drafts} as draft)` : ""}`,
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't install recipes.");
+    } finally {
+      setPendingSlug(null);
+    }
+  };
+
+  const hasUninstalled = Boolean(recipes?.some((recipe) => !recipe.installed));
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-[hsl(var(--accent-violet))]" /> Recipe library
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Proven automations, ready on day one. Anything that would text customers before you&rsquo;ve set up SMS installs as a draft.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {companyId && hasUninstalled && (
+            <button
+              onClick={() => install()}
+              disabled={installRecipes.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[hsl(var(--accent-violet))] text-white hover:bg-[hsl(var(--accent-violet))]/90 transition-all active:scale-[0.97] disabled:opacity-50"
+            >
+              {pendingSlug === "__all__" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              Install all
+            </button>
+          )}
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {!companyId ? (
+        <p className="text-xs text-muted-foreground bg-secondary rounded-lg p-3">
+          Pick a company (top-left) to install recipes onto it.
+        </p>
+      ) : isLoading ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground p-3">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading recipes…
+        </div>
+      ) : isError ? (
+        <ErrorBanner message="Couldn't load recipes." onRetry={refetch} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {recipes?.map((recipe) => (
+            <div key={recipe.slug} className="rounded-lg border border-border bg-secondary/40 p-4 space-y-2 flex flex-col">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm font-semibold text-foreground leading-tight">{recipe.name}</p>
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0 whitespace-nowrap">
+                  <Clock className="w-3 h-3" /> ~{formatSeconds(recipe.estimatedTimeSavedSeconds)} saved
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                When: {triggerLabel[recipe.triggerEvent] ?? recipe.triggerEvent}
+              </p>
+              <p className="text-xs text-muted-foreground flex-1">{recipe.description}</p>
+              {recipe.missingRequirements.length > 0 && (
+                <p className="flex items-center gap-1 text-[10px] text-[hsl(var(--warning))]">
+                  <AlertTriangle className="w-3 h-3 shrink-0" /> Needs {recipe.missingRequirements.join(" + ")} — installs as a draft
+                </p>
+              )}
+              {recipe.installed ? (
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 uppercase tracking-wide">
+                    <CheckCircle2 className="w-3 h-3" /> Installed
+                  </span>
+                  {recipe.installedWorkflowId && (
+                    <button
+                      onClick={() => onOpenWorkflow(recipe.installedWorkflowId as string)}
+                      className="flex-1 text-[11px] font-semibold px-2 py-1.5 rounded-lg bg-secondary text-foreground hover:bg-secondary/70 transition-colors"
+                    >
+                      Customize
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <button
+                  onClick={() => install([recipe.slug])}
+                  disabled={installRecipes.isPending}
+                  className="flex items-center justify-center gap-1.5 text-[11px] font-semibold px-2 py-1.5 rounded-lg bg-[hsl(var(--accent-violet))]/10 text-[hsl(var(--accent-violet))] hover:bg-[hsl(var(--accent-violet))]/20 transition-colors disabled:opacity-50"
+                >
+                  {pendingSlug === recipe.slug ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                  Install{recipe.defaultStatus === "draft" ? " as draft" : ""}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** One-click ready-made automations — no builder, no AI call, just Create. */
 function StarterTemplatesPanel({ orgId, onClose }: { orgId: string; onClose: () => void }) {
   const createWorkflow = useCreateWorkflow(orgId);
@@ -1185,7 +1317,15 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
       return { type: "update_status", status: a.statusValue };
     });
 
-    return { version: 1, conditions: builtConditions, actions: builtActions };
+    // Preserve the scheduler config (Task 9/10) and estimated time saved — they aren't
+    // edited in this builder, so carry them through instead of dropping them on save.
+    const original = definitionRecord(workflow?.definition);
+    const carry: Record<string, unknown> = {};
+    if (original.schedule && typeof original.schedule === "object") carry.schedule = original.schedule;
+    if (typeof original.estimated_time_saved_seconds === "number")
+      carry.estimated_time_saved_seconds = original.estimated_time_saved_seconds;
+
+    return { version: 1, conditions: builtConditions, actions: builtActions, ...carry };
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1483,6 +1623,7 @@ export default function AutomationsPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isSuggestOpen, setIsSuggestOpen] = useState(false);
   const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
+  const [isRecipesOpen, setIsRecipesOpen] = useState(false);
   const [editingWorkflow, setEditingWorkflow] = useState<EditWorkflow | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [triggerFilter, setTriggerFilter] = useState("");
@@ -1560,7 +1701,17 @@ export default function AutomationsPage() {
         </div>
         <div className="flex items-center flex-wrap gap-2 sm:justify-end">
           <button
-            onClick={() => { setIsTemplatesOpen((v) => !v); setIsSuggestOpen(false); }}
+            onClick={() => { setIsRecipesOpen((v) => !v); setIsTemplatesOpen(false); setIsSuggestOpen(false); }}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all active:scale-[0.97]",
+              isRecipesOpen ? "bg-[hsl(var(--accent-violet))]/15 text-[hsl(var(--accent-violet))]" : "bg-secondary text-foreground hover:bg-secondary/70",
+            )}
+          >
+            <Sparkles className="w-4 h-4 text-[hsl(var(--accent-violet))]" />
+            Recipes
+          </button>
+          <button
+            onClick={() => { setIsTemplatesOpen((v) => !v); setIsRecipesOpen(false); setIsSuggestOpen(false); }}
             className={cn(
               "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all active:scale-[0.97]",
               isTemplatesOpen ? "bg-[hsl(var(--accent-violet))]/15 text-[hsl(var(--accent-violet))]" : "bg-secondary text-foreground hover:bg-secondary/70",
@@ -1570,7 +1721,7 @@ export default function AutomationsPage() {
             Templates
           </button>
           <button
-            onClick={() => { setIsSuggestOpen(true); setIsTemplatesOpen(false); }}
+            onClick={() => { setIsSuggestOpen(true); setIsTemplatesOpen(false); setIsRecipesOpen(false); }}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-secondary text-foreground hover:bg-secondary/70 transition-all active:scale-[0.97]"
           >
             <Sparkles className="w-4 h-4 text-[hsl(var(--accent-violet))]" />
@@ -1585,6 +1736,15 @@ export default function AutomationsPage() {
           </button>
         </div>
       </div>
+
+      {isRecipesOpen && (
+        <RecipesPanel
+          orgId={organizationId}
+          companyId={companyId}
+          onClose={() => setIsRecipesOpen(false)}
+          onOpenWorkflow={(workflowId) => { setIsRecipesOpen(false); setSelectedWorkflowId(workflowId); }}
+        />
+      )}
 
       {isTemplatesOpen && (
         <StarterTemplatesPanel orgId={organizationId} onClose={() => setIsTemplatesOpen(false)} />

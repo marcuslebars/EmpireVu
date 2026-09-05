@@ -1266,6 +1266,41 @@ export function suggestWorkflows(orgId: string): Promise<WorkflowSuggestion[]> {
   return apiFetch(`/api/organizations/${orgId}/workflows/suggest`, { method: "POST" });
 }
 
+/** A proven starter automation (Task 10), annotated for a company. */
+export interface RecipeCatalogEntry {
+  slug: string;
+  name: string;
+  description: string;
+  triggerEvent: string;
+  defaultStatus: "active" | "draft";
+  requires: Array<"sms" | "email" | "voice">;
+  estimatedTimeSavedSeconds: number;
+  textsCustomers: boolean;
+  missingRequirements: Array<"sms" | "email" | "voice">;
+  installed: boolean;
+  installedWorkflowId: string | null;
+}
+
+export function fetchRecipeCatalog(orgId: string, companyId?: string | null): Promise<RecipeCatalogEntry[]> {
+  const qs = companyId ? `?companyId=${encodeURIComponent(companyId)}` : "";
+  return apiFetch(`/api/organizations/${orgId}/workflows/recipes${qs}`);
+}
+
+export interface InstallRecipesResult {
+  installed: Array<{ slug: string; workflowId: string; status: "active" | "draft"; disabledReason: string | null }>;
+  skipped: Array<{ slug: string; reason: string }>;
+}
+
+export function installRecipes(
+  orgId: string,
+  input: { companyId: string; only?: string[] },
+): Promise<InstallRecipesResult> {
+  return apiFetch(`/api/organizations/${orgId}/workflows/recipes/install`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 // ─── Organizations & Companies ───────────────────────────────────────────────
 
 export interface OrganizationSummary {

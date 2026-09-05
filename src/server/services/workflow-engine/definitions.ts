@@ -110,10 +110,17 @@ const workflowActionSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+const workflowScheduleSchema = z.object({
+  daily_time: z.string().regex(/^\d{1,2}:\d{2}$/).optional(),
+  hours_before: z.number().nonnegative().max(8760).optional(),
+  stale_days: z.number().int().nonnegative().max(3650).optional(),
+});
+
 const workflowDefinitionSchema = z.object({
   actions: z.array(workflowActionSchema).default([]),
   conditions: z.array(workflowConditionSchema).default([]),
   estimated_time_saved_seconds: z.number().int().nonnegative().optional(),
+  schedule: workflowScheduleSchema.optional(),
   version: z.number().int().positive().default(1),
 });
 
@@ -170,6 +177,10 @@ export function parseWorkflowDefinition(definition: Json): WorkflowDefinition {
     estimated_time_saved_seconds:
       typeof rawDefinition.estimated_time_saved_seconds === "number"
         ? rawDefinition.estimated_time_saved_seconds
+        : undefined,
+    schedule:
+      rawDefinition.schedule && typeof rawDefinition.schedule === "object" && !Array.isArray(rawDefinition.schedule)
+        ? rawDefinition.schedule
         : undefined,
     version:
       typeof rawDefinition.version === "number" && Number.isFinite(rawDefinition.version)

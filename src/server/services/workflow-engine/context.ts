@@ -233,7 +233,14 @@ export async function buildMessageTemplateData(
 
   return {
     contact,
-    company: company ? { ...company, booking_url: companyBookingUrl(companyId) } : null,
+    company: company
+      ? {
+          ...company,
+          booking_url: companyBookingUrl(companyId),
+          // Friendly alias for the branding column, mirroring booking_url (Task 10).
+          review_url: (company as Record<string, unknown>).brand_review_url ?? null,
+        }
+      : null,
     booking,
     // No supported trigger is quote-based yet; `{{ quote.* }}` renders empty until wired.
     quote: null,
