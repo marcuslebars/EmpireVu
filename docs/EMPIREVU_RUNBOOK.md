@@ -47,8 +47,26 @@ Inbound provider webhooks (Retell, Jobber) are **persisted before they ACK**, so
 - **Retry a stuck/failed job:** `POST /api/organizations/{organizationId}/inbound-webhook-jobs/{jobId}/retry` (org-membership authz, then a service-role reset scoped to the caller's org or an unresolved null-org job). Mirrors the workflow-event-jobs retry.
 - **Ops:** `/api/organizations/{organizationId}/ops/jobs-health` includes `inboundWebhookJobs: { pending, running, failed }`; `/api/health` includes the `inbound_webhooks` worker row.
 
+## Abuse controls on unauthenticated routes
+Nobody can use a public form to spam a tenant's CRM or trigger paid outbound AI calls. Migration `20260904140000_abuse_controls.sql`. Three independent layers, all fail-safe:
+
+**1) DB-backed rate limiter (no Redis).** `rate_limit_buckets` + the atomic `consume_rate_limit(key, limit, window_seconds)` (one `insert … on conflict do update`, resets the window when it expires, returns whether still under limit). RLS on, no policies — service-role only, via `src/server/services/rate-limit.ts` → `enforceRateLimit(request, { scope, limit, windowSeconds, keyParts })` returns a ready 429 or null. **Fails open** (a limiter blip never blocks a real user or drops a signed webhook). Keyed on client IP (first `x-forwarded-for` hop) and/or the resource. Applied:
+| Route | Limit |
+| --- | --- |
+| `POST /api/public/booking/[companyId]` | 5 / 10 min per IP **and** 60 / hour per company |
+| `GET /api/public/booking/[companyId]` | 60 / 10 min per IP |
+| `POST /api/waitlist` | 3 / hour per IP |
+| `POST /api/public/quotes/[token]/{approve,reprice}` | 20 / 10 min per token |
+| `POST /api/intake`, `/api/retell/*`, `/api/telnyx/*`, `/api/jobber/webhook`, `/api/webhooks/stripe/*` | 600 / min per IP (signed; DoS backstop via `enforceWebhookBackstop`) |
+
+**2) Cloudflare Turnstile + honeypot + timing** on the booking + waitlist forms (`src/server/services/turnstile.ts`). Client renders the widget when `VITE_TURNSTILE_SITE_KEY` is set; the server verifies with `TURNSTILE_SECRET_KEY`. **Fail-open until configured:** unset secret → skip with a warning (every env), so shipping never breaks a live form; once set, a missing/invalid token is rejected. A hidden `website` honeypot and a `formStartedAt` timestamp (submit < 3 s ⇒ bot) run with no network call. ⚠️ The waitlist form lives in the **empirevu-site** repo (empirevu.com); render its widget + post `turnstileToken` there BEFORE setting the shared `TURNSTILE_SECRET_KEY`, or waitlist signups will be rejected. Not applied to the hosted quote page (the token is the auth).
+
+**3) Paid-action guard** (`src/server/services/workflow-engine/guards.ts`). Before a `call_lead` (and later `send_sms`) workflow action runs, `assertPaidActionAllowed` checks whether the trigger was *unauthenticated-sourced* (`activity_event.actor_user_id is null` and `metadata.source ∈ {public_booking, waitlist, intake_unverified}` — signed intake stamps `intake`, which is trusted and exempt). If so it refuses when the same phone (last-10) already got an outbound call from this company in 24 h (`guard:cooldown`), or the company hit its daily cap of unauthenticated-sourced calls (`guard:daily_cap`; default **20**, overridable per org via `feature_flags.limit_value` for feature `public_outbound_calls_daily`). A refusal is recorded as the workflow run's `failure_reason` (logged at *warn*, not as a crash) — visible in Automations. Authenticated triggers pass straight through. Placed calls are tagged (`contact.call_placed` metadata `triggerSource`) so the cap can count them; owner-initiated calls are untagged and never count.
+
+All 429s and guard refusals are logged with org/company ids and **no PII** (no IP, no phone).
+
 ## Service-role (sanctioned) surfaces
-`createSupabaseAdminClient()` (service role, bypasses RLS) is used only where a request has no forgeable RLS identity, each carrying a `SANCTIONED EXCEPTION` header comment (convention #2): lead-intake, public-booking, telnyx, retell, quotes (public/checkout/connect), billing, jobber, waitlist, invitations, the workers/jobs — and now **`/api/health`** (reads aggregate queue counts only, never tenant rows; there is no tenant to resolve). `SUPABASE_SERVICE_ROLE_KEY` stays on the web service.
+`createSupabaseAdminClient()` (service role, bypasses RLS) is used only where a request has no forgeable RLS identity, each carrying a `SANCTIONED EXCEPTION` header comment (convention #2): lead-intake, public-booking, telnyx, retell, quotes (public/checkout/connect), billing, jobber, waitlist, invitations, the workers/jobs, **`/api/health`** (aggregate queue counts only), and now the **rate limiter** (`services/rate-limit.ts` — increments a per-IP/resource counter in `rate_limit_buckets`, which has no member RLS; reads no tenant data). `SUPABASE_SERVICE_ROLE_KEY` stays on the web service.
 
 ## Builder & run — Railway uses **Railpack**, and you MUST pin build + start
 ⚠️ **The trap we hit (biggest gotcha):** Railpack (Railway's current builder — Nixpacks is deprecated) auto-detects a **static Vite SPA**, builds `dist/`, and serves it via **Caddy** with SPA-fallback. The result is silent and nasty: `GET /` looks fine, but **every `/api/*` route returns the SPA's `index.html`** — the Next server never runs, so the whole API (including `/api/intake`) is dead.

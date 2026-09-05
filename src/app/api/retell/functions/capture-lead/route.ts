@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { logRetellPayload, verifyRetellFunctionSecret } from "@/server/services/retell/auth";
 import { getRetellConfig } from "@/server/services/retell/config";
 import { captureRetellLead } from "@/server/services/retell/lead-adapter";
+import { enforceWebhookBackstop } from "@/server/services/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,9 @@ export const dynamic = "force-dynamic";
  * row instead of creating a second lead. Returns a compact result the agent can speak.
  */
 export async function POST(request: Request): Promise<NextResponse> {
+  const backstop = await enforceWebhookBackstop(request, "retell_capture_lead");
+  if (backstop) return backstop;
+
   if (!verifyRetellFunctionSecret(request)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Calendar, Clock, CheckCircle2, Loader2, ArrowLeft } from "lucide-react";
-import { cn } from "@/lib/utils";
+import TurnstileWidget from "@/components/TurnstileWidget";
 
 interface AvailableSlot {
   startsAt: string;
@@ -31,6 +31,13 @@ export default function PublicBookingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
+
+  // Abuse controls (Task 5): a honeypot the visitor never sees, a "form opened at"
+  // timestamp (a sub-3s submit is a bot), and a Turnstile token when configured.
+  const websiteRef = useRef<HTMLInputElement>(null);
+  const [formStartedAt] = useState(() => Date.now());
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const handleTurnstileToken = useCallback((token: string | null) => setTurnstileToken(token), []);
 
   useEffect(() => {
     let active = true;
@@ -113,6 +120,10 @@ export default function PublicBookingPage() {
           phone: phone.trim() || undefined,
           notes: notes.trim() || undefined,
           startsAt: selected,
+          // Abuse signals — see the route's honeypot / timing / Turnstile checks.
+          website: websiteRef.current?.value || undefined,
+          formStartedAt,
+          turnstileToken: turnstileToken ?? undefined,
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -242,6 +253,20 @@ export default function PublicBookingPage() {
                     <label className="text-xs font-medium text-muted-foreground mb-1.5 block">What do you need? </label>
                     <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Optional — tell us about the job (boat type, service, etc.)" className={`${inputCls} resize-none`} />
                   </div>
+
+                  {/* Honeypot — hidden from real users, catches bots that fill every field. */}
+                  <input
+                    ref={websiteRef}
+                    type="text"
+                    name="website"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    aria-hidden="true"
+                    style={{ position: "absolute", left: "-9999px", width: 1, height: 1, opacity: 0 }}
+                  />
+
+                  {/* Turnstile — renders only when VITE_TURNSTILE_SITE_KEY is set. */}
+                  <TurnstileWidget onToken={handleTurnstileToken} />
 
                   {submitError && (
                     <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-2.5 text-xs text-destructive">{submitError}</div>

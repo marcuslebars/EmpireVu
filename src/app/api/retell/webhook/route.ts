@@ -7,6 +7,7 @@ import { persistRetellCallRaw } from "@/server/services/retell/lead-adapter";
 import { readString } from "@/server/services/retell/payload";
 import { verifyRetellSignature } from "@/server/services/retell/signature";
 import { createRetellAdminClient } from "@/server/services/retell/tenant";
+import { enforceWebhookBackstop } from "@/server/services/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,9 @@ export const dynamic = "force-dynamic";
  * + analysis we build a lead from; every other event is ACKed without work.
  */
 export async function POST(request: Request): Promise<NextResponse> {
+  const backstop = await enforceWebhookBackstop(request, "retell_webhook");
+  if (backstop) return backstop;
+
   const cfg = getRetellConfig();
   const rawBody = await request.text();
   const signature = request.headers.get("x-retell-signature");

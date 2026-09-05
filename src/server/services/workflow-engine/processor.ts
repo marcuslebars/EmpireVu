@@ -19,6 +19,7 @@ import {
   parseWorkflowDefinition,
 } from "@/server/services/workflow-engine/definitions";
 import { buildWorkflowEventContext } from "@/server/services/workflow-engine/context";
+import { PaidActionGuardError } from "@/server/services/workflow-engine/guards";
 import { matchActiveWorkflows } from "@/server/services/workflow-engine/matcher";
 import type { WorkflowConditionResult, WorkflowExecutionSummary } from "@/server/services/workflow-engine/types";
 
@@ -186,11 +187,18 @@ async function executeWorkflowForEvent(
   } catch (error) {
     const failureReason = error instanceof Error ? error.message : "Workflow execution failed.";
 
+    // A paid-action guard refusal is a deliberate policy outcome, not a failure of the
+    // engine: record it as the run's failure_reason (guard:cooldown / guard:daily_cap)
+    // and log it at warn level so it reads as "blocked", not "crashed", in Automations.
+    const isGuardRefusal = error instanceof PaidActionGuardError;
+
     logs.push({
       at: nowIso(),
       details: { failureReason },
-      level: "error",
-      message: "Workflow execution failed.",
+      level: isGuardRefusal ? "warn" : "error",
+      message: isGuardRefusal
+        ? "Workflow action blocked by abuse guard."
+        : "Workflow execution failed.",
     });
 
     if (!dryRun && run) {

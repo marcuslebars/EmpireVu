@@ -18,6 +18,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { handleRoute } from "@/server/api/route";
+import { enforceRateLimit } from "@/server/services/rate-limit";
 import { createDepositCheckoutSession, DepositCheckoutError } from "@/server/services/quotes/checkout";
 import { CompanyStripeError } from "@/server/services/quotes/company-stripe";
 import { getQuotesConfig } from "@/server/services/quotes/config";
@@ -50,6 +51,16 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     }
 
     const token = context.params.token;
+
+    // Per-token limit: the token IS the auth here, so throttle attempts against it
+    // (approve + its checkout are idempotent, but this caps brute-force / hammering).
+    const limited = await enforceRateLimit(request, {
+      scope: "public_quote_approve",
+      limit: 20,
+      windowSeconds: 600,
+      keyParts: [token],
+    });
+    if (limited) return limited;
 
     let parsed: z.infer<typeof bodySchema>;
     try {

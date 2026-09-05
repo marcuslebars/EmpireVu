@@ -7,6 +7,7 @@ import {
   resolveDynamicVariables,
   TELNYX_LOOKUP_BUDGET_MS,
 } from "@/server/services/telnyx/dynamic-variables";
+import { enforceWebhookBackstop } from "@/server/services/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,9 @@ export const dynamic = "force-dynamic";
  * non-200 is 401, because an unauthenticated caller isn't Telnyx at all.
  */
 export async function POST(request: Request): Promise<NextResponse> {
+  const backstop = await enforceWebhookBackstop(request, "telnyx_dynamic_variables");
+  if (backstop) return backstop;
+
   if (!verifyTelnyxSecret(request)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }

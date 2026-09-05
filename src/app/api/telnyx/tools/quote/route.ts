@@ -16,6 +16,7 @@ import { createTelnyxAdminClient, resolveTenantByCalledNumber } from "@/server/s
 import { loadCatalog } from "@/server/services/quotes/catalog-repo";
 import type { ServiceCatalog } from "@/server/services/quotes/catalog";
 import type { Json } from "@/server/db/database.types";
+import { enforceWebhookBackstop } from "@/server/services/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,9 @@ export const dynamic = "force-dynamic";
  * Prices are never invented here; see services/telnyx/pricing.ts.
  */
 export async function POST(request: Request): Promise<NextResponse> {
+  const backstop = await enforceWebhookBackstop(request, "telnyx_tools_quote");
+  if (backstop) return backstop;
+
   if (!verifyTelnyxSecret(request)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
