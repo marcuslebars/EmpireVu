@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendSms = vi.fn();
 const sendEmail = vi.fn();
-const emitActivityEventAndDispatch = vi.fn(() => Promise.resolve({ activityEvent: {}, workflowEventJob: null }));
+const emitActivityEventAndDispatch = vi.fn((..._args: unknown[]) =>
+  Promise.resolve({ activityEvent: {}, workflowEventJob: null }),
+);
 vi.mock("@/server/outbound/sms", () => ({ sendSms: (...a: unknown[]) => sendSms(...a) }));
 vi.mock("@/server/outbound/email", () => ({ sendEmail: (...a: unknown[]) => sendEmail(...a) }));
 vi.mock("@/server/services/usage", () => ({ recordUsageSafe: () => Promise.resolve() }));
