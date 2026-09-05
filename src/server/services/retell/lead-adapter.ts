@@ -371,7 +371,12 @@ async function upsertRetellCall(
 async function runPhoneLeadIntake(fields: RetellCallFields, rawPayload: unknown): Promise<RetellIngestResult> {
   const cfg = getRetellConfig();
   const admin = createRetellAdminClient();
-  const tenant = await resolveRetellTenant(admin, cfg.sourceSite);
+  // Inbound tenant: by dialled number → by agent → legacy env (Task 7).
+  const tenant = await resolveRetellTenant(admin, {
+    toNumber: fields.toNumber,
+    agentId: fields.agentId,
+    legacySourceSite: cfg.sourceSite,
+  });
 
   // call_analyzed / capture always carry a call_id; a synthetic id only guards a
   // pathological payload so the raw call is still stored durably.
@@ -393,9 +398,18 @@ async function runPhoneLeadIntake(fields: RetellCallFields, rawPayload: unknown)
   // (2) DURABLE-FIRST.
   await upsertRetellCall(admin, { callId, tenant, fields, rawPayload });
 
-  // (3) Canonical envelope → SAME intake path as a form (dedup, activity, notify).
+  // (3) Canonical envelope → SAME intake path as a form (dedup, activity, notify). The
+  //     tenant is PINNED from the resolved number/agent, so a brand-new tenant routes even
+  //     though its sourceSite tag isn't in the legacy A1 map. When nothing resolved
+  //     (org null), fall back to sourceSite routing (stores raw + flags if still unmapped).
   const envelope = buildPhoneLeadEnvelope(fields, tenant.sourceSite, cfg.leadSource);
-  const result = await handleLeadIntake(JSON.stringify(envelope), envelope);
+  const result = await handleLeadIntake(
+    JSON.stringify(envelope),
+    envelope,
+    tenant.organizationId
+      ? { target: { organizationId: tenant.organizationId, companyId: tenant.companyId } }
+      : {},
+  );
 
   // (4) Link the call row to its lead + contact (best-effort; the lead is already durable).
   try {

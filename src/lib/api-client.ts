@@ -763,6 +763,83 @@ export function fetchMonthlyUsage(orgId: string): Promise<MonthlyUsage> {
   return apiFetch(`/api/organizations/${orgId}/usage/monthly`);
 }
 
+// ── Integrations: intake keys + voice numbers (Task 7) ───────────────────────
+
+export interface IntakeKey {
+  id: string;
+  companyId: string | null;
+  keyPrefix: string;
+  label: string | null;
+  active: boolean;
+  lastUsedAt: string | null;
+  createdAt: string;
+}
+
+export interface CreatedIntakeKey {
+  key: string;
+  keyPrefix: string;
+  view: IntakeKey;
+}
+
+export function fetchIntakeKeys(orgId: string): Promise<IntakeKey[]> {
+  return apiFetch(`/api/organizations/${orgId}/intake-keys`);
+}
+
+export function createIntakeKey(
+  orgId: string,
+  input: { companyId?: string | null; label?: string | null },
+): Promise<CreatedIntakeKey> {
+  return apiFetch(`/api/organizations/${orgId}/intake-keys`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function revokeIntakeKey(orgId: string, keyId: string): Promise<{ ok: true }> {
+  return apiFetch(`/api/organizations/${orgId}/intake-keys/${keyId}/revoke`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export interface VoiceNumber {
+  id: string;
+  companyId: string;
+  phoneE164: string;
+  provider: string;
+  providerAgentId: string | null;
+  brandLabel: string | null;
+  active: boolean;
+  createdAt: string;
+}
+
+export function fetchVoiceNumbers(orgId: string): Promise<VoiceNumber[]> {
+  return apiFetch(`/api/organizations/${orgId}/voice-numbers`);
+}
+
+export function createVoiceNumber(
+  orgId: string,
+  input: {
+    companyId: string;
+    phone: string;
+    provider: "retell" | "telnyx";
+    providerAgentId?: string | null;
+    brandLabel?: string | null;
+  },
+): Promise<VoiceNumber> {
+  return apiFetch(`/api/organizations/${orgId}/voice-numbers`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deactivateVoiceNumber(orgId: string, numberId: string): Promise<{ ok: true }> {
+  return apiFetch(`/api/organizations/${orgId}/voice-numbers/${numberId}/deactivate`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 // ─── Payments (Stripe Connect) ───────────────────────────────────────────────
 
 export type ConnectState = "not_connected" | "onboarding_incomplete" | "ready";

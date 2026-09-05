@@ -1896,6 +1896,81 @@ export interface Database {
         };
         Relationships: [];
       };
+      intake_keys: {
+        Row: {
+          active: boolean;
+          company_id: string | null;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          key_hash: string;
+          key_prefix: string;
+          label: string | null;
+          last_used_at: string | null;
+          organization_id: string;
+        };
+        Insert: {
+          active?: boolean;
+          company_id?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          key_hash: string;
+          key_prefix: string;
+          label?: string | null;
+          last_used_at?: string | null;
+          organization_id: string;
+        };
+        Update: {
+          active?: boolean;
+          company_id?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          key_hash?: string;
+          key_prefix?: string;
+          label?: string | null;
+          last_used_at?: string | null;
+          organization_id?: string;
+        };
+        Relationships: [];
+      };
+      voice_numbers: {
+        Row: {
+          active: boolean;
+          brand_label: string | null;
+          company_id: string;
+          created_at: string;
+          id: string;
+          organization_id: string;
+          phone_e164: string;
+          provider: string;
+          provider_agent_id: string | null;
+        };
+        Insert: {
+          active?: boolean;
+          brand_label?: string | null;
+          company_id: string;
+          created_at?: string;
+          id?: string;
+          organization_id: string;
+          phone_e164: string;
+          provider: string;
+          provider_agent_id?: string | null;
+        };
+        Update: {
+          active?: boolean;
+          brand_label?: string | null;
+          company_id?: string;
+          created_at?: string;
+          id?: string;
+          organization_id?: string;
+          phone_e164?: string;
+          provider?: string;
+          provider_agent_id?: string | null;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       ui_contact_list_v: {
