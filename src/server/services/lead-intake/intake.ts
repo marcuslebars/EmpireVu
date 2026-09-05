@@ -290,6 +290,9 @@ async function parseIntoRecords(
         email: envelope.contact.email ?? null,
         phone: envelope.contact.phone ?? null,
         notes: envelope.message ?? null,
+        // Implied consent (Task 8): the lead initiated contact via this inquiry (CASL).
+        smsConsentAt: envelope.receivedAt ?? new Date().toISOString(),
+        consentSource: "implied_inquiry",
         metadata: {
           source: envelope.source,
           sourceSite: envelope.sourceSite,

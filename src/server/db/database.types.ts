@@ -157,6 +157,8 @@ export interface Database {
           name: string;
           notes: string | null;
           organization_id: string;
+          owner_email: string | null;
+          owner_phone_e164: string | null;
           quote_terms_text: string | null;
           slug: string;
           stage: Database["public"]["Enums"]["company_stage"];
@@ -187,6 +189,8 @@ export interface Database {
           name: string;
           notes?: string | null;
           organization_id: string;
+          owner_email?: string | null;
+          owner_phone_e164?: string | null;
           quote_terms_text?: string | null;
           slug: string;
           stage?: Database["public"]["Enums"]["company_stage"];
@@ -217,6 +221,8 @@ export interface Database {
           name?: string;
           notes?: string | null;
           organization_id?: string;
+          owner_email?: string | null;
+          owner_phone_e164?: string | null;
           quote_terms_text?: string | null;
           slug?: string;
           stage?: Database["public"]["Enums"]["company_stage"];
@@ -281,6 +287,10 @@ export interface Database {
           phone_last10: string | null;
           /** Generated (stored): lower(name + email + phone) for trigram search. Read-only. */
           search_text: string;
+          sms_consent_at: string | null;
+          sms_opt_out_at: string | null;
+          email_opt_out_at: string | null;
+          consent_source: string | null;
           stage: Database["public"]["Enums"]["contact_stage"];
           updated_at: string;
         };
@@ -296,6 +306,10 @@ export interface Database {
           organization_id: string;
           owner_profile_id?: string | null;
           phone?: string | null;
+          sms_consent_at?: string | null;
+          sms_opt_out_at?: string | null;
+          email_opt_out_at?: string | null;
+          consent_source?: string | null;
           stage?: Database["public"]["Enums"]["contact_stage"];
           updated_at?: string;
         };
@@ -311,6 +325,10 @@ export interface Database {
           organization_id?: string;
           owner_profile_id?: string | null;
           phone?: string | null;
+          sms_consent_at?: string | null;
+          sms_opt_out_at?: string | null;
+          email_opt_out_at?: string | null;
+          consent_source?: string | null;
           stage?: Database["public"]["Enums"]["contact_stage"];
           updated_at?: string;
         };
@@ -1968,6 +1986,63 @@ export interface Database {
           phone_e164?: string;
           provider?: string;
           provider_agent_id?: string | null;
+        };
+        Relationships: [];
+      };
+      message_log: {
+        Row: {
+          body: string | null;
+          channel: string;
+          company_id: string | null;
+          contact_id: string | null;
+          created_at: string;
+          direction: string;
+          error: string | null;
+          from_addr: string | null;
+          id: string;
+          organization_id: string;
+          provider: string | null;
+          provider_ref: string | null;
+          status: string;
+          subject: string | null;
+          to_addr: string | null;
+          workflow_run_id: string | null;
+        };
+        Insert: {
+          body?: string | null;
+          channel: string;
+          company_id?: string | null;
+          contact_id?: string | null;
+          created_at?: string;
+          direction: string;
+          error?: string | null;
+          from_addr?: string | null;
+          id?: string;
+          organization_id: string;
+          provider?: string | null;
+          provider_ref?: string | null;
+          status: string;
+          subject?: string | null;
+          to_addr?: string | null;
+          workflow_run_id?: string | null;
+        };
+        Update: {
+          body?: string | null;
+          channel?: string;
+          company_id?: string | null;
+          contact_id?: string | null;
+          created_at?: string;
+          direction?: string;
+          error?: string | null;
+          from_addr?: string | null;
+          id?: string;
+          organization_id?: string;
+          provider?: string | null;
+          provider_ref?: string | null;
+          status?: string;
+          subject?: string | null;
+          to_addr?: string | null;
+          workflow_run_id?: string | null;
         };
         Relationships: [];
       };

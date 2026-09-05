@@ -80,9 +80,40 @@ export interface WorkflowCallLeadAction {
   type: "call_lead";
 }
 
+/** Messaging actions (Task 8). `to` is "contact" (default), "owner", or a literal
+ *  E.164 / email; body/subject are interpolated templates. */
+export interface WorkflowSendSmsAction {
+  to?: string;
+  body: string;
+  time_saved_seconds?: number;
+  type: "send_sms";
+}
+
+export interface WorkflowSendEmailAction {
+  to?: string;
+  subject: string;
+  body: string;
+  html?: string;
+  from_name?: string;
+  reply_to?: string;
+  time_saved_seconds?: number;
+  type: "send_email";
+}
+
+export interface WorkflowNotifyOwnerAction {
+  channel: "sms" | "email" | "both";
+  subject?: string;
+  body: string;
+  time_saved_seconds?: number;
+  type: "notify_owner";
+}
+
 export type WorkflowAction =
   | WorkflowAiAnalyzeAction
   | WorkflowCallLeadAction
+  | WorkflowSendSmsAction
+  | WorkflowSendEmailAction
+  | WorkflowNotifyOwnerAction
   | WorkflowAssignUserAction
   | WorkflowCreateActivityEventAction
   | WorkflowCreateTaskAction

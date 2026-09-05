@@ -78,6 +78,29 @@ const workflowActionSchema = z.discriminatedUnion("type", [
     time_saved_seconds: z.number().int().nonnegative().optional(),
     type: z.literal("call_lead"),
   }),
+  z.object({
+    to: z.string().max(320).optional(),
+    body: z.string().min(1).max(2000),
+    time_saved_seconds: z.number().int().nonnegative().optional(),
+    type: z.literal("send_sms"),
+  }),
+  z.object({
+    to: z.string().max(320).optional(),
+    subject: z.string().min(1).max(300),
+    body: z.string().min(1).max(20000),
+    html: z.string().max(200000).optional(),
+    from_name: z.string().max(200).optional(),
+    reply_to: z.string().max(320).optional(),
+    time_saved_seconds: z.number().int().nonnegative().optional(),
+    type: z.literal("send_email"),
+  }),
+  z.object({
+    channel: z.enum(["sms", "email", "both"]),
+    subject: z.string().max(300).optional(),
+    body: z.string().min(1).max(20000),
+    time_saved_seconds: z.number().int().nonnegative().optional(),
+    type: z.literal("notify_owner"),
+  }),
 ]);
 
 const workflowDefinitionSchema = z.object({

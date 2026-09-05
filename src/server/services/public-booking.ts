@@ -220,6 +220,9 @@ async function findOrCreateContact(
       organization_id: company.organizationId,
       phone: input.phone?.trim() || null,
       stage: "lead",
+      // Implied consent (Task 8): the customer initiated contact by self-booking (CASL).
+      sms_consent_at: new Date().toISOString(),
+      consent_source: "implied_inquiry",
     })
     .select("id")
     .single();
