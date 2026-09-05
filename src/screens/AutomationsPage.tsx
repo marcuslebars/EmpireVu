@@ -118,6 +118,12 @@ function describeTestAction(p: TestProjectionAction): string {
       return "Analyze the lead with AI and draft a reply";
     case "call_lead":
       return "Call the lead with Marina (voice agent)";
+    case "send_sms":
+      return `Send SMS → ${payload.to ? String(payload.to) : "contact"}: ${payload.body ? String(payload.body) : ""}`;
+    case "send_email":
+      return `Send email → ${payload.to ? String(payload.to) : "contact"}: ${payload.subject ? String(payload.subject) : ""}`;
+    case "notify_owner":
+      return `Notify owner (${payload.channel ? String(payload.channel) : "email"}): ${payload.body ? String(payload.body) : ""}`;
     default:
       return p.action.type;
   }
@@ -527,6 +533,12 @@ function describeAction(action: { type: string; title?: string; priority?: strin
       return "Analyze the lead with AI and draft a reply";
     case "call_lead":
       return "Call the lead with Marina (voice agent)";
+    case "send_sms":
+      return "Send an SMS to the contact";
+    case "send_email":
+      return "Send an email to the contact";
+    case "notify_owner":
+      return "Notify the owner";
     case "update_status":
       return `Set status to ${action.status}`;
     default:
@@ -859,7 +871,7 @@ interface UICondition {
 
 interface UIAction {
   id: string;
-  type: "create_task" | "update_status" | "ai_analyze" | "call_lead";
+  type: "create_task" | "update_status" | "ai_analyze" | "call_lead" | "send_sms" | "send_email" | "notify_owner";
   // create_task
   title: string;
   priority: "low" | "medium" | "high" | "urgent";
@@ -868,6 +880,11 @@ interface UIAction {
   dueInDays: string;
   // update_status
   statusValue: string;
+  // messaging (send_sms / send_email / notify_owner)
+  body: string;
+  subject: string;
+  toTarget: "contact" | "owner";
+  notifyChannel: "sms" | "email" | "both";
 }
 
 function newAction(type: UIAction["type"], id: string, statusValue: string): UIAction {
@@ -880,6 +897,10 @@ function newAction(type: UIAction["type"], id: string, statusValue: string): UIA
     description: "",
     dueInDays: "",
     statusValue,
+    body: "",
+    subject: "",
+    toTarget: "contact",
+    notifyChannel: "email",
   };
 }
 
@@ -920,6 +941,30 @@ function parseDefActions(def: unknown): UIAction[] {
     }
     if (act.type === "call_lead") {
       return newAction("call_lead", `a-${i}`, "lead");
+    }
+    if (act.type === "send_sms") {
+      const base = newAction("send_sms", `a-${i}`, "lead");
+      return { ...base, body: typeof act.body === "string" ? act.body : "", toTarget: act.to === "owner" ? "owner" : "contact" };
+    }
+    if (act.type === "send_email") {
+      const base = newAction("send_email", `a-${i}`, "lead");
+      return {
+        ...base,
+        body: typeof act.body === "string" ? act.body : "",
+        subject: typeof act.subject === "string" ? act.subject : "",
+        toTarget: act.to === "owner" ? "owner" : "contact",
+      };
+    }
+    if (act.type === "notify_owner") {
+      const base = newAction("notify_owner", `a-${i}`, "lead");
+      return {
+        ...base,
+        body: typeof act.body === "string" ? act.body : "",
+        subject: typeof act.subject === "string" ? act.subject : "",
+        notifyChannel: ["sms", "email", "both"].includes(act.channel as string)
+          ? (act.channel as "sms" | "email" | "both")
+          : "email",
+      };
     }
     if (act.type === "update_status") {
       return newAction("update_status", `a-${i}`, typeof act.status === "string" ? act.status : "lead");
@@ -1007,7 +1052,11 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
         ? a.title.trim().length > 0
         : a.type === "update_status"
           ? Boolean(a.statusValue)
-          : true,
+          : a.type === "send_email"
+            ? a.body.trim().length > 0 && a.subject.trim().length > 0
+            : a.type === "send_sms" || a.type === "notify_owner"
+              ? a.body.trim().length > 0
+              : true,
     );
   const canSubmit = name.trim().length > 0 && actionsValid && !pending;
 
@@ -1045,6 +1094,20 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
       }
       if (a.type === "call_lead") {
         return { type: "call_lead" };
+      }
+      if (a.type === "send_sms") {
+        return { type: "send_sms", to: a.toTarget, body: a.body.trim() };
+      }
+      if (a.type === "send_email") {
+        return { type: "send_email", to: a.toTarget, subject: a.subject.trim(), body: a.body.trim() };
+      }
+      if (a.type === "notify_owner") {
+        return {
+          type: "notify_owner",
+          channel: a.notifyChannel,
+          ...(a.subject.trim() ? { subject: a.subject.trim() } : {}),
+          body: a.body.trim(),
+        };
       }
       // update_status: no target_entity => the engine acts on the triggering record.
       return { type: "update_status", status: a.statusValue };
@@ -1163,6 +1226,9 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
                       <option value="update_status">Update the {triggerEntity}&rsquo;s {ENTITY_STATUS_NOUN[triggerEntity]}</option>
                       <option value="ai_analyze">Analyze the lead with AI</option>
                       <option value="call_lead">Call the lead with Marina (voice)</option>
+                      <option value="send_sms">Send an SMS</option>
+                      <option value="send_email">Send an email</option>
+                      <option value="notify_owner">Notify the owner</option>
                     </select>
                     {actions.length > 1 && (
                       <button type="button" onClick={() => removeAction(a.id)} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground shrink-0">
@@ -1205,6 +1271,60 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
                     <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
                       Your Cartesia voice agent (Marina) places a real phone call to this lead. Requires CARTESIA_API_KEY, CARTESIA_AGENT_ID and CARTESIA_FROM_NUMBER_ID on the worker, and a phone number on the contact.
                     </p>
+                  ) : a.type === "send_sms" ? (
+                    <>
+                      <div>
+                        <label className={labelCls}>To</label>
+                        <select value={a.toTarget} onChange={(e) => updateAction(a.id, { toTarget: e.target.value as UIAction["toTarget"] })} className={selectCls}>
+                          <option value="contact">The contact</option>
+                          <option value="owner">The owner</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Message <span className="text-destructive">*</span></label>
+                        <textarea value={a.body} onChange={(e) => updateAction(a.id, { body: e.target.value })} rows={3} placeholder={"Hi {{ contact.first_name }}, thanks for reaching out!"} className={inputCls} />
+                        <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+                          Use {"{{ contact.first_name }}"}, {"{{ company.name }}"}, {"{{ company.booking_url }}"}. Sent only with consent; the first SMS to a contact appends “Reply STOP to opt out”.
+                        </p>
+                      </div>
+                    </>
+                  ) : a.type === "send_email" ? (
+                    <>
+                      <div>
+                        <label className={labelCls}>To</label>
+                        <select value={a.toTarget} onChange={(e) => updateAction(a.id, { toTarget: e.target.value as UIAction["toTarget"] })} className={selectCls}>
+                          <option value="contact">The contact</option>
+                          <option value="owner">The owner</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Subject <span className="text-destructive">*</span></label>
+                        <input type="text" value={a.subject} onChange={(e) => updateAction(a.id, { subject: e.target.value })} placeholder={"We got your enquiry, {{ contact.first_name }}"} className={inputCls} />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Body <span className="text-destructive">*</span></label>
+                        <textarea value={a.body} onChange={(e) => updateAction(a.id, { body: e.target.value })} rows={4} placeholder={"Thanks for reaching out. Book a time: {{ company.booking_url }}"} className={inputCls} />
+                        <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+                          Use {"{{ contact.first_name }}"}, {"{{ booking.scheduled_for | date }}"}, {"{{ quote.public_url }}"}. From-name defaults to the company brand.
+                        </p>
+                      </div>
+                    </>
+                  ) : a.type === "notify_owner" ? (
+                    <>
+                      <div>
+                        <label className={labelCls}>Channel</label>
+                        <select value={a.notifyChannel} onChange={(e) => updateAction(a.id, { notifyChannel: e.target.value as UIAction["notifyChannel"] })} className={selectCls}>
+                          <option value="email">Email</option>
+                          <option value="sms">SMS</option>
+                          <option value="both">Both</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Message <span className="text-destructive">*</span></label>
+                        <textarea value={a.body} onChange={(e) => updateAction(a.id, { body: e.target.value })} rows={3} placeholder={"New lead: {{ contact.first_name }} — {{ contact.phone }}"} className={inputCls} />
+                        <p className="text-[11px] text-muted-foreground/70 mt-1.5">Alerts you (the owner) — no consent needed. Falls back to OWNER_EMAIL / the org owner.</p>
+                      </div>
+                    </>
                   ) : (
                     <div>
                       <label className={labelCls}>Set {ENTITY_STATUS_NOUN[triggerEntity]} to</label>
@@ -1229,6 +1349,15 @@ function CreateWorkflowDialog({ orgId, workflow, onClose }: { orgId: string; wor
               </button>
               <button type="button" onClick={() => addAction("call_lead")} className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--accent-violet))] hover:opacity-80 transition-opacity">
                 <Phone className="w-3.5 h-3.5" /> Call lead
+              </button>
+              <button type="button" onClick={() => addAction("send_sms")} className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--accent-violet))] hover:opacity-80 transition-opacity">
+                <Plus className="w-3.5 h-3.5" /> Send SMS
+              </button>
+              <button type="button" onClick={() => addAction("send_email")} className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--accent-violet))] hover:opacity-80 transition-opacity">
+                <Plus className="w-3.5 h-3.5" /> Send email
+              </button>
+              <button type="button" onClick={() => addAction("notify_owner")} className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--accent-violet))] hover:opacity-80 transition-opacity">
+                <Plus className="w-3.5 h-3.5" /> Notify owner
               </button>
             </div>
           </div>

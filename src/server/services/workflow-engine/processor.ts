@@ -119,6 +119,7 @@ async function executeWorkflowForEvent(
       ? await executeWorkflowActions(context, eventContext, definition.actions, {
           dryRun,
           workflow,
+          workflowRunId: run?.id ?? null,
         })
       : {
           actionsExecutedCount: 0,

@@ -12,6 +12,12 @@ import { enqueueWorkflowEventJob } from "@/server/services/workflow-event-jobs";
 export interface EmitActivityEventAndDispatchOptions {
   dispatchAsync?: boolean;
   maxAttempts?: number;
+  /**
+   * Emit the activity event but NEVER enqueue a workflow job for it (Task 8). Messaging
+   * actions record contact.sms_sent / contact.email_sent this way so a workflow that sends
+   * a message can't re-trigger itself (or another workflow) on that emission.
+   */
+  emitOnly?: boolean;
 }
 
 export interface EmitActivityEventAndDispatchResult {
@@ -30,7 +36,7 @@ export async function emitActivityEventAndDispatch(
 ): Promise<EmitActivityEventAndDispatchResult> {
   const activityEvent = await createActivityEvent(context, input);
 
-  if (options.dispatchAsync === false || !shouldDispatchWorkflowEvent(input.eventType)) {
+  if (options.emitOnly || options.dispatchAsync === false || !shouldDispatchWorkflowEvent(input.eventType)) {
     return {
       activityEvent,
       workflowEventJob: null,

@@ -20,6 +20,10 @@ export const createContactInputSchema = z.object({
   notes: z.string().max(3000).nullable().optional(),
   phone: z.string().max(50).nullable().optional(),
   stage: z.enum(["lead", "qualified", "active", "closed"]).optional(),
+  // Consent (Task 8) — inquiry paths (intake/Retell) stamp implied consent; manual
+  // creation leaves these unset so messaging is refused until the contact opts in.
+  smsConsentAt: z.string().datetime().nullable().optional(),
+  consentSource: z.string().max(60).nullable().optional(),
 });
 
 export type CreateContactInput = z.infer<typeof createContactInputSchema>;
@@ -120,6 +124,8 @@ export async function createContact(
     owner_profile_id: context.actorProfileId,
     phone: input.phone ?? null,
     ...(input.stage ? { stage: input.stage } : {}),
+    ...(input.smsConsentAt ? { sms_consent_at: input.smsConsentAt } : {}),
+    ...(input.consentSource ? { consent_source: input.consentSource } : {}),
   } satisfies Inserts<"contacts">;
 
   const data = await insertRow(context, "contacts", payload);

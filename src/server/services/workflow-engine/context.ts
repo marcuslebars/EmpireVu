@@ -1,5 +1,6 @@
 import type { Json, Tables } from "@/server/db/database.types";
 import type { TenantServiceContext } from "@/server/services/shared";
+import type { MessageTemplateData } from "@/server/services/workflow-engine/interpolate";
 import type { WorkflowEventContext } from "@/server/services/workflow-engine/types";
 
 type TraceEntityRow =
@@ -176,5 +177,66 @@ export async function buildWorkflowEventContext(
     relatedEntity: (relatedEntityRow as Json) ?? null,
     relatedEntityId: activityEvent.related_entity_id,
     relatedEntityType: activityEvent.related_entity_type,
+  };
+}
+
+// ── Message template data (Task 8) ───────────────────────────────────────────
+
+function readIdField(value: Json | undefined): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/** The tenant's public booking URL for a company, or null when APP_BASE_URL is unset. */
+function companyBookingUrl(companyId: string | null): string | null {
+  const base = process.env.APP_BASE_URL?.trim().replace(/\/+$/, "");
+  return base && companyId ? `${base}/book/${companyId}` : null;
+}
+
+async function loadRowById(
+  context: TenantServiceContext,
+  table: "contacts" | "companies" | "bookings",
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  const { data, error } = await context.supabase
+    .from(table)
+    .select("*")
+    .eq("organization_id", context.organizationId)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as Record<string, unknown> | null) ?? null;
+}
+
+/**
+ * Load the contact / company / booking (+ quote when in scope) behind an event, so a
+ * message template can reference `{{ contact.first_name }}`, `{{ booking.scheduled_for | date }}`,
+ * `{{ company.booking_url }}`, etc. Missing entities resolve to null → their tokens render
+ * empty. Best-effort reads; scoped to the tenant.
+ */
+export async function buildMessageTemplateData(
+  context: TenantServiceContext,
+  eventContext: WorkflowEventContext,
+): Promise<MessageTemplateData> {
+  const contactId =
+    readIdField(eventContext.fields.contact_id) ??
+    (eventContext.entityType === "contact" ? eventContext.entityId : null);
+  const bookingId =
+    readIdField(eventContext.fields.booking_id) ??
+    (eventContext.entityType === "booking" ? eventContext.entityId : null);
+  const companyId = eventContext.companyId;
+
+  const [contact, company, booking] = await Promise.all([
+    contactId ? loadRowById(context, "contacts", contactId) : Promise.resolve(null),
+    companyId ? loadRowById(context, "companies", companyId) : Promise.resolve(null),
+    bookingId ? loadRowById(context, "bookings", bookingId) : Promise.resolve(null),
+  ]);
+
+  return {
+    contact,
+    company: company ? { ...company, booking_url: companyBookingUrl(companyId) } : null,
+    booking,
+    // No supported trigger is quote-based yet; `{{ quote.* }}` renders empty until wired.
+    quote: null,
+    fields: eventContext.fields as Record<string, unknown>,
   };
 }

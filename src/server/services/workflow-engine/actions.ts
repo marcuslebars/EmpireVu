@@ -8,7 +8,15 @@ import type { TenantServiceContext } from "@/server/services/shared";
 import { assignTaskUser, createTask, updateTaskStatus } from "@/server/services/tasks";
 import { createDraftForContact } from "@/server/services/ai-drafts";
 import { callContactWithMarina } from "@/server/services/voice";
+import { buildMessageTemplateData } from "@/server/services/workflow-engine/context";
 import { assertPaidActionAllowed, unauthenticatedSource } from "@/server/services/workflow-engine/guards";
+import { renderTemplate, type MessageTemplateData } from "@/server/services/workflow-engine/interpolate";
+import {
+  deliverMessage,
+  resolveOwnerContacts,
+  type ConsentContact,
+  type OwnerContacts,
+} from "@/server/services/workflow-engine/messaging";
 import type {
   WorkflowAction,
   WorkflowEventContext,
@@ -18,6 +26,42 @@ import type {
 export interface ExecuteWorkflowActionsOptions {
   dryRun: boolean;
   workflow: Tables<"workflows">;
+  /** The run these actions belong to — stamped on message_log rows (Task 8). */
+  workflowRunId?: string | null;
+}
+
+function asStr(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/** Resolve a messaging action's recipient: the event's contact, the owner, or a literal. */
+function resolveMessageRecipient(
+  to: string | undefined,
+  channel: "sms" | "email",
+  data: MessageTemplateData,
+  owner: OwnerContacts,
+): { to: string | null; contactId: string | null; consentContact: ConsentContact | null } {
+  const target = (to ?? "contact").trim();
+  if (target === "contact") {
+    const contact = data.contact;
+    const address = contact ? (channel === "sms" ? asStr(contact.phone) : asStr(contact.email)) : null;
+    return {
+      to: address,
+      contactId: contact ? asStr(contact.id) : null,
+      consentContact: contact
+        ? {
+            sms_opt_out_at: asStr(contact.sms_opt_out_at),
+            email_opt_out_at: asStr(contact.email_opt_out_at),
+            sms_consent_at: asStr(contact.sms_consent_at),
+            consent_source: asStr(contact.consent_source),
+          }
+        : null,
+    };
+  }
+  if (target === "owner") {
+    return { to: channel === "sms" ? owner.phone : owner.email, contactId: null, consentContact: null };
+  }
+  return { to: target, contactId: null, consentContact: null };
 }
 
 export interface ExecuteWorkflowActionsResult {
@@ -87,6 +131,26 @@ export async function executeWorkflowActions(
   let createdTasksCount = 0;
   let timeSavedSeconds = 0;
   const projectedActions: WorkflowProjectionAction[] = [];
+
+  // Loaded once and reused across messaging actions in this run.
+  let templateData: MessageTemplateData | null = null;
+  const getTemplateData = async (): Promise<MessageTemplateData> => {
+    templateData ??= await buildMessageTemplateData(context, eventContext);
+    return templateData;
+  };
+  let ownerContacts: OwnerContacts | null = null;
+  const getOwnerContacts = async (): Promise<OwnerContacts> => {
+    if (!ownerContacts) {
+      const data = await getTemplateData();
+      ownerContacts = await resolveOwnerContacts(
+        context,
+        data.company
+          ? { owner_email: asStr(data.company.owner_email), owner_phone_e164: asStr(data.company.owner_phone_e164) }
+          : null,
+      );
+    }
+    return ownerContacts;
+  };
 
   for (const action of actions) {
     switch (action.type) {
@@ -216,6 +280,110 @@ export async function executeWorkflowActions(
           const triggerSource = unauthenticatedSource(eventContext);
           await assertPaidActionAllowed(context, eventContext, action, contactId);
           await callContactWithMarina(context, contactId, { triggerSource });
+        }
+
+        actionsExecutedCount += 1;
+        timeSavedSeconds += action.time_saved_seconds ?? 0;
+        break;
+      }
+      case "send_sms": {
+        const data = await getTemplateData();
+        const body = renderTemplate(action.body, data);
+        const recipient = resolveMessageRecipient(action.to, "sms", data, await getOwnerContacts());
+        projectedActions.push({ action, resolvedPayload: { to: recipient.to ?? action.to ?? "contact", body } });
+
+        if (!options.dryRun) {
+          // SMS is a billable outbound action → the Task 5 paid-action guard applies.
+          await assertPaidActionAllowed(context, eventContext, action, recipient.contactId);
+          await deliverMessage({
+            context,
+            channel: "sms",
+            to: recipient.to,
+            body,
+            companyId: eventContext.companyId,
+            contactId: recipient.contactId,
+            consentContact: recipient.consentContact,
+            workflowRunId: options.workflowRunId,
+          });
+        }
+
+        actionsExecutedCount += 1;
+        timeSavedSeconds += action.time_saved_seconds ?? 0;
+        break;
+      }
+      case "send_email": {
+        const data = await getTemplateData();
+        const subject = renderTemplate(action.subject, data);
+        const body = renderTemplate(action.body, data);
+        const recipient = resolveMessageRecipient(action.to, "email", data, await getOwnerContacts());
+        const company = data.company;
+        const fromName = action.from_name
+          ? renderTemplate(action.from_name, data)
+          : asStr(company?.brand_from_name) ?? asStr(company?.name);
+        const replyTo = action.reply_to ?? asStr(company?.brand_reply_email);
+        projectedActions.push({
+          action,
+          resolvedPayload: { to: recipient.to ?? action.to ?? "contact", subject, body },
+        });
+
+        if (!options.dryRun) {
+          await deliverMessage({
+            context,
+            channel: "email",
+            to: recipient.to,
+            body,
+            subject,
+            fromName,
+            replyTo,
+            companyId: eventContext.companyId,
+            contactId: recipient.contactId,
+            consentContact: recipient.consentContact,
+            workflowRunId: options.workflowRunId,
+          });
+        }
+
+        actionsExecutedCount += 1;
+        timeSavedSeconds += action.time_saved_seconds ?? 0;
+        break;
+      }
+      case "notify_owner": {
+        const data = await getTemplateData();
+        const owner = await getOwnerContacts();
+        const subject = action.subject ? renderTemplate(action.subject, data) : "EmpireVu alert";
+        const body = renderTemplate(action.body, data);
+        const wantSms = action.channel === "sms" || action.channel === "both";
+        const wantEmail = action.channel === "email" || action.channel === "both";
+        projectedActions.push({
+          action,
+          resolvedPayload: { channel: action.channel, subject, body, ownerEmail: owner.email, ownerPhone: owner.phone },
+        });
+
+        if (!options.dryRun) {
+          if (wantSms) {
+            await deliverMessage({
+              context,
+              channel: "sms",
+              to: owner.phone,
+              body,
+              companyId: eventContext.companyId,
+              contactId: null,
+              consentContact: null,
+              workflowRunId: options.workflowRunId,
+            });
+          }
+          if (wantEmail) {
+            await deliverMessage({
+              context,
+              channel: "email",
+              to: owner.email,
+              body,
+              subject,
+              companyId: eventContext.companyId,
+              contactId: null,
+              consentContact: null,
+              workflowRunId: options.workflowRunId,
+            });
+          }
         }
 
         actionsExecutedCount += 1;
