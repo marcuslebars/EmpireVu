@@ -13,6 +13,7 @@
  */
 
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
+import { emitQuoteTrigger } from "@/server/services/quotes/workflow-triggers";
 import { assertTransition, evaluateTransition, type QuoteStatus } from "./lifecycle";
 import { priceQuoteForCompany, type QuotePricing, type QuotePricingInput } from "./pricing";
 
@@ -205,6 +206,13 @@ export async function getPublicQuote(token: string, now = new Date()): Promise<P
 
     if (updated) {
       await recordPublicEvent(updated.organization_id, updated.id, "viewed", {});
+      await emitQuoteTrigger(db, {
+        organizationId: updated.organization_id,
+        companyId: updated.company_id,
+        contactId: updated.contact_id,
+        quoteId: updated.id,
+        eventType: "quote.viewed",
+      });
       const company = await loadCompany(updated.company_id);
       return shape(updated, company, derivePageState(updated, now));
     }
@@ -342,6 +350,13 @@ export async function approveQuote(input: ApprovalInput, now = new Date()): Prom
     approvedByName: name,
     totalCents: data.approved_total_cents,
     depositCents: data.approved_deposit_cents,
+  });
+  await emitQuoteTrigger(db, {
+    organizationId: data.organization_id,
+    companyId: data.company_id,
+    contactId: data.contact_id,
+    quoteId: data.id,
+    eventType: "quote.approved",
   });
 
   return data;

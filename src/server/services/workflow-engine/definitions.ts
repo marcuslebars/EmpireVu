@@ -101,6 +101,13 @@ const workflowActionSchema = z.discriminatedUnion("type", [
     time_saved_seconds: z.number().int().nonnegative().optional(),
     type: z.literal("notify_owner"),
   }),
+  z.object({
+    type: z.literal("wait"),
+    duration: z.string().max(20).optional(),
+    until: z.string().max(200).optional(),
+    resume_conditions: z.array(workflowConditionSchema).optional(),
+    time_saved_seconds: z.number().int().nonnegative().optional(),
+  }),
 ]);
 
 const workflowDefinitionSchema = z.object({

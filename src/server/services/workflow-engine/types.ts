@@ -6,6 +6,19 @@ export const supportedWorkflowTriggerEventTypes = [
   "contact.created",
   "contact.stage_changed",
   "task.completed",
+  // Task 9 — call / quote / booking / contact events + schedules.
+  "call.missed",
+  "call.completed",
+  "call.urgent",
+  "quote.sent",
+  "quote.viewed",
+  "quote.approved",
+  "quote.expiring",
+  "booking.upcoming",
+  "booking.cancelled",
+  "booking.no_show",
+  "contact.stale",
+  "schedule.daily",
 ] as const;
 
 export type SupportedWorkflowTriggerEventType =
@@ -108,12 +121,23 @@ export interface WorkflowNotifyOwnerAction {
   type: "notify_owner";
 }
 
+/** A durable delay (Task 9). `resume_conditions` are re-checked on resume; if they no
+ *  longer match, the remaining steps are skipped (e.g. "quote still not viewed"). */
+export interface WorkflowWaitAction {
+  type: "wait";
+  duration?: string;
+  until?: string;
+  resume_conditions?: WorkflowCondition[];
+  time_saved_seconds?: number;
+}
+
 export type WorkflowAction =
   | WorkflowAiAnalyzeAction
   | WorkflowCallLeadAction
   | WorkflowSendSmsAction
   | WorkflowSendEmailAction
   | WorkflowNotifyOwnerAction
+  | WorkflowWaitAction
   | WorkflowAssignUserAction
   | WorkflowCreateActivityEventAction
   | WorkflowCreateTaskAction

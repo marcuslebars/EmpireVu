@@ -117,6 +117,20 @@ true:
 (A dedicated SMS/Slack escalation channel is a future enhancement; today the urgent-marked email +
 attention flag is the escalation.)
 
+### Workflow triggers from calls (Task 9)
+
+On a fresh `call_analyzed` ingest, the adapter emits workflow triggers (best-effort — a trigger
+emission never fails the lead ingest), anchored to the linked contact (else the company):
+
+- **`call.missed`** — the caller didn't really connect: `in_voicemail === true` **or** the call was
+  shorter than **5 s** (`duration_ms < 5000`) **or** `call_successful === false`. (`classifyRetellCall`,
+  unit-tested.)
+- **`call.completed`** — any call that isn't classified as missed. Unknown signals (e.g. a mid-call
+  capture with no duration) default to completed, not missed.
+- **`call.urgent`** — additionally emitted when `is_urgent` is true (see Urgency escalation above).
+
+Use these in Automations to, say, text a missed caller back or start a `wait`-based follow-up sequence.
+
 ## Webhook + function configuration in Retell
 
 1. **Webhook URL** → `https://api.empirevu.com/api/retell/webhook`. Enable the `call_analyzed` event

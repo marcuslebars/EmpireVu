@@ -494,6 +494,7 @@ export interface WorkflowDetailResponse {
       createdTasksCount: number;
       failureReason: string | null;
       id: string;
+      resumeAt: string | null;
       status: string;
       timeSavedSeconds: number;
       triggerEvent: { id: string; label: string; type: string } | null;
