@@ -3,9 +3,15 @@ import { useState } from "react";
 import { AppSidebar } from "./AppSidebar";
 import { TopBar } from "./TopBar";
 import { AutomationNotifier } from "./AutomationNotifier";
+import { useOrg } from "@/lib/org-context";
+import { useOrgRealtime } from "@/lib/realtime";
 
 export function AppLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { organizationId } = useOrg();
+
+  // Live UI updates (Task 11): invalidate dashboard/CRM/jobs caches on inbound inserts.
+  useOrgRealtime(organizationId);
 
   return (
     <div className="flex min-h-screen w-full bg-background">

@@ -19,6 +19,8 @@ export const supportedWorkflowTriggerEventTypes = [
   "booking.no_show",
   "contact.stale",
   "schedule.daily",
+  // Task 11 — inbound SMS reply (customer replied → notify owner / abort a sequence).
+  "contact.sms_received",
 ] as const;
 
 export type SupportedWorkflowTriggerEventType =

@@ -8,6 +8,7 @@ import type { Inserts, Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import { handleJobberWebhook } from "@/server/services/jobber/webhook";
 import { ingestRetellCall } from "@/server/services/retell/lead-adapter";
+import { handleInboundSms } from "@/server/services/twilio/inbound-sms";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -133,6 +134,9 @@ export async function dispatchInboundWebhookJob(job: InboundWebhookJob): Promise
       await handleJobberWebhook(
         typeof job.payload === "string" ? job.payload : JSON.stringify(job.payload),
       );
+      return;
+    case "twilio":
+      await handleInboundSms(job.payload);
       return;
     default:
       throw new Error(`Unknown inbound webhook provider: ${job.provider}`);
