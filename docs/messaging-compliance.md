@@ -1,6 +1,6 @@
 # Messaging compliance (CASL / CRTC)
 
-How EmpireVu keeps workflow SMS/email compliant with Canada's Anti-Spam Legislation. Wired in Task 8; inbound STOP handling arrives in Task 11.
+How EmpireVu keeps workflow SMS/email compliant with Canada's Anti-Spam Legislation. Wired in Task 8; inbound STOP/START handling wired in Task 11.
 
 ## Consent model
 
@@ -27,7 +27,7 @@ Existing contacts that carry a `source` in metadata (intake / Retell leads) were
 
 ## STOP
 
-Under CRTC rules every commercial SMS must offer an unsubscribe. The **first** outbound SMS to a contact (per `message_log` history) automatically appends `Reply STOP to opt out`. Processing an inbound STOP (setting `sms_opt_out_at`) lands in **Task 11**; until then, opt-outs are handled manually by setting `sms_opt_out_at`.
+Under CRTC rules every commercial SMS must offer an unsubscribe. The **first** outbound SMS to a contact (per `message_log` history) automatically appends `Reply STOP to opt out`. Inbound processing (Task 11): the inbound-SMS webhook recognizes `STOP/STOPALL/UNSUBSCRIBE/CANCEL/END/QUIT` (sets `sms_opt_out_at`, emits `contact.sms_opted_out`, and never triggers an auto-reply) and `START/YES/UNSTOP` (clears the opt-out, sets `sms_consent_at`). Twilio also sends its own carrier-level STOP/START confirmation; EmpireVu adds no auto-reply of its own. Every outbound send still re-checks `checkConsent`, so a manual `sms_opt_out_at` set by hand is honoured too.
 
 ## Records
 
