@@ -72,7 +72,10 @@ import {
   updateWorkflow,
   createWorkflow,
   suggestWorkflows,
+  fetchRecipeCatalog,
+  installRecipes,
   type WorkflowSuggestion,
+  type RecipeCatalogEntry,
   type CreateWorkflowInput,
   type UpdateWorkflowInput,
   type CreateContactInput,
@@ -804,6 +807,26 @@ export function useCreateWorkflow(orgId: string) {
 export function useSuggestWorkflows(orgId: string) {
   return useMutation({
     mutationFn: () => suggestWorkflows(orgId),
+  });
+}
+
+/** The proven recipe catalog (Task 10), annotated for the selected company. */
+export function useRecipeCatalog(orgId: string, companyId?: string | null) {
+  return useQuery<RecipeCatalogEntry[]>({
+    queryKey: ["automations", "recipes", orgId, companyId ?? null],
+    queryFn: () => fetchRecipeCatalog(orgId, companyId),
+    enabled: Boolean(orgId),
+  });
+}
+
+export function useInstallRecipes(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { companyId: string; only?: string[] }) => installRecipes(orgId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["automations", "workflows", orgId] });
+      void qc.invalidateQueries({ queryKey: ["automations", "recipes", orgId] });
+    },
   });
 }
 

@@ -143,10 +143,21 @@ export type WorkflowAction =
   | WorkflowCreateTaskAction
   | WorkflowUpdateStatusAction;
 
+/** Time-based config read by the scheduler (Task 9) from the stored definition JSON. */
+export interface WorkflowScheduleConfig {
+  /** schedule.daily local time, "HH:MM" (default 09:00). */
+  daily_time?: string;
+  /** booking.upcoming lead time in hours (default 24). */
+  hours_before?: number;
+  /** contact.stale threshold in days (default 7). */
+  stale_days?: number;
+}
+
 export interface WorkflowDefinition {
   actions: WorkflowAction[];
   conditions: WorkflowCondition[];
   estimated_time_saved_seconds?: number;
+  schedule?: WorkflowScheduleConfig;
   version: number;
 }
 

@@ -22,7 +22,8 @@
     "worker:billing-events": "tsx src/server/workers/billing-event-worker.ts",
     "worker:jobber-sync": "tsx src/server/workers/jobber-sync-worker.ts",
     "job:billing-reconcile": "tsx src/server/jobs/billing-reconcile.ts",
-    "job:quote-maintenance": "tsx src/server/jobs/quote-maintenance.ts"
+    "job:quote-maintenance": "tsx src/server/jobs/quote-maintenance.ts",
+    "job:seed-a1-recipes": "tsx src/server/jobs/seed-a1-recipes.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",

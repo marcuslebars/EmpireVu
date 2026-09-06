@@ -149,6 +149,7 @@ export interface Database {
           brand_primary_color: string | null;
           brand_reply_email: string | null;
           brand_reply_phone: string | null;
+          brand_review_url: string | null;
           brand_website_url: string | null;
           cancellation_policy_text: string | null;
           created_at: string;
@@ -182,6 +183,7 @@ export interface Database {
           brand_primary_color?: string | null;
           brand_reply_email?: string | null;
           brand_reply_phone?: string | null;
+          brand_review_url?: string | null;
           brand_website_url?: string | null;
           cancellation_policy_text?: string | null;
           created_at?: string;
@@ -215,6 +217,7 @@ export interface Database {
           brand_primary_color?: string | null;
           brand_reply_email?: string | null;
           brand_reply_phone?: string | null;
+          brand_review_url?: string | null;
           brand_website_url?: string | null;
           cancellation_policy_text?: string | null;
           created_at?: string;

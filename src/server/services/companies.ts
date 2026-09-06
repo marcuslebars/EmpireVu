@@ -4,6 +4,7 @@ import type { Inserts, Tables } from "@/server/db/database.types";
 import { slugify } from "@/server/db/helpers";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { insertRow, type TenantServiceContext } from "@/server/services/shared";
+import { installRecipes } from "@/server/services/workflow-engine/recipes/install";
 
 export const createCompanyInputSchema = z.object({
   name: z.string().min(1).max(200),
@@ -73,6 +74,15 @@ export async function createCompany(
       stage: data.stage,
     },
   });
+
+  // Every new company gets the proven automations on day one (Task 10). Best-effort:
+  // a recipe-install hiccup must never fail company creation. Recipes whose channel
+  // isn't configured land as drafts, so this is safe on any deployment.
+  try {
+    await installRecipes(context, data.id);
+  } catch (error) {
+    console.error("[companies] recipe install failed for", data.id, error instanceof Error ? error.message : error);
+  }
 
   return data;
 }

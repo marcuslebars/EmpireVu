@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { getWorkflowsModel } from "@/server/ai/config";
 import { extractAiUsage, type AiUsageMeta } from "@/server/ai/claude";
+import { ALL_RECIPES } from "@/server/services/workflow-engine/recipes";
 import { supportedWorkflowTriggerEventTypes } from "@/server/services/workflow-engine/types";
 
 /**
@@ -17,6 +18,12 @@ import { supportedWorkflowTriggerEventTypes } from "@/server/services/workflow-e
  *  - create_activity_event is excluded — it writes timeline noise with no payoff.
  * That leaves the actions a suggestion can actually deliver on.
  */
+
+const proposedConditionSchema = z.object({
+  field: z.string().min(1).max(100),
+  operator: z.enum(["changed_to", "equals", "exists", "greater_than", "in", "less_than"]),
+  value: z.unknown().optional(),
+});
 
 const proposedActionSchema = z.discriminatedUnion("type", [
   z.object({
@@ -35,6 +42,30 @@ const proposedActionSchema = z.discriminatedUnion("type", [
     target_entity: z.enum(["contact", "booking", "task"]),
     status: z.string().min(1).max(40),
   }),
+  // v2 messaging + delay actions (Tasks 8/9) — the same set the recipe library uses.
+  z.object({
+    type: z.literal("send_sms"),
+    to: z.enum(["contact", "owner"]).optional(),
+    body: z.string().min(1).max(2000),
+  }),
+  z.object({
+    type: z.literal("send_email"),
+    to: z.enum(["contact", "owner"]).optional(),
+    subject: z.string().min(1).max(300),
+    body: z.string().min(1).max(20000),
+  }),
+  z.object({
+    type: z.literal("notify_owner"),
+    channel: z.enum(["sms", "email", "both"]),
+    subject: z.string().max(300).optional(),
+    body: z.string().min(1).max(20000),
+  }),
+  z.object({
+    type: z.literal("wait"),
+    duration: z.string().max(20).optional(),
+    until: z.string().max(200).optional(),
+    resume_conditions: z.array(proposedConditionSchema).optional(),
+  }),
 ]);
 
 export type ProposedAction = z.infer<typeof proposedActionSchema>;
@@ -43,7 +74,7 @@ export const suggestedWorkflowSchema = z.object({
   name: z.string().min(1).max(200),
   rationale: z.string().min(1).max(600),
   triggerEvent: z.enum(supportedWorkflowTriggerEventTypes),
-  actions: z.array(proposedActionSchema).min(1).max(3),
+  actions: z.array(proposedActionSchema).min(1).max(6),
 });
 
 export type SuggestedWorkflow = z.infer<typeof suggestedWorkflowSchema>;
@@ -68,6 +99,37 @@ export interface BusinessSnapshot {
   aiConfigured: boolean;
 }
 
+/**
+ * Few-shot grounding for the author: the proven recipe library, compiled to the exact
+ * proposal shape the model must emit. Derived from ALL_RECIPES so the examples can never
+ * drift from the recipes we actually ship. Static per process → the cached system prompt
+ * stays cache-friendly (Task 6).
+ */
+const RECIPE_EXAMPLES = ALL_RECIPES.map((recipe) => {
+  const actions = recipe.definition.actions.map((action) => {
+    switch (action.type) {
+      case "send_sms":
+        return { type: action.type, to: action.to ?? "contact", body: action.body };
+      case "send_email":
+        return { type: action.type, to: action.to ?? "contact", subject: action.subject, body: action.body };
+      case "notify_owner":
+        return { type: action.type, channel: action.channel, subject: action.subject, body: action.body };
+      case "wait":
+        return {
+          type: action.type,
+          ...(action.duration ? { duration: action.duration } : {}),
+          ...(action.until ? { until: action.until } : {}),
+          ...(action.resume_conditions ? { resume_conditions: action.resume_conditions } : {}),
+        };
+      case "create_task":
+        return { type: action.type, title: action.title, priority: action.priority, due_in_days: action.due_in_days };
+      default:
+        return action;
+    }
+  });
+  return { name: recipe.name, triggerEvent: recipe.trigger_event, actions };
+});
+
 const SYSTEM_PROMPT = `You design CRM automations for the A1 Group, a family of marine-services businesses (A1 Marine Care — boat detailing & maintenance; A1 Marine Storage — seasonal storage, shrink-wrap, winterization; A1 Coatings). You are given a snapshot of their actual CRM and the automations they already run. Propose automations that fit THIS business's current state.
 
 Rules:
@@ -76,18 +138,34 @@ Rules:
 - Prefer a few high-value automations over many marginal ones. If their setup is already good, return fewer — or an empty list. An empty list is a valid, useful answer.
 - The rationale is read by a busy business owner. One or two plain sentences on what it does and why it's worth it. No jargon.
 - Only ever use the triggers and actions listed below. Anything else is discarded.
+- Message bodies may use these template tokens: {{contact.first_name}}, {{contact.last_name}}, {{contact.phone}}, {{contact.email}}, {{company.name}}, {{company.booking_url}}, {{company.review_url}}, {{booking.scheduled_for | date}}, {{booking.scheduled_for | time}}.
 
 Triggers:
 - "contact.created" — a new lead arrives (from a website form or added by hand)
 - "contact.stage_changed" — a lead moves between lead/qualified/active/closed
+- "contact.stale" — a lead has had no activity for a while (scheduler-driven)
 - "booking.created" — a job is booked
 - "booking.completed" — a job is finished
+- "booking.upcoming" — a booking is coming up soon (scheduler-driven; N hours before)
+- "booking.cancelled" — a booking is cancelled
+- "booking.no_show" — the customer didn't show
+- "call.missed" — an inbound call was missed or went to voicemail
+- "call.completed" — an inbound call was answered
+- "call.urgent" — a caller flagged something urgent
+- "quote.sent" / "quote.viewed" / "quote.approved" / "quote.expiring" — quote lifecycle
 - "task.completed" — a task is ticked off
 
 Actions:
 - {"type":"create_task","title":string,"description"?:string,"priority"?:"low"|"medium"|"high"|"urgent","due_in_days"?:number} — put a job on the owner's list
 - {"type":"ai_analyze","create_review_task"?:boolean} — Claude reads the lead and drafts a reply + SMS + proposed booking times for review. Only useful on contact.created. Requires their AI to be configured.
 - {"type":"update_status","target_entity":"contact"|"booking"|"task","status":string} — move a record's status. Contact stages: lead, qualified, active, closed.
+- {"type":"send_sms","to"?:"contact"|"owner","body":string} — text the customer (default) or the owner. Only sent with consent.
+- {"type":"send_email","to"?:"contact"|"owner","subject":string,"body":string} — email the customer or owner.
+- {"type":"notify_owner","channel":"sms"|"email"|"both","subject"?:string,"body":string} — alert the owner (no consent needed).
+- {"type":"wait","duration"?:"2d"|"4h"|"30m","until"?:"booking.scheduled_for - 24h","resume_conditions"?:[{"field":string,"operator":string,"value"?:any}]} — pause the sequence, then continue. resume_conditions stop the sequence early if the customer has already acted (e.g. the lead's stage moved on).
+
+These are the proven automations we ship as a starter library. Use them as your model for structure, tone, and sensible sequencing — adapt them to what THIS business needs; don't just repeat them, and don't propose one they already have:
+${JSON.stringify(RECIPE_EXAMPLES, null, 2)}
 
 Respond with ONLY a JSON object — no markdown, no code fences, no prose:
 {
@@ -96,7 +174,7 @@ Respond with ONLY a JSON object — no markdown, no code fences, no prose:
       "name": string,               // short, e.g. "Follow up after every job"
       "rationale": string,          // why THIS business wants it, grounded in the snapshot
       "triggerEvent": string,       // exactly one of the triggers above
-      "actions": [ ... ]            // 1-3 actions from the list above
+      "actions": [ ... ]            // 1-6 actions from the list above
     }
   ]
 }`;
