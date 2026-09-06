@@ -59,7 +59,7 @@ function ContactNotes({ orgId, contactId, initialNotes }: { orgId: string; conta
 // ─── Loaded detail view ───────────────────────────────────────────────────────
 
 function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse; orgId: string }) {
-  const { contact, financialSummary, linkedBookings, linkedTasks, linkedQuotes, timeline, workflowTraces } = detail;
+  const { contact, financialSummary, linkedBookings, linkedTasks, linkedQuotes, workflowTraces } = detail;
   const ctl = useContactDetailController(orgId, detail);
   const createComment = useCreateComment(orgId);
   const [commentBody, setCommentBody] = useState("");
@@ -106,7 +106,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
 
       {/* Tab Content */}
       <div className="opacity-0 animate-fade-in" style={{ animationDelay: "120ms" }}>
-        {ctl.activeTab === "activity" && <Timeline timeline={timeline} />}
+        {ctl.activeTab === "activity" && <Timeline orgId={orgId} contactId={contact.id} />}
 
         {ctl.activeTab === "comments" && (
           <div className="bg-card border border-border rounded-xl p-5 space-y-4">

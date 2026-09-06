@@ -31,6 +31,7 @@ interface RealtimeClientLike {
 export function invalidateOrgRealtimeQueries(qc: QueryClient, orgId: string): void {
   void qc.invalidateQueries({ queryKey: ["dashboard"] });
   void qc.invalidateQueries({ queryKey: ["crm"] });
+  void qc.invalidateQueries({ queryKey: ["inbox"] });
   void qc.invalidateQueries({ queryKey: ["automations", "jobs", orgId] });
 }
 

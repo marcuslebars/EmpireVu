@@ -3,14 +3,20 @@ import { Phone, Loader2 } from "lucide-react";
 
 import { useCallContact } from "@/lib/api-hooks";
 import { toast } from "@/components/ui/sonner";
-import type { ContactDetailResponse } from "@/lib/api-client";
+
+/** Minimal contact shape the call control needs (the full ContactDetail contact fits). */
+export interface VoicePanelContact {
+  id: string;
+  name: string;
+  phone: string | null;
+}
 
 /**
  * "Call with Marina" — places a REAL phone call to the customer via the voice agent.
  * Two-step confirm because a click dials a live call. (Task 12 decomposition; the inbox
  * reuses this as its quick-call control.)
  */
-export function VoicePanel({ orgId, contact }: { orgId: string; contact: ContactDetailResponse["contact"] }) {
+export function VoicePanel({ orgId, contact }: { orgId: string; contact: VoicePanelContact }) {
   const call = useCallContact(orgId, contact.id);
   const [armed, setArmed] = useState(false);
   const hasPhone = Boolean(contact.phone?.trim());
