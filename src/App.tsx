@@ -19,7 +19,7 @@ import OAuthCallbackPage from "./screens/OAuthCallbackPage";
 import PhoneAuthPage from "./screens/PhoneAuthPage";
 import ForgotPasswordPage from "./screens/ForgotPasswordPage";
 import UpdatePasswordPage from "./screens/UpdatePasswordPage";
-import OnboardingPage from "./screens/OnboardingPage";
+import OnboardingWizard from "./screens/onboarding/OnboardingWizard";
 import Dashboard from "./screens/Dashboard";
 import CalendarPage from "./screens/CalendarPage";
 import TasksPage from "./screens/TasksPage";
@@ -534,7 +534,7 @@ function OnboardingPageWrapper() {
         </div>
       }
     >
-      <OnboardingPage />
+      <OnboardingWizard />
     </ErrorBoundary>
   );
 }

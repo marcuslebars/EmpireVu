@@ -26,9 +26,11 @@ import {
   fetchOpsBookings,
   fetchOpsProfiles,
   fetchCompanies,
+  fetchOnboardingFunnel,
   assignContactOwner,
   assignTaskUser,
   updateBookingStatus,
+  type OnboardingFunnel,
   type OpsJobDetailResponse,
   type OpsRunDetailResponse,
   type OpsContactRow,
@@ -391,6 +393,65 @@ function RunDetailPanel({
   );
 }
 
+/** Onboarding funnel (Task 13): token-gated cross-tenant report — proves the time-to-live gate. */
+function OnboardingFunnelCard() {
+  const [token, setToken] = useState("");
+  const [funnel, setFunnel] = useState<OnboardingFunnel | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    if (!token.trim()) return;
+    setLoading(true);
+    try {
+      setFunnel(await fetchOnboardingFunnel(token.trim()));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't load the funnel (check the ops token).");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Onboarding funnel</CardTitle>
+        <CardDescription>Per-step started/completed + median time-to-complete, across all tenants. Paste the OPS_ADMIN_TOKEN to load.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex gap-2 max-w-md">
+          <Input type="password" placeholder="OPS_ADMIN_TOKEN" value={token} onChange={(e) => setToken(e.target.value)} />
+          <Button onClick={() => void load()} disabled={!token.trim() || loading}>
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Load"}
+          </Button>
+        </div>
+        {funnel && (
+          <>
+            <p className="text-sm text-muted-foreground">
+              {funnel.companiesStarted} started · {funnel.companiesCompletedAll} completed all ·
+              median time-to-complete {funnel.overallMedianSeconds != null ? formatSeconds(funnel.overallMedianSeconds) : "—"}
+            </p>
+            <Table>
+              <TableHeader>
+                <TableRow><TableHead>Step</TableHead><TableHead>Started</TableHead><TableHead>Completed</TableHead><TableHead>Median</TableHead></TableRow>
+              </TableHeader>
+              <TableBody>
+                {funnel.steps.map((s) => (
+                  <TableRow key={s.step}>
+                    <TableCell className="font-medium">{s.step}</TableCell>
+                    <TableCell>{s.started}</TableCell>
+                    <TableCell>{s.completed}</TableCell>
+                    <TableCell>{s.medianSeconds != null ? formatSeconds(s.medianSeconds) : "—"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function OpsPage() {
   const { organizationId } = useOrg();
   const [activeTab, setActiveTab] = useState<"jobs" | "runs" | "contacts" | "tasks" | "bookings">("jobs");
@@ -730,6 +791,8 @@ export function OpsPage() {
             Refresh
           </Button>
         </div>
+
+        <OnboardingFunnelCard />
 
         <div className="grid gap-4 md:grid-cols-5">
           <HealthCard

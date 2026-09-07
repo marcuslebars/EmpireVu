@@ -175,6 +175,8 @@ export interface Database {
           updated_at: string;
           website: string | null;
           timezone: string | null;
+          hours: Json | null;
+          service_area: string | null;
         };
         Insert: {
           brand_accent_color?: string | null;
@@ -209,6 +211,8 @@ export interface Database {
           updated_at?: string;
           website?: string | null;
           timezone?: string | null;
+          hours?: Json | null;
+          service_area?: string | null;
         };
         Update: {
           brand_accent_color?: string | null;
@@ -243,6 +247,8 @@ export interface Database {
           updated_at?: string;
           website?: string | null;
           timezone?: string | null;
+          hours?: Json | null;
+          service_area?: string | null;
         };
         Relationships: [];
       };
@@ -2091,6 +2097,72 @@ export interface Database {
           scheduled_for?: string;
           status?: string;
           workflow_id?: string;
+        };
+        Relationships: [];
+      };
+      onboarding_progress: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          step: string;
+          status: string;
+          data: Json;
+          completed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          step: string;
+          status?: string;
+          data?: Json;
+          completed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          step?: string;
+          status?: string;
+          data?: Json;
+          completed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      onboarding_events: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string | null;
+          step: string;
+          event: string;
+          occurred_at: string;
+          metadata: Json;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id?: string | null;
+          step: string;
+          event: string;
+          occurred_at?: string;
+          metadata?: Json;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string | null;
+          step?: string;
+          event?: string;
+          occurred_at?: string;
+          metadata?: Json;
         };
         Relationships: [];
       };

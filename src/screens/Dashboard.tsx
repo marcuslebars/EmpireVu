@@ -27,11 +27,41 @@ import {
   useDashboardActivity,
   useAutomationImpact,
   useOrganizations,
-  useCompanies
+  useCompanies,
+  useOnboardingProgress
 } from "@/lib/api-hooks";
 import { SkeletonStatCard, SkeletonCard, ErrorBanner, EmptyState, LoadingCards } from "@/components/ui/StateViews";
 import { relativeTime, formatCentsCompact, formatSeconds, formatPercent } from "@/lib/format";
 import type { DashboardActivityItem } from "@/lib/api-client";
+
+const ONBOARDING_TOTAL_STEPS = 8;
+
+/** Shown until onboarding is complete — nudges the owner back into the wizard (Task 13). */
+function OnboardingChecklistCard({ orgId }: { orgId: string }) {
+  const navigate = useNavigate();
+  const { data } = useOnboardingProgress(orgId);
+  if (!data || !data.company) return null;
+  const done = data.steps.filter((s) => s.status === "complete").length;
+  if (done >= ONBOARDING_TOTAL_STEPS) return null;
+
+  return (
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex items-center justify-between gap-4 opacity-0 animate-fade-in">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-foreground">Finish setting up EmpireVu</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{done} of {ONBOARDING_TOTAL_STEPS} steps done — get your Marina number and website leads live.</p>
+        <div className="mt-2 h-1.5 w-48 max-w-full rounded-full bg-secondary overflow-hidden">
+          <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${(done / ONBOARDING_TOTAL_STEPS) * 100}%` }} />
+        </div>
+      </div>
+      <button
+        onClick={() => navigate("/onboarding")}
+        className="shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]"
+      >
+        Continue setup
+      </button>
+    </div>
+  );
+}
 
 function NoOrgContextState() {
   const navigate = useNavigate();
@@ -211,6 +241,8 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      <OnboardingChecklistCard orgId={organizationId} />
 
       {/* Error banners */}
       {summary.isError && (
