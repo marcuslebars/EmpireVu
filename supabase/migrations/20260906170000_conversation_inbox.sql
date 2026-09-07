@@ -142,6 +142,7 @@ as $$
       coalesce(rc.direction, 'inbound'),
       'voice'::text,
       rc.call_summary,
+      null::text,
       case when rc.call_successful is true then 'completed'
            when rc.in_voicemail is true then 'voicemail'
            else null end,
