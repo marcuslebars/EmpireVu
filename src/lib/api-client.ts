@@ -1301,6 +1301,113 @@ export function installRecipes(
   });
 }
 
+// ─── Onboarding wizard (Task 13) ─────────────────────────────────────────────
+
+export interface OnboardingProgressStep {
+  step: string;
+  status: string;
+  data: Record<string, unknown>;
+  completed_at: string | null;
+}
+export interface OnboardingProgressResponse {
+  company: { id: string; name: string } | null;
+  steps: OnboardingProgressStep[];
+  nextStep?: string;
+}
+export interface CatalogDraft {
+  name: string;
+  description?: string | null;
+  pricingType: string;
+  baseCents?: number | null;
+}
+
+export function fetchOnboardingProgress(orgId: string): Promise<OnboardingProgressResponse> {
+  return apiFetch(`/api/organizations/${orgId}/onboarding/progress`);
+}
+
+export function upsertOnboardingStep(
+  orgId: string,
+  input: { companyId: string; step: string; status?: string; data?: Record<string, unknown>; completed?: boolean; event?: "start" | "complete" | "error" },
+): Promise<OnboardingProgressStep> {
+  return apiFetch(`/api/organizations/${orgId}/onboarding/progress`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export interface SaveBusinessInput {
+  companyId?: string;
+  name: string;
+  website?: string | null;
+  timezone?: string | null;
+  hours?: Record<string, unknown> | null;
+  serviceArea?: string | null;
+  ownerEmail?: string | null;
+  ownerPhone?: string | null;
+  brandLogoUrl?: string | null;
+  brandPrimaryColor?: string | null;
+  brandAccentColor?: string | null;
+}
+export function saveOnboardingBusiness(orgId: string, input: SaveBusinessInput): Promise<{ company: { id: string; name: string } }> {
+  return apiFetch(`/api/organizations/${orgId}/onboarding/business`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Multipart logo upload (raw fetch — apiFetch forces JSON). Returns the public URL. */
+export async function uploadOnboardingLogo(orgId: string, companyId: string, file: File): Promise<{ url: string }> {
+  const form = new FormData();
+  form.set("companyId", companyId);
+  form.set("file", file);
+  const res = await fetch(`/api/organizations/${orgId}/onboarding/logo`, { method: "POST", body: form });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, (json as { error?: string }).error ?? `Upload failed (${res.status})`, json);
+  return (json as { data: { url: string } }).data;
+}
+
+export function parseWebsiteCatalog(orgId: string, url: string): Promise<{ drafts: CatalogDraft[]; sourceChars: number }> {
+  return apiFetch(`/api/organizations/${orgId}/onboarding/services/parse`, { method: "POST", body: JSON.stringify({ url }) });
+}
+
+export interface CatalogItemInput {
+  label: string;
+  description?: string | null;
+  pricingType: string;
+  rateCents: number;
+  minimumCents?: number;
+  unitLabel?: string | null;
+}
+export function saveCatalogItems(orgId: string, companyId: string, items: CatalogItemInput[]): Promise<{ created: number }> {
+  return apiFetch(`/api/organizations/${orgId}/onboarding/services`, { method: "POST", body: JSON.stringify({ companyId, items }) });
+}
+
+export function fetchOnboardingPhoneNumbers(
+  orgId: string,
+): Promise<{ configured: boolean; numbers: Array<{ phoneNumber: string; pretty: string | null }> }> {
+  return apiFetch(`/api/organizations/${orgId}/onboarding/phone`);
+}
+export function provisionOnboardingPhone(
+  orgId: string,
+  input: { companyId: string; areaCode?: number; attachNumber?: string },
+): Promise<{ phoneNumber: string; phoneNumberPretty: string | null; purchased: boolean }> {
+  return apiFetch(`/api/organizations/${orgId}/onboarding/phone`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function sendOnboardingTestLead(orgId: string, companyId: string): Promise<{ leadId: string }> {
+  return apiFetch(`/api/organizations/${orgId}/onboarding/test-lead`, { method: "POST", body: JSON.stringify({ companyId }) });
+}
+
+export interface OnboardingFunnelStep {
+  step: string;
+  started: number;
+  completed: number;
+  medianSeconds: number | null;
+}
+export interface OnboardingFunnel {
+  steps: OnboardingFunnelStep[];
+  companiesStarted: number;
+  companiesCompletedAll: number;
+  overallMedianSeconds: number | null;
+}
+export function fetchOnboardingFunnel(opsToken: string): Promise<OnboardingFunnel> {
+  return apiFetch(`/api/ops/onboarding-funnel`, { headers: { Authorization: `Bearer ${opsToken}` } });
+}
+
 // ─── Organizations & Companies ───────────────────────────────────────────────
 
 export interface OrganizationSummary {
