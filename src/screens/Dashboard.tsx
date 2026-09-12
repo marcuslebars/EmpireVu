@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Building2,
   AlertCircle,
+  Sparkles,
 } from "lucide-react";
 import { DashboardCard, StatCard } from "@/components/ui/DashboardCard";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ import {
   useDashboardSummary,
   useDashboardActivity,
   useAutomationImpact,
+  useAttribution,
   useOrganizations,
   useCompanies,
   useOnboardingProgress
@@ -60,6 +62,63 @@ function OnboardingChecklistCard({ orgId }: { orgId: string }) {
         Continue setup
       </button>
     </div>
+  );
+}
+
+/** "Captured by EmpireVu" — money collected this month, with a per-company drill-down (Task 14). */
+function CapturedByEmpireVuCard({ orgId, companyId }: { orgId: string; companyId?: string }) {
+  const navigate = useNavigate();
+  const { data, isLoading, isError, refetch } = useAttribution(orgId, companyId ? { companyId } : {});
+  const summary = data?.summary;
+
+  return (
+    <button
+      type="button"
+      onClick={() => navigate("/reports/attribution")}
+      className="w-full text-left group opacity-0 animate-fade-in"
+      style={{ animationDelay: "90ms" }}
+    >
+      <div className="p-5 rounded-xl bg-gradient-to-br from-primary/10 to-[hsl(var(--accent-violet))]/5 border border-primary/20 shadow-md shadow-black/5 transition-colors group-hover:border-primary/40">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="flex items-center justify-center w-7 h-7 rounded-md bg-primary/15 text-primary">
+              <Sparkles className="w-3.5 h-3.5" />
+            </span>
+            <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Captured by EmpireVu</h3>
+          </div>
+          <span className="flex items-center gap-1 text-[11px] font-medium text-primary opacity-70 group-hover:opacity-100 transition-opacity">
+            View report <ChevronRight className="w-3.5 h-3.5" />
+          </span>
+        </div>
+        {isError ? (
+          <div className="mt-3">
+            <ErrorBanner message="Failed to load attribution." onRetry={() => refetch()} />
+          </div>
+        ) : (
+          <div className="mt-3 flex flex-wrap items-end gap-x-8 gap-y-2">
+            <div>
+              <p className="text-3xl font-bold tabular-nums text-foreground">
+                {isLoading || !summary ? "—" : formatCentsCompact(summary.paidCentsTotal)}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">Collected this month</p>
+            </div>
+            <div className="text-xs text-muted-foreground space-y-0.5">
+              <p>
+                <span className="font-semibold text-foreground tabular-nums">
+                  {summary ? formatCentsCompact(summary.approvedCentsTotal) : "—"}
+                </span>{" "}
+                approved
+              </p>
+              <p>
+                <span className="font-semibold text-foreground tabular-nums">{summary?.quotesCount ?? 0}</span> quotes ·{" "}
+                <span className="tabular-nums">{summary?.voiceAi.count ?? 0}</span> voice AI ·{" "}
+                <span className="tabular-nums">{summary?.automation.count ?? 0}</span> automated
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </button>
   );
 }
 
@@ -243,6 +302,8 @@ export default function Dashboard() {
       </div>
 
       <OnboardingChecklistCard orgId={organizationId} />
+
+      <CapturedByEmpireVuCard orgId={organizationId} companyId={companyId ?? undefined} />
 
       {/* Error banners */}
       {summary.isError && (

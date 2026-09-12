@@ -7,6 +7,7 @@ import {
   Calendar as CalendarIcon,
   Zap,
   FileText,
+  BarChart3,
   Settings as SettingsIcon,
   UserPlus,
   Plus,
@@ -34,6 +35,7 @@ const NAV_ITEMS = [
   { label: "Calendar", to: "/calendar", icon: CalendarIcon, keywords: "bookings schedule" },
   { label: "Quotes", to: "/quotes", icon: FileText, keywords: "estimate proposal invoice deposit" },
   { label: "Automations", to: "/automations", icon: Zap, keywords: "workflows rules" },
+  { label: "Reports", to: "/reports/attribution", icon: BarChart3, keywords: "attribution revenue captured report analytics" },
   { label: "Settings", to: "/settings", icon: SettingsIcon, keywords: "preferences organization" },
 ];
 

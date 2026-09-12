@@ -27,6 +27,7 @@ import CRMPage from "./screens/CRMPage";
 import QuotesPage from "./screens/QuotesPage";
 import ContactDetailPage from "./screens/ContactDetailPage";
 import AutomationsPage from "./screens/AutomationsPage";
+import ReportsAttributionPage from "./screens/ReportsAttributionPage";
 import SettingsPage from "./screens/SettingsPage";
 import NotFound from "./screens/NotFound";
 import { Loader2, AlertTriangle, Bug, ChevronDown, ChevronRight } from "lucide-react";
@@ -357,6 +358,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <AutomationsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reports/attribution"
+          element={
+            <ProtectedRoute>
+              <ReportsAttributionPage />
             </ProtectedRoute>
           }
         />
