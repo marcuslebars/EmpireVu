@@ -8,6 +8,7 @@ import {
   fetchDashboardSummary,
   fetchDashboardActivity,
   fetchAutomationImpact,
+  fetchAttribution,
   fetchCalendarView,
   fetchCalendarCapacity,
   fetchBookingDetail,
@@ -127,6 +128,18 @@ export function useAutomationImpact(orgId: string) {
   return useQuery({
     queryKey: ["dashboard", "automation-impact", orgId],
     queryFn: () => fetchAutomationImpact(orgId),
+    enabled: Boolean(orgId),
+    staleTime: 30_000,
+  });
+}
+
+export function useAttribution(
+  orgId: string,
+  params: { companyId?: string; from?: string; to?: string; rows?: boolean } = {},
+) {
+  return useQuery({
+    queryKey: ["attribution", orgId, params],
+    queryFn: () => fetchAttribution(orgId, params),
     enabled: Boolean(orgId),
     staleTime: 30_000,
   });
