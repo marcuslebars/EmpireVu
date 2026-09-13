@@ -23,6 +23,12 @@ create index if not exists device_tokens_active_org_user_idx
 
 alter table public.device_tokens enable row level security;
 
+-- Policies are dropped first so the whole migration is safe to re-run.
+drop policy if exists "device_tokens_own_select" on public.device_tokens;
+drop policy if exists "device_tokens_own_insert" on public.device_tokens;
+drop policy if exists "device_tokens_own_update" on public.device_tokens;
+drop policy if exists "device_tokens_own_delete" on public.device_tokens;
+
 create policy "device_tokens_own_select"
   on public.device_tokens for select
   using (user_id = auth.uid());
@@ -56,6 +62,10 @@ create table if not exists public.notification_preferences (
 );
 
 alter table public.notification_preferences enable row level security;
+
+drop policy if exists "notification_preferences_own_select" on public.notification_preferences;
+drop policy if exists "notification_preferences_own_insert" on public.notification_preferences;
+drop policy if exists "notification_preferences_own_update" on public.notification_preferences;
 
 create policy "notification_preferences_own_select"
   on public.notification_preferences for select
@@ -91,6 +101,10 @@ create index if not exists job_photos_booking_idx
   on public.job_photos (organization_id, booking_id, taken_at desc);
 
 alter table public.job_photos enable row level security;
+
+drop policy if exists "job_photos_members_select" on public.job_photos;
+drop policy if exists "job_photos_members_insert" on public.job_photos;
+drop policy if exists "job_photos_owner_or_admin_delete" on public.job_photos;
 
 create policy "job_photos_members_select"
   on public.job_photos for select

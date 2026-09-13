@@ -2319,6 +2319,27 @@ export interface Database {
         };
         Relationships: [];
       };
+      push_digest_log: {
+        Row: {
+          organization_id: string;
+          user_id: string;
+          digest_date: string;
+          sent_at: string;
+        };
+        Insert: {
+          organization_id: string;
+          user_id: string;
+          digest_date: string;
+          sent_at?: string;
+        };
+        Update: {
+          organization_id?: string;
+          user_id?: string;
+          digest_date?: string;
+          sent_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       revenue_attribution_v: {
