@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+*.keystore
+*.jks
+android/keystore.properties
+android/app/google-services.json
+ios/App/App/GoogleService-Info.plist
+android/app/release/
+ios/App/Pods/
+ios/App/output/

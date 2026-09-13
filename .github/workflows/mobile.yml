@@ -1,0 +1,160 @@
+name: Mobile
+
+# Builds EmpireVu Mobile. Store-signed artifacts are produced only when the signing
+# secrets below exist; otherwise the jobs still prove the app compiles on both platforms.
+#
+# Repository variables:  VITE_API_BASE_URL, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+# Android secrets:       ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+#                        ANDROID_KEY_PASSWORD, ANDROID_GOOGLE_SERVICES_JSON
+# iOS secrets:           IOS_DIST_CERT_P12_BASE64, IOS_DIST_CERT_PASSWORD, IOS_PROVISIONING_PROFILE_BASE64,
+#                        IOS_TEAM_ID, IOS_KEYCHAIN_PASSWORD
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["mobile/**", "src/lib/api-client.ts", ".github/workflows/mobile.yml"]
+  push:
+    branches: [main]
+    paths: ["mobile/**", "src/lib/api-client.ts", ".github/workflows/mobile.yml"]
+
+defaults:
+  run:
+    working-directory: mobile
+
+env:
+  VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+  VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+  VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-web-dist
+          path: mobile/dist
+
+  android:
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: npm ci
+      - run: npm run build && npx cap sync android
+      - name: Firebase config
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then echo "$GOOGLE_SERVICES_JSON" > android/app/google-services.json; fi
+      - name: Signed release bundle
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
+        working-directory: mobile/android
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.keystore"
+            export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/upload.keystore"
+            ./gradlew bundleRelease
+          else
+            echo "::notice::No Android signing secrets — building a debug APK only."
+            ./gradlew assembleDebug
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-build
+          path: |
+            mobile/android/app/build/outputs/bundle/release/*.aab
+            mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+  ios:
+    needs: web
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm run build && npx cap sync ios
+      - name: Build
+        env:
+          CERT_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        working-directory: mobile/ios/App
+        run: |
+          if [ -z "$CERT_BASE64" ]; then
+            echo "::notice::No iOS signing secrets — compiling for the simulator only."
+            xcodebuild -project App.xcodeproj -scheme App -configuration Debug \
+              -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+            exit 0
+          fi
+
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/app.mobileprovision"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' /dev/stdin <<< "$(security cms -D -i "$RUNNER_TEMP/app.mobileprovision")")
+          cp "$RUNNER_TEMP/app.mobileprovision" ~/Library/MobileDevice/Provisioning\ Profiles/"$PROFILE_UUID".mobileprovision
+
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" -destination 'generic/platform=iOS' \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" archive
+
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key><dict><key>com.empirevu.app</key><string>$PROFILE_UUID</string></dict>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export"
+          mkdir -p build && cp "$RUNNER_TEMP"/export/*.ipa build/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-build
+          path: mobile/ios/App/build/*.ipa
+          if-no-files-found: ignore
