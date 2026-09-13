@@ -1363,6 +1363,84 @@ export function installRecipes(
   });
 }
 
+// ─── Unified inbox (Task 12) ─────────────────────────────────────────────────
+
+/** One conversation row in the org-level inbox list (ui_inbox_v). */
+export interface InboxRow {
+  organization_id: string | null;
+  contact_id: string | null;
+  company_id: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  company_name: string | null;
+  last_inbound_at: string | null;
+  last_outbound_at: string | null;
+  last_activity_at: string | null;
+  needs_reply: boolean | null;
+  unread: boolean | null;
+  channel: string | null;
+  snippet: string | null;
+  search_text: string | null;
+}
+
+/** One item in a contact's unified conversation thread (ui_conversation_thread). */
+export interface ConversationThreadItem {
+  id: string;
+  kind: "message" | "call" | "event" | "draft" | "lead" | string;
+  occurred_at: string;
+  direction: string | null;
+  channel: string | null;
+  title: string | null;
+  body: string | null;
+  status: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export function fetchInbox(
+  orgId: string,
+  params: { companyId?: string | null; needsReply?: boolean; search?: string | null } = {},
+): Promise<InboxRow[]> {
+  const qs = new URLSearchParams();
+  if (params.companyId) qs.set("companyId", params.companyId);
+  if (params.needsReply) qs.set("needsReply", "true");
+  if (params.search) qs.set("search", params.search);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return apiFetch(`/api/organizations/${orgId}/inbox${suffix}`);
+}
+
+export function fetchConversationThread(
+  orgId: string,
+  contactId: string,
+  params: { before?: string | null; limit?: number } = {},
+): Promise<ConversationThreadItem[]> {
+  const qs = new URLSearchParams();
+  if (params.before) qs.set("before", params.before);
+  if (params.limit) qs.set("limit", String(params.limit));
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return apiFetch(`/api/organizations/${orgId}/inbox/${contactId}${suffix}`);
+}
+
+export function markContactRead(orgId: string, contactId: string): Promise<{ lastReadAt: string }> {
+  return apiFetch(`/api/organizations/${orgId}/inbox/${contactId}/read`, { method: "POST" });
+}
+
+export interface SendMessageResult {
+  status: "sent" | "failed" | "blocked";
+  reason?: string;
+  providerRef?: string | null;
+  body: string;
+}
+
+export function sendContactMessage(
+  orgId: string,
+  contactId: string,
+  input: { channel: "sms" | "email"; body: string; subject?: string },
+): Promise<SendMessageResult> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}/messages`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 // ─── Onboarding wizard (Task 13) ─────────────────────────────────────────────
 
 export interface OnboardingProgressStep {

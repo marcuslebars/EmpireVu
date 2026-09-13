@@ -75,6 +75,12 @@ import {
   suggestWorkflows,
   fetchRecipeCatalog,
   installRecipes,
+  fetchInbox,
+  fetchConversationThread,
+  markContactRead,
+  sendContactMessage,
+  type InboxRow,
+  type ConversationThreadItem,
   fetchOnboardingProgress,
   saveOnboardingBusiness,
   upsertOnboardingStep,
@@ -852,6 +858,15 @@ export function useInstallRecipes(orgId: string) {
   });
 }
 
+// ─── Unified inbox (Task 12) ─────────────────────────────────────────────────
+
+export function useInbox(
+  orgId: string,
+  params: { companyId?: string | null; needsReply?: boolean; search?: string | null } = {},
+) {
+  return useQuery<InboxRow[]>({
+    queryKey: ["inbox", "list", orgId, params],
+    queryFn: () => fetchInbox(orgId, params),
 // ─── Onboarding wizard (Task 13) ─────────────────────────────────────────────
 
 export function useOnboardingProgress(orgId: string) {
@@ -862,6 +877,34 @@ export function useOnboardingProgress(orgId: string) {
   });
 }
 
+export function useConversationThread(orgId: string, contactId: string | null) {
+  return useQuery<ConversationThreadItem[]>({
+    queryKey: ["inbox", "thread", orgId, contactId],
+    queryFn: () => fetchConversationThread(orgId, contactId as string),
+    enabled: Boolean(orgId && contactId),
+  });
+}
+
+export function useMarkContactRead(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (contactId: string) => markContactRead(orgId, contactId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["inbox", "list", orgId] });
+    },
+  });
+}
+
+export function useSendContactMessage(orgId: string, contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { channel: "sms" | "email"; body: string; subject?: string }) =>
+      sendContactMessage(orgId, contactId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["inbox", "thread", orgId, contactId] });
+      void qc.invalidateQueries({ queryKey: ["inbox", "list", orgId] });
+      void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
+    },
 export function useSaveOnboardingBusiness(orgId: string) {
   const qc = useQueryClient();
   return useMutation({

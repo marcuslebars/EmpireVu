@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  Inbox,
   Calendar,
   CheckSquare,
   Users,
@@ -18,6 +19,7 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/" },
+  { title: "Inbox", icon: Inbox, path: "/inbox" },
   { title: "Calendar", icon: Calendar, path: "/calendar" },
   { title: "Tasks", icon: CheckSquare, path: "/tasks" },
   { title: "CRM", icon: Users, path: "/crm" },

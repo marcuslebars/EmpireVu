@@ -2100,6 +2100,24 @@ export interface Database {
         };
         Relationships: [];
       };
+      contact_read_state: {
+        Row: {
+          organization_id: string;
+          contact_id: string;
+          profile_id: string;
+          last_read_at: string;
+        };
+        Insert: {
+          organization_id: string;
+          contact_id: string;
+          profile_id: string;
+          last_read_at?: string;
+        };
+        Update: {
+          organization_id?: string;
+          contact_id?: string;
+          profile_id?: string;
+          last_read_at?: string;
       onboarding_progress: {
         Row: {
           id: string;
@@ -2304,8 +2322,47 @@ export interface Database {
         };
         Relationships: [];
       };
+      ui_inbox_v: {
+        Row: {
+          organization_id: string | null;
+          contact_id: string | null;
+          company_id: string | null;
+          contact_name: string | null;
+          contact_email: string | null;
+          contact_phone: string | null;
+          company_name: string | null;
+          last_inbound_at: string | null;
+          last_outbound_at: string | null;
+          last_activity_at: string | null;
+          needs_reply: boolean | null;
+          unread: boolean | null;
+          channel: string | null;
+          snippet: string | null;
+          search_text: string | null;
+        };
+        Relationships: [];
+      };
     };
     Functions: {
+      ui_conversation_thread: {
+        Args: {
+          p_org_id: string;
+          p_contact_id: string;
+          p_before_ts?: string;
+          p_limit?: number;
+        };
+        Returns: {
+          id: string;
+          kind: string;
+          occurred_at: string;
+          direction: string | null;
+          channel: string | null;
+          title: string | null;
+          body: string | null;
+          status: string | null;
+          metadata: Json;
+        }[];
+      };
       claim_billing_event_jobs: {
         Args: {
           p_worker_id: string;

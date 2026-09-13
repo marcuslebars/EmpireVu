@@ -26,6 +26,7 @@ import TasksPage from "./screens/TasksPage";
 import CRMPage from "./screens/CRMPage";
 import QuotesPage from "./screens/QuotesPage";
 import ContactDetailPage from "./screens/ContactDetailPage";
+import InboxPage from "./screens/InboxPage";
 import AutomationsPage from "./screens/AutomationsPage";
 import ReportsAttributionPage from "./screens/ReportsAttributionPage";
 import SettingsPage from "./screens/SettingsPage";
@@ -334,6 +335,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <TasksPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/inbox"
+          element={
+            <ProtectedRoute>
+              <InboxPage />
             </ProtectedRoute>
           }
         />
