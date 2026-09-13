@@ -1,8 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
+import { corsHeadersFor } from "@/server/api/cors";
+
 /**
- * Session-refresh middleware only.
+ * Session-refresh middleware, plus CORS for the native mobile app.
  *
  * It keeps the Supabase auth cookie fresh and does NOT redirect. Route protection is
  * enforced server-side by each API route (`requireOrganizationContext` -> 401/403,
@@ -10,11 +12,16 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
  * `ProtectedRoute`. The client guard is cosmetic — the real boundary is the API layer,
  * covered by src/test/auth-boundary.test.ts.
  *
- * The matcher excludes `/api/*`, so every API route — including the public HMAC
- * lead-intake webhook (Phase 2) — is never subjected to session auth here; those routes
- * authenticate themselves (org membership, or the shared intake secret).
+ * `/api/*` requests get CORS headers only and return before any session handling, so
+ * every API route — including the public HMAC lead-intake webhook (Phase 2) — is never
+ * subjected to session auth here; those routes authenticate themselves (org membership,
+ * a Bearer token from the mobile app, or the shared intake secret).
  */
 export async function middleware(request: NextRequest) {
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    return withApiCors(request);
+  }
+
   let response = NextResponse.next({ request });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -52,9 +59,26 @@ export async function middleware(request: NextRequest) {
   return response;
 }
 
+function withApiCors(request: NextRequest): NextResponse {
+  const cors = corsHeadersFor(request.headers.get("origin"));
+
+  // Answer an allowed preflight here; the route handlers don't implement OPTIONS.
+  if (request.method === "OPTIONS" && cors) {
+    return new NextResponse(null, { status: 204, headers: cors });
+  }
+
+  const response = NextResponse.next();
+  if (cors) {
+    Object.entries(cors).forEach(([name, value]) => response.headers.set(name, value));
+  }
+  return response;
+}
+
 export const config = {
   matcher: [
     // Everything except API routes, Next internals, and static asset files.
     "/((?!api/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    // API routes — CORS headers only.
+    "/api/:path*",
   ],
 };

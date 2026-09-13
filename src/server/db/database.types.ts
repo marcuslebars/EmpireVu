@@ -2118,6 +2118,9 @@ export interface Database {
           contact_id?: string;
           profile_id?: string;
           last_read_at?: string;
+        };
+        Relationships: [];
+      };
       onboarding_progress: {
         Row: {
           id: string;
@@ -2181,6 +2184,138 @@ export interface Database {
           event?: string;
           occurred_at?: string;
           metadata?: Json;
+        };
+        Relationships: [];
+      };
+      device_tokens: {
+        Row: {
+          id: string;
+          user_id: string;
+          organization_id: string;
+          token: string;
+          platform: "ios" | "android";
+          app_version: string | null;
+          created_at: string;
+          last_seen_at: string;
+          revoked_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          organization_id: string;
+          token: string;
+          platform: "ios" | "android";
+          app_version?: string | null;
+          created_at?: string;
+          last_seen_at?: string;
+          revoked_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          organization_id?: string;
+          token?: string;
+          platform?: "ios" | "android";
+          app_version?: string | null;
+          created_at?: string;
+          last_seen_at?: string;
+          revoked_at?: string | null;
+        };
+        Relationships: [];
+      };
+      notification_preferences: {
+        Row: {
+          user_id: string;
+          organization_id: string;
+          leads: boolean;
+          drafts: boolean;
+          payments: boolean;
+          conflicts: boolean;
+          workflow_failures: boolean;
+          daily_digest: boolean;
+          quiet_hours_start: string | null;
+          quiet_hours_end: string | null;
+          timezone: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          organization_id: string;
+          leads?: boolean;
+          drafts?: boolean;
+          payments?: boolean;
+          conflicts?: boolean;
+          workflow_failures?: boolean;
+          daily_digest?: boolean;
+          quiet_hours_start?: string | null;
+          quiet_hours_end?: string | null;
+          timezone?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          organization_id?: string;
+          leads?: boolean;
+          drafts?: boolean;
+          payments?: boolean;
+          conflicts?: boolean;
+          workflow_failures?: boolean;
+          daily_digest?: boolean;
+          quiet_hours_start?: string | null;
+          quiet_hours_end?: string | null;
+          timezone?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      job_photos: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          booking_id: string;
+          storage_path: string;
+          caption: string | null;
+          taken_by: string | null;
+          taken_at: string;
+          width: number | null;
+          height: number | null;
+          bytes: number | null;
+          latitude: number | null;
+          longitude: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          booking_id: string;
+          storage_path: string;
+          caption?: string | null;
+          taken_by?: string | null;
+          taken_at?: string;
+          width?: number | null;
+          height?: number | null;
+          bytes?: number | null;
+          latitude?: number | null;
+          longitude?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          booking_id?: string;
+          storage_path?: string;
+          caption?: string | null;
+          taken_by?: string | null;
+          taken_at?: string;
+          width?: number | null;
+          height?: number | null;
+          bytes?: number | null;
+          latitude?: number | null;
+          longitude?: number | null;
+          created_at?: string;
         };
         Relationships: [];
       };

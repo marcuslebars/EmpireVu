@@ -15,11 +15,40 @@ export class ApiError extends Error {
   }
 }
 
+export interface ApiClientConfig {
+  /** Origin the API is served from, e.g. https://empirevu.com. Empty = same origin (the web SPA). */
+  baseUrl: string;
+  /**
+   * Supabase access token to send as `Authorization: Bearer`. The web SPA leaves this
+   * null and relies on the same-origin auth cookie; the mobile app, which runs on a
+   * local origin, supplies its session token.
+   */
+  getAccessToken: (() => Promise<string | null>) | null;
+}
+
+const apiConfig: ApiClientConfig = { baseUrl: "", getAccessToken: null };
+
+export function configureApiClient(config: Partial<ApiClientConfig>): void {
+  if (config.baseUrl !== undefined) apiConfig.baseUrl = config.baseUrl.replace(/\/$/, "");
+  if (config.getAccessToken !== undefined) apiConfig.getAccessToken = config.getAccessToken;
+}
+
+/** Absolute URLs (from buildUrl) pass through; `/api/...` paths get the configured origin. */
+export function resolveApiUrl(path: string): string {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(path) ? path : `${apiConfig.baseUrl}${path}`;
+}
+
+export async function apiAuthHeaders(): Promise<Record<string, string>> {
+  const token = apiConfig.getAccessToken ? await apiConfig.getAccessToken() : null;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(resolveApiUrl(path), {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(await apiAuthHeaders()),
       ...(init?.headers ?? {}),
     },
   });
@@ -48,7 +77,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function buildUrl(base: string, params: Record<string, string | number | boolean | null | undefined>): string {
-  const url = new URL(base, window.location.origin);
+  const url = new URL(base, apiConfig.baseUrl || window.location.origin);
   for (const [key, value] of Object.entries(params)) {
     if (value !== null && value !== undefined && value !== "") {
       url.searchParams.set(key, String(value));
@@ -1441,6 +1470,8 @@ export function sendContactMessage(
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
 // ─── Onboarding wizard (Task 13) ─────────────────────────────────────────────
 
 export interface OnboardingProgressStep {
@@ -1494,7 +1525,11 @@ export async function uploadOnboardingLogo(orgId: string, companyId: string, fil
   const form = new FormData();
   form.set("companyId", companyId);
   form.set("file", file);
-  const res = await fetch(`/api/organizations/${orgId}/onboarding/logo`, { method: "POST", body: form });
+  const res = await fetch(resolveApiUrl(`/api/organizations/${orgId}/onboarding/logo`), {
+    method: "POST",
+    body: form,
+    headers: await apiAuthHeaders(),
+  });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, (json as { error?: string }).error ?? `Upload failed (${res.status})`, json);
   return (json as { data: { url: string } }).data;
@@ -1943,9 +1978,9 @@ export interface SendQuoteResult {
  * a quote that was live, which is worse than saying so plainly.
  */
 export async function sendQuote(orgId: string, quoteId: string): Promise<SendQuoteResult> {
-  const res = await fetch(`/api/organizations/${orgId}/quotes/${quoteId}/send`, {
+  const res = await fetch(resolveApiUrl(`/api/organizations/${orgId}/quotes/${quoteId}/send`), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await apiAuthHeaders()) },
   });
   const body = (await res.json().catch(() => ({}))) as {
     data?: QuoteSummary;
