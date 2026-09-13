@@ -9,6 +9,7 @@ import { sendSms } from "@/server/outbound/sms";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { analyzeContact } from "@/server/services/ai";
 import { createBooking } from "@/server/services/bookings";
+import { notifyDraftReady } from "@/server/services/push/notify";
 import { assertContactInOrganization, insertRow, type TenantServiceContext } from "@/server/services/shared";
 import { recordUsageSafe } from "@/server/services/usage";
 
@@ -160,6 +161,8 @@ export async function createDraftForContact(
   } satisfies Inserts<"ai_drafts">;
 
   const draft = await insertRow(context, "ai_drafts", payload);
+  // Mobile push: a reply is waiting for approval. Fire-and-forget.
+  void notifyDraftReady(draft);
 
   return { analysis, draft };
 }

@@ -2,6 +2,7 @@ import type { Json, Tables } from "@/server/db/database.types";
 import { fromJson, toJson } from "@/server/db/json";
 import { ValidationError } from "@/server/organizations/context";
 import { createActivityEvent, getActivityEventById } from "@/server/services/activity-events";
+import { notifyWorkflowFailed } from "@/server/services/push/notify";
 import type { TenantServiceContext } from "@/server/services/shared";
 import {
   createWorkflowRun,
@@ -249,6 +250,17 @@ async function executeWorkflowForEvent(
         logs_json: logs.map(toLogJson),
         status: "failed",
       });
+
+      // Guard refusals are policy, not breakage — only real failures page owners.
+      if (!isGuardRefusal) {
+        void notifyWorkflowFailed({
+          organizationId: context.organizationId,
+          companyId: activityEvent.company_id,
+          workflowName: workflow.name,
+          failureReason,
+          runId: run.id,
+        });
+      }
     }
 
     return {
@@ -526,5 +538,15 @@ export async function resumeWorkflowRun(
       resume_at: null,
       status: "failed",
     });
+
+    if (!isGuardRefusal) {
+      void notifyWorkflowFailed({
+        organizationId: context.organizationId,
+        companyId: activityEvent.company_id,
+        workflowName: workflow.name,
+        failureReason,
+        runId: run.id,
+      });
+    }
   }
 }

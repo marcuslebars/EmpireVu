@@ -41,8 +41,9 @@ Regenerate icons and splash screens after changing `assets/`: `npm run assets`.
 1. **Deploy the API changes on this branch.** The server now accepts Bearer tokens and sends
    CORS headers for `capacitor://localhost` and `https://localhost`. Nothing works from the app
    without it.
-2. **Apply the migration** `supabase/migrations/20260913120000_mobile_app.sql`. It adds
-   `device_tokens`, `notification_preferences`, `job_photos` and the private `job-photos` bucket.
+2. **Apply the migrations** `supabase/migrations/20260913120000_mobile_app.sql` (adds
+   `device_tokens`, `notification_preferences`, `job_photos` and the private `job-photos` bucket)
+   and `20260913130000_push_digest_log.sql` (once-a-day claim for the morning digest push).
 3. **Supabase Auth → URL Configuration → Redirect URLs:** add `com.empirevu.app://auth-callback`.
    Password reset, email confirmation, Google and Apple sign-in all return through it.
 4. **Sign in with Apple.** The iOS app offers Google sign-in, so App Store Guideline 4.8 requires
@@ -139,14 +140,28 @@ are listed at the top of the workflow.
 - **Voice notes** use on-device recognition. No audio is uploaded or retained, so there is no
   recording linked to the task. Moving to server-side Whisper, as the handoff recommends, needs
   an OpenAI key and a `voice-notes` bucket.
-- **Push categories:** only leads (new lead, urgent or completed call, inbound text) and payments
-  (quote approved or paid) are emitted today. AI-draft, schedule-conflict, workflow-failure and
-  daily-digest pushes need the server to emit those events; their preference toggles are stored
-  already.
+- **Push categories:** all six preference categories send:
+  - **Leads:** new lead, urgent or completed call, inbound text. Sent to everyone except whoever
+    caused it.
+  - **AI drafts:** a reply is ready to approve.
+  - **Payments:** quote approved or paid.
+  - **Schedule conflicts:** a booking's crew (the people assigned to its tasks) is double-booked.
+    Checked when a booking is created or rescheduled, or a task on it is assigned; sent to that
+    crew plus owners and admins.
+  - **Workflow failures:** sent to owners and admins. Abuse-guard refusals don't send.
+  - **Daily digest:** 07:00 in `BUSINESS_TIMEZONE`, once per person per day, skipped when there's
+    nothing to report.
+
+  The digest time and conflict times use the server-wide `BUSINESS_TIMEZONE`, not a per-company
+  timezone.
 - **Marina calls** are placed server-side (Retell/Cartesia). The app follows the outcome; it is not
   a CallKit/VoIP call. Call and Text on a record open the system dialer and Messages.
-- **Quote builder** creates hand-priced lines. Catalog-priced services (hull length, engines) are
-  still built on the web.
+- **Quote builder:**
+  - **What it prices:** the company's catalog services (length or distance, quantity, variant
+    surcharge, bundle discount) plus hand-priced lines. Live totals come from
+    `POST /quotes/preview`, which runs the same pricer as saving.
+  - **Not yet supported:** per-service modifier options such as tier or boat type. The quote API
+    doesn't accept them yet, on web or mobile.
 - **Jobber connection** (OAuth) and intake-key creation happen on the web.
 - **Public quote and booking pages** stay web pages, sent to customers who don't have the app.
 - **Light theme** is not shipped. The app is dark-only, like the web app.

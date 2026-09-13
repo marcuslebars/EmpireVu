@@ -1,4 +1,5 @@
 import type { Tables } from "@/server/db/database.types";
+import { notifyBookingConflicts } from "@/server/services/push/conflicts";
 import { defaultSenders, sendPushToOrganization, type PushMessage } from "@/server/services/push/dispatch";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
@@ -64,9 +65,33 @@ export function pushMessageForEvent(event: ActivityEvent, contactName: string | 
 }
 
 /** Fire-and-forget from createActivityEvent. Never throws; a no-op without a push provider. */
+/** Events after which a booking's crew may now be double-booked. */
+const CONFLICT_EVENTS = new Set(["booking.created", "booking.rescheduled", "task.assignee_assigned"]);
+
+async function checkConflictsFor(event: ActivityEvent): Promise<void> {
+  if (!event.entity_id) return;
+  let bookingId: string | null = event.entity_type === "booking" ? event.entity_id : null;
+  if (event.entity_type === "task") {
+    const { data } = await createSupabaseAdminClient()
+      .from("tasks")
+      .select("booking_id")
+      .eq("organization_id", event.organization_id)
+      .eq("id", event.entity_id)
+      .maybeSingle();
+    bookingId = data?.booking_id ?? null;
+  }
+  if (bookingId) await notifyBookingConflicts(event.organization_id, bookingId);
+}
+
 export async function notifyActivityEvent(event: ActivityEvent | null | undefined): Promise<void> {
   try {
-    if (!event?.event_type || !event.organization_id || !pushMessageForEvent(event, null)) return;
+    if (!event?.event_type || !event.organization_id) return;
+    if (CONFLICT_EVENTS.has(event.event_type)) {
+      const senders = defaultSenders();
+      if (senders.ios || senders.android) await checkConflictsFor(event);
+      return;
+    }
+    if (!pushMessageForEvent(event, null)) return;
     const senders = defaultSenders();
     if (!senders.ios && !senders.android) return;
 
