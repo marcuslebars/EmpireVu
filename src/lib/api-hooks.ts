@@ -867,6 +867,10 @@ export function useInbox(
   return useQuery<InboxRow[]>({
     queryKey: ["inbox", "list", orgId, params],
     queryFn: () => fetchInbox(orgId, params),
+    enabled: Boolean(orgId),
+  });
+}
+
 // ─── Onboarding wizard (Task 13) ─────────────────────────────────────────────
 
 export function useOnboardingProgress(orgId: string) {
@@ -905,6 +909,9 @@ export function useSendContactMessage(orgId: string, contactId: string) {
       void qc.invalidateQueries({ queryKey: ["inbox", "list", orgId] });
       void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
     },
+  });
+}
+
 export function useSaveOnboardingBusiness(orgId: string) {
   const qc = useQueryClient();
   return useMutation({

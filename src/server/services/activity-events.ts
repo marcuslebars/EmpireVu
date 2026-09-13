@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { Inserts, Tables } from "@/server/db/database.types";
 import { toIsoDate } from "@/server/db/helpers";
+import { notifyActivityEvent } from "@/server/services/push/activity";
 import {
   assertCompanyInOrganization,
   insertRow,
@@ -92,7 +93,10 @@ export async function createActivityEvent(
     ...(input.occurredAt ? { occurred_at: toIsoDate(input.occurredAt) } : {}),
   } satisfies Inserts<"activity_events">;
 
-  return insertRow(context, "activity_events", payload);
+  const event = await insertRow(context, "activity_events", payload);
+  // Mobile push fan-out. Fire-and-forget: a push must never slow or fail the write.
+  void notifyActivityEvent(event);
+  return event;
 }
 
 export async function getActivityEventById(

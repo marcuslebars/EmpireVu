@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">EmpireVu</string>
+    <string name="title_activity_main">EmpireVu</string>
+    <string name="package_name">com.empirevu.app</string>
+    <string name="custom_url_scheme">com.empirevu.app</string>
+</resources>
