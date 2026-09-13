@@ -8,6 +8,7 @@ import {
   fetchDashboardSummary,
   fetchDashboardActivity,
   fetchAutomationImpact,
+  fetchAttribution,
   fetchCalendarView,
   fetchCalendarCapacity,
   fetchBookingDetail,
@@ -80,6 +81,15 @@ import {
   sendContactMessage,
   type InboxRow,
   type ConversationThreadItem,
+  fetchOnboardingProgress,
+  saveOnboardingBusiness,
+  upsertOnboardingStep,
+  saveCatalogItems,
+  provisionOnboardingPhone,
+  sendOnboardingTestLead,
+  type OnboardingProgressResponse,
+  type SaveBusinessInput,
+  type CatalogItemInput,
   type WorkflowSuggestion,
   type RecipeCatalogEntry,
   type CreateWorkflowInput,
@@ -124,6 +134,18 @@ export function useAutomationImpact(orgId: string) {
   return useQuery({
     queryKey: ["dashboard", "automation-impact", orgId],
     queryFn: () => fetchAutomationImpact(orgId),
+    enabled: Boolean(orgId),
+    staleTime: 30_000,
+  });
+}
+
+export function useAttribution(
+  orgId: string,
+  params: { companyId?: string; from?: string; to?: string; rows?: boolean } = {},
+) {
+  return useQuery({
+    queryKey: ["attribution", orgId, params],
+    queryFn: () => fetchAttribution(orgId, params),
     enabled: Boolean(orgId),
     staleTime: 30_000,
   });
@@ -845,6 +867,12 @@ export function useInbox(
   return useQuery<InboxRow[]>({
     queryKey: ["inbox", "list", orgId, params],
     queryFn: () => fetchInbox(orgId, params),
+// ─── Onboarding wizard (Task 13) ─────────────────────────────────────────────
+
+export function useOnboardingProgress(orgId: string) {
+  return useQuery<OnboardingProgressResponse>({
+    queryKey: ["onboarding", orgId],
+    queryFn: () => fetchOnboardingProgress(orgId),
     enabled: Boolean(orgId),
   });
 }
@@ -877,6 +905,44 @@ export function useSendContactMessage(orgId: string, contactId: string) {
       void qc.invalidateQueries({ queryKey: ["inbox", "list", orgId] });
       void qc.invalidateQueries({ queryKey: ["crm", "contact", orgId, contactId] });
     },
+export function useSaveOnboardingBusiness(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SaveBusinessInput) => saveOnboardingBusiness(orgId, input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["onboarding", orgId] }),
+  });
+}
+
+export function useUpsertOnboardingStep(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { companyId: string; step: string; status?: string; data?: Record<string, unknown>; completed?: boolean; event?: "start" | "complete" | "error" }) =>
+      upsertOnboardingStep(orgId, input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["onboarding", orgId] }),
+  });
+}
+
+export function useSaveCatalogItems(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { companyId: string; items: CatalogItemInput[] }) => saveCatalogItems(orgId, input.companyId, input.items),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["onboarding", orgId] }),
+  });
+}
+
+export function useProvisionOnboardingPhone(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { companyId: string; areaCode?: number; attachNumber?: string }) => provisionOnboardingPhone(orgId, input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["onboarding", orgId] }),
+  });
+}
+
+export function useSendOnboardingTestLead(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (companyId: string) => sendOnboardingTestLead(orgId, companyId),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["onboarding", orgId] }),
   });
 }
 

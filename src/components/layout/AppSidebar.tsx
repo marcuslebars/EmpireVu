@@ -6,6 +6,7 @@ import {
   Users,
   Zap,
   FileText,
+  BarChart3,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -24,6 +25,7 @@ const navItems = [
   { title: "CRM", icon: Users, path: "/crm" },
   { title: "Quotes", icon: FileText, path: "/quotes" },
   { title: "Automations", icon: Zap, path: "/automations" },
+  { title: "Reports", icon: BarChart3, path: "/reports/attribution" },
   { title: "Settings", icon: Settings, path: "/settings" },
 ];
 

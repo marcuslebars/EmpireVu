@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Building2,
   AlertCircle,
+  Sparkles,
 } from "lucide-react";
 import { DashboardCard, StatCard } from "@/components/ui/DashboardCard";
 import { Button } from "@/components/ui/button";
@@ -26,12 +27,100 @@ import {
   useDashboardSummary,
   useDashboardActivity,
   useAutomationImpact,
+  useAttribution,
   useOrganizations,
-  useCompanies
+  useCompanies,
+  useOnboardingProgress
 } from "@/lib/api-hooks";
 import { SkeletonStatCard, SkeletonCard, ErrorBanner, EmptyState, LoadingCards } from "@/components/ui/StateViews";
 import { relativeTime, formatCentsCompact, formatSeconds, formatPercent } from "@/lib/format";
 import type { DashboardActivityItem } from "@/lib/api-client";
+
+const ONBOARDING_TOTAL_STEPS = 8;
+
+/** Shown until onboarding is complete — nudges the owner back into the wizard (Task 13). */
+function OnboardingChecklistCard({ orgId }: { orgId: string }) {
+  const navigate = useNavigate();
+  const { data } = useOnboardingProgress(orgId);
+  if (!data || !data.company) return null;
+  const done = data.steps.filter((s) => s.status === "complete").length;
+  if (done >= ONBOARDING_TOTAL_STEPS) return null;
+
+  return (
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex items-center justify-between gap-4 opacity-0 animate-fade-in">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-foreground">Finish setting up EmpireVu</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{done} of {ONBOARDING_TOTAL_STEPS} steps done — get your Marina number and website leads live.</p>
+        <div className="mt-2 h-1.5 w-48 max-w-full rounded-full bg-secondary overflow-hidden">
+          <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${(done / ONBOARDING_TOTAL_STEPS) * 100}%` }} />
+        </div>
+      </div>
+      <button
+        onClick={() => navigate("/onboarding")}
+        className="shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]"
+      >
+        Continue setup
+      </button>
+    </div>
+  );
+}
+
+/** "Captured by EmpireVu" — money collected this month, with a per-company drill-down (Task 14). */
+function CapturedByEmpireVuCard({ orgId, companyId }: { orgId: string; companyId?: string }) {
+  const navigate = useNavigate();
+  const { data, isLoading, isError, refetch } = useAttribution(orgId, companyId ? { companyId } : {});
+  const summary = data?.summary;
+
+  return (
+    <button
+      type="button"
+      onClick={() => navigate("/reports/attribution")}
+      className="w-full text-left group opacity-0 animate-fade-in"
+      style={{ animationDelay: "90ms" }}
+    >
+      <div className="p-5 rounded-xl bg-gradient-to-br from-primary/10 to-[hsl(var(--accent-violet))]/5 border border-primary/20 shadow-md shadow-black/5 transition-colors group-hover:border-primary/40">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="flex items-center justify-center w-7 h-7 rounded-md bg-primary/15 text-primary">
+              <Sparkles className="w-3.5 h-3.5" />
+            </span>
+            <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Captured by EmpireVu</h3>
+          </div>
+          <span className="flex items-center gap-1 text-[11px] font-medium text-primary opacity-70 group-hover:opacity-100 transition-opacity">
+            View report <ChevronRight className="w-3.5 h-3.5" />
+          </span>
+        </div>
+        {isError ? (
+          <div className="mt-3">
+            <ErrorBanner message="Failed to load attribution." onRetry={() => refetch()} />
+          </div>
+        ) : (
+          <div className="mt-3 flex flex-wrap items-end gap-x-8 gap-y-2">
+            <div>
+              <p className="text-3xl font-bold tabular-nums text-foreground">
+                {isLoading || !summary ? "—" : formatCentsCompact(summary.paidCentsTotal)}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">Collected this month</p>
+            </div>
+            <div className="text-xs text-muted-foreground space-y-0.5">
+              <p>
+                <span className="font-semibold text-foreground tabular-nums">
+                  {summary ? formatCentsCompact(summary.approvedCentsTotal) : "—"}
+                </span>{" "}
+                approved
+              </p>
+              <p>
+                <span className="font-semibold text-foreground tabular-nums">{summary?.quotesCount ?? 0}</span> quotes ·{" "}
+                <span className="tabular-nums">{summary?.voiceAi.count ?? 0}</span> voice AI ·{" "}
+                <span className="tabular-nums">{summary?.automation.count ?? 0}</span> automated
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </button>
+  );
+}
 
 function NoOrgContextState() {
   const navigate = useNavigate();
@@ -211,6 +300,10 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      <OnboardingChecklistCard orgId={organizationId} />
+
+      <CapturedByEmpireVuCard orgId={organizationId} companyId={companyId ?? undefined} />
 
       {/* Error banners */}
       {summary.isError && (

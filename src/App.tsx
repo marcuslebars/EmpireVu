@@ -19,7 +19,7 @@ import OAuthCallbackPage from "./screens/OAuthCallbackPage";
 import PhoneAuthPage from "./screens/PhoneAuthPage";
 import ForgotPasswordPage from "./screens/ForgotPasswordPage";
 import UpdatePasswordPage from "./screens/UpdatePasswordPage";
-import OnboardingPage from "./screens/OnboardingPage";
+import OnboardingWizard from "./screens/onboarding/OnboardingWizard";
 import Dashboard from "./screens/Dashboard";
 import CalendarPage from "./screens/CalendarPage";
 import TasksPage from "./screens/TasksPage";
@@ -28,6 +28,7 @@ import QuotesPage from "./screens/QuotesPage";
 import ContactDetailPage from "./screens/ContactDetailPage";
 import InboxPage from "./screens/InboxPage";
 import AutomationsPage from "./screens/AutomationsPage";
+import ReportsAttributionPage from "./screens/ReportsAttributionPage";
 import SettingsPage from "./screens/SettingsPage";
 import NotFound from "./screens/NotFound";
 import { Loader2, AlertTriangle, Bug, ChevronDown, ChevronRight } from "lucide-react";
@@ -370,6 +371,14 @@ function AppRoutes() {
           }
         />
         <Route
+          path="/reports/attribution"
+          element={
+            <ProtectedRoute>
+              <ReportsAttributionPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/settings"
           element={
             <ProtectedRoute>
@@ -543,7 +552,7 @@ function OnboardingPageWrapper() {
         </div>
       }
     >
-      <OnboardingPage />
+      <OnboardingWizard />
     </ErrorBoundary>
   );
 }

@@ -175,6 +175,8 @@ export interface Database {
           updated_at: string;
           website: string | null;
           timezone: string | null;
+          hours: Json | null;
+          service_area: string | null;
         };
         Insert: {
           brand_accent_color?: string | null;
@@ -209,6 +211,8 @@ export interface Database {
           updated_at?: string;
           website?: string | null;
           timezone?: string | null;
+          hours?: Json | null;
+          service_area?: string | null;
         };
         Update: {
           brand_accent_color?: string | null;
@@ -243,6 +247,8 @@ export interface Database {
           updated_at?: string;
           website?: string | null;
           timezone?: string | null;
+          hours?: Json | null;
+          service_area?: string | null;
         };
         Relationships: [];
       };
@@ -2112,11 +2118,93 @@ export interface Database {
           contact_id?: string;
           profile_id?: string;
           last_read_at?: string;
+      onboarding_progress: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          step: string;
+          status: string;
+          data: Json;
+          completed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          step: string;
+          status?: string;
+          data?: Json;
+          completed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          step?: string;
+          status?: string;
+          data?: Json;
+          completed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      onboarding_events: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string | null;
+          step: string;
+          event: string;
+          occurred_at: string;
+          metadata: Json;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id?: string | null;
+          step: string;
+          event: string;
+          occurred_at?: string;
+          metadata?: Json;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string | null;
+          step?: string;
+          event?: string;
+          occurred_at?: string;
+          metadata?: Json;
         };
         Relationships: [];
       };
     };
     Views: {
+      revenue_attribution_v: {
+        Row: {
+          approved_at: string | null;
+          approved_cents: number | null;
+          auto_generated: boolean | null;
+          automation_involved: boolean | null;
+          company_id: string | null;
+          contact_id: string | null;
+          first_touch_at: string | null;
+          first_touch_channel: string | null;
+          first_touch_source: string | null;
+          organization_id: string | null;
+          paid_at: string | null;
+          paid_cents: number | null;
+          quote_id: string | null;
+          voice_ai_involved: boolean | null;
+        };
+        Relationships: [];
+      };
       ui_contact_list_v: {
         Row: {
           bookings_count: number | null;
@@ -2353,6 +2441,28 @@ export interface Database {
           p_before_ts?: string;
         };
         Returns: Database["public"]["Tables"]["activity_events"]["Row"][];
+      };
+      ui_attribution_summary: {
+        Args: {
+          p_org_id: string;
+          p_company_id?: string;
+          p_from?: string;
+          p_to?: string;
+        };
+        Returns: {
+          quotes_count: number;
+          approved_cents_total: number;
+          paid_cents_total: number;
+          voice_ai_count: number;
+          voice_ai_approved_cents: number;
+          voice_ai_paid_cents: number;
+          automation_count: number;
+          automation_approved_cents: number;
+          automation_paid_cents: number;
+          estimated_time_saved_seconds: number;
+          by_source: Json;
+          by_channel: Json;
+        }[];
       };
       ui_automation_impact: {
         Args: {
