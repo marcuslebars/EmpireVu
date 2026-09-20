@@ -66,14 +66,25 @@ export function jobPhotoPathPrefix(organizationId: string, companyId: string, bo
   return `${organizationId}/${companyId}/${bookingId}/`;
 }
 
+export const createJobPhotoUploadSchema = z.object({
+  /**
+   * The client's queue id for this photo. Supplying it makes a retry reuse the same
+   * storage object instead of orphaning a second copy; omitting it keeps the previous
+   * behaviour of minting a fresh name.
+   */
+  photoId: z.string().uuid().optional(),
+});
+
 export async function createJobPhotoUpload(
   context: JobPhotoContext,
   admin: Admin,
   bookingId: string,
+  input: z.output<typeof createJobPhotoUploadSchema> = {},
 ): Promise<{ path: string; token: string; signedUrl: string }> {
   const booking = await loadBooking(context, bookingId);
-  const path = `${jobPhotoPathPrefix(context.organizationId, booking.companyId, booking.id)}${randomUUID()}.jpg`;
-  const { data, error } = await admin.storage.from(JOB_PHOTOS_BUCKET).createSignedUploadUrl(path);
+  const path = `${jobPhotoPathPrefix(context.organizationId, booking.companyId, booking.id)}${input.photoId ?? randomUUID()}.jpg`;
+  // upsert: a retry of a half-finished upload overwrites its own object instead of failing.
+  const { data, error } = await admin.storage.from(JOB_PHOTOS_BUCKET).createSignedUploadUrl(path, { upsert: true });
   if (error || !data) throw error ?? new Error("Could not create an upload URL.");
   return { path, token: data.token, signedUrl: data.signedUrl };
 }
@@ -89,6 +100,17 @@ export async function recordJobPhoto(
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/i.test(fileName)) {
     throw new ValidationError("Photo path does not belong to this booking.");
   }
+
+  // The storage path is derived from the client's queue id, so a retry of a POST whose
+  // response was lost must return the existing row rather than file the photo twice.
+  const { data: existing, error: existingError } = await context.supabase
+    .from("job_photos")
+    .select("*")
+    .eq("organization_id", context.organizationId)
+    .eq("storage_path", input.path)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existing) return existing;
 
   const { data, error } = await context.supabase
     .from("job_photos")

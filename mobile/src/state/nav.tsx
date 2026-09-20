@@ -59,6 +59,35 @@ interface NavValue {
 
 const NavContext = createContext<NavValue | null>(null);
 
+/**
+ * Overlays that own the back gesture while they are on screen. `nav.sheet` is only one of them:
+ * the biometric offer, the delete-account sheet and a sheet's own sub-form are local state, and
+ * without this back would minimise the app (or close the whole sheet) out from under them.
+ * Last registered is closed first, so a sub-form returns to its sheet.
+ */
+const dismissibles: Array<() => void> = [];
+
+export function useDismissible(active: boolean, close: () => void): void {
+  const latest = useRef(close);
+  latest.current = close;
+  useEffect(() => {
+    if (!active) return;
+    const entry = () => latest.current();
+    dismissibles.push(entry);
+    return () => {
+      const index = dismissibles.indexOf(entry);
+      if (index !== -1) dismissibles.splice(index, 1);
+    };
+  }, [active]);
+}
+
+function closeTopDismissible(): boolean {
+  const top = dismissibles[dismissibles.length - 1];
+  if (!top) return false;
+  top();
+  return true;
+}
+
 const EMPTY_STACKS: Record<TabId, Route[]> = { home: [], inbox: [], calendar: [], tasks: [], more: [] };
 
 export function NavProvider({ children }: { children: ReactNode }) {
@@ -96,6 +125,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handle = CapApp.addListener("backButton", () => {
       const { sheet: openSheet, depth, tab: currentTab } = state.current;
+      if (closeTopDismissible()) return;
       if (openSheet) setSheet(null);
       else if (depth > 0) setStacks((prev) => ({ ...prev, [currentTab]: prev[currentTab].slice(0, -1) }));
       else if (currentTab !== "home") setTab("home");

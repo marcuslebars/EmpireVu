@@ -36,6 +36,11 @@ const ORG_KEY = "empirevu.orgId";
 const COMPANY_KEY = "empirevu.companyId";
 const COMPANY_COLORS = ["hsl(215 100% 55%)", "hsl(152 60% 48%)", "hsl(38 92% 55%)", "hsl(280 70% 58%)", "hsl(195 80% 50%)", "hsl(340 75% 58%)"];
 
+/** Sign-out drops the scope with the session — the next user must not inherit it. */
+export async function clearStoredScope(): Promise<void> {
+  await Promise.all([Preferences.remove({ key: ORG_KEY }), Preferences.remove({ key: COMPANY_KEY })]);
+}
+
 /** Membership roles map onto the three mobile personas the Home screen is tuned for. */
 export function appRoleFor(membershipRole: string | undefined): AppRole {
   if (membershipRole === "owner") return "Owner";
@@ -103,8 +108,10 @@ export function ScopeProvider({ context, children }: { context: SessionContext; 
     [orgId, org, organizations, companyId, company, companies, companiesQuery, setOrg, setCompany],
   );
 
-  // Hold rendering until the persisted scope is read, so the first queries use the right scope.
-  if (!stored) return null;
+  // Hold rendering until the persisted scope is read *and* the companies it names have loaded.
+  // Rendering earlier would run the first queries as "All companies" and show another company's
+  // leads and revenue for a moment, then re-key and refetch everything.
+  if (!stored || (stored.companyId && companiesQuery.isPending)) return null;
 
   return <ScopeContext.Provider value={value}>{children}</ScopeContext.Provider>;
 }

@@ -64,8 +64,16 @@ jobs:
       - name: Firebase config
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          if [ -n "$GOOGLE_SERVICES_JSON" ]; then echo "$GOOGLE_SERVICES_JSON" > android/app/google-services.json; fi
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+          elif [ -n "$KEYSTORE_BASE64" ]; then
+            # A signed bundle is a release candidate. Without this file the google-services plugin
+            # is skipped silently and push registration fails on every install.
+            echo "::error::ANDROID_GOOGLE_SERVICES_JSON is not set — a release bundle would ship with push notifications dead."
+            exit 1
+          fi
       - name: Signed release bundle
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

@@ -21,6 +21,7 @@ export interface BiometricProfile {
 }
 
 const KEY = "empirevu.biometric";
+const OFFERED_KEY = "empirevu.biometricOffered";
 
 export async function biometricInfo(): Promise<BiometricInfo> {
   if (!isNative) return { available: false, label: "Biometrics" };
@@ -51,6 +52,20 @@ export async function enableBiometrics(profile: BiometricProfile): Promise<void>
 
 export async function disableBiometrics(): Promise<void> {
   await Preferences.remove({ key: KEY });
+}
+
+/** The once-per-install offer (see sheets/BiometricOffer) — reset on sign-out so the next user gets it. */
+export async function wasBiometricOffered(): Promise<boolean> {
+  const { value } = await Preferences.get({ key: OFFERED_KEY });
+  return Boolean(value);
+}
+
+export async function markBiometricOffered(): Promise<void> {
+  await Preferences.set({ key: OFFERED_KEY, value: "1" });
+}
+
+export async function clearBiometricOffer(): Promise<void> {
+  await Preferences.remove({ key: OFFERED_KEY });
 }
 
 export async function authenticate(reason: string): Promise<boolean> {

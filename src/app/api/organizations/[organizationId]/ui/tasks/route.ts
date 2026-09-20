@@ -13,13 +13,27 @@ interface RouteContext {
   };
 }
 
+/** "a,b" → ["a", "b"]; a single value → a one-element list; empty/absent → null. */
+function parseCsv(value: string | null): string[] | null {
+  if (!value) {
+    return null;
+  }
+
+  const parts = value.split(",").map((part) => part.trim()).filter(Boolean);
+
+  return parts.length > 0 ? parts : null;
+}
+
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   return handleRoute(async () => {
     const supabase = createSupabaseServerClient();
     const organization = await requireOrganizationContext(supabase, context.params.organizationId);
     const url = new URL(request.url);
-    const priority = url.searchParams.get("priority");
-    const status = url.searchParams.get("status");
+    // Both accept a comma-separated list ("todo,in_progress") so a caller whose tab spans
+    // several statuses filters in SQL instead of trimming a page client-side. A single
+    // value behaves exactly as before.
+    const priority = parseCsv(url.searchParams.get("priority"));
+    const status = parseCsv(url.searchParams.get("status"));
 
     const data = await getTasksListView(
       {
@@ -33,9 +47,9 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
         overdue: parseBoolean(url.searchParams.get("overdue")),
         page: parsePage(url.searchParams.get("page")),
         pageSize: parseLimit(url.searchParams.get("pageSize") ?? url.searchParams.get("limit")),
-        priority: priority as "low" | "medium" | "high" | "urgent" | null,
+        priority: priority as Array<"low" | "medium" | "high" | "urgent"> | null,
         search: url.searchParams.get("search"),
-        status: status as "todo" | "in_progress" | "blocked" | "completed" | null,
+        status: status as Array<"todo" | "in_progress" | "blocked" | "completed"> | null,
       },
     );
 

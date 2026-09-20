@@ -1426,14 +1426,20 @@ export interface ConversationThreadItem {
   metadata: Record<string, unknown>;
 }
 
+/** The route's own default is 50 and its ceiling is 100; ask for the ceiling so counts
+ * taken from `rows.length` — the Home tile, the tab badge — aren't quietly capped at 50.
+ * `limit` stays optional, so existing callers are unaffected. */
+export const INBOX_MAX_LIMIT = 100;
+
 export function fetchInbox(
   orgId: string,
-  params: { companyId?: string | null; needsReply?: boolean; search?: string | null } = {},
+  params: { companyId?: string | null; needsReply?: boolean; search?: string | null; limit?: number } = {},
 ): Promise<InboxRow[]> {
   const qs = new URLSearchParams();
   if (params.companyId) qs.set("companyId", params.companyId);
   if (params.needsReply) qs.set("needsReply", "true");
   if (params.search) qs.set("search", params.search);
+  qs.set("limit", String(params.limit ?? INBOX_MAX_LIMIT));
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   return apiFetch(`/api/organizations/${orgId}/inbox${suffix}`);
 }

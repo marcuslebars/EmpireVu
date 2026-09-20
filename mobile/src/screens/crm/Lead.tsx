@@ -194,7 +194,13 @@ function DraftCard({ contactId, drafts, loading, hasPhone, hasEmail }: { contact
   const channel: "sms" | "email" = draft?.sms_body && draft.sms_status === "draft" && hasPhone ? "sms" : "email";
   const body = channel === "sms" ? draft?.sms_body ?? "" : draft?.email_body ?? "";
   const [text, setText] = useState(body);
-  useEffect(() => setText(body), [body]);
+  // Re-seed the editor when a different draft arrives. Done during render, not in an
+  // effect, so the card never paints a frame of empty text before the draft lands.
+  const [seededFrom, setSeededFrom] = useState(body);
+  if (seededFrom !== body) {
+    setSeededFrom(body);
+    setText(body);
+  }
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["ai-drafts", scope.orgId, contactId] });
@@ -208,7 +214,9 @@ function DraftCard({ contactId, drafts, loading, hasPhone, hasEmail }: { contact
   });
   const send = useMutation({
     mutationFn: async () => {
-      if (editing && text !== body) {
+      // Edits outlive the editor: "Done" only closes the textarea, so persist whatever
+      // differs from the stored draft rather than only what is still being edited.
+      if (text !== body) {
         await updateAIDraft(scope.orgId, contactId, draft!.id, channel === "sms" ? { smsBody: text } : { emailBody: text });
       }
       return sendAIDraft(scope.orgId, contactId, draft!.id, channel);
@@ -242,7 +250,7 @@ function DraftCard({ contactId, drafts, loading, hasPhone, hasEmail }: { contact
       {editing ? (
         <TextArea rows={5} value={text} onChange={(e) => setText(e.target.value)} />
       ) : (
-        <p style={{ margin: 0, font: "400 13px/1.6 Inter, sans-serif", color: "hsl(220 10% 80%)", whiteSpace: "pre-wrap" }}>{body}</p>
+        <p style={{ margin: 0, font: "400 13px/1.6 Inter, sans-serif", color: "hsl(220 10% 80%)", whiteSpace: "pre-wrap" }}>{text}</p>
       )}
       <div style={{ display: "flex", gap: 8 }}>
         <Btn flex loading={send.isPending} disabled={!text.trim()} onClick={() => send.mutate()}>

@@ -66,7 +66,8 @@ export function CommentsSection({
           style={{ display: "flex", gap: 8, alignItems: "center" }}
           onSubmit={(event) => {
             event.preventDefault();
-            if (body.trim()) post.mutate();
+            // Guard the in-flight post too — the keyboard's Go key ignores the disabled button.
+            if (body.trim() && !post.isPending) post.mutate();
           }}
         >
           <input

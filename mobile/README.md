@@ -165,4 +165,14 @@ are listed at the top of the workflow.
 - **Jobber connection** (OAuth) and intake-key creation happen on the web.
 - **Public quote and booking pages** stay web pages, sent to customers who don't have the app.
 - **Light theme** is not shipped. The app is dark-only, like the web app.
-- **Offline photo uploads** drain while the app is open, not in the background.
+- **Offline photo uploads** drain while the app is open (on resume and when the network returns),
+  not while it is backgrounded.
+- **Large screens.** `android:screenOrientation="portrait"` is ignored at `targetSdk 36` on displays
+  600dp and wider, so the layout does rotate and stretch on tablets and unfolded foldables. This is
+  a phone app; Play's pre-launch report will screenshot that stretched tablet layout.
+- **Android release builds do not run R8** (`minifyEnabled false`, the Capacitor default). Plugins
+  are reflection-loaded from `capacitor.plugins.json`, so turning it on needs keep rules and a full
+  pass over the release variant on a device first.
+- **Deep links are scheme-only** (`com.empirevu.app://auth-callback`, `://invite/<token>`). There are
+  no verified https App Links — those need an `assetlinks.json` hosted on the domain — so an emailed
+  https link opens in the browser rather than the app.

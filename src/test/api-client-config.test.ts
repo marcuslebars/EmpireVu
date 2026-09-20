@@ -20,7 +20,7 @@ describe("api-client configuration", () => {
     await fetchInbox("org-1");
 
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("/api/organizations/org-1/inbox");
+    expect(url).toBe("/api/organizations/org-1/inbox?limit=100");
     expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
   });
 
@@ -31,7 +31,7 @@ describe("api-client configuration", () => {
     await fetchInbox("org-1", { companyId: "co-9" });
 
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("https://empirevu.com/api/organizations/org-1/inbox?companyId=co-9");
+    expect(url).toBe("https://empirevu.com/api/organizations/org-1/inbox?companyId=co-9&limit=100");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer jwt-abc");
   });
 

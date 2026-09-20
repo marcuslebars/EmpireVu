@@ -2006,9 +2006,9 @@ export async function getTasksListView(
     assigneeId?: string | null;
     companyId?: string | null;
     overdue?: boolean;
-    priority?: Tables<"tasks">["priority"] | null;
+    priority?: Tables<"tasks">["priority"] | Array<Tables<"tasks">["priority"]> | null;
     search?: string | null;
-    status?: Tables<"tasks">["status"] | null;
+    status?: Tables<"tasks">["status"] | Array<Tables<"tasks">["status"]> | null;
   },
 ): Promise<TasksListResponse> {
   // ui_task_list_v does the joins, comment count, and overdue flag in SQL. Summary +
@@ -2025,13 +2025,17 @@ export async function getTasksListView(
     summaryQuery = summaryQuery.eq("company_id", input.companyId);
     pageQuery = pageQuery.eq("company_id", input.companyId);
   }
-  if (input.status) {
-    summaryQuery = summaryQuery.eq("status", input.status);
-    pageQuery = pageQuery.eq("status", input.status);
+  // A tab that spans several statuses (Open, Urgent) filters in SQL rather than trimming
+  // a page client-side, which silently hid rows past the page size.
+  const statuses = input.status ? (Array.isArray(input.status) ? input.status : [input.status]) : [];
+  if (statuses.length > 0) {
+    summaryQuery = summaryQuery.in("status", statuses);
+    pageQuery = pageQuery.in("status", statuses);
   }
-  if (input.priority) {
-    summaryQuery = summaryQuery.eq("priority", input.priority);
-    pageQuery = pageQuery.eq("priority", input.priority);
+  const priorities = input.priority ? (Array.isArray(input.priority) ? input.priority : [input.priority]) : [];
+  if (priorities.length > 0) {
+    summaryQuery = summaryQuery.in("priority", priorities);
+    pageQuery = pageQuery.in("priority", priorities);
   }
   if (input.assigneeId) {
     summaryQuery = summaryQuery.eq("assigned_to_profile_id", input.assigneeId);

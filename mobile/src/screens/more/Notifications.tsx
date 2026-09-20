@@ -6,7 +6,7 @@ import { activityPresentation, routeForEntity } from "@m/lib/activity";
 import { fetchDashboardActivity } from "@m/lib/api";
 import { TONE, relAgo } from "@m/lib/format";
 import { tap } from "@m/lib/native";
-import { pushPermissionState, requestPushPermission } from "@m/lib/push";
+import { lastPushError, pushPermissionState, requestPushPermission } from "@m/lib/push";
 import { useNav } from "@m/state/nav";
 import { useScope } from "@m/state/scope";
 import { Screen } from "@m/ui/Screen";
@@ -44,7 +44,21 @@ export function Notifications() {
             {permission === "denied" ? "Turn them on for EmpireVu in your phone's Settings to hear about leads the moment they land." : "Leads, payments and schedule conflicts can reach you even when the app is closed."}
           </span>
           {permission === "prompt" ? (
-            <Btn variant="tinted" tone="warn" onClick={() => void requestPushPermission().then((granted) => { setPermission(granted ? "granted" : "denied"); toast(granted ? "Notifications enabled" : "Notifications stay off"); })}>
+            <Btn
+              variant="tinted"
+              tone="warn"
+              onClick={() =>
+                void requestPushPermission()
+                  .then((granted) => {
+                    // A registration failure still means the OS permission itself was granted.
+                    const failure = lastPushError();
+                    setPermission(granted || failure ? "granted" : "denied");
+                    if (failure) toast(failure, "error");
+                    else toast(granted ? "Notifications enabled" : "Notifications stay off");
+                  })
+                  .catch(() => toast("Couldn't turn on notifications", "error"))
+              }
+            >
               Turn on notifications
             </Btn>
           ) : null}

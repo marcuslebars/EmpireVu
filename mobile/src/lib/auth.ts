@@ -14,18 +14,59 @@ type Result = { error: string | null };
 const ok: Result = { error: null };
 const fail = (error: { message: string } | null): Result => (error ? { error: error.message } : ok);
 
+/**
+ * Deliberate credential sign-ins (password, provider, phone code, email link) are marked so
+ * the session state machine can tell them apart from the `SIGNED_IN` that auth-js replays for
+ * an already-stored session every time the app returns to the foreground. Without that, coming
+ * back from the background would clear the biometric lock.
+ */
+let credentialAuthAt = 0;
+
+function markCredentialAuth(): void {
+  credentialAuthAt = Date.now();
+}
+
+export function consumeCredentialAuth(): boolean {
+  const recent = Date.now() - credentialAuthAt < 120_000;
+  credentialAuthAt = 0;
+  return recent;
+}
+
+/**
+ * Auth calls write the session to the Keychain / Keystore, which can fail (see
+ * `SessionStorageError`). Without this every caller would hang on a rejected promise with its
+ * button stuck in the loading state.
+ */
+async function attempt(run: () => Promise<Result>): Promise<Result> {
+  try {
+    return await run();
+  } catch (error) {
+    credentialAuthAt = 0;
+    return { error: error instanceof Error && error.message ? error.message : "Something went wrong. Try again." };
+  }
+}
+
 export async function signInWithPassword(email: string, password: string): Promise<Result> {
-  const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-  return fail(error);
+  markCredentialAuth();
+  return attempt(async () => {
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    return fail(error);
+  });
 }
 
 export async function signUp(email: string, password: string): Promise<Result & { needsConfirmation: boolean }> {
-  const { data, error } = await supabase.auth.signUp({
-    email: email.trim(),
-    password,
-    options: { emailRedirectTo: AUTH_CALLBACK_URL },
+  markCredentialAuth();
+  let hasSession = false;
+  const result = await attempt(async () => {
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { emailRedirectTo: AUTH_CALLBACK_URL },
+    });
+    hasSession = Boolean(data.session);
+    return fail(error);
   });
-  return { ...fail(error), needsConfirmation: !error && !data.session };
+  return { ...result, needsConfirmation: !result.error && !hasSession };
 }
 
 export async function sendPasswordReset(email: string): Promise<Result> {
@@ -36,8 +77,10 @@ export async function sendPasswordReset(email: string): Promise<Result> {
 }
 
 export async function updatePassword(password: string): Promise<Result> {
-  const { error } = await supabase.auth.updateUser({ password });
-  return fail(error);
+  return attempt(async () => {
+    const { error } = await supabase.auth.updateUser({ password });
+    return fail(error);
+  });
 }
 
 /** E.164; a bare 10-digit North American number gets +1. */
@@ -55,22 +98,28 @@ export async function sendPhoneCode(phone: string): Promise<Result> {
 }
 
 export async function verifyPhoneCode(phone: string, token: string): Promise<Result> {
-  const { error } = await supabase.auth.verifyOtp({ phone: normalizePhone(phone), token, type: "sms" });
-  return fail(error);
+  markCredentialAuth();
+  return attempt(async () => {
+    const { error } = await supabase.auth.verifyOtp({ phone: normalizePhone(phone), token, type: "sms" });
+    return fail(error);
+  });
 }
 
 export async function signInWithProvider(provider: "google" | "apple"): Promise<Result> {
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider,
-    options: { redirectTo: AUTH_CALLBACK_URL, skipBrowserRedirect: true },
+  markCredentialAuth();
+  return attempt(async () => {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo: AUTH_CALLBACK_URL, skipBrowserRedirect: true },
+    });
+    if (error || !data.url) return fail(error ?? { message: "Could not start sign-in." });
+    if (isNative) {
+      await Browser.open({ url: data.url, presentationStyle: "popover" });
+    } else {
+      window.location.href = data.url;
+    }
+    return ok;
   });
-  if (error || !data.url) return fail(error ?? { message: "Could not start sign-in." });
-  if (isNative) {
-    await Browser.open({ url: data.url, presentationStyle: "popover" });
-  } else {
-    window.location.href = data.url;
-  }
-  return ok;
 }
 
 /**
@@ -90,6 +139,10 @@ export async function handleAuthCallback(url: string): Promise<{ flow: "signin" 
   if (linkError) return { flow, error: linkError };
   if (!code) return { flow, error: "That link is invalid or has expired." };
 
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
-  return { flow, error: error?.message ?? null };
+  markCredentialAuth();
+  const result = await attempt(async () => {
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    return fail(error);
+  });
+  return { flow, error: result.error };
 }

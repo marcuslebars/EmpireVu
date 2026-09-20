@@ -2,7 +2,7 @@ import { BellRinging, CheckCircle } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import { createCompany, createOrganization, errorMessage } from "@m/lib/api";
-import { requestPushPermission } from "@m/lib/push";
+import { lastPushError, requestPushPermission } from "@m/lib/push";
 import { Logo } from "@m/screens/auth/SignIn";
 import { useSession } from "@m/state/session";
 import { Btn, ErrorBanner, Field, TextInput } from "@m/ui/kit";
@@ -90,7 +90,15 @@ export function Onboarding() {
             size="md"
             block
             icon={BellRinging}
-            onClick={() => void requestPushPermission().then((granted) => toast(granted ? "Notifications enabled" : "Notifications are off — change this in Settings"))}
+            onClick={() =>
+              void requestPushPermission()
+                .then((granted) => {
+                  const failure = lastPushError();
+                  if (granted) toast("Notifications enabled");
+                  else toast(failure ?? "Notifications are off — change this in Settings", failure ? "error" : "ok");
+                })
+                .catch(() => toast("Couldn't turn on notifications", "error"))
+            }
           >
             Allow notifications
           </Btn>

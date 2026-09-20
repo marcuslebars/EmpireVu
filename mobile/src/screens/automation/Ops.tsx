@@ -20,15 +20,22 @@ export function Ops() {
 
   const retryable = (failed.data?.rows.items ?? []).filter((job) => job.retryEligible);
   const retry = useMutation({
+    // One job that is no longer retry-eligible must not strand the rest, so every retry
+    // is attempted and the outcome is reported as a tally.
     mutationFn: async () => {
-      for (const job of retryable) await retryWorkflowJob(scope.orgId, job.id);
-      return retryable.length;
+      const results = await Promise.allSettled(retryable.map((job) => retryWorkflowJob(scope.orgId, job.id)));
+      return { queued: results.filter((r) => r.status === "fulfilled").length, failed: results.filter((r) => r.status === "rejected").length };
     },
-    onSuccess: (count) => {
-      toast(`${count} job${count === 1 ? "" : "s"} re-queued`);
-      void queryClient.invalidateQueries({ queryKey: ["ops"] });
+    onSuccess: ({ queued, failed: rejected }) => {
+      toast(
+        rejected ? `${queued} re-queued · ${rejected} couldn't be retried` : `${queued} job${queued === 1 ? "" : "s"} re-queued`,
+        rejected ? "error" : "ok",
+      );
     },
     onError: (error) => toast(error instanceof Error ? error.message : "Retry failed", "error"),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["ops"] });
+    },
   });
 
   const h = health.data;

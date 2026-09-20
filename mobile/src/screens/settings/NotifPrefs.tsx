@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { apiRequest } from "@m/lib/api";
 import type { Tone } from "@m/lib/format";
-import { pushPermissionState, requestPushPermission } from "@m/lib/push";
+import { lastPushError, pushPermissionState, requestPushPermission } from "@m/lib/push";
 import { useScope } from "@m/state/scope";
 import { Screen } from "@m/ui/Screen";
 import { Btn, IconBox, QueryView, Section, Switch } from "@m/ui/kit";
@@ -73,7 +73,21 @@ export function NotifPrefs() {
             {permission === "denied" ? "Push is off for EmpireVu in your phone's Settings. These preferences apply once it's on." : "Push notifications aren't on yet on this phone."}
           </span>
           {permission === "prompt" ? (
-            <Btn variant="tinted" tone="warn" size="sm" onClick={() => void requestPushPermission().then((granted) => setPermission(granted ? "granted" : "denied"))}>
+            <Btn
+              variant="tinted"
+              tone="warn"
+              size="sm"
+              onClick={() =>
+                void requestPushPermission()
+                  .then((granted) => {
+                    // A registration failure still means the OS permission itself was granted.
+                    const failure = lastPushError();
+                    if (failure) toast(failure, "error");
+                    setPermission(granted || failure ? "granted" : "denied");
+                  })
+                  .catch(() => toast("Couldn't turn on notifications", "error"))
+              }
+            >
               Turn on
             </Btn>
           ) : null}

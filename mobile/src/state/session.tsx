@@ -4,9 +4,10 @@ import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-q
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { fetchSessionContext, type SessionContext } from "@m/lib/api";
-import { handleAuthCallback } from "@m/lib/auth";
-import { authenticate, biometricInfo, getBiometricProfile } from "@m/lib/biometrics";
-import { supabase } from "@m/lib/supabase";
+import { consumeCredentialAuth, handleAuthCallback } from "@m/lib/auth";
+import { authenticate, biometricInfo, clearBiometricOffer, disableBiometrics, getBiometricProfile } from "@m/lib/biometrics";
+import { noteSignedOut, supabase } from "@m/lib/supabase";
+import { clearStoredScope } from "@m/state/scope";
 
 export type AuthStatus = "loading" | "signedOut" | "locked" | "signedIn";
 
@@ -22,6 +23,7 @@ interface SessionValue {
   clearInvite: () => void;
   /** Error from an email-confirmation / OAuth link, shown on the sign-in screen. */
   linkError: string | null;
+  clearLinkError: () => void;
   unlock: () => Promise<boolean>;
   signOut: () => Promise<void>;
 }
@@ -63,7 +65,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_IN") {
         setUser(session?.user ?? null);
-        setStatus("signedIn");
+        // auth-js replays SIGNED_IN for an already-stored session every time the app returns
+        // to the foreground. Only a real credential sign-in may clear the biometric lock.
+        const credential = consumeCredentialAuth();
+        setStatus((prev) => (prev === "locked" && !credential ? prev : "signedIn"));
       } else if (event === "PASSWORD_RECOVERY") {
         setUser(session?.user ?? null);
         setRecovery({ active: true, error: null });
@@ -117,6 +122,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     for (const hook of signOutHooks) {
       await hook().catch(() => undefined);
     }
+    // Nothing about the previous user may outlive the session on a shared device: their
+    // biometric profile would otherwise name them on the lock screen and unlock the next
+    // person's session, and their org/company scope would carry over.
+    await disableBiometrics().catch(() => undefined);
+    await clearStoredScope().catch(() => undefined);
+    await clearBiometricOffer().catch(() => undefined);
+    noteSignedOut();
     await supabase.auth.signOut();
     queryClient.clear();
   }, [queryClient]);
@@ -131,6 +143,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       inviteToken,
       clearInvite: () => setInviteToken(null),
       linkError,
+      clearLinkError: () => setLinkError(null),
       unlock,
       signOut,
     }),

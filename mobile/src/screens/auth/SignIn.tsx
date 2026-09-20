@@ -27,6 +27,13 @@ export function SignIn({ go, locked }: { go: (route: AuthRoute) => void; locked:
   const [bio, setBio] = useState<{ info: BiometricInfo; profile: BiometricProfile } | null>(null);
   const autoPrompted = useRef(false);
 
+  // A failed OAuth return or an expired email link lands here after mount, so it has to be
+  // synced rather than read once — otherwise the user is dropped back on an unchanged screen
+  // with no explanation of what went wrong.
+  useEffect(() => {
+    if (session.linkError) setError(session.linkError);
+  }, [session.linkError]);
+
   useEffect(() => {
     if (!locked) return;
     void Promise.all([biometricInfo(), getBiometricProfile()]).then(([info, profile]) => {
@@ -49,6 +56,7 @@ export function SignIn({ go, locked }: { go: (route: AuthRoute) => void; locked:
     }
     setBusy("password");
     setError(null);
+    session.clearLinkError();
     const result = await signInWithPassword(email, password);
     setBusy(null);
     if (result.error) setError(result.error);
@@ -57,6 +65,7 @@ export function SignIn({ go, locked }: { go: (route: AuthRoute) => void; locked:
   async function provider(name: "google" | "apple") {
     setBusy(name);
     setError(null);
+    session.clearLinkError();
     const result = await signInWithProvider(name);
     setBusy(null);
     if (result.error) setError(result.error);

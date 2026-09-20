@@ -1,13 +1,13 @@
 import { Camera as CameraPlugin, CameraResultType, CameraSource } from "@capacitor/camera";
 import { Camera, CloudArrowUp, ImageSquare, Microphone, Stop } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { apiRequest, createComment, fetchBookingDetail } from "@m/lib/api";
 import { useDictation } from "@m/lib/dictation";
 import { relAgo } from "@m/lib/format";
 import { success } from "@m/lib/native";
-import { drainPhotoQueue, enqueuePhoto, preparePhoto, usePhotoQueue } from "@m/lib/photoQueue";
+import { CAPTURE_MAX_EDGE, enqueuePhoto, preparePhoto, usePhotoQueue } from "@m/lib/photoQueue";
 import { useDevice } from "@m/state/device";
 import { useScope } from "@m/state/scope";
 import { Screen } from "@m/ui/Screen";
@@ -25,27 +25,18 @@ export function Photos({ bookingId }: { bookingId: string }) {
   const scope = useScope();
   const toast = useToast();
   const { online } = useDevice();
-  const queryClient = useQueryClient();
   const pending = usePhotoQueue(bookingId);
   const [capturing, setCapturing] = useState(false);
-  const key = ["photos", scope.orgId, bookingId];
 
   const photos = useQuery({
-    queryKey: key,
+    queryKey: ["photos", scope.orgId, bookingId],
     queryFn: () => apiRequest<JobPhoto[]>(`/api/organizations/${scope.orgId}/bookings/${bookingId}/photos`),
     // Signed URLs last an hour; refresh well inside that.
     staleTime: 30 * 60_000,
   });
   const booking = useQuery({ queryKey: ["calendar", "booking", scope.orgId, bookingId], queryFn: () => fetchBookingDetail(scope.orgId, bookingId) });
 
-  // Drain the queue when connectivity returns, then show the uploaded photos.
-  useEffect(() => {
-    if (!online || pending.length === 0) return;
-    void drainPhotoQueue().then((uploaded) => {
-      if (uploaded > 0) void queryClient.invalidateQueries({ queryKey: key });
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online, pending.length]);
+  // Draining is owned by DeviceProvider, which covers every booking's photos, not just this one.
 
   async function capture() {
     setCapturing(true);
@@ -54,6 +45,10 @@ export function Photos({ bookingId }: { bookingId: string }) {
         source: CameraSource.Prompt,
         resultType: CameraResultType.Uri,
         quality: 90,
+        // Downsample natively: decoding a full-resolution frame in the WebView OOMs the
+        // renderer on high-megapixel phones. Aspect ratio is preserved.
+        width: CAPTURE_MAX_EDGE,
+        height: CAPTURE_MAX_EDGE,
         correctOrientation: true,
         saveToGallery: false,
         promptLabelHeader: "Job photo",
@@ -89,15 +84,19 @@ export function Photos({ bookingId }: { bookingId: string }) {
         <Empty icon={ImageSquare} title="No photos yet" body="Take before and after shots — they're filed against this job." />
       ) : (
         <div className="grid2" style={{ gap: 9 }}>
-          {pending.map((item) => (
-            <div key={item.id} style={{ aspectRatio: "1", borderRadius: 13, overflow: "hidden", position: "relative", background: "hsl(222 16% 11%)", border: "1px solid var(--border)" }}>
-              {item.previewUrl.length > 30 ? <img src={item.previewUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.55 }} /> : null}
-              <span style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, color: item.failed && online ? "var(--warn-l)" : "hsl(220 10% 84%)" }}>
-                {online && !item.failed ? <span className="spinner" /> : <CloudArrowUp size={22} />}
-                <span style={{ font: "600 10.5px/1.3 Inter, sans-serif" }}>{online ? (item.failed ? "Retrying soon" : "Uploading…") : "Queued"}</span>
-              </span>
-            </div>
-          ))}
+          {pending.map((item) => {
+            const retrying = (item.attempts ?? 0) > 0;
+            return (
+              <div key={item.id} style={{ aspectRatio: "1", borderRadius: 13, overflow: "hidden", position: "relative", background: "hsl(222 16% 11%)", border: "1px solid var(--border)" }}>
+                {/* >30 also rejects the empty base64 stub left by photos queued before the file-backed preview. */}
+                {item.previewUrl.length > 30 ? <img src={item.previewUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.55 }} /> : null}
+                <span style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, color: retrying && online ? "var(--warn-l)" : "hsl(220 10% 84%)" }}>
+                  {online && !retrying ? <span className="spinner" /> : <CloudArrowUp size={22} />}
+                  <span style={{ font: "600 10.5px/1.3 Inter, sans-serif" }}>{online ? (retrying ? "Retrying soon" : "Uploading…") : "Queued"}</span>
+                </span>
+              </div>
+            );
+          })}
           {all.map((photo) => (
             <a key={photo.id} href={photo.url ?? undefined} target="_blank" rel="noreferrer" style={{ aspectRatio: "1", borderRadius: 13, overflow: "hidden", position: "relative", background: "hsl(222 16% 11%)", border: "1px solid var(--border)", display: "block" }}>
               {photo.url ? <img src={photo.url} alt={photo.caption ?? "Job photo"} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : null}

@@ -9,6 +9,20 @@ if (keystorePropertiesFile.exists()) {
 }
 def signingValue = { String key, String env -> keystoreProperties.getProperty(key) ?: System.getenv(env) }
 
+// Play requires a strictly increasing versionCode for every upload, so a release built
+// without one would be rejected — or silently overwrite what CI last shipped. Debug builds
+// keep working with no environment at all.
+def versionCodeEnv = System.getenv("ANDROID_VERSION_CODE")
+gradle.taskGraph.whenReady { graph ->
+    def buildingRelease = graph.allTasks.any { it.project == project && it.name ==~ /(?i).*(assemble|bundle)release.*/ }
+    if (buildingRelease && !versionCodeEnv) {
+        throw new GradleException(
+            "ANDROID_VERSION_CODE is not set. Release builds need an explicit, strictly increasing version code " +
+            "(CI passes github.run_number). Set ANDROID_VERSION_CODE, or build a debug variant instead."
+        )
+    }
+}
+
 android {
     namespace = "com.empirevu.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,9 +30,10 @@ android {
         applicationId "com.empirevu.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // Play requires a strictly increasing versionCode for every upload.
-        versionCode ((System.getenv("ANDROID_VERSION_CODE") ?: "1") as Integer)
-        versionName "1.0.0"
+        // Checked above: unset is fatal for release, and only debug falls back to 1.
+        versionCode ((versionCodeEnv ?: "1") as Integer)
+        // Same source as the version code, so a build is identifiable in Play Console.
+        versionName (System.getenv("ANDROID_VERSION_NAME") ?: "1.0.0")
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

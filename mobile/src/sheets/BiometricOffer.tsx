@@ -1,16 +1,13 @@
-import { Preferences } from "@capacitor/preferences";
 import { Fingerprint, ScanSmiley } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 
-import { biometricInfo, enableBiometrics, getBiometricProfile, type BiometricInfo } from "@m/lib/biometrics";
+import { biometricInfo, enableBiometrics, getBiometricProfile, markBiometricOffered, wasBiometricOffered, type BiometricInfo } from "@m/lib/biometrics";
 import { useSession } from "@m/state/session";
 import { Btn } from "@m/ui/kit";
 import { Sheet } from "@m/ui/sheet";
 import { useToast } from "@m/ui/toast";
 
-const OFFERED_KEY = "empirevu.biometricOffered";
-
-/** After a password or phone-code sign-in, offer biometric unlock once per install. */
+/** After a password or phone-code sign-in, offer biometric unlock once per sign-in. */
 export function BiometricOffer() {
   const session = useSession();
   const toast = useToast();
@@ -18,15 +15,15 @@ export function BiometricOffer() {
 
   useEffect(() => {
     void (async () => {
-      const [available, profile, offered] = await Promise.all([biometricInfo(), getBiometricProfile(), Preferences.get({ key: OFFERED_KEY })]);
-      if (available.available && !profile && !offered.value) setInfo(available);
+      const [available, profile, offered] = await Promise.all([biometricInfo(), getBiometricProfile(), wasBiometricOffered()]);
+      if (available.available && !profile && !offered) setInfo(available);
     })();
   }, []);
 
   if (!info) return null;
 
   const dismiss = () => {
-    void Preferences.set({ key: OFFERED_KEY, value: "1" });
+    void markBiometricOffered();
     setInfo(null);
   };
 

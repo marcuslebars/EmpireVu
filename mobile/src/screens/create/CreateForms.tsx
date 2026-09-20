@@ -34,7 +34,9 @@ function FormScreen({ title, cta, busy, disabled, error, onSubmit, children }: {
         style={{ display: "flex", flexDirection: "column", gap: 16 }}
         onSubmit={(event) => {
           event.preventDefault();
-          if (!disabled) onSubmit();
+          // The button disables itself while busy, but the keyboard's Go key does not —
+          // without this an implicit submit creates the record a second time.
+          if (!disabled && !busy) onSubmit();
         }}
       >
         {children}
