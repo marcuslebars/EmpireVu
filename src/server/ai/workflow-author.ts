@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 
 import { getWorkflowsModel } from "@/server/ai/config";
-import { extractAiUsage, parseModelJson, type AiUsageMeta } from "@/server/ai/claude";
+import { extractAiUsage, type AiUsageMeta } from "@/server/ai/claude";
 import { ALL_RECIPES } from "@/server/services/workflow-engine/recipes";
 import { supportedWorkflowTriggerEventTypes } from "@/server/services/workflow-engine/types";
 
@@ -210,6 +210,14 @@ function buildSnapshotPrompt(snapshot: BusinessSnapshot): string {
   return lines.join("\n");
 }
 
+function stripJsonFences(text: string): string {
+  return text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
 export async function proposeWorkflows(
   snapshot: BusinessSnapshot,
 ): Promise<{ suggestions: SuggestedWorkflow[]; usage: AiUsageMeta }> {
@@ -218,11 +226,7 @@ export async function proposeWorkflows(
 
   const response = await client.messages.create({
     model,
-    // Several workflows, each with trigger, conditions and actions, don't fit in 4k.
-    max_tokens: 16_000,
-    // Without thinking on, the model reasons about the action set in its visible answer,
-    // which is what turned this into "the AI response was not valid JSON".
-    thinking: { type: "adaptive" },
+    max_tokens: 4096,
     // Cache the static system prompt (Task 6) — identical across every snapshot.
     system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
     messages: [
@@ -234,7 +238,17 @@ export async function proposeWorkflows(
   });
   const usage = extractAiUsage(response, model);
 
-  const result = suggestionsResponseSchema.parse(parseModelJson(response, "workflow suggestions"));
+  const textBlock = response.content.find((block) => block.type === "text");
+  const raw = textBlock && textBlock.type === "text" ? textBlock.text : "";
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripJsonFences(raw));
+  } catch {
+    throw new Error("The AI response was not valid JSON.");
+  }
+
+  const result = suggestionsResponseSchema.parse(parsed);
 
   // Belt and braces: the prompt says not to propose ai_analyze when AI is off,
   // but a suggestion that can only fail shouldn't reach the owner either way.

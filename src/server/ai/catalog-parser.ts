@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 
 import { getWorkflowsModel } from "@/server/ai/config";
-import { extractAiUsage, extractJsonObject, isAIConfigured, parseModelJson, type AiUsageMeta } from "@/server/ai/claude";
+import { extractAiUsage, isAIConfigured, type AiUsageMeta } from "@/server/ai/claude";
 import { PRICING_TYPES } from "@/server/services/quotes/catalog-items";
 
 /**
@@ -45,9 +45,19 @@ export type CatalogDraft = z.infer<typeof catalogDraftSchema>;
 
 const responseSchema = z.object({ services: z.array(catalogDraftSchema).max(40).default([]) });
 
+function stripJsonFences(text: string): string {
+  return text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+}
+
 /** Parse Claude's JSON into validated drafts. Throws on invalid JSON; drops bad rows. Pure. */
 export function parseCatalogResponse(raw: string): CatalogDraft[] {
-  return responseSchema.parse(extractJsonObject(raw)).services;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripJsonFences(raw));
+  } catch {
+    throw new Error("The AI response was not valid JSON.");
+  }
+  return responseSchema.parse(parsed).services;
 }
 
 /** SSRF guard: only public http(s) hosts. */
@@ -104,35 +114,8 @@ Rules:
 - "baseCents": the price in CENTS, ONLY if the site clearly states a number for that service (e.g. "$150" -> 15000). If no clear price is stated, use null. NEVER invent a price.
 - Only include real, sellable services. Ignore navigation, blog posts, and boilerplate. Max 40.
 
-The response shape is fixed by a schema — fill in every field it asks for.`;
-
-/** Enforced by the API, so the answer can't arrive wrapped in prose or code fences. */
-const CATALOG_JSON_SCHEMA: Record<string, unknown> = {
-  type: "object",
-  additionalProperties: false,
-  required: ["services"],
-  properties: {
-    services: {
-      type: "array",
-      maxItems: 40,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["name", "description", "pricingType", "baseCents"],
-        properties: {
-          name: { type: "string", description: "Short service name." },
-          description: { type: ["string", "null"], description: "One sentence, or null." },
-          pricingType: { type: "string", enum: [...PRICING_TYPES] },
-          baseCents: {
-            type: ["integer", "null"],
-            minimum: 0,
-            description: "Price in cents, only when the site states one. Never invented.",
-          },
-        },
-      },
-    },
-  },
-};
+Respond with exactly:
+{"services":[{"name":string,"description":string|null,"pricingType":string,"baseCents":number|null}]}`;
 
 export async function draftCatalogFromWebsite(
   rawUrl: string,
@@ -149,15 +132,13 @@ export async function draftCatalogFromWebsite(
   const model = getWorkflowsModel();
   const response = await client.messages.create({
     model,
-    // Up to 40 services with descriptions doesn't fit in 4k — a cut-off answer is a parse failure.
-    max_tokens: 16_000,
-    thinking: { type: "adaptive" },
+    max_tokens: 4096,
     system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: `Website text:\n\n${text}` }],
-    output_config: { format: { type: "json_schema", schema: CATALOG_JSON_SCHEMA } },
   });
   const usage = extractAiUsage(response, model);
-  const drafts = responseSchema.parse(parseModelJson(response, "services catalog")).services;
+  const textBlock = response.content.find((block) => block.type === "text");
+  const raw = textBlock && textBlock.type === "text" ? textBlock.text : "";
 
-  return { drafts, usage, sourceChars: text.length };
+  return { drafts: parseCatalogResponse(raw), usage, sourceChars: text.length };
 }

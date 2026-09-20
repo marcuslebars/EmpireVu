@@ -179,139 +179,31 @@ When a self-booking link is provided below, make booking the primary call-to-act
 
 You are also given the current time, the business timezone, and the jobs already on the calendar. Propose up to 3 booking slots to offer this lead. Rules: never overlap an existing booking; always in the future; keep them in normal working hours (roughly 09:00–17:00 local, Mon–Sat) in the business timezone; spread them over different days where you can. Give each a short reason the customer would understand. If the lead clearly doesn't want a booking yet, return an empty list rather than inventing one.
 
-The response shape is fixed by a schema — fill in every field it asks for.`;
-
-/**
- * The response schema, enforced by the API (`output_config.format`) rather than asked for in
- * the prompt. Field meaning lives in the descriptions, which the model sees.
- *
- * This is hand-written rather than derived from `leadAnalysisSchema` because the SDK's zod
- * helper targets zod v4 and this project is on v3. The zod schema still validates what comes
- * back, so a drift between the two surfaces as a parse error rather than as bad data.
- */
-const LEAD_ANALYSIS_JSON_SCHEMA: Record<string, unknown> = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "summary",
-    "intent",
-    "urgency",
-    "fitScore",
-    "suggestedStage",
-    "suggestedActions",
-    "draftedEmail",
-    "draftedSms",
-    "proposedSlots",
-  ],
-  properties: {
-    summary: { type: "string", description: "1-2 sentences: who they are and what they want." },
-    intent: { type: "string", description: "What they are looking for." },
-    urgency: { type: "string", enum: ["low", "medium", "high"] },
-    fitScore: {
-      type: "number",
-      minimum: 0,
-      maximum: 100,
-      description: "How well they match an ideal high-value customer, given the signals available.",
-    },
-    suggestedStage: { type: "string", enum: ["lead", "qualified", "active", "closed"] },
-    suggestedActions: {
-      type: "array",
-      items: { type: "string" },
-      description: "Concrete next steps for the team.",
-    },
-    draftedEmail: {
-      type: "object",
-      additionalProperties: false,
-      required: ["subject", "body"],
-      properties: { subject: { type: "string" }, body: { type: "string" } },
-    },
-    draftedSms: { type: "string", description: "Short friendly version, under ~300 characters." },
-    proposedSlots: {
-      type: "array",
-      maxItems: 3,
-      description: "Empty when a booking isn't the right next step.",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["startsAt", "durationMinutes", "reason"],
-        properties: {
-          startsAt: {
-            type: "string",
-            description: 'ISO 8601 with an explicit UTC offset, e.g. "2026-07-18T14:00:00-04:00".',
-          },
-          durationMinutes: {
-            type: "integer",
-            minimum: 1,
-            maximum: 1440,
-            description: "Realistic for the job discussed.",
-          },
-          reason: { type: "string", description: "Short, customer-facing rationale." },
-        },
-      },
-    },
-  },
-};
-
-/**
- * Read one JSON object out of a model response.
- *
- * With `output_config.format` set the text block is already schema-valid JSON, so the fence
- * and prose tolerance below is a backstop for the paths that don't constrain the format yet.
- * Failures say why — a cut-off answer and a refusal need different fixes, and "not valid JSON"
- * on its own sent us looking in the wrong place.
- */
-export function parseModelJson(response: Anthropic.Message, label: string): unknown {
-  if (response.stop_reason === "refusal") {
-    throw new Error(`Claude declined to produce the ${label}.`);
-  }
-
-  const textBlock = response.content.find((block) => block.type === "text");
-  const raw = textBlock && textBlock.type === "text" ? textBlock.text.trim() : "";
-
-  if (response.stop_reason === "max_tokens") {
-    throw new Error(`The ${label} was cut off before it finished. Try again.`);
-  }
-  if (!raw) {
-    throw new Error(`Claude returned no ${label}.`);
-  }
-
-  try {
-    return extractJsonObject(raw);
-  } catch (error) {
-    // The text itself isn't in the thrown message: it can carry customer details, and this
-    // surfaces in the UI. The prefix goes to the server log, where the stack already is.
-    console.warn(`[ai] ${label}: could not parse response`, {
-      model: response.model,
-      stopReason: response.stop_reason,
-      prefix: raw.slice(0, 200),
-    });
-    throw error instanceof Error ? error : new Error(`The AI response was not valid JSON (${label}).`);
-  }
-}
-
-/**
- * Pull one JSON object out of model text: as-is, unfenced, or lifted from between the outer
- * braces when the model wrote something either side of it.
- */
-export function extractJsonObject(raw: string): unknown {
-  const trimmed = raw.trim();
-  const candidates = [trimmed, trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim()];
-
-  const firstBrace = trimmed.indexOf("{");
-  const lastBrace = trimmed.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    candidates.push(trimmed.slice(firstBrace, lastBrace + 1));
-  }
-
-  for (const candidate of candidates) {
-    try {
-      return JSON.parse(candidate) as unknown;
-    } catch {
-      // Try the next shape.
+Respond with ONLY a JSON object — no markdown, no code fences, no prose before or after — with exactly these fields:
+{
+  "summary": string,                // 1-2 sentences: who they are and what they want
+  "intent": string,                 // what they are looking for
+  "urgency": "low" | "medium" | "high",
+  "fitScore": number,               // 0-100, how well they match an ideal high-value customer given the signals available
+  "suggestedStage": "lead" | "qualified" | "active" | "closed",
+  "suggestedActions": string[],     // concrete next steps for the team
+  "draftedEmail": { "subject": string, "body": string },
+  "draftedSms": string,
+  "proposedSlots": [                // up to 3; [] if a booking isn't the right next step
+    {
+      "startsAt": string,           // ISO 8601 WITH an explicit UTC offset, e.g. "2026-07-18T14:00:00-04:00"
+      "durationMinutes": number,    // realistic for the job discussed
+      "reason": string              // short, customer-facing rationale
     }
-  }
+  ]
+}`;
 
-  throw new Error("The AI response was not valid JSON.");
+function stripJsonFences(text: string): string {
+  return text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
 }
 
 export async function analyzeLead(
@@ -323,11 +215,7 @@ export async function analyzeLead(
 
   const response = await client.messages.create({
     model,
-    // Room to finish: a truncated response is a parse failure, and the schema below has an
-    // email body and up to three slots to fill in.
-    max_tokens: 16_000,
-    // Without thinking on, the model works through the scheduling rules in its visible answer.
-    thinking: { type: "adaptive" },
+    max_tokens: 4096,
     // Cache the static system prompt (Task 6): it's identical across every lead, so a
     // cache read replaces re-billing it at full input rate on each call.
     system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
@@ -337,12 +225,19 @@ export async function analyzeLead(
         content: `Analyze this new lead and prepare a first response:\n\n${buildLeadPrompt(lead)}`,
       },
     ],
-    // The API constrains the response to this schema, so the answer can't arrive wrapped in
-    // prose or code fences — which is what used to break the parse.
-    output_config: { format: { type: "json_schema", schema: LEAD_ANALYSIS_JSON_SCHEMA } },
   });
 
-  const analysis = leadAnalysisSchema.parse(parseModelJson(response, "lead analysis"));
+  const textBlock = response.content.find((block) => block.type === "text");
+  const raw = textBlock && textBlock.type === "text" ? textBlock.text : "";
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripJsonFences(raw));
+  } catch {
+    throw new Error("The AI response was not valid JSON.");
+  }
+
+  const analysis = leadAnalysisSchema.parse(parsed);
 
   return {
     analysis: {
