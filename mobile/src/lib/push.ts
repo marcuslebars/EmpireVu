@@ -1,4 +1,5 @@
 import { App as CapApp } from "@capacitor/app";
+import { registerPlugin } from "@capacitor/core";
 import { PushNotifications, type ActionPerformed, type PushNotificationSchema } from "@capacitor/push-notifications";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
@@ -35,6 +36,41 @@ export function lastPushError(): string | null {
 }
 
 /**
+ * Android only (see PushAvailability.java). `PushNotifications.register()` calls
+ * FirebaseMessaging.getInstance(), which throws on the plugin's own thread — crashing the
+ * app, not rejecting the promise — when the build has no google-services.json. Asking first
+ * is the only way to keep that from taking the app down.
+ */
+const PushAvailability = registerPlugin<{ check(): Promise<{ available: boolean }> }>("PushAvailability", {
+  web: () => ({ check: () => Promise.resolve({ available: false }) }),
+});
+
+async function pushServiceAvailable(): Promise<boolean> {
+  if (platform !== "android") return true;
+  try {
+    const { available } = await PushAvailability.check();
+    return available;
+  } catch {
+    // Plugin missing (an older shell): fall through rather than block notifications.
+    return true;
+  }
+}
+
+/**
+ * Re-register on launch and on resume so a rotated token reaches the server. Silent: the
+ * user asked for nothing here, so a failure only sets `lastRegistrationError`.
+ */
+async function refreshRegistration(): Promise<void> {
+  const permission = await PushNotifications.checkPermissions().catch(() => null);
+  if (permission?.receive !== "granted") return;
+  if (!(await pushServiceAvailable())) {
+    lastRegistrationError = "This build has no notification service configured, so push can't be turned on.";
+    return;
+  }
+  await PushNotifications.register().catch(() => undefined);
+}
+
+/**
  * `register()` resolves before FCM has answered — success and failure both arrive as
  * events — so waiting on the promise alone would report success for a build with no
  * Firebase config at all.
@@ -68,6 +104,10 @@ export async function requestPushPermission(): Promise<boolean> {
   }
   if (permission.receive !== "granted") {
     lastRegistrationError = null;
+    return false;
+  }
+  if (!(await pushServiceAvailable())) {
+    lastRegistrationError = "This build has no notification service configured, so push can't be turned on.";
     return false;
   }
   return registerAndWait();
@@ -164,9 +204,7 @@ export function usePushRegistration() {
         })();
       }),
       CapApp.addListener("resume", () => {
-        void PushNotifications.checkPermissions().then((p) => {
-          if (p.receive === "granted") void PushNotifications.register().catch(() => undefined);
-        });
+        void refreshRegistration();
       }),
     ];
 
@@ -175,9 +213,7 @@ export function usePushRegistration() {
       void PushNotifications.createChannel({ id: "default", name: "EmpireVu", description: "Leads, payments and schedule alerts", importance: 4, visibility: 1, vibration: true }).catch(() => undefined);
     }
 
-    void PushNotifications.checkPermissions().then((p) => {
-      if (p.receive === "granted") void PushNotifications.register().catch(() => undefined);
-    });
+    void refreshRegistration();
 
     const removeHook = onBeforeSignOut(async () => {
       // The token is re-registered under each org the user switches to, so revoke it
