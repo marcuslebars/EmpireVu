@@ -3,8 +3,11 @@ import type { ReactNode } from "react";
 
 import { TONE, type Tone } from "@m/lib/format";
 import { tap } from "@m/lib/native";
+import { useDismissible } from "@m/state/nav";
 
 export function Sheet({ title, onClose, children }: { title: ReactNode; onClose: () => void; children: ReactNode }) {
+  // Android hardware back closes the sheet rather than the screen behind it.
+  useDismissible(true, onClose);
   return (
     <div className="sheet-wrap" role="dialog" aria-modal="true">
       <div className="sheet-scrim" onClick={onClose} />

@@ -1,6 +1,7 @@
+import { App as CapApp } from "@capacitor/app";
 import { SplashScreen } from "@capacitor/splash-screen";
 import { StatusBar, Style } from "@capacitor/status-bar";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { missingEnv } from "@m/lib/env";
 import { isNative } from "@m/lib/native";
@@ -40,6 +41,22 @@ function Gate() {
   useEffect(() => {
     if (!isNative) return;
     void StatusBar.setStyle({ style: Style.Dark }).catch(() => undefined);
+  }, []);
+
+  // Android hardware back on the signed-out screens. NavProvider's listener only exists inside
+  // the signed-in tree, so without this back is a dead key on Sign up, Phone and Forgot password.
+  const authBack = useRef<{ owns: boolean; route: AuthRoute }>({ owns: false, route: "signin" });
+  authBack.current = { owns: session.status !== "signedIn", route: authRoute };
+  useEffect(() => {
+    if (!isNative) return;
+    const handle = CapApp.addListener("backButton", () => {
+      if (!authBack.current.owns) return;
+      if (authBack.current.route !== "signin") setAuthRoute("signin");
+      else void CapApp.minimizeApp();
+    });
+    return () => {
+      void handle.then((h) => h.remove());
+    };
   }, []);
 
   const settled = session.status !== "loading" && !(session.status === "signedIn" && session.context.isPending);
@@ -84,7 +101,10 @@ function Gate() {
 
   if (session.context.isPending) return <div className="app" />;
 
-  if (session.context.isError) {
+  // Only when there is nothing cached to show. A failed *refetch* (resume on a dead connection,
+  // an invalidation after a push) must not replace a working app with a full-screen error and
+  // reset the navigation stack — the screens surface their own errors over cached content.
+  if (session.context.isLoadingError || (session.context.isError && !session.context.data)) {
     return (
       <AuthFrame>
         <div className="h2">Can't reach EmpireVu</div>
@@ -95,6 +115,8 @@ function Gate() {
       </AuthFrame>
     );
   }
+
+  if (!session.context.data) return <div className="app" />;
 
   if (session.inviteToken) {
     return (

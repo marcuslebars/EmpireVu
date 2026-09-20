@@ -215,6 +215,35 @@ function rateHint(item: CatalogItemView): string {
   return `${money(item.rateCents, { exact: item.rateCents % 100 !== 0 })} / ${unit}${min}`;
 }
 
+/**
+ * The pricing routes reject lengthFt over 100 and distanceKm over 2000, so the ceiling is
+ * the lower of the catalog's own cap and the route's. Without this the server answers a
+ * stringified ZodError, which is not something to put in front of a user.
+ */
+const measureCeiling = (item: CatalogItemView) => Math.min(item.maxMeasure ?? Number.POSITIVE_INFINITY, isDistance(item) ? 2000 : 100);
+const measureUnit = (item: CatalogItemView) => (isDistance(item) ? "km" : item.unitLabel ?? "ft");
+
+/** A measure is priceable only when it parses and sits inside the ceiling. */
+function readMeasure(item: CatalogItemView, raw: string): number | null {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return value <= measureCeiling(item) ? value : null;
+}
+
+/** Hand-priced amounts are typed free-form — "12.5.5" and "" are not prices. */
+function readAmount(raw: string): number | null {
+  const value = Number(raw.trim());
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** null while a line is still untouched — a freshly added blank line isn't an error yet. */
+function customLineError(line: CustomLine): string | null {
+  if (!line.label.trim() && !line.amount.trim()) return null;
+  if (!line.label.trim()) return "Give this line a name.";
+  if (readAmount(line.amount) === null) return "Enter an amount over $0.";
+  return null;
+}
+
 function QuoteBuilder({ contactId }: { contactId?: string }) {
   const scope = useScope();
   const nav = useNav();
@@ -229,7 +258,11 @@ function QuoteBuilder({ contactId }: { contactId?: string }) {
   const [contact, setContact] = useState<{ id: string; name: string } | null>(null);
   const chosenContact = contactId && contactDetail.data ? { id: contactId, name: contactDetail.data.contact.name } : contact;
   const [companyId, setCompanyId] = useState<string | null>(scope.companyId ?? scope.companies[0]?.id ?? null);
-  const effectiveCompany = contactDetail.data?.contact.company?.id ?? companyId;
+  // Until the contact resolves, its company is unknown — falling back to the scope's
+  // default would price the quote off the wrong catalog and route its deposit to the
+  // wrong Stripe account, so nothing is priced at all until it lands.
+  const awaitingContact = Boolean(contactId) && !contactDetail.isSuccess;
+  const effectiveCompany = awaitingContact ? null : contactDetail.data?.contact.company?.id ?? companyId;
 
   const [title, setTitle] = useState("");
   const [intro, setIntro] = useState("");
@@ -257,24 +290,27 @@ function QuoteBuilder({ contactId }: { contactId?: string }) {
     const serviceLines = services.flatMap((s) => {
       const item = itemsByKey.get(s.serviceKey);
       if (!item) return [];
-      const measure = Number(s.measure);
-      if (needsMeasure(item.pricingType) && !(measure > 0)) return [];
+      const measure = needsMeasure(item.pricingType) ? readMeasure(item, s.measure) : null;
+      if (needsMeasure(item.pricingType) && measure === null) return [];
       return [
         {
           serviceId: s.serviceKey,
-          ...(needsMeasure(item.pricingType) ? (isDistance(item) ? { distanceKm: measure } : { lengthFt: measure }) : {}),
+          ...(measure !== null ? (isDistance(item) ? { distanceKm: measure } : { lengthFt: measure }) : {}),
           ...(needsQuantity(item.pricingType) ? { quantity: s.quantity } : {}),
           ...(s.optional ? { optional: true } : {}),
         },
       ];
     });
-    const customLines = custom
-      .filter((l) => l.label.trim() && Number(l.amount.replace(/[^0-9.]/g, "")) >= 0 && l.amount.trim())
-      .map((l) => ({ label: l.label.trim(), description: l.description.trim() || undefined, amountCents: Math.round(Number(l.amount.replace(/[^0-9.]/g, "")) * 100), optional: l.optional || undefined }));
+    const customLines = custom.flatMap((l) => {
+      const amount = readAmount(l.amount);
+      if (!l.label.trim() || amount === null) return [];
+      return [{ label: l.label.trim(), description: l.description.trim() || undefined, amountCents: Math.round(amount * 100), optional: l.optional || undefined }];
+    });
     return { services: serviceLines, customLines, hullType: variant ?? undefined, bundleId: bundle ?? undefined };
   }, [services, custom, variant, bundle, itemsByKey]);
 
   const incomplete = services.length > payload.services.length;
+  const customIncomplete = custom.some((l) => customLineError(l) !== null);
   const hasLines = payload.services.length + payload.customLines.length > 0;
 
   // Live totals from the server's pricer — debounced so typing a length doesn't spam it.
@@ -290,13 +326,16 @@ function QuoteBuilder({ contactId }: { contactId?: string }) {
     retry: false,
     placeholderData: (previous) => previous,
   });
+  /** The totals on screen belong to `debounced`, so nothing may be saved while it lags. */
+  const pricingPending = debounced !== payload || preview.isFetching;
 
   const create = useMutation({
     mutationFn: () =>
       createQuote(scope.orgId, {
         contactId: chosenContact?.id,
         companyId: effectiveCompany ?? undefined,
-        ...payload,
+        // `debounced`, not `payload`: the quote saved is the one the customer was quoted.
+        ...debounced,
         title: title.trim() || undefined,
         introMessage: intro.trim() || undefined,
       }),
@@ -318,6 +357,20 @@ function QuoteBuilder({ contactId }: { contactId?: string }) {
 
   const disabled = catalog.error instanceof ApiError && catalog.error.status === 404;
   const surchargeRelevant = (catalog.data?.surcharges.length ?? 0) > 0 && services.some((s) => itemsByKey.get(s.serviceKey)?.surchargeEligible);
+
+  // Building against an unresolved contact would quote the wrong company, so the form
+  // waits rather than guessing.
+  if (awaitingContact) {
+    return (
+      <Screen title="New quote">
+        {contactDetail.isError ? (
+          <ErrorBanner error={contactDetail.error} onRetry={() => void contactDetail.refetch()} />
+        ) : (
+          <Skeletons count={3} />
+        )}
+      </Screen>
+    );
+  }
 
   return (
     <Screen title="New quote">
@@ -364,7 +417,16 @@ function QuoteBuilder({ contactId }: { contactId?: string }) {
                 </button>
               </div>
               {needsMeasure(item.pricingType) ? (
-                <Field label={isDistance(item) ? "Distance (km)" : `Length (${unit})`}>
+                <Field
+                  label={isDistance(item) ? "Distance (km)" : `Length (${unit})`}
+                  hint={
+                    s.measure.trim() && readMeasure(item, s.measure) === null ? (
+                      <span style={{ color: "var(--dest-l)" }}>Enter a number up to {measureCeiling(item)} {measureUnit(item)}.</span>
+                    ) : (
+                      `Up to ${measureCeiling(item)} ${measureUnit(item)}`
+                    )
+                  }
+                >
                   <TextInput inputMode="decimal" placeholder={isDistance(item) ? "25" : "34"} value={s.measure} onChange={(e) => updateService(s.id, { measure: e.target.value.replace(/[^0-9.]/g, "") })} />
                 </Field>
               ) : null}
@@ -418,8 +480,9 @@ function QuoteBuilder({ contactId }: { contactId?: string }) {
           <div key={line.id} className="card pad" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ display: "flex", gap: 8 }}>
               <TextInput placeholder="Canvas repair" value={line.label} onChange={(e) => updateCustom(line.id, { label: e.target.value })} />
-              <TextInput placeholder="$0" inputMode="decimal" value={line.amount} onChange={(e) => updateCustom(line.id, { amount: e.target.value })} style={{ width: 110, flex: "none", textAlign: "right" }} />
+              <TextInput placeholder="$0" inputMode="decimal" value={line.amount} onChange={(e) => updateCustom(line.id, { amount: e.target.value.replace(/[^0-9.]/g, "") })} style={{ width: 110, flex: "none", textAlign: "right" }} />
             </div>
+            {customLineError(line) ? <span className="fine" style={{ fontSize: 12, color: "var(--dest-l)" }}>{customLineError(line)}</span> : null}
             <TextInput placeholder="Description (optional)" value={line.description} onChange={(e) => updateCustom(line.id, { description: e.target.value })} style={{ height: 40, fontSize: 14 }} />
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <CheckBox tone="pri" on={line.optional} onChange={() => updateCustom(line.id, { optional: !line.optional })} label="Optional line" />
@@ -439,7 +502,8 @@ function QuoteBuilder({ contactId }: { contactId?: string }) {
         <TextArea placeholder="Thanks for getting in touch — here's your quote." value={intro} onChange={(e) => setIntro(e.target.value)} />
       </Field>
 
-      {incomplete ? <p className="fine" style={{ fontSize: 12 }}>Enter a length for each measured service to price it.</p> : null}
+      {incomplete ? <p className="fine" style={{ fontSize: 12 }}>Enter a valid length for each measured service to price it.</p> : null}
+      {!incomplete && hasLines && pricingPending ? <p className="fine" style={{ fontSize: 12 }}>Pricing…</p> : null}
       {preview.isError ? <ErrorBanner error={preview.error} /> : null}
       {hasLines && preview.data ? (
         <>
@@ -459,7 +523,13 @@ function QuoteBuilder({ contactId }: { contactId?: string }) {
       ) : null}
 
       {create.isError ? <ErrorBanner error={create.error} /> : null}
-      <Btn size="lg" glow loading={create.isPending} disabled={!hasLines || incomplete || !effectiveCompany || preview.isError} onClick={() => create.mutate()}>
+      <Btn
+        size="lg"
+        glow
+        loading={create.isPending}
+        disabled={!hasLines || incomplete || customIncomplete || !effectiveCompany || preview.isError || pricingPending || (Boolean(contactId) && !chosenContact)}
+        onClick={() => create.mutate()}
+      >
         Create draft
       </Btn>
     </Screen>

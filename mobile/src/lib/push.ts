@@ -23,7 +23,42 @@ export interface PushPayload {
 }
 
 const APP_VERSION = "1.0.0";
+const REGISTER_TIMEOUT_MS = 12_000;
 let currentToken: string | null = null;
+let lastRegistrationError: string | null = null;
+/** Every org this install's token was registered under this session — all revoked on sign-out. */
+const registeredOrgIds = new Set<string>();
+
+/** Why the last registration attempt failed, for the caller to show. */
+export function lastPushError(): string | null {
+  return lastRegistrationError;
+}
+
+/**
+ * `register()` resolves before FCM has answered — success and failure both arrive as
+ * events — so waiting on the promise alone would report success for a build with no
+ * Firebase config at all.
+ */
+function registerAndWait(): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const okHandle = PushNotifications.addListener("registration", () => finish(true));
+    const errHandle = PushNotifications.addListener("registrationError", (error) => finish(false, error.error));
+    const timer = setTimeout(() => finish(false, "Couldn't reach the notification service."), REGISTER_TIMEOUT_MS);
+
+    function finish(ok: boolean, reason?: string) {
+      if (settled) return;
+      settled = true;
+      lastRegistrationError = ok ? null : reason || "Couldn't turn on notifications.";
+      clearTimeout(timer);
+      void okHandle.then((h) => h.remove());
+      void errHandle.then((h) => h.remove());
+      resolve(ok);
+    }
+
+    PushNotifications.register().catch((error: unknown) => finish(false, error instanceof Error ? error.message : undefined));
+  });
+}
 
 export async function requestPushPermission(): Promise<boolean> {
   if (!isNative) return false;
@@ -31,9 +66,11 @@ export async function requestPushPermission(): Promise<boolean> {
   if (permission.receive === "prompt" || permission.receive === "prompt-with-rationale") {
     permission = await PushNotifications.requestPermissions();
   }
-  if (permission.receive !== "granted") return false;
-  await PushNotifications.register();
-  return true;
+  if (permission.receive !== "granted") {
+    lastRegistrationError = null;
+    return false;
+  }
+  return registerAndWait();
 }
 
 export async function pushPermissionState(): Promise<"granted" | "denied" | "prompt" | "unsupported"> {
@@ -43,6 +80,7 @@ export async function pushPermissionState(): Promise<"granted" | "denied" | "pro
 }
 
 function registerToken(orgId: string, token: string) {
+  registeredOrgIds.add(orgId);
   return apiRequest(`/api/organizations/${orgId}/device-tokens`, {
     method: "POST",
     body: JSON.stringify({ token, platform, appVersion: APP_VERSION }),
@@ -99,7 +137,14 @@ export function usePushRegistration() {
     const handles = [
       PushNotifications.addListener("registration", ({ value }) => {
         currentToken = value;
+        lastRegistrationError = null;
         void registerToken(latest.current.scope.orgId, value).catch(() => undefined);
+      }),
+      // Without this the app has no signal at all that FCM never handed back a token —
+      // a build missing google-services.json looks identical to a working one.
+      PushNotifications.addListener("registrationError", (error) => {
+        lastRegistrationError = error.error || "Couldn't turn on notifications.";
+        console.warn("[push] registration failed:", lastRegistrationError);
       }),
       PushNotifications.addListener("pushNotificationReceived", (notification: PushNotificationSchema) => {
         latest.current.toast(notification.title ?? notification.body ?? "New notification");
@@ -120,7 +165,7 @@ export function usePushRegistration() {
       }),
       CapApp.addListener("resume", () => {
         void PushNotifications.checkPermissions().then((p) => {
-          if (p.receive === "granted") void PushNotifications.register();
+          if (p.receive === "granted") void PushNotifications.register().catch(() => undefined);
         });
       }),
     ];
@@ -131,11 +176,19 @@ export function usePushRegistration() {
     }
 
     void PushNotifications.checkPermissions().then((p) => {
-      if (p.receive === "granted") void PushNotifications.register();
+      if (p.receive === "granted") void PushNotifications.register().catch(() => undefined);
     });
 
     const removeHook = onBeforeSignOut(async () => {
-      if (currentToken) await revokeToken(latest.current.scope.orgId, currentToken);
+      // The token is re-registered under each org the user switches to, so revoke it
+      // under every org it was seen under, not just whichever one is active right now.
+      if (currentToken) {
+        const orgIds = registeredOrgIds.size > 0 ? [...registeredOrgIds] : [latest.current.scope.orgId];
+        for (const orgId of orgIds) {
+          await revokeToken(orgId, currentToken).catch(() => undefined);
+        }
+      }
+      registeredOrgIds.clear();
       currentToken = null;
       await PushNotifications.unregister().catch(() => undefined);
     });

@@ -21,22 +21,22 @@ export function Tasks() {
   const [filter, setFilter] = useState<Filter>("Open");
   const profileId = session.context.data?.profile?.id;
 
+  // Every filter narrows server-side. Trimming a 100-row page in JS used to drop open
+  // tasks whenever completed ones filled the page.
+  const OPEN = "todo,in_progress,blocked";
   const params = {
     ...scope.scopeParams,
     pageSize: 100,
     ...(filter === "Mine" && profileId ? { assigneeId: profileId } : {}),
+    ...(filter === "Open" || filter === "Mine" ? { status: OPEN } : {}),
+    ...(filter === "Urgent" ? { status: OPEN, priority: "urgent,high" } : {}),
     ...(filter === "Blocked" ? { status: "blocked" } : {}),
     ...(filter === "Done" ? { status: "completed" } : {}),
   };
   const key = ["tasks", scope.orgId, scope.companyId, filter];
   const query = useQuery({ queryKey: key, queryFn: () => fetchTasks(scope.orgId, params) });
 
-  const rows = (query.data?.rows.items ?? []).filter((task) => {
-    if (filter === "Done" || filter === "Blocked") return true;
-    if (task.status === "completed") return false;
-    if (filter === "Urgent") return task.priority === "urgent" || task.priority === "high";
-    return true;
-  });
+  const rows = query.data?.rows.items ?? [];
 
   return (
     <Screen root onRefresh={() => query.refetch()}>

@@ -12,6 +12,9 @@ import { Empty, ErrorBanner, Segmented, Skeletons } from "@m/ui/kit";
 
 type View = "Day" | "Week" | "Month";
 const DOW = ["M", "T", "W", "T", "F", "S", "S"];
+const PAGE_SIZE = 100;
+/** Six weeks of a busy marina still fits; beyond this the day counts are close enough. */
+const MAX_PAGES = 5;
 const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
 export function Calendar() {
@@ -32,7 +35,21 @@ export function Calendar() {
 
   const calendar = useQuery({
     queryKey: ["calendar", "view", scope.orgId, scope.companyId, range.start.toISOString(), range.end.toISOString()],
-    queryFn: () => fetchCalendarView(scope.orgId, { ...scope.scopeParams, start: range.start.toISOString(), end: range.end.toISOString(), pageSize: 100 }),
+    queryFn: async () => {
+      const params = { ...scope.scopeParams, start: range.start.toISOString(), end: range.end.toISOString(), pageSize: PAGE_SIZE };
+      const first = await fetchCalendarView(scope.orgId, params);
+      // The month grid counts jobs per day, so one truncated page would silently show empty days
+      // and a wrong busy-day highlight late in the six-week grid.
+      const pages = Math.min(first.bookings.pagination.totalPages, MAX_PAGES);
+      if (pages <= 1) return first;
+      const rest = await Promise.all(
+        Array.from({ length: pages - 1 }, (_, index) => fetchCalendarView(scope.orgId, { ...params, page: index + 2 })),
+      );
+      return {
+        ...first,
+        bookings: { ...first.bookings, items: [...first.bookings.items, ...rest.flatMap((page) => page.bookings.items)] },
+      };
+    },
   });
   const dayEnd = addDays(selected, 1);
   const capacity = useQuery({

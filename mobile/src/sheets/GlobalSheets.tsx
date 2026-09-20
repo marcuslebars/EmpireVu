@@ -18,7 +18,7 @@ import { useEffect, useState } from "react";
 import { createOrganization, createTask } from "@m/lib/api";
 import { useDictation } from "@m/lib/dictation";
 import { success } from "@m/lib/native";
-import { useNav } from "@m/state/nav";
+import { useDismissible, useNav } from "@m/state/nav";
 import { useScope } from "@m/state/scope";
 import { useSession } from "@m/state/session";
 import { Btn, ErrorBanner, Field, TextArea, TextInput } from "@m/ui/kit";
@@ -119,6 +119,9 @@ function OrgSheet() {
       toast(`Created ${org.name}`);
     },
   });
+
+  // Back on the sub-form returns to the organization list instead of closing the sheet.
+  useDismissible(creating, () => setCreating(false));
 
   if (creating) {
     return (
