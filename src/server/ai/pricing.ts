@@ -3,7 +3,7 @@
  *
  * Per-million-token prices in USD, env-overridable so the rates can track a model or
  * negotiated-pricing change without a deploy. Documented defaults are Anthropic's list
- * price for the default model, Claude Opus 4.8:
+ * price for the default model, Claude Opus 5 (same rates as the Opus 4.8 it replaced):
  *   input        $5.00 / MTok   (AI_PRICE_INPUT_PER_MTOK)
  *   output       $25.00 / MTok  (AI_PRICE_OUTPUT_PER_MTOK)
  *   cache read   $0.50 / MTok   (~0.1× input)  (AI_PRICE_CACHE_READ_PER_MTOK)
