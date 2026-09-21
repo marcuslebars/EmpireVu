@@ -14,6 +14,10 @@ const PUBLIC_PATHS: RegExp[] = [
   /^\/q\//, // customer quote — the deposit link
   /^\/book\//, // public booking
   /^\/invite\//, // team invitation, which prompts sign-in itself when needed
+  // Store-review pages: Google Play and the App Store open these signed out and reject
+  // the listing if they land on a sign-in form. Exact matches — nothing under them.
+  /^\/privacy\/?$/,
+  /^\/delete-account\/?$/,
 ];
 
 export function isPublicPath(pathname: string): boolean {
