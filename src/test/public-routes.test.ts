@@ -27,6 +27,14 @@ describe("routes a signed-out visitor must be able to reach", () => {
     // This page prompts for sign-in itself, when and if it needs to.
     expect(isPublicPath("/invite/abc123")).toBe(true);
   });
+
+  it("shows store reviewers the privacy policy and account-deletion page", () => {
+    // Shipped once without these entries: both pages bounced a signed-out visitor to
+    // sign-in, which is exactly what Play and App Store review check for.
+    for (const p of ["/privacy", "/privacy/", "/delete-account", "/delete-account/"]) {
+      expect(isPublicPath(p), p).toBe(true);
+    }
+  });
 });
 
 describe("everything else still redirects", () => {
@@ -47,5 +55,12 @@ describe("everything else still redirects", () => {
     // though it begins with "/q".
     expect(isPublicPath("/quotes")).toBe(false);
     expect(isPublicPath("/bookings")).toBe(false);
+  });
+
+  it("exempts the store pages exactly, not anything that shares their name", () => {
+    expect(isPublicPath("/privacy-settings")).toBe(false);
+    expect(isPublicPath("/privacy/admin")).toBe(false);
+    expect(isPublicPath("/delete-account/confirm")).toBe(false);
+    expect(isPublicPath("/settings/privacy")).toBe(false);
   });
 });
