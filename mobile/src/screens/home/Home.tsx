@@ -73,8 +73,8 @@ export function Home() {
     queryFn: () => fetchInbox(scope.orgId, { companyId: scope.companyId, needsReply: true }),
   });
   const impact = useQuery({
-    queryKey: ["dashboard", "impact", scope.orgId],
-    queryFn: () => fetchAutomationImpact(scope.orgId),
+    queryKey: ["dashboard", "impact", scope.orgId, scope.companyId],
+    queryFn: () => fetchAutomationImpact(scope.orgId, params),
   });
   const activity = useQuery({
     queryKey: ["dashboard", "activity", scope.orgId, scope.companyId],
@@ -233,7 +233,8 @@ export function Home() {
           )}
         </Section>
 
-        <Section title="Automation impact · 30 days">
+        {/* All-time totals: the endpoint has no time window, so the title claims none. */}
+        <Section title="Automation impact">
           {impact.data ? (
             <div className="grid3">
               {[

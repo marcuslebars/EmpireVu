@@ -260,7 +260,7 @@ export default function Dashboard() {
 
   const summary = useDashboardSummary(organizationId, summaryParams);
   const activity = useDashboardActivity(organizationId, activityParams);
-  const impact = useAutomationImpact(organizationId);
+  const impact = useAutomationImpact(organizationId, summaryParams);
   const { data: orgs } = useOrganizations();
   const { data: companies } = useCompanies(organizationId);
 
