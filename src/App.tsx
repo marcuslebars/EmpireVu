@@ -10,6 +10,8 @@ import { ProtectedRoute, AuthRedirect } from "@/components/system/ProtectedRoute
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AppDiagnosticsPage } from "@/screens/AppDiagnosticsPage";
 import { OpsPage } from "@/screens/OpsPage";
+import DeleteAccountPage from "@/screens/DeleteAccountPage";
+import PrivacyPolicyPage from "@/screens/PrivacyPolicyPage";
 import PublicBookingPage from "@/screens/PublicBookingPage";
 import PublicQuotePage from "@/screens/PublicQuotePage";
 import AcceptInvitePage from "@/screens/AcceptInvitePage";
@@ -300,6 +302,9 @@ function AppRoutes() {
       <Route path="/onboarding" element={<OnboardingPageWrapper />} />
       <Route path="/internal/diagnostics" element={<AppDiagnosticsPage />} />
       <Route path="/internal/ops" element={<OpsPageWrapper />} />
+      {/* Public and unauthenticated: both app stores require these URLs to open without a login. */}
+      <Route path="/privacy" element={<PrivacyPolicyPage />} />
+      <Route path="/delete-account" element={<DeleteAccountPage />} />
       <Route path="/book/:companyId" element={<PublicBookingPage />} />
       {/* Customer-facing quote. Public + unauthenticated: the token is the credential. */}
       <Route path="/q/:token" element={<PublicQuotePage />} />
