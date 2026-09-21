@@ -130,10 +130,12 @@ export function useDashboardActivity(
   });
 }
 
-export function useAutomationImpact(orgId: string) {
+export function useAutomationImpact(orgId: string, params: { companyId?: string } = {}) {
   return useQuery({
-    queryKey: ["dashboard", "automation-impact", orgId],
-    queryFn: () => fetchAutomationImpact(orgId),
+    // The company is part of the key, or switching company would show the cached
+    // numbers for whichever scope loaded first.
+    queryKey: ["dashboard", "automation-impact", orgId, params],
+    queryFn: () => fetchAutomationImpact(orgId, params),
     enabled: Boolean(orgId),
     staleTime: 30_000,
   });

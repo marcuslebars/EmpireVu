@@ -138,8 +138,15 @@ export async function fetchDashboardActivity(
   return result?.items ?? [];
 }
 
-export function fetchAutomationImpact(orgId: string): Promise<AutomationImpact> {
-  return apiFetch(`/api/organizations/${orgId}/ui/dashboard/automation-impact`);
+/**
+ * All-time totals — the endpoint takes no time window. Scoped to one company when
+ * `companyId` is given; omitting it means "All companies", as on every other tile.
+ */
+export function fetchAutomationImpact(
+  orgId: string,
+  params: { companyId?: string } = {},
+): Promise<AutomationImpact> {
+  return apiFetch(buildUrl(`/api/organizations/${orgId}/ui/dashboard/automation-impact`, params));
 }
 
 // ─── Attribution ("Captured by EmpireVu") ─────────────────────────────────────

@@ -1640,7 +1640,7 @@ export default function AutomationsPage() {
   }), [companyId, search, statusFilter, triggerFilter]);
 
   const { data: workflows, isLoading, isError, refetch } = useWorkflows(organizationId, params);
-  const { data: impact } = useAutomationImpact(organizationId);
+  const { data: impact } = useAutomationImpact(organizationId, companyId ? { companyId } : {});
   const triggerWorkflow = useTriggerWorkflow(organizationId);
   const updateStatus = useUpdateWorkflowStatus(organizationId);
 

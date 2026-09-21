@@ -15,7 +15,10 @@ export function Automations() {
   const nav = useNav();
   const key = ["automations", "workflows", scope.orgId, scope.companyId];
 
-  const impact = useQuery({ queryKey: ["dashboard", "impact", scope.orgId], queryFn: () => fetchAutomationImpact(scope.orgId) });
+  const impact = useQuery({
+    queryKey: ["dashboard", "impact", scope.orgId, scope.companyId],
+    queryFn: () => fetchAutomationImpact(scope.orgId, scope.scopeParams),
+  });
   const workflows = useQuery({ queryKey: key, queryFn: () => fetchWorkflows(scope.orgId, { ...scope.scopeParams, pageSize: 100 }) });
 
   const rate = impact.data ? (impact.data.successRate <= 1 ? impact.data.successRate * 100 : impact.data.successRate) : null;
