@@ -531,6 +531,12 @@ function SignUpPageWrapper() {
 
 function OnboardingPageWrapper() {
   console.log("[OnboardingPageWrapper] Route matched: /onboarding");
+  const { status, session } = useAuth();
+  // An existing account already has an organization — never show it the onboarding wizard,
+  // even if it lands here from a stale link or redirect.
+  if (status === "authenticated" && (session?.organizations?.length ?? 0) > 0) {
+    return <Navigate to="/" replace />;
+  }
   return (
     <ErrorBoundary
       fallback={

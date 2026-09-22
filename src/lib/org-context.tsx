@@ -80,8 +80,13 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     }
   }, [authStatus, session, queryClient]);
 
+  const hasOrganizations = (session?.organizations?.length ?? 0) > 0;
   const isValid = organizationId.length > 0;
-  const requiresOnboarding = !isValid;
+  // "Requires onboarding" means the ACCOUNT has no organization — NOT that the active org
+  // id hasn't hydrated yet. organizationId is seeded from the session one render after auth
+  // resolves (the effect above), so keying onboarding off it bounced returning users to
+  // /onboarding during that window. Base it on the session's membership list instead.
+  const requiresOnboarding = authStatus === "authenticated" && !hasOrganizations;
 
   const reset = useCallback(() => {
     setOrgState("");

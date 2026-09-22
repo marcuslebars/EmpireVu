@@ -31,12 +31,24 @@ export function ProtectedRoute({ children, requireOrg = true }: ProtectedRoutePr
     return <Navigate to="/onboarding" state={{ from: location }} replace />;
   }
 
+  // Authenticated and the account HAS an organization, but the active org id is still
+  // hydrating from the session (see OrgProvider). Wait rather than render pages with an
+  // empty org — which briefly reads as "no workspace" and used to bounce to onboarding.
+  if (requireOrg && !isValid) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        <p className="text-muted-foreground">Loading your workspace...</p>
+      </div>
+    );
+  }
+
   return <>{children}</>;
 }
 
 export function AuthRedirect() {
   const { status } = useAuth();
-  const { isValid } = useOrg();
+  const { requiresOnboarding } = useOrg();
   const location = useLocation();
   const from = (location.state as { from?: Location } | null)?.from?.pathname;
 
@@ -49,9 +61,11 @@ export function AuthRedirect() {
     );
   }
 
-  if (status === "authenticated" && isValid) {
-    return <Navigate to={from || "/"} replace />;
+  if (status === "authenticated") {
+    // A returning user with an organization goes to the app; only a brand-new account
+    // (no organization) is sent to onboarding.
+    return <Navigate to={requiresOnboarding ? "/onboarding" : from || "/"} replace />;
   }
 
-  return <Navigate to="/onboarding" replace />;
+  return <Navigate to="/signin" replace />;
 }
