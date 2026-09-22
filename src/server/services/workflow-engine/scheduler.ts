@@ -1,6 +1,7 @@
 import type { Json, Tables } from "@/server/db/database.types";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { sendDailyDigests } from "@/server/services/push/digest";
+import { processOwnerDigests } from "@/server/services/owner-digest";
 import type { TenantServiceContext } from "@/server/services/shared";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
@@ -310,9 +311,14 @@ export async function runScheduler(
     (await scanBookingUpcoming(admin, nowMs)) +
     (await scanQuoteExpiring(admin, nowMs)) +
     (await scanContactStale(admin, nowMs));
-  // Mobile morning digest. Never lets a push problem break the scheduler pass.
+  // Mobile morning digest (push). Never lets a push problem break the scheduler pass.
   await sendDailyDigests(admin, nowMs).catch((error) =>
     console.error("[scheduler] digest failed", error instanceof Error ? error.message : error),
+  );
+  // Owner daily digest (SMS/email, per-company, Task 15) — self-guarded + idempotent per
+  // (company, local_date). Distinct from the push digest above (different channel/audience).
+  await processOwnerDigests(admin, nowMs).catch((error) =>
+    console.error("[scheduler] owner digest failed", error instanceof Error ? error.message : error),
   );
   return { ticksMaterialized, ticksProcessed, entitiesEmitted };
 }

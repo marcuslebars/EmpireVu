@@ -20,6 +20,7 @@ import { VoiceSettings } from "@/components/settings/VoiceSettings";
 import { BillingSettings } from "@/components/settings/BillingSettings";
 import { PaymentsSettings } from "@/components/settings/PaymentsSettings";
 import { IntegrationsSettings } from "@/components/settings/IntegrationsSettings";
+import { DigestSettings } from "@/components/settings/DigestSettings";
 
 const sections = [
   { id: "org", label: "Organization", icon: Building2, description: "Manage organization name, slug, and companies" },
@@ -27,7 +28,7 @@ const sections = [
   { id: "members", label: "Members & Permissions", icon: Users, description: "Manage team roles and access controls" },
   { id: "billing", label: "Billing & Plans", icon: CreditCard, description: "Manage your subscription and plan" },
   { id: "payments", label: "Payments", icon: Landmark, description: "Connect each company's Stripe account to take deposits" },
-  { id: "notifications", label: "Notifications", icon: Bell, description: "Configure notification preferences" },
+  { id: "notifications", label: "Notifications", icon: Bell, description: "Owner daily digest and notification preferences" },
   { id: "integrations", label: "Integrations", icon: Puzzle, description: "Connect third-party tools and services" },
   { id: "appearance", label: "Appearance", icon: Palette, description: "Customize theme and display options" },
 ];
@@ -418,6 +419,8 @@ export default function SettingsPage() {
             <PaymentsSettings />
           ) : active === "integrations" ? (
             <IntegrationsSettings />
+          ) : active === "notifications" ? (
+            <DigestSettings />
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center mb-4">

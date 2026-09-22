@@ -120,6 +120,8 @@ export interface DeliverMessageInput {
   /** Resolved recipient (phone for sms, email for email). Null → nothing to send. */
   to: string | null;
   body: string;
+  /** Optional HTML alternative for email (the `body` stays the plain-text part). Ignored for SMS. */
+  html?: string | null;
   companyId: string | null;
   /** The contact being messaged, or null for owner/literal recipients. */
   contactId: string | null;
@@ -184,6 +186,7 @@ export async function deliverMessage(input: DeliverMessageInput): Promise<Delive
           to: input.to,
           subject: input.subject ?? "",
           body,
+          html: input.html ?? undefined,
           fromName: input.fromName ?? undefined,
           replyTo: input.replyTo ?? undefined,
         })

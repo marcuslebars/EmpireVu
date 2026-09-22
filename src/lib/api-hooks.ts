@@ -9,6 +9,11 @@ import {
   fetchDashboardActivity,
   fetchAutomationImpact,
   fetchAttribution,
+  fetchDigestSettings,
+  updateDigestSettings,
+  sendTestDigest,
+  type DigestSettings,
+  type DigestTestResult,
   fetchCalendarView,
   fetchCalendarCapacity,
   fetchBookingDetail,
@@ -150,6 +155,34 @@ export function useAttribution(
     queryFn: () => fetchAttribution(orgId, params),
     enabled: Boolean(orgId),
     staleTime: 30_000,
+  });
+}
+
+// ─── Owner daily digest ────────────────────────────────────────────────────────
+
+export function useDigestSettings(orgId: string, companyId: string | null) {
+  return useQuery({
+    queryKey: ["digest", "settings", orgId, companyId],
+    queryFn: () => fetchDigestSettings(orgId, companyId!),
+    enabled: Boolean(orgId && companyId),
+    staleTime: 30_000,
+  });
+}
+
+export function useUpdateDigestSettings(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ companyId, ...patch }: { companyId: string } & Partial<DigestSettings>) =>
+      updateDigestSettings(orgId, companyId, patch),
+    onSuccess: (_data, variables) => {
+      void qc.invalidateQueries({ queryKey: ["digest", "settings", orgId, variables.companyId] });
+    },
+  });
+}
+
+export function useSendTestDigest(orgId: string) {
+  return useMutation<DigestTestResult, Error, { companyId: string }>({
+    mutationFn: ({ companyId }) => sendTestDigest(orgId, companyId),
   });
 }
 

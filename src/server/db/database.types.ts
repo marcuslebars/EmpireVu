@@ -177,6 +177,7 @@ export interface Database {
           timezone: string | null;
           hours: Json | null;
           service_area: string | null;
+          digest: Json | null;
         };
         Insert: {
           brand_accent_color?: string | null;
@@ -213,6 +214,7 @@ export interface Database {
           timezone?: string | null;
           hours?: Json | null;
           service_area?: string | null;
+          digest?: Json | null;
         };
         Update: {
           brand_accent_color?: string | null;
@@ -249,6 +251,7 @@ export interface Database {
           timezone?: string | null;
           hours?: Json | null;
           service_area?: string | null;
+          digest?: Json | null;
         };
         Relationships: [];
       };
@@ -279,6 +282,42 @@ export interface Database {
           profile_id?: string;
           role?: Database["public"]["Enums"]["company_role"];
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      owner_digest_sends: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          local_date: string;
+          channels_sent: string[];
+          sms_status: string | null;
+          email_status: string | null;
+          detail: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          local_date: string;
+          channels_sent?: string[];
+          sms_status?: string | null;
+          email_status?: string | null;
+          detail?: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          local_date?: string;
+          channels_sent?: string[];
+          sms_status?: string | null;
+          email_status?: string | null;
+          detail?: Json;
+          created_at?: string;
         };
         Relationships: [];
       };
