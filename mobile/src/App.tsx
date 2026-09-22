@@ -13,7 +13,7 @@ import { SignIn } from "@m/screens/auth/SignIn";
 import { SignUp } from "@m/screens/auth/SignUp";
 import { UpdatePassword } from "@m/screens/auth/UpdatePassword";
 import { Shell } from "@m/Shell";
-import { DeviceProvider } from "@m/state/device";
+import { DeviceProvider, useDevice } from "@m/state/device";
 import { NavProvider } from "@m/state/nav";
 import { ScopeProvider } from "@m/state/scope";
 import { SessionProvider, useSession } from "@m/state/session";
@@ -83,6 +83,14 @@ function Gate() {
     );
   }
 
+  if (session.status === "reconnecting") {
+    return (
+      <AuthFrame>
+        <Reconnecting />
+      </AuthFrame>
+    );
+  }
+
   if (session.status !== "signedIn") {
     return (
       <AuthFrame>
@@ -140,6 +148,31 @@ function Gate() {
         <Shell />
       </NavProvider>
     </ScopeProvider>
+  );
+}
+
+/** A session is stored but couldn't be refreshed — offline, not signed out. */
+function Reconnecting() {
+  const session = useSession();
+  const { online } = useDevice();
+  const [trying, setTrying] = useState(false);
+
+  const retry = async () => {
+    setTrying(true);
+    await session.reconnect();
+    setTrying(false);
+  };
+
+  return (
+    <>
+      <div className="h2">{online ? "Can't reach EmpireVu" : "You're offline"}</div>
+      <p className="muted-p">
+        You're still signed in. EmpireVu will reconnect on its own as soon as it can reach the server — no need to sign in again.
+      </p>
+      <Btn variant="secondary" size="md" block loading={trying} onClick={() => void retry()}>
+        Try again
+      </Btn>
+    </>
   );
 }
 

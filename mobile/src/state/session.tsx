@@ -1,15 +1,21 @@
 import { App as CapApp } from "@capacitor/app";
 import type { User } from "@supabase/supabase-js";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { fetchSessionContext, type SessionContext } from "@m/lib/api";
 import { consumeCredentialAuth, handleAuthCallback } from "@m/lib/auth";
 import { authenticate, biometricInfo, clearBiometricOffer, disableBiometrics, getBiometricProfile } from "@m/lib/biometrics";
-import { noteSignedOut, supabase } from "@m/lib/supabase";
+import { noteSignedOut, restoreSession, supabase } from "@m/lib/supabase";
+import { useDevice } from "@m/state/device";
 import { clearStoredScope } from "@m/state/scope";
 
-export type AuthStatus = "loading" | "signedOut" | "locked" | "signedIn";
+/**
+ * `reconnecting`: a session is stored on the device but its expired access token couldn't be
+ * refreshed (no signal, DNS down, auth 5xx). That is not signed out — the app waits for the
+ * network and never shows the sign-in screen for it.
+ */
+export type AuthStatus = "loading" | "reconnecting" | "signedOut" | "locked" | "signedIn";
 
 interface SessionValue {
   status: AuthStatus;
@@ -25,12 +31,17 @@ interface SessionValue {
   linkError: string | null;
   clearLinkError: () => void;
   unlock: () => Promise<boolean>;
+  /** Retry the stored session's refresh now (the offline screen's "Try again"). */
+  reconnect: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
 const SessionContextValue = createContext<SessionValue | null>(null);
 
 const signOutHooks = new Set<() => Promise<void>>();
+/** How often to retry the refresh while reconnecting (auth-js caps real attempts at one a minute). */
+const RECONNECT_INTERVAL_MS = 15_000;
+
 /** Run before the session is dropped (push token revocation needs the token). */
 export function onBeforeSignOut(hook: () => Promise<void>): () => void {
   signOutHooks.add(hook);
@@ -44,14 +55,47 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [recovery, setRecovery] = useState<{ active: boolean; error: string | null }>({ active: false, error: null });
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const { online } = useDevice();
+  const statusRef = useRef(status);
+  statusRef.current = status;
+  const mounted = useRef(true);
+
+  /**
+   * A stored session is usable again after a failed cold-start refresh. It goes through the same
+   * biometric gate as a normal cold start — reconnecting must never skip the lock screen.
+   */
+  const leaveReconnecting = useCallback(async (sessionUser: User) => {
+    setUser(sessionUser);
+    const [profile, info] = await Promise.all([getBiometricProfile(), biometricInfo()]);
+    if (!mounted.current) return;
+    const next: AuthStatus = profile && info.available ? "locked" : "signedIn";
+    setStatus((prev) => (prev === "reconnecting" ? next : prev));
+  }, []);
+
+  const reconnect = useCallback(async () => {
+    const restored = await restoreSession().catch(() => null);
+    if (!mounted.current || !restored || statusRef.current !== "reconnecting") return;
+    if (restored.kind === "session") {
+      await leaveReconnecting(restored.session.user);
+    } else if (restored.kind === "none") {
+      setUser(null);
+      setStatus((prev) => (prev === "reconnecting" ? "signedOut" : prev));
+    }
+  }, [leaveReconnecting]);
 
   useEffect(() => {
-    let cancelled = false;
+    mounted.current = true;
 
     void (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (cancelled) return;
-      const sessionUser = data.session?.user ?? null;
+      // "Couldn't refresh" is not "not signed in": only an empty store or a refresh token the
+      // server rejected ends on the sign-in screen.
+      const restored = await restoreSession().catch(() => ({ kind: "none" }) as const);
+      if (!mounted.current) return;
+      if (restored.kind === "unreachable") {
+        setStatus("reconnecting");
+        return;
+      }
+      const sessionUser = restored.kind === "session" ? restored.session.user : null;
       setUser(sessionUser);
       if (!sessionUser) {
         setStatus("signedOut");
@@ -59,16 +103,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
       // Biometrics on and still available → stay locked until the user unlocks.
       const [profile, info] = await Promise.all([getBiometricProfile(), biometricInfo()]);
-      if (!cancelled) setStatus(profile && info.available ? "locked" : "signedIn");
+      if (mounted.current) setStatus(profile && info.available ? "locked" : "signedIn");
     })();
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_IN") {
         setUser(session?.user ?? null);
         // auth-js replays SIGNED_IN for an already-stored session every time the app returns
-        // to the foreground. Only a real credential sign-in may clear the biometric lock.
+        // to the foreground. Only a real credential sign-in may clear the biometric lock — and a
+        // replay while reconnecting goes through leaveReconnecting's lock check instead.
         const credential = consumeCredentialAuth();
-        setStatus((prev) => (prev === "locked" && !credential ? prev : "signedIn"));
+        setStatus((prev) => ((prev === "locked" || prev === "reconnecting") && !credential ? prev : "signedIn"));
+        if (!credential && session && statusRef.current === "reconnecting") void leaveReconnecting(session.user);
+      } else if (event === "TOKEN_REFRESHED") {
+        setUser(session?.user ?? null);
+        // auth-js's auto-refresh ticker got through after a failed cold-start refresh.
+        if (session && statusRef.current === "reconnecting") void leaveReconnecting(session.user);
       } else if (event === "PASSWORD_RECOVERY") {
         setUser(session?.user ?? null);
         setRecovery({ active: true, error: null });
@@ -77,7 +127,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setUser(null);
         setStatus("signedOut");
         queryClient.clear();
-      } else if (event === "USER_UPDATED" || event === "TOKEN_REFRESHED") {
+      } else if (event === "USER_UPDATED") {
         setUser(session?.user ?? null);
       }
     });
@@ -99,11 +149,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     });
 
     return () => {
-      cancelled = true;
+      mounted.current = false;
       listener.subscription.unsubscribe();
       void urlListener.then((handle) => handle.remove());
     };
-  }, [queryClient]);
+  }, [queryClient, leaveReconnecting]);
+
+  // While reconnecting, retry when the network comes back, when the app returns to the
+  // foreground, and on a timer — the Network plugin can report "connected" while DNS or the
+  // auth server is still unreachable, so a connectivity change alone isn't enough.
+  useEffect(() => {
+    if (status !== "reconnecting") return;
+    const retry = () => void reconnect();
+    if (online) retry();
+    const timer = window.setInterval(retry, RECONNECT_INTERVAL_MS);
+    const resume = CapApp.addListener("resume", retry);
+    return () => {
+      window.clearInterval(timer);
+      void resume.then((handle) => handle.remove());
+    };
+  }, [status, online, reconnect]);
 
   const context = useQuery({
     queryKey: ["session-context", user?.id],
@@ -145,9 +210,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       linkError,
       clearLinkError: () => setLinkError(null),
       unlock,
+      reconnect,
       signOut,
     }),
-    [status, user, context, recovery, inviteToken, linkError, unlock, signOut],
+    [status, user, context, recovery, inviteToken, linkError, unlock, reconnect, signOut],
   );
 
   return <SessionContextValue.Provider value={value}>{children}</SessionContextValue.Provider>;
