@@ -211,6 +211,48 @@ export function fetchAttribution(
   );
 }
 
+// ─── Owner daily digest ────────────────────────────────────────────────────────
+
+export type DigestChannel = "email" | "sms";
+
+export interface DigestSettings {
+  enabled: boolean;
+  sendAtLocal: string;
+  channels: DigestChannel[];
+  alwaysSend: boolean;
+}
+
+export interface DigestTestResult {
+  companyId: string;
+  sent: boolean;
+  quiet: boolean;
+  smsStatus: string | null;
+  emailStatus: string | null;
+  channelsSent: string[];
+}
+
+export function fetchDigestSettings(orgId: string, companyId: string): Promise<DigestSettings> {
+  return apiFetch(buildUrl(`/api/organizations/${orgId}/ui/digest`, { companyId }));
+}
+
+export function updateDigestSettings(
+  orgId: string,
+  companyId: string,
+  patch: Partial<Omit<DigestSettings, "channels">> & { channels?: DigestChannel[] },
+): Promise<DigestSettings> {
+  return apiFetch(`/api/organizations/${orgId}/ui/digest`, {
+    method: "PUT",
+    body: JSON.stringify({ companyId, ...patch }),
+  });
+}
+
+export function sendTestDigest(orgId: string, companyId: string): Promise<DigestTestResult> {
+  return apiFetch(`/api/organizations/${orgId}/ui/digest/test`, {
+    method: "POST",
+    body: JSON.stringify({ companyId }),
+  });
+}
+
 // ─── Calendar ────────────────────────────────────────────────────────────────
 
 export interface UserSummary {
