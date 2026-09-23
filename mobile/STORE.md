@@ -22,7 +22,8 @@ to be done by an owner of the business, not by CI.
 | 5 | APNs auth key (.p8) with its key id and team id | Apple Developer → Keys | iOS push |
 | 6 | Privacy policy URL live | `https://app.empirevu.com/privacy` (ships with PR #95) | both |
 | 7 | Account-deletion URL live | `https://app.empirevu.com/delete-account` (same PR) | Play |
-| 8 | Screenshots on a demo org (see §4) | — | both |
+| 8 | Demo organization + reviewer login (see §1.8) | `npm run job:seed-demo` | both |
+| 9 | Screenshots on that demo org (see §4) | — | both |
 
 ### 3 — the upload key, step by step
 
@@ -44,6 +45,30 @@ Then add four repository secrets in GitHub (Settings → Secrets and variables �
 
 Add `ANDROID_GOOGLE_SERVICES_JSON` (the whole file contents) at the same time — CI now
 **fails** a signed build without it rather than shipping an app whose push silently never works.
+
+### 8 — the demo organization
+
+Both stores require a working login, and both keep it and re-use it on every update.
+A real account hands reviewers real customers — names, phone numbers, message threads —
+and the ability to text someone who never agreed to be part of a store review. Seed a
+self-contained org instead:
+
+```bash
+npm run job:seed-demo -- --email demo@empirevu.com
+```
+
+It creates (or updates) the `empirevu-demo` organization with one company, a price list,
+eight invented customers on 555-01xx numbers and example.com addresses, today's bookings,
+tasks, an inbox with three conversations waiting on a reply, two leads with a drafted
+reply, three quotes (draft / viewed / approved with the deposit paid) and a month of
+automation history. Re-running updates the same rows; `--reset` clears them first.
+
+The password is never a CLI argument — the script reads `DEMO_PASSWORD` or prompts for it
+without echoing. It needs `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`, which
+it will read from `.env` if they are not already in the environment.
+
+Then put that email and password into **Play Console → App content → App access** and
+**App Store Connect → App Review Information**, and take the §4 screenshots signed in as it.
 
 ### 4 and 5 — push credentials
 
