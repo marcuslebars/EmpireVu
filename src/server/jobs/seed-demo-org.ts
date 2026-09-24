@@ -1128,11 +1128,27 @@ async function main(): Promise<number> {
       ],
     });
 
+    // A quote gets its number when it is sent, so a seeded quote that skipped the
+    // send path shows "Draft" where the number belongs — on the paid one too.
+    const quoteNumber = async (): Promise<string> => {
+      const { data, error } = await admin.rpc("next_quote_number", {
+        p_organization_id: organizationId,
+      });
+      if (error) throw error;
+      if (!data) throw new Error("next_quote_number returned no value.");
+      return data;
+    };
+
     // Dana's is still a draft. Marco's has been sent and viewed; Tom's is approved
     // with the deposit paid, which is what puts a number on the money screens.
     const { error: sentError } = await admin
       .from("quotes")
-      .update({ status: "viewed", sent_at: daysAgo(2), first_viewed_at: daysAgo(1) })
+      .update({
+        status: "viewed",
+        quote_number: await quoteNumber(),
+        sent_at: daysAgo(2),
+        first_viewed_at: daysAgo(1),
+      })
       .eq("id", marcoQuote.id);
     if (sentError) throw sentError;
 
@@ -1141,16 +1157,18 @@ async function main(): Promise<number> {
       .update({
         // What checkout.ts sets once Stripe confirms the deposit.
         status: "deposit_paid",
+        quote_number: await quoteNumber(),
         sent_at: daysAgo(5),
         first_viewed_at: daysAgo(5),
-        approved_at: daysAgo(4),
+        approved_at: hoursAgo(26),
         approved_by_name: "Tom Beckett",
         approved_line_items: tomQuote.line_items as Json,
         approved_subtotal_cents: tomQuote.subtotal_cents,
         approved_tax_cents: tomQuote.tax_cents,
         approved_total_cents: tomQuote.total_cents,
         approved_deposit_cents: tomQuote.deposit_cents,
-        deposit_paid_at: daysAgo(4),
+        // Today, so "Revenue today" on the Command Center is a real number.
+        deposit_paid_at: hoursAgo(3),
         terms_accepted: true,
       })
       .eq("id", tomQuote.id);
