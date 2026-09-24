@@ -642,12 +642,28 @@ async function main(): Promise<number> {
 
   // ── price list ─────────────────────────────────────────────────────────────
   {
+    // Every row carries every column, defaults included. A multi-row upsert aligns
+    // its columns across the whole batch, so a key present on one row and absent on
+    // another is sent as NULL for the others — which is how an omitted
+    // `surcharge_eligible` became a not-null violation rather than a default.
     const rows = CATALOG.map((item) => ({
       ...item,
       id: demoId(`catalog:${item.service_key}`),
       company_id: companyId,
       organization_id: organizationId,
       active: true,
+      description: item.description ?? null,
+      unit_label: item.unit_label ?? null,
+      additional_unit_multiplier: item.additional_unit_multiplier ?? null,
+      max_quantity: item.max_quantity ?? null,
+      max_measure: item.max_measure ?? null,
+      tiers: item.tiers ?? null,
+      rate_bands: item.rate_bands ?? null,
+      modifier_groups: item.modifier_groups ?? null,
+      review_rules: item.review_rules ?? null,
+      surcharge_eligible: item.surcharge_eligible ?? false,
+      sort_order: item.sort_order ?? 0,
+      minimum_cents: item.minimum_cents ?? 0,
     }));
     const { error } = await admin
       .from("service_catalog_items")
