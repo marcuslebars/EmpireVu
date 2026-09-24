@@ -128,10 +128,7 @@ function flag(name: string): string | null {
  * CLI flag: arguments end up in shell history and in `ps` output, and this password
  * gets pasted into Play Console where it lives indefinitely.
  */
-function readPassword(): Promise<string> {
-  const fromEnv = process.env.DEMO_PASSWORD;
-  if (fromEnv) return Promise.resolve(fromEnv);
-
+function readPassword(prompt: string): Promise<string> {
   const stdin = process.stdin;
   if (!stdin.isTTY) {
     return Promise.reject(
@@ -140,7 +137,7 @@ function readPassword(): Promise<string> {
   }
 
   return new Promise<string>((resolvePassword, reject) => {
-    process.stdout.write("Password for the demo account (not echoed): ");
+    process.stdout.write(prompt);
     stdin.setRawMode(true);
     stdin.resume();
     stdin.setEncoding("utf8");
@@ -175,6 +172,27 @@ function readPassword(): Promise<string> {
 
     stdin.on("data", onData);
   });
+}
+
+/**
+ * Ask twice and compare. A password typed once and never echoed is a password you
+ * find out was mistyped at the sign-in screen, several minutes later, with no way
+ * to tell a typo from a broken seed — which is exactly what happened the first
+ * time this ran.
+ */
+async function promptForPassword(): Promise<string> {
+  const fromEnv = process.env.DEMO_PASSWORD;
+  if (fromEnv) return fromEnv;
+
+  const first = await readPassword("Password for the demo account (not echoed): ");
+  const second = await readPassword("Type it again to confirm: ");
+
+  if (first !== second) {
+    throw new Error("The two passwords do not match — nothing was changed. Run it again.");
+  }
+
+  log(`password accepted (${first.length} characters)`);
+  return first;
 }
 
 // ── the invented customers ────────────────────────────────────────────────────
@@ -526,7 +544,7 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  const password = await readPassword();
+  const password = await promptForPassword();
   if (password.length < 12) {
     console.error("That password is under 12 characters. Play stores it indefinitely — use a long one.");
     return 1;
