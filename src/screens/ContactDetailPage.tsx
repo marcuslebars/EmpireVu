@@ -11,6 +11,7 @@ import type { ContactDetailResponse } from "@/lib/api-client";
 import { useContactDetailController } from "@/hooks/useContactDetail";
 import { Header, EditContactDialog } from "@/components/contact/Header";
 import { Timeline } from "@/components/contact/Timeline";
+import { CallRecordings } from "@/components/contact/CallRecordings";
 import { BookingsPanel, CreateBookingDialog } from "@/components/contact/BookingsPanel";
 import { TasksPanel, CreateTaskDialog } from "@/components/contact/TasksPanel";
 import { QuotesPanel } from "@/components/contact/QuotesPanel";
@@ -70,6 +71,7 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
     { key: "bookings", label: "Bookings", count: linkedBookings.length },
     { key: "tasks", label: "Tasks", count: linkedTasks.length },
     { key: "quotes", label: "Quotes", count: linkedQuotes.length },
+    { key: "calls", label: "Calls" },
     { key: "comments", label: "Comments", count: detail.comments.length },
     { key: "financials", label: "Financials" },
     { key: "workflows", label: "Workflows", count: workflowTraces.length },
@@ -165,6 +167,8 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
         {ctl.activeTab === "tasks" && <TasksPanel tasks={linkedTasks} onNew={() => ctl.setTaskOpen(true)} />}
 
         {ctl.activeTab === "quotes" && <QuotesPanel quotes={linkedQuotes} />}
+
+        {ctl.activeTab === "calls" && <CallRecordings orgId={orgId} contactId={contact.id} />}
 
         {ctl.activeTab === "financials" && (
           <div className="space-y-4">

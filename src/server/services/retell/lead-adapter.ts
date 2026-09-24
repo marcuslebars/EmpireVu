@@ -60,6 +60,7 @@ export interface RetellCallFields {
   toNumber: string | null;
   transcript: string | null;
   transcriptObject: unknown;
+  recordingUrl: string | null;
   callSummary: string | null;
   userSentiment: string | null;
   callSuccessful: boolean | null;
@@ -158,6 +159,7 @@ export function readRetellCallFields(payload: unknown): RetellCallFields {
     toNumber: readString(call, ["to_number", "to"]),
     transcript: readString(call, ["transcript"]),
     transcriptObject: readPath(call, "transcript_object") ?? null,
+    recordingUrl: readString(call, ["recording_url", "recordingUrl"]),
     callSummary: readString(call, ["call_analysis.call_summary"]),
     userSentiment: readString(call, ["call_analysis.user_sentiment"]),
     callSuccessful: readBoolean(call, ["call_analysis.call_successful"]),
@@ -194,6 +196,7 @@ export function readRetellFunctionFields(payload: unknown): RetellCallFields {
     toNumber: readString(call, ["to_number", "to"]),
     transcript: null,
     transcriptObject: null,
+    recordingUrl: readString(call, ["recording_url", "recordingUrl"]),
     callSummary: readString(args, ["summary", "notes", "call_summary"]),
     userSentiment: null,
     callSuccessful: null,
@@ -313,6 +316,7 @@ async function upsertRetellCall(
     caller_phone_last10: normalizePhoneLast10(fields.fromNumber),
     transcript: fields.transcript,
     transcript_object: (fields.transcriptObject ?? null) as Json,
+    recording_url: fields.recordingUrl,
     call_summary: fields.callSummary,
     user_sentiment: fields.userSentiment,
     call_successful: fields.callSuccessful,

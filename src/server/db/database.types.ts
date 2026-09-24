@@ -1313,6 +1313,7 @@ export interface Database {
           to_number: string | null;
           transcript: string | null;
           transcript_object: Json | null;
+          recording_url: string | null;
           updated_at: string;
           user_sentiment: string | null;
           call_cost_cents: number | null;
@@ -1346,6 +1347,7 @@ export interface Database {
           to_number?: string | null;
           transcript?: string | null;
           transcript_object?: Json | null;
+          recording_url?: string | null;
           updated_at?: string;
           user_sentiment?: string | null;
           call_cost_cents?: number | null;
@@ -1379,6 +1381,7 @@ export interface Database {
           to_number?: string | null;
           transcript?: string | null;
           transcript_object?: Json | null;
+          recording_url?: string | null;
           updated_at?: string;
           user_sentiment?: string | null;
           call_cost_cents?: number | null;

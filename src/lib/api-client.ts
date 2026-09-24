@@ -1170,6 +1170,32 @@ export function syncContactCalls(orgId: string, contactId: string): Promise<{ sy
   });
 }
 
+// ─── Call recordings & transcripts ─────────────────────────────────────────────
+
+export interface CallTranscriptSegment {
+  role: string;
+  content: string;
+}
+
+export interface ContactCall {
+  id: string;
+  callId: string;
+  direction: string | null;
+  startedAt: string | null;
+  durationSeconds: number | null;
+  summary: string | null;
+  sentiment: string | null;
+  inVoicemail: boolean;
+  recordingUrl: string | null;
+  transcript: string | null;
+  segments: CallTranscriptSegment[];
+}
+
+/** This contact's Marina calls — recording URL + transcript, newest first. */
+export function fetchContactCalls(orgId: string, contactId: string): Promise<ContactCall[]> {
+  return apiFetch(`/api/organizations/${orgId}/contacts/${contactId}/calls`);
+}
+
 /** Places an ad-hoc call to a raw number with Marina — no contact record needed. */
 export function startQuickCall(
   orgId: string,
