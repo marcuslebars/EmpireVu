@@ -128,10 +128,7 @@ function flag(name: string): string | null {
  * CLI flag: arguments end up in shell history and in `ps` output, and this password
  * gets pasted into Play Console where it lives indefinitely.
  */
-function readPassword(): Promise<string> {
-  const fromEnv = process.env.DEMO_PASSWORD;
-  if (fromEnv) return Promise.resolve(fromEnv);
-
+function readPassword(prompt: string): Promise<string> {
   const stdin = process.stdin;
   if (!stdin.isTTY) {
     return Promise.reject(
@@ -140,7 +137,7 @@ function readPassword(): Promise<string> {
   }
 
   return new Promise<string>((resolvePassword, reject) => {
-    process.stdout.write("Password for the demo account (not echoed): ");
+    process.stdout.write(prompt);
     stdin.setRawMode(true);
     stdin.resume();
     stdin.setEncoding("utf8");
@@ -175,6 +172,27 @@ function readPassword(): Promise<string> {
 
     stdin.on("data", onData);
   });
+}
+
+/**
+ * Ask twice and compare. A password typed once and never echoed is a password you
+ * find out was mistyped at the sign-in screen, several minutes later, with no way
+ * to tell a typo from a broken seed — which is exactly what happened the first
+ * time this ran.
+ */
+async function promptForPassword(): Promise<string> {
+  const fromEnv = process.env.DEMO_PASSWORD;
+  if (fromEnv) return fromEnv;
+
+  const first = await readPassword("Password for the demo account (not echoed): ");
+  const second = await readPassword("Type it again to confirm: ");
+
+  if (first !== second) {
+    throw new Error("The two passwords do not match — nothing was changed. Run it again.");
+  }
+
+  log(`password accepted (${first.length} characters)`);
+  return first;
 }
 
 // ── the invented customers ────────────────────────────────────────────────────
@@ -526,7 +544,7 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  const password = await readPassword();
+  const password = await promptForPassword();
   if (password.length < 12) {
     console.error("That password is under 12 characters. Play stores it indefinitely — use a long one.");
     return 1;
@@ -642,12 +660,28 @@ async function main(): Promise<number> {
 
   // ── price list ─────────────────────────────────────────────────────────────
   {
+    // Every row carries every column, defaults included. A multi-row upsert aligns
+    // its columns across the whole batch, so a key present on one row and absent on
+    // another is sent as NULL for the others — which is how an omitted
+    // `surcharge_eligible` became a not-null violation rather than a default.
     const rows = CATALOG.map((item) => ({
       ...item,
       id: demoId(`catalog:${item.service_key}`),
       company_id: companyId,
       organization_id: organizationId,
       active: true,
+      description: item.description ?? null,
+      unit_label: item.unit_label ?? null,
+      additional_unit_multiplier: item.additional_unit_multiplier ?? null,
+      max_quantity: item.max_quantity ?? null,
+      max_measure: item.max_measure ?? null,
+      tiers: item.tiers ?? null,
+      rate_bands: item.rate_bands ?? null,
+      modifier_groups: item.modifier_groups ?? null,
+      review_rules: item.review_rules ?? null,
+      surcharge_eligible: item.surcharge_eligible ?? false,
+      sort_order: item.sort_order ?? 0,
+      minimum_cents: item.minimum_cents ?? 0,
     }));
     const { error } = await admin
       .from("service_catalog_items")
@@ -1094,11 +1128,27 @@ async function main(): Promise<number> {
       ],
     });
 
+    // A quote gets its number when it is sent, so a seeded quote that skipped the
+    // send path shows "Draft" where the number belongs — on the paid one too.
+    const quoteNumber = async (): Promise<string> => {
+      const { data, error } = await admin.rpc("next_quote_number", {
+        p_organization_id: organizationId,
+      });
+      if (error) throw error;
+      if (!data) throw new Error("next_quote_number returned no value.");
+      return data;
+    };
+
     // Dana's is still a draft. Marco's has been sent and viewed; Tom's is approved
     // with the deposit paid, which is what puts a number on the money screens.
     const { error: sentError } = await admin
       .from("quotes")
-      .update({ status: "viewed", sent_at: daysAgo(2), first_viewed_at: daysAgo(1) })
+      .update({
+        status: "viewed",
+        quote_number: await quoteNumber(),
+        sent_at: daysAgo(2),
+        first_viewed_at: daysAgo(1),
+      })
       .eq("id", marcoQuote.id);
     if (sentError) throw sentError;
 
@@ -1107,16 +1157,18 @@ async function main(): Promise<number> {
       .update({
         // What checkout.ts sets once Stripe confirms the deposit.
         status: "deposit_paid",
+        quote_number: await quoteNumber(),
         sent_at: daysAgo(5),
         first_viewed_at: daysAgo(5),
-        approved_at: daysAgo(4),
+        approved_at: hoursAgo(26),
         approved_by_name: "Tom Beckett",
         approved_line_items: tomQuote.line_items as Json,
         approved_subtotal_cents: tomQuote.subtotal_cents,
         approved_tax_cents: tomQuote.tax_cents,
         approved_total_cents: tomQuote.total_cents,
         approved_deposit_cents: tomQuote.deposit_cents,
-        deposit_paid_at: daysAgo(4),
+        // Today, so "Revenue today" on the Command Center is a real number.
+        deposit_paid_at: hoursAgo(3),
         terms_accepted: true,
       })
       .eq("id", tomQuote.id);
