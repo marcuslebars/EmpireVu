@@ -545,7 +545,9 @@ async function main(): Promise<number> {
         slug: orgSlug,
         billing_email: email,
         created_by: profileId,
-        plan: "pro",
+        // 'operate' is a real plan on organizations_plan_check, and it unlocks the
+        // workflows and sequences a reviewer needs to see. 'pro' is not a plan here.
+        plan: "operate",
         subscription_status: "active",
       } satisfies Inserts<"organizations">,
       { onConflict: "id" },
@@ -1103,7 +1105,8 @@ async function main(): Promise<number> {
     const { error: approvedError } = await admin
       .from("quotes")
       .update({
-        status: "approved",
+        // What checkout.ts sets once Stripe confirms the deposit.
+        status: "deposit_paid",
         sent_at: daysAgo(5),
         first_viewed_at: daysAgo(5),
         approved_at: daysAgo(4),
