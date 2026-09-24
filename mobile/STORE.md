@@ -92,12 +92,12 @@ Until these are set the app works normally and simply sends no pushes.
 **App name (30):** EmpireVu
 
 **Short description (80):**
-> Leads, jobs, quotes and crew — the whole marina day, from your phone.
+> Leads, jobs, quotes and crew — your whole working day, from your phone.
 
 **Full description (4000):**
 
-> EmpireVu is the operations app for marine and field-service businesses — detailing, storage,
-> coatings, and the crews who do the work.
+> EmpireVu is the operations app for service businesses — trades and field service, studios,
+> agencies, and anyone who quotes work, books it, and sends someone out to do it.
 >
 > **One inbox for every conversation.** Calls, texts, emails and web enquiries land in a single
 > queue, with the ones waiting on a reply at the top. Nothing sits unanswered because it came
@@ -107,14 +107,14 @@ Until these are set the app works normally and simply sends no pushes.
 > voice. You read it, change what you want, and send it — nothing reaches a customer until you
 > approve it.
 >
-> **Quotes that price themselves.** Pick services from your catalog, enter the boat length, and
-> the total comes back from your own pricing rules — per foot, per engine, tiered, bundled. Send
-> it and take the deposit through Stripe.
+> **Quotes that price themselves.** Pick services from your catalog, enter the size of the job,
+> and the total comes back from your own pricing rules — flat, per unit, per hour, by measured
+> size, tiered or bundled. Send it and take the deposit through Stripe.
 >
-> **The day's jobs, and the crew on them.** See what's booked, who's assigned and where the
+> **The day's jobs, and the people on them.** See what's booked, who's assigned and where the
 > conflicts are. Reschedule from the calendar, assign a task, and everyone sees it.
 >
-> **Photos from the job, even with no signal.** Shoot before-and-after photos on the boat; they
+> **Photos from the job, even with no signal.** Shoot before-and-after photos on site; they
 > upload themselves when you're back in coverage and file against the booking.
 >
 > **Voice notes become tasks.** Talk, and the note turns into a task on the right job. Speech is
@@ -126,7 +126,7 @@ Until these are set the app works normally and simply sends no pushes.
 > EmpireVu requires an account. It is sold to businesses; plans and billing are managed on the
 > web.
 
-**Category:** Business · **Tags:** business management, CRM, field service
+**Category:** Business · **Tags:** business management, CRM, field service, scheduling
 **Contact:** hello@empirevu.com · **Privacy policy:** https://app.empirevu.com/privacy
 
 ### Data safety form
@@ -161,8 +161,8 @@ audience 18+. Expect "Everyone" / PEGI 3.
 
 ## 3. App Store Connect listing
 
-**Name:** EmpireVu · **Subtitle (30):** Run the marina day
-**Keywords (100):** marine,boat,detailing,storage,field service,crm,quotes,scheduling,leads,crew
+**Name:** EmpireVu · **Subtitle (30):** Run the working day
+**Keywords (100):** field service,crm,quotes,estimates,scheduling,jobs,leads,booking,crew,dispatch
 **Support URL:** https://empirevu.com · **Privacy policy:** https://app.empirevu.com/privacy
 **Description:** reuse the Play full description above.
 
@@ -174,14 +174,14 @@ all "App Functionality", **none** used for tracking. This matches `ios/App/App/P
 
 **Review notes — this is what gets apps rejected, so be explicit:**
 
-> EmpireVu is sold to marine-services businesses and requires an account tied to an
+> EmpireVu is sold to service businesses and requires an account tied to an
 > organization. Demo account: <email> / <password>. It has an organization with sample leads,
 > bookings and quotes so every screen has data.
 >
 > Billing is deliberately read-only in the app: plans are purchased on the web, and nothing
 > inside the app unlocks digital content. Stripe is used only for deposits on real-world
-> services (boat detailing, winter storage), which Guideline 3.1.3(e) permits outside in-app
-> purchase.
+> services performed off the app (the demo organization shows boat detailing and storage),
+> which Guideline 3.1.3(e) permits outside in-app purchase.
 >
 > Account deletion is in the app at More → Settings → Delete account.
 
