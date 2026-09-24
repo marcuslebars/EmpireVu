@@ -465,7 +465,11 @@ async function ensureDemoUser(admin: Admin, email: string, password: string): Pr
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
     if (error) throw error;
 
-    const match = data.users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+    // Under the SPA tsconfig the GoTrue listUsers result infers `users` as never[], so type
+    // the row explicitly. (Only email/id are read here.)
+    const match = data.users.find(
+      (u: { id: string; email?: string | null }) => u.email?.toLowerCase() === email.toLowerCase(),
+    );
     if (match) {
       const { error: updateError } = await admin.auth.admin.updateUserById(match.id, {
         password,
