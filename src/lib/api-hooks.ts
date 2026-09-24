@@ -59,6 +59,8 @@ import {
   startContactCall,
   startQuickCall,
   syncContactCalls,
+  fetchContactCalls,
+  type ContactCall,
   updateAIDraft,
   type UpdateAIDraftInput,
   type UpdateContactFields,
@@ -249,6 +251,15 @@ export function useContactDetail(orgId: string, contactId: string | null) {
     queryFn: () => fetchContactDetail(orgId, contactId!),
     enabled: Boolean(contactId),
     staleTime: 10_000,
+  });
+}
+
+export function useContactCalls(orgId: string, contactId: string | null) {
+  return useQuery<ContactCall[]>({
+    queryKey: ["crm", "contact", "calls", orgId, contactId],
+    queryFn: () => fetchContactCalls(orgId, contactId!),
+    enabled: Boolean(orgId && contactId),
+    staleTime: 30_000,
   });
 }
 
