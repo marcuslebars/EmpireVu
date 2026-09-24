@@ -24,6 +24,8 @@ npm run gen:types
 - **remote** — when `SUPABASE_PROJECT_REF` is set (also needs `SUPABASE_ACCESS_TOKEN`): introspects the linked hosted project (`supabase gen types typescript --project-id <ref>`).
 - **local** — otherwise: introspects the local dev stack (`supabase gen types typescript --local`); start it first with `supabase start`.
 
+**No Docker? Use `npm run gen:types:remote`** — it loads `SUPABASE_PROJECT_REF` + `SUPABASE_ACCESS_TOKEN` from a git-ignored `.env.local` (see `.env.example`) and runs remote mode, so you don't pass them each time and never need a local Supabase/Docker. Plain `npm run gen:types` still works when those vars are already exported or the local stack is up.
+
 The script prefers a `supabase` on `PATH` and falls back to `npx supabase`, so no global install is required. Commit the regenerated file; the CI drift check (above) keeps it honest once the Supabase secrets are configured.
 
 ## Read models (/ui/*)
