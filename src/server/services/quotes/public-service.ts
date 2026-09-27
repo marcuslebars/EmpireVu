@@ -54,6 +54,8 @@ export interface PublicQuote {
   depositCents: number;
   taxRateBps: number;
   depositRateBps: number;
+  /** Fixed deposit policy, when the quote was issued under one (null = percentage). */
+  depositFlatCents: number | null;
   /** Frozen at approval; present only once approved. */
   approvedByName: string | null;
   approvedAt: string | null;
@@ -177,6 +179,7 @@ function shape(row: Db, company: Db | null, state: QuotePageState): PublicQuote 
     depositCents: row.approved_deposit_cents ?? row.deposit_cents,
     taxRateBps: row.tax_rate_bps,
     depositRateBps: row.deposit_rate_bps,
+    depositFlatCents: row.deposit_flat_cents ?? null,
     approvedByName: row.approved_by_name ?? null,
     approvedAt: row.approved_at ?? null,
     depositPaidAt: row.deposit_paid_at ?? null,
@@ -253,6 +256,9 @@ export async function repriceForSelection(
     bundleId: snap.bundleId ?? undefined,
     taxRateBps: row.tax_rate_bps,
     depositRateBps: row.deposit_rate_bps,
+    // The policy the quote was ISSUED under — never the company's current one, so a
+    // policy change can't move the deposit on a quote the customer already holds.
+    depositFlatCents: row.deposit_flat_cents ?? null,
   });
 }
 

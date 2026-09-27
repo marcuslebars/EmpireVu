@@ -15,7 +15,7 @@
  *    the balance without the customer present.
  *
  * 2. `tax_behavior` must be 'inclusive'. Our deposit is 25% of the TAX-INCLUSIVE
- *    total, so the amount we charge already contains the HST. Declaring it
+ *    total (or a fixed amount taken against it), so the amount we charge already contains the HST. Declaring it
  *    'exclusive' would make Stripe Tax add HST a second time, and the customer
  *    would be charged more than the page showed. With 'inclusive', Stripe
  *    back-computes the tax within the amount and the charged total equals
@@ -152,8 +152,11 @@ async function ensureContactCustomer(
 }
 
 function depositDescription(quote: Db): string {
-  const pct = Math.round((quote.deposit_rate_bps ?? 2500) / 100);
   const ref = quote.quote_number ? ` (${quote.quote_number})` : "";
+  // A fixed deposit is not "25%" of anything — naming a percentage the customer
+  // can't reconcile against the quote is how disputes start.
+  if (quote.deposit_flat_cents) return `Booking deposit — comes off the final invoice${ref}`;
+  const pct = Math.round((quote.deposit_rate_bps ?? 2500) / 100);
   return `${pct}% booking deposit${ref}`;
 }
 

@@ -51,7 +51,7 @@ describe("resolveRetellTenant", () => {
       legacySourceSite: "a1marinestorage",
     });
     // sourceSite tag derived from the company slug.
-    expect(tenant).toEqual({ organizationId: "org-1", companyId: "co-1", sourceSite: "a1marinecare" });
+    expect(tenant).toEqual({ organizationId: "org-1", companyId: "co-1", sourceSite: "a1marinecare", resolvedBy: "number" });
   });
 
   it("falls back to the agent id when the number isn't mapped", async () => {
@@ -68,7 +68,7 @@ describe("resolveRetellTenant", () => {
       agentId: "agent_x",
       legacySourceSite: "a1marinestorage",
     });
-    expect(tenant).toEqual({ organizationId: "org-2", companyId: "co-2", sourceSite: "a1coatings" });
+    expect(tenant).toEqual({ organizationId: "org-2", companyId: "co-2", sourceSite: "a1coatings", resolvedBy: "agent" });
   });
 
   it("falls back to the legacy env brand when neither number nor agent maps", async () => {
@@ -83,7 +83,7 @@ describe("resolveRetellTenant", () => {
       agentId: null,
       legacySourceSite: "a1marinestorage",
     });
-    expect(tenant).toEqual({ organizationId: "org-legacy", companyId: "co-legacy", sourceSite: "a1marinestorage" });
+    expect(tenant).toEqual({ organizationId: "org-legacy", companyId: "co-legacy", sourceSite: "a1marinestorage", resolvedBy: "legacy" });
   });
 
   it("returns a null company for a fully unmapped call (intake then stores raw + flags it)", async () => {
@@ -99,5 +99,6 @@ describe("resolveRetellTenant", () => {
     });
     expect(tenant.companyId).toBeNull();
     expect(tenant.organizationId).toBe("org-legacy");
+    expect(tenant.resolvedBy).toBe("legacy");
   });
 });

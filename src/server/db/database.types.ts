@@ -160,6 +160,7 @@ export interface Database {
           organization_id: string;
           owner_email: string | null;
           owner_phone_e164: string | null;
+          quote_deposit_flat_cents: number | null
           quote_terms_text: string | null;
           slug: string;
           stage: Database["public"]["Enums"]["company_stage"];
@@ -197,6 +198,7 @@ export interface Database {
           organization_id: string;
           owner_email?: string | null;
           owner_phone_e164?: string | null;
+          quote_deposit_flat_cents?: number | null
           quote_terms_text?: string | null;
           slug: string;
           stage?: Database["public"]["Enums"]["company_stage"];
@@ -234,6 +236,7 @@ export interface Database {
           organization_id?: string;
           owner_email?: string | null;
           owner_phone_e164?: string | null;
+          quote_deposit_flat_cents?: number | null
           quote_terms_text?: string | null;
           slug?: string;
           stage?: Database["public"]["Enums"]["company_stage"];
@@ -1415,6 +1418,7 @@ export interface Database {
           created_by: string | null;
           currency: string;
           deposit_cents: number;
+          deposit_flat_cents: number | null
           deposit_paid_at: string | null;
           deposit_rate_bps: number;
           expires_at: string | null;
@@ -1470,6 +1474,7 @@ export interface Database {
           created_by?: string | null;
           currency?: string;
           deposit_cents?: number;
+          deposit_flat_cents?: number | null
           deposit_paid_at?: string | null;
           deposit_rate_bps?: number;
           expires_at?: string | null;
@@ -1525,6 +1530,7 @@ export interface Database {
           created_by?: string | null;
           currency?: string;
           deposit_cents?: number;
+          deposit_flat_cents?: number | null
           deposit_paid_at?: string | null;
           deposit_rate_bps?: number;
           expires_at?: string | null;
@@ -1681,6 +1687,7 @@ export interface Database {
         Row: {
           active: boolean;
           additional_unit_multiplier: number | null;
+          additional_unit_rounding: string
           company_id: string;
           created_at: string;
           description: string | null;
@@ -1705,6 +1712,7 @@ export interface Database {
         Insert: {
           active?: boolean;
           additional_unit_multiplier?: number | null;
+          additional_unit_rounding?: string
           company_id: string;
           created_at?: string;
           description?: string | null;
@@ -1729,6 +1737,7 @@ export interface Database {
         Update: {
           active?: boolean;
           additional_unit_multiplier?: number | null;
+          additional_unit_rounding?: string
           company_id?: string;
           created_at?: string;
           description?: string | null;

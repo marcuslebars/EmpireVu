@@ -139,6 +139,8 @@ Use these in Automations to, say, text a missed caller back or start a `wait`-ba
    `https://api.empirevu.com/api/retell/functions/capture-lead`, sending the header
    `x-empirevu-retell-secret: <RETELL_FUNCTION_SECRET>`, with arguments mirroring the field names
    above. The agent calls it once it has the caller's number + a service interest.
+3. **Marina's quote / booking / deposit tools and the returning-caller webhook** — see
+   [marina-tools.md](marina-tools.md).
 
 ## Apply the migration
 

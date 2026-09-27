@@ -8,7 +8,8 @@
  *     charge time),
  *   • the tax-inclusive total, and
  *   • the booking deposit = depositRate × total, round-half-up, never above the
- *     total.
+ *     total — or, for a tenant with a fixed-deposit policy (A1 Marine Care holds
+ *     a date with $250), that flat amount, still never above the total.
  *
  * Two things the catalog cannot express, added here:
  *   • OPTIONAL lines. The customer ticks them on the hosted page and the totals
@@ -31,7 +32,7 @@
  *
  * Money is integer cents throughout; callers round only at display.
  */
-import { loadCatalog } from "./catalog-repo";
+import { loadCatalog, loadDepositFlatCents } from "./catalog-repo";
 import {
   priceFromCatalog,
   type CatalogLineInput,
@@ -79,6 +80,13 @@ export interface QuotePricingInput {
   /** Overrides; default from config (HST 13%, deposit 25%). */
   taxRateBps?: number;
   depositRateBps?: number;
+  /**
+   * A fixed deposit in cents, replacing the percentage (capped at the total).
+   * null = percentage. In priceQuoteForCompany, `undefined` means "use the
+   * company's policy"; an explicit null or number (a stored quote's frozen
+   * policy) is honoured as given.
+   */
+  depositFlatCents?: number | null;
 }
 
 export interface QuotePricedLineItem {
@@ -104,6 +112,8 @@ export interface QuotePricing {
   taxCents: number;
   totalCents: number;
   depositRateBps: number;
+  /** The fixed-deposit policy that sized depositCents; null when it was the percentage. */
+  depositFlatCents: number | null;
   depositCents: number;
 }
 
@@ -177,7 +187,14 @@ export function priceQuote(input: QuotePricingInput): QuotePricing {
   const subtotalCents = (priced?.subtotalCents ?? 0) + selectedCustomCents;
   const taxCents = roundHalfUpDiv(subtotalCents * taxRateBps, 10_000);
   const totalCents = subtotalCents + taxCents;
-  const depositCents = Math.min(totalCents, roundHalfUpDiv(totalCents * depositRateBps, 10_000));
+  const depositFlatCents =
+    typeof input.depositFlatCents === "number" && Number.isInteger(input.depositFlatCents) && input.depositFlatCents > 0
+      ? input.depositFlatCents
+      : null;
+  const depositCents = Math.min(
+    totalCents,
+    depositFlatCents ?? roundHalfUpDiv(totalCents * depositRateBps, 10_000),
+  );
 
   const lineItems: QuotePricedLineItem[] = [
     ...(priced?.lines ?? []).map((l, i) => ({
@@ -228,6 +245,7 @@ export function priceQuote(input: QuotePricingInput): QuotePricing {
     taxCents,
     totalCents,
     depositRateBps,
+    depositFlatCents,
     depositCents,
   };
 }
@@ -243,6 +261,10 @@ export async function priceQuoteForCompany(
   companyId: string,
   input: Omit<QuotePricingInput, "catalog">,
 ): Promise<QuotePricing> {
-  const catalog = await loadCatalog(companyId);
-  return priceQuote({ ...input, catalog });
+  const [catalog, companyFlat] = await Promise.all([
+    loadCatalog(companyId),
+    input.depositFlatCents === undefined ? loadDepositFlatCents(companyId) : Promise.resolve(null),
+  ]);
+  const depositFlatCents = input.depositFlatCents === undefined ? companyFlat : input.depositFlatCents;
+  return priceQuote({ ...input, catalog, depositFlatCents });
 }
