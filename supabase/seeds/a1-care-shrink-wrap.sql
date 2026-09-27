@@ -8,12 +8,14 @@
 --   • winterization per engine: outboard $275, sterndrive $400, inboard $445;
 --     additional engines at 75%, rounded to the CENT ($333.75, not $334)
 --   • a flat $250 deposit holds the date and comes off the final invoice
+--   • booking by half-day window: 2 wraps per morning / afternoon, Mon–Sat, 24 h notice
 -- Golden cases: src/test/marina-phone-quote.test.ts. Change a rate here and there together.
 --
 -- Additive and re-runnable: upserts on (company_id, service_key) / (company_id, variant_key).
 -- Care's existing items are all surcharge_eligible = false, so adding the hull surcharges
 -- below cannot move any of their prices.
--- Requires migration 20260927120000_marina_phone_quote.sql.
+-- Requires migration 20260927120000_marina_phone_quote.sql (and 20260928120000_marina_booking_windows.sql
+-- for the booking policy).
 
 do $$
 declare
@@ -52,4 +54,29 @@ begin
   on conflict (company_id, variant_key) do update set label = excluded.label, per_measure_cents = excluded.per_measure_cents, active = true;
 
   update public.companies set quote_deposit_flat_cents = 25000 where id = v_company;
+
+  -- Half-day windows, 2 wraps each, Mon–Sat, a day's notice, three weeks out — the Care
+  -- site's SHRINK_WRAP_* defaults. Needs migration 20260928120000_marina_booking_windows.sql;
+  -- skipped (with a notice) until it has been applied.
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'companies' and column_name = 'booking_policy'
+  ) then
+    execute $q$
+      update public.companies set booking_policy = '{
+        "mode": "windows",
+        "windows": [
+          {"key": "morning",   "start": "09:00", "durationMinutes": 180, "spoken": "in the morning"},
+          {"key": "afternoon", "start": "13:00", "durationMinutes": 180, "spoken": "in the afternoon"}
+        ],
+        "capacityPerWindow": 2,
+        "leadTimeHours": 24,
+        "horizonDays": 21,
+        "workingDays": [1, 2, 3, 4, 5, 6]
+      }'::jsonb
+      where id = $1
+    $q$ using v_company;
+  else
+    raise notice 'companies.booking_policy not present yet; apply 20260928120000_marina_booking_windows.sql and re-run';
+  end if;
 end $$;
