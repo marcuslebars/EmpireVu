@@ -54,6 +54,7 @@ export interface QuoteRow {
   deposit_cents: number;
   tax_rate_bps: number;
   deposit_rate_bps: number;
+  deposit_flat_cents: number | null;
   bundle_id: string | null;
   input_snapshot: unknown;
   notes: string | null;
@@ -114,6 +115,7 @@ function pricedColumns(pricing: QuotePricing) {
     deposit_cents: pricing.depositCents,
     tax_rate_bps: pricing.taxRateBps,
     deposit_rate_bps: pricing.depositRateBps,
+    deposit_flat_cents: pricing.depositFlatCents,
     bundle_id: pricing.bundleId,
   };
 }

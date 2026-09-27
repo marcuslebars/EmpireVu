@@ -75,6 +75,12 @@ export interface CatalogItem {
   minimumCents: number;
   unitLabel?: string | null;
   additionalUnitMultiplier?: number | null;
+  /**
+   * per_unit_declining: how each additional unit's price is rounded. 'dollar' (the
+   * default) is the engine behaviour the golden fixtures pin; 'cent' keeps a tenant's
+   * existing to-the-cent prices ($445 x 0.75 = $333.75, not $334).
+   */
+  additionalUnitRounding?: "dollar" | "cent" | null;
   tiers?: CatalogTier[] | null;
   /** per_measure_banded: the rate changes by band; the per-measure math does not. */
   rateBands?: RateBand[] | null;
@@ -187,8 +193,10 @@ export const money = {
    * golden fixtures depend on it — changing it would silently reprice every
    * multi-engine quote.
    */
-  additionalUnit: (baseRateCents: number, multiplier: number) =>
-    Math.round((baseRateCents * multiplier) / 100) * 100,
+  additionalUnit: (baseRateCents: number, multiplier: number, rounding: "dollar" | "cent" = "dollar") =>
+    rounding === "cent"
+      ? Math.round(baseRateCents * multiplier)
+      : Math.round((baseRateCents * multiplier) / 100) * 100,
   format: (cents: number) => {
     const sign = cents < 0 ? "-" : "";
     const abs = Math.abs(cents);
@@ -339,7 +347,7 @@ function priceLine(input: CatalogPriceInput, line: CatalogLineInput): PricedLine
     case "per_unit_declining": {
       const qty = requireQuantity(line, item);
       const multiplier = item.additionalUnitMultiplier ?? 1;
-      const addUnit = money.additionalUnit(item.rateCents, multiplier);
+      const addUnit = money.additionalUnit(item.rateCents, multiplier, item.additionalUnitRounding ?? "dollar");
       const amount = item.rateCents + (qty - 1) * addUnit;
       return {
         ...base,

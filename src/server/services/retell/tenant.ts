@@ -26,6 +26,11 @@ export interface RetellTenant {
   companyId: string | null;
   /** The brand key the lead-intake routing consumes (a free-text tag once pinned). */
   sourceSite: string;
+  /**
+   * How the tenant was found. 'legacy' is the RETELL_SOURCE_SITE env guess — fine for
+   * filing a lead (it's flagged and reviewable), NOT fine for quoting a price.
+   */
+  resolvedBy?: "number" | "agent" | "legacy";
 }
 
 export interface ResolveRetellTenantInput {
@@ -80,7 +85,7 @@ export async function resolveRetellTenant(
       .eq("active", true)
       .maybeSingle();
     const row = data as VoiceNumberTenant | null;
-    if (row) return tenantFromCompany(admin, row.organization_id, row.company_id);
+    if (row) return { ...(await tenantFromCompany(admin, row.organization_id, row.company_id)), resolvedBy: "number" };
   }
 
   // (2) by the Retell agent id.
@@ -94,7 +99,7 @@ export async function resolveRetellTenant(
       .limit(1)
       .maybeSingle();
     const row = data as VoiceNumberTenant | null;
-    if (row) return tenantFromCompany(admin, row.organization_id, row.company_id);
+    if (row) return { ...(await tenantFromCompany(admin, row.organization_id, row.company_id)), resolvedBy: "agent" };
   }
 
   // (3) legacy env fallback — the A1 spokes until they're cut over to voice_numbers.
@@ -102,7 +107,7 @@ export async function resolveRetellTenant(
     "[retell] resolving tenant via legacy RETELL_SOURCE_SITE — add a voice_numbers row " +
       "for this number/agent to remove this fallback (docs/tenant-provisioning.md).",
   );
-  return resolveLegacyBrand(admin, input.legacySourceSite);
+  return { ...(await resolveLegacyBrand(admin, input.legacySourceSite)), resolvedBy: "legacy" };
 }
 
 async function resolveLegacyBrand(admin: RetellAdminClient, sourceSite: string): Promise<RetellTenant> {

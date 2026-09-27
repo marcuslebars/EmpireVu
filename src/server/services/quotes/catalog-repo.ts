@@ -36,6 +36,7 @@ function toItem(row: Db): CatalogItem {
     unitLabel: row.unit_label ?? null,
     additionalUnitMultiplier:
       row.additional_unit_multiplier == null ? null : Number(row.additional_unit_multiplier),
+    additionalUnitRounding: row.additional_unit_rounding === "cent" ? "cent" : "dollar",
     tiers: Array.isArray(row.tiers)
       ? row.tiers.map((t: Db) => ({
           maxMeasure: t.maxMeasure == null ? null : Number(t.maxMeasure),
@@ -103,6 +104,27 @@ export async function loadCatalog(companyId: string): Promise<ServiceCatalog> {
   }
 
   return catalog;
+}
+
+/**
+ * The company's fixed-deposit policy in cents, or null for the percentage default.
+ *
+ * Fails toward the percentage: an unreadable policy must not block a quote, and the
+ * percentage is what every tenant got before fixed deposits existed.
+ */
+export async function loadDepositFlatCents(companyId: string): Promise<number | null> {
+  const db = createSupabaseAdminClient() as Db;
+  const { data, error } = await db
+    .from("companies")
+    .select("quote_deposit_flat_cents")
+    .eq("id", companyId)
+    .maybeSingle();
+  if (error) {
+    console.error(`[quotes] could not read deposit policy for company ${companyId}:`, error.message ?? error);
+    return null;
+  }
+  const flat = Number(data?.quote_deposit_flat_cents);
+  return Number.isInteger(flat) && flat > 0 ? flat : null;
 }
 
 /** True when a tenant can quote at all. Gates admin UI without throwing. */

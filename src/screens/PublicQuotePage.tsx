@@ -53,6 +53,8 @@ interface PublicQuote {
   depositCents: number;
   taxRateBps: number;
   depositRateBps: number;
+  /** Fixed deposit (cents) when the quote was issued under one; null = percentage. */
+  depositFlatCents?: number | null;
   approvedByName: string | null;
   depositPaidAt: string | null;
   brand: Brand;
@@ -307,7 +309,9 @@ export default function PublicQuotePage() {
           <strong style={{ fontSize: 20, color: primary }}>{money(view.depositCents, quote.currency)}</strong>
         </div>
         <p style={{ margin: "6px 0 0", fontSize: 13, color: "#6b7280" }}>
-          {depositPct}% deposit locks in your spot. The balance is due later.
+          {quote.depositFlatCents
+            ? "This deposit locks in your spot and comes off your final invoice."
+            : `${depositPct}% deposit locks in your spot. The balance is due later.`}
         </p>
       </div>
 
