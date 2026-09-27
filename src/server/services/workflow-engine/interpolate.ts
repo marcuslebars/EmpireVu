@@ -17,11 +17,13 @@ export interface MessageTemplateData {
   company: Record<string, unknown> | null;
   booking: Record<string, unknown> | null;
   quote: Record<string, unknown> | null;
+  /** The Retell call behind a call.* event: summary, numbers, duration, owner_summary. */
+  call?: Record<string, unknown> | null;
   /** Flat event fields — the fallback for bare tokens. */
   fields: Record<string, unknown>;
 }
 
-const ROOTS = new Set(["contact", "company", "booking", "quote"]);
+const ROOTS = new Set(["contact", "company", "booking", "quote", "call"]);
 // {{ path }} or {{ path | filter }} — path has no '|' or '}'.
 const TOKEN = /\{\{\s*([^}|]+?)\s*(?:\|\s*([a-zA-Z]+)\s*)?\}\}/g;
 
@@ -33,7 +35,7 @@ function resolvePath(path: string, data: MessageTemplateData): unknown {
   const parts = path.split(".");
   const root = parts[0];
   if (ROOTS.has(root)) {
-    let current: unknown = data[root as "contact" | "company" | "booking" | "quote"];
+    let current: unknown = data[root as "contact" | "company" | "booking" | "quote" | "call"];
     for (const segment of parts.slice(1)) {
       if (current == null || typeof current !== "object") return null;
       current = (current as Record<string, unknown>)[segment];
@@ -72,6 +74,15 @@ function applyFilter(name: string, value: unknown): unknown {
       const cents = typeof value === "number" ? value : Number.parseFloat(String(value).replace(/[^0-9.-]/g, ""));
       if (!Number.isFinite(cents)) return "";
       return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+    }
+    case "dollars": {
+      // "$672" / "$481.25" — how a text says money (no ".00", no currency code).
+      const cents = typeof value === "number" ? value : Number.parseFloat(String(value).replace(/[^0-9.-]/g, ""));
+      if (!Number.isFinite(cents)) return "";
+      const d = cents / 100;
+      return Number.isInteger(d)
+        ? `$${d.toLocaleString("en-CA")}`
+        : `$${d.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
     default:
       // Unknown filter → pass the value through unchanged.

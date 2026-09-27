@@ -30,6 +30,21 @@ export interface DigestAttribution {
   currency: string;
 }
 
+/** A person the owner should call or text today (from the quote on file). */
+export interface DigestPerson {
+  name: string;
+  phone: string | null;
+  boat: string | null;
+  amountCents: number | null;
+}
+
+/** One job on today's schedule. */
+export interface DigestJob {
+  /** "AM" / "PM" for window bookings, else "9:00". */
+  when: string;
+  name: string;
+}
+
 export interface DigestData {
   companyName: string;
   /** Calendar date in the company's timezone this digest covers, YYYY-MM-DD. */
@@ -41,6 +56,14 @@ export interface DigestData {
   todaysBookings: number;
   usage: DigestUsage;
   attribution: DigestAttribution;
+  /** Quoted in the last week, not paid, no date — today's call-back list (receptionist). */
+  callToday?: DigestPerson[];
+  /** Deposit paid in the last two weeks, still no date booked. */
+  paidNoDate?: DigestPerson[];
+  /** Who's on today's schedule. */
+  todaysJobs?: DigestJob[];
+  /** Receptionist setup problems (retell/health.ts) — shown as ⚠️ lines. */
+  receptionistWarnings?: string[];
 }
 
 export const SMS_MAX_CHARS = 320;
@@ -55,8 +78,26 @@ export function digestHasActivity(data: DigestData): boolean {
     data.newLeads > 0 ||
     data.messagesNeedingReply > 0 ||
     data.quotesUnviewed48h > 0 ||
-    data.todaysBookings > 0
+    data.todaysBookings > 0 ||
+    (data.callToday?.length ?? 0) > 0 ||
+    (data.paidNoDate?.length ?? 0) > 0
   );
+}
+
+function firstName(name: string): string {
+  return name.split(/\s+/)[0] || name;
+}
+
+/** "Dana 705-555-1234 $672" — compact enough for the SMS. */
+function personShort(p: DigestPerson): string {
+  const phone = p.phone ? p.phone.replace(/^\+1/, "").replace(/(\d{3})(\d{3})(\d{4})$/, "$1-$2-$3") : null;
+  const amount = p.amountCents != null ? `$${Math.round(p.amountCents / 100).toLocaleString("en-CA")}` : null;
+  return [firstName(p.name), phone, amount].filter(Boolean).join(" ");
+}
+
+/** "Dana Lee · 705-555-1234 · 24 ft bowrider · $672" — for the email. */
+function personLong(p: DigestPerson, currency: string): string {
+  return [p.name, p.phone, p.boat, p.amountCents != null ? fmtMoney(p.amountCents, currency) : null].filter(Boolean).join(" · ");
 }
 
 function fmtMoney(cents: number, currency: string): string {
@@ -97,7 +138,17 @@ export function renderDigestSms(data: DigestData, deepLink: string): string {
 
   const moneyLine =
     data.attribution.paidCents > 0 ? ` ${fmtMoney(data.attribution.paidCents, data.attribution.currency)} collected this month.` : "";
-  const content = `${data.companyName}: ${parts.join(", ")}.${moneyLine}`;
+  // The lists go after the counts: if the SMS runs long, the truncation eats names, not totals.
+  const lists = [
+    data.todaysJobs?.length ? ` Today: ${data.todaysJobs.map((j) => `${j.when} ${firstName(j.name)}`).join(", ")}.` : "",
+    data.callToday?.length ? ` Call today: ${data.callToday.map(personShort).join("; ")}.` : "",
+    data.paidNoDate?.length ? ` Paid, no date: ${data.paidNoDate.map(personShort).join("; ")}.` : "",
+  ].join("");
+  // A setup problem goes FIRST: it's the one line that can explain every other number.
+  const warn = data.receptionistWarnings?.length
+    ? `⚠️ Receptionist: ${data.receptionistWarnings[0]}${data.receptionistWarnings.length > 1 ? ` (+${data.receptionistWarnings.length - 1} more)` : ""}. `
+    : "";
+  const content = `${warn}${data.companyName}: ${parts.join(", ")}.${moneyLine}${lists}`;
   return withDeepLink(content, deepLink);
 }
 
@@ -131,6 +182,18 @@ export function renderDigestEmail(data: DigestData, options: DigestEmailOptions)
     statRow("Bookings today", String(data.todaysBookings)),
   ].join("");
 
+  const listSection = (title: string, lines: string[]) =>
+    lines.length
+      ? `<p style="margin:16px 0 4px;font-weight:700">${esc(title)}</p><ul style="margin:0;padding-left:20px">${lines
+          .map((l) => `<li>${esc(l)}</li>`)
+          .join("")}</ul>`
+      : "";
+  const lists =
+    listSection("Today's schedule", (data.todaysJobs ?? []).map((j) => `${j.when} — ${j.name}`)) +
+    listSection("Quoted, not booked — call today", (data.callToday ?? []).map((p) => personLong(p, data.attribution.currency))) +
+    listSection("Deposit paid, no date yet", (data.paidNoDate ?? []).map((p) => personLong(p, data.attribution.currency))) +
+    listSection("⚠️ Receptionist setup", data.receptionistWarnings ?? []);
+
   const capLine = data.usage.cap
     ? `<p style="font-size:13px;color:#6b7280;margin:4px 0 0">Plan usage: ${data.usage.cap.used} / ${data.usage.cap.limit} ${esc(data.usage.cap.feature)} this month.</p>`
     : "";
@@ -146,6 +209,7 @@ export function renderDigestEmail(data: DigestData, options: DigestEmailOptions)
 ${button}`
     : `<p>Good morning — here's what happened at <strong>${esc(data.companyName)}</strong> in the last 24 hours.</p>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:15px;margin:16px 0">${rows}</table>
+${lists}
 <p style="color:#4b5563">Captured this month: <strong>${esc(fmtMoney(data.attribution.paidCents, data.attribution.currency))}</strong> collected, ${esc(fmtMoney(data.attribution.approvedCents, data.attribution.currency))} approved.</p>
 ${capLine}
 ${button}`;
@@ -179,6 +243,16 @@ ${button}`;
         `- Quotes sent: ${data.calls.quotesSent}`,
         `- Quotes unseen 48h+: ${data.quotesUnviewed48h}`,
         `- Bookings today: ${data.todaysBookings}`,
+        ...((data.todaysJobs ?? []).length ? ["", "Today's schedule:", ...(data.todaysJobs ?? []).map((j) => `- ${j.when} — ${j.name}`)] : []),
+        ...((data.callToday ?? []).length
+          ? ["", "Quoted, not booked — call today:", ...(data.callToday ?? []).map((p) => `- ${personLong(p, data.attribution.currency)}`)]
+          : []),
+        ...((data.paidNoDate ?? []).length
+          ? ["", "Deposit paid, no date yet:", ...(data.paidNoDate ?? []).map((p) => `- ${personLong(p, data.attribution.currency)}`)]
+          : []),
+        ...((data.receptionistWarnings ?? []).length
+          ? ["", "⚠️ Receptionist setup:", ...(data.receptionistWarnings ?? []).map((w) => `- ${w}`)]
+          : []),
         "",
         `Captured this month: ${fmtMoney(data.attribution.paidCents, data.attribution.currency)} collected, ${fmtMoney(data.attribution.approvedCents, data.attribution.currency)} approved.`,
         ...(data.usage.cap ? [`Plan usage: ${data.usage.cap.used} / ${data.usage.cap.limit} ${data.usage.cap.feature} this month.`] : []),

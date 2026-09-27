@@ -546,6 +546,7 @@ const triggerLabel: Record<string, string> = {
   "quote.viewed": "Quote viewed",
   "quote.approved": "Quote approved",
   "quote.expiring": "Quote expiring",
+  "quote.deposit_paid": "Deposit paid",
   "schedule.daily": "Every day (scheduled)",
 };
 
@@ -971,6 +972,7 @@ const WORKFLOW_TRIGGERS = [
   { value: "quote.viewed", label: "Quote viewed" },
   { value: "quote.approved", label: "Quote approved" },
   { value: "quote.expiring", label: "Quote expiring" },
+  { value: "quote.deposit_paid", label: "Deposit paid" },
   { value: "schedule.daily", label: "Every day (scheduled)" },
 ];
 
@@ -993,6 +995,7 @@ const TRIGGER_ENTITY: Record<string, "contact" | "booking" | "task"> = {
   "quote.viewed": "contact",
   "quote.approved": "contact",
   "quote.expiring": "contact",
+  "quote.deposit_paid": "contact",
   "schedule.daily": "contact",
 };
 

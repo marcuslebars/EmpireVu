@@ -2,13 +2,21 @@ import type { Recipe } from "@/server/services/workflow-engine/recipes/types";
 
 /**
  * Quote sent → text nudge in 2 days, email nudge in 5, then a personal-touch task —
- * stopping early once the lead has converted or been lost.
+ * stopping early once the lead has converted or been lost, the deposit has been paid, or
+ * a date has been booked.
  *
- * quote.* events anchor to the contact (Task 9, since "quote" isn't a trace entity), so the
- * live signal available when a wait resumes is the contact's stage, not the quote's
- * viewed/approved state. The sequence therefore continues only while the contact is still an
- * open lead (lead/qualified) and stops once they move to active/closed.
+ * quote.* events anchor to the contact (Task 9). The contact's stage and — since the
+ * receptionist work — the quote's own live state (quote_deposit_paid, quote_booked; see
+ * workflow-engine/context.ts) are re-read when each wait resumes, so a customer who has
+ * already paid is never nudged to pay. Nudges only go out 09:00–20:00 local.
  */
+/** Keep nudging only while the lead is open and the customer hasn't paid or booked. */
+const STILL_OPEN = [
+  { field: "stage", operator: "in" as const, value: ["lead", "qualified"] },
+  { field: "quote_deposit_paid", operator: "equals" as const, value: false },
+  { field: "quote_booked", operator: "equals" as const, value: false },
+];
+
 export const quoteFollowUp: Recipe = {
   slug: "quote-follow-up",
   name: "Quote follow-up sequence",
@@ -25,23 +33,25 @@ export const quoteFollowUp: Recipe = {
       {
         type: "wait",
         duration: "2d",
-        resume_conditions: [{ field: "stage", operator: "in", value: ["lead", "qualified"] }],
+        within_hours: { start: "09:00", end: "20:00" },
+        resume_conditions: STILL_OPEN,
       },
       {
         type: "send_sms",
         to: "contact",
-        body: "Hi {{contact.first_name}}, just checking you got your quote from {{company.name}}. Any questions? Reply here or book: {{company.booking_url}}.",
+        body: "Hi {{contact.first_name}}, just checking you got your quote from {{company.name}} ({{quote.subtotal}} + HST). It's still good — approve it and hold your date here: {{quote.public_url}} Any questions? Just reply.",
       },
       {
         type: "wait",
         duration: "3d",
-        resume_conditions: [{ field: "stage", operator: "in", value: ["lead", "qualified"] }],
+        within_hours: { start: "09:00", end: "20:00" },
+        resume_conditions: STILL_OPEN,
       },
       {
         type: "send_email",
         to: "contact",
         subject: "Your {{company.name}} quote",
-        body: "Hi {{contact.first_name}},\n\nFollowing up on the quote we sent — it's still available. Reply to this email with any questions, or book a time here: {{company.booking_url}}.\n\nThanks,\n{{company.name}}",
+        body: "Hi {{contact.first_name}},\n\nFollowing up on the quote we sent — it's still available: {{quote.public_url}}\n\nReply to this email with any questions.\n\nThanks,\n{{company.name}}",
       },
       {
         type: "create_task",

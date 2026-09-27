@@ -126,6 +126,7 @@ export async function provisionPhoneForCompany(
     prompt,
     voiceId: undefined,
     webhookUrl: webhookUrl || null,
+    inboundWebhookUrl: baseUrl ? `${baseUrl}/api/retell/inbound` : null,
     areaCode: input.areaCode ?? null,
     attachNumber: input.attachNumber ?? null,
     existing: input.existing,

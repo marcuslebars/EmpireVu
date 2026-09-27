@@ -14,6 +14,8 @@ export const supportedWorkflowTriggerEventTypes = [
   "quote.viewed",
   "quote.approved",
   "quote.expiring",
+  // The customer paid the deposit (Stripe checkout completed). Pick-date texts, owner alerts.
+  "quote.deposit_paid",
   "booking.upcoming",
   "booking.cancelled",
   "booking.no_show",
@@ -129,6 +131,11 @@ export interface WorkflowWaitAction {
   type: "wait";
   duration?: string;
   until?: string;
+  /**
+   * Quiet hours: if the wait would end outside this local window ("09:00"–"20:00" in the
+   * company's zone), it ends at the next window opening instead — no 3am customer texts.
+   */
+  within_hours?: { start: string; end: string };
   resume_conditions?: WorkflowCondition[];
   time_saved_seconds?: number;
 }

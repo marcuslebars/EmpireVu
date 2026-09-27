@@ -30,6 +30,7 @@ import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { getPlatformStripe, onAccount, requireChargeableCompany } from "./company-stripe";
 import { sendDepositReceiptEmail } from "./notify";
 import { recordPublicEvent } from "./public-service";
+import { emitQuoteTrigger } from "./workflow-triggers";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = any;
@@ -361,6 +362,16 @@ export async function handleDepositCheckoutCompleted(
     sessionId: session.id,
     amountTotal: session.amount_total,
     paymentIntentId,
+  });
+
+  // quote.deposit_paid → automations (pick-a-date text, owner alert) and the push
+  // notification that already knew this event. Best-effort, after the state is durable.
+  await emitQuoteTrigger(db, {
+    organizationId: updated.organization_id,
+    companyId: updated.company_id,
+    contactId: updated.contact_id,
+    quoteId,
+    eventType: "quote.deposit_paid",
   });
 
   // Best-effort by design. The money has landed and the state is correct; a mail

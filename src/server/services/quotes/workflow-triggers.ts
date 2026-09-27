@@ -16,7 +16,7 @@ export async function emitQuoteTrigger(
     companyId: string | null;
     contactId: string | null;
     quoteId: string;
-    eventType: "quote.sent" | "quote.viewed" | "quote.approved";
+    eventType: "quote.sent" | "quote.viewed" | "quote.approved" | "quote.deposit_paid";
   },
 ): Promise<void> {
   const anchorId = args.contactId ?? args.companyId;
