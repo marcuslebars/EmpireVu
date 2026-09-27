@@ -280,9 +280,24 @@ follow-up and Booking reminder keep their current wording; edit them under Autom
 Do this when a test call on the duplicate agent has quoted, booked and texted a link that
 you paid. Each step can be undone by putting the old value back.
 
-1. **Carry over live bookings first** (PR 3: import the Care site's upcoming shrink-wrap
-   bookings), so capacity already counts them. Until the Care site's own booking page books
-   through EmpireVu too (PR 5), keep an eye on double bookings from the website.
+1. **Carry over the calendar first**, so capacity counts every job already booked and
+   returning callers are recognised:
+   ```
+   # on the Care site's Railway service (read-only)
+   railway run npx tsx scripts/export-for-empirevu.ts > a1-care-export.json
+   # on EmpireVu — dry run first, read the report, then apply
+   railway run npm run job:import-a1-care -- --file a1-care-export.json
+   railway run npm run job:import-a1-care -- --file a1-care-export.json --apply
+   ```
+   It brings over every upcoming, non-cancelled booking (shrink wraps into their morning or
+   afternoon window, other services at their time slot) and the last 45 days of shrink-wrap
+   quotes, with deposits already paid. The import is **silent**: no customer emails or texts,
+   no automations, and imported quotes are marked as already reminded. If EmpireVu would price a
+   quote differently from what the customer was told, the dry run lists it and the customer's
+   number is kept. Re-running skips what's already imported. The file holds customer details,
+   so delete it afterwards.
+   Until the Care site's own booking page books through EmpireVu too (PR 5), keep an eye on
+   double bookings from the website.
 2. In Retell, on the live Care agent, change each custom function:
 
    | Tool | New URL |
