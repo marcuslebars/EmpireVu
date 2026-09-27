@@ -10,7 +10,7 @@ import { createDraftForContact } from "@/server/services/ai-drafts";
 import { callContactWithMarina } from "@/server/services/voice";
 import { buildMessageTemplateData } from "@/server/services/workflow-engine/context";
 import { assertPaidActionAllowed, unauthenticatedSource } from "@/server/services/workflow-engine/guards";
-import { renderTemplate, type MessageTemplateData } from "@/server/services/workflow-engine/interpolate";
+import { businessTimezone, renderTemplate, type MessageTemplateData } from "@/server/services/workflow-engine/interpolate";
 import {
   deliverMessage,
   resolveOwnerContacts,
@@ -407,7 +407,14 @@ export async function executeWorkflowActions(
       }
       case "wait": {
         const data = await getTemplateData();
-        const resumeAt = computeResumeAt({ duration: action.duration, until: action.until }, data);
+        const zone =
+          (typeof data.company?.timezone === "string" && data.company.timezone) || businessTimezone();
+        const resumeAt = computeResumeAt(
+          { duration: action.duration, until: action.until, within_hours: action.within_hours },
+          data,
+          Date.now(),
+          zone,
+        );
         projectedActions.push({
           action,
           resolvedPayload: { resume_at: resumeAt, duration: action.duration ?? null, until: action.until ?? null },

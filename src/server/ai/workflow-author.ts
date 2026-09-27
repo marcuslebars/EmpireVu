@@ -152,7 +152,7 @@ Triggers:
 - "call.missed" — an inbound call was missed or went to voicemail
 - "call.completed" — an inbound call was answered
 - "call.urgent" — a caller flagged something urgent
-- "quote.sent" / "quote.viewed" / "quote.approved" / "quote.expiring" — quote lifecycle
+- "quote.sent" / "quote.viewed" / "quote.approved" / "quote.expiring" / "quote.deposit_paid" — quote lifecycle
 - "task.completed" — a task is ticked off
 
 Actions:

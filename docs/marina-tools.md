@@ -18,7 +18,9 @@ Marina exactly as it does today.
 | `check_availability` | `POST /api/retell/functions/availability` | **Ready** (PR 1b) |
 | `book_wrap_date` | `POST /api/retell/functions/book` | **Ready** (PR 1b) |
 | `send_deposit_link` | `POST /api/retell/functions/deposit-link` | **Ready** (PR 1b) |
-| Owner SMS per call, follow-up texts, speed-to-lead, 7am digest, health | — | PR 2 |
+| Owner text per call, customer follow-ups, deposit alerts, reply relay | Automations (recipes) | **Ready** (PR 2) |
+| Call-back lists in the morning digest, setup health check | Digest + `GET /api/organizations/{org}/voice/health` | **Ready** (PR 2) |
+| Speed-to-lead (Marina calls a new web lead) | — | Later: needs the Care site's forms to post to EmpireVu first (PR 5) |
 
 ## Pricing parity
 
@@ -187,6 +189,73 @@ line items and the company's terms before paying, and the approval is recorded. 
 valid for the life of the quote (30 days by default), not "the rest of the day". **Update
 Marina's prompt**: remove "The deposit link is good for the rest of the day" (see cutover).
 
+## After the call: automations (PR 2)
+
+Everything the Care site did around Marina's calls is now an ordinary automation, so it can be
+switched on, off or reworded per company under **Automations**:
+
+| Recipe | Trigger | What it does | Replaces on the Care site |
+| --- | --- | --- | --- |
+| **Text me after every call** | call completed | Texts you the call summary below | `webhook.ts` owner SMS |
+| **Text me about missed calls** | call missed | Same, for voicemail and hang-ups | `webhook.ts` owner SMS |
+| **Text the quote after a call** | call completed | Quoted on the phone but no link went out → texts the quote link | post-call quote text |
+| **Text me when a deposit is paid** | deposit paid | 💰 who, what, how much | Stripe webhook owner text |
+| **Remind paid customers to pick a date** | deposit paid | 4 h later, if still no date: booking link (9am–8pm only) | pick-date text |
+| **Forward customer texts to me** | customer texts back | Relays the text with who it's from | `inbound-sms.ts` relay |
+| **Quote follow-up** *(existing, improved)* | quote sent | Now includes the quote link and **stops once they've paid or booked**; only sends 9am–8pm | 20-hour nudge |
+| **Booking reminder** *(existing)* | booking upcoming | The day-before text; reword it for crew-prep instructions | reminder text |
+
+The owner's call summary is built from what actually happened on the call in EmpireVu (the quote
+created, the booking made, the deposit):
+
+```
+📞 Marina call done · (705) 555-1234 · 3m05s
+Dana Lee · 24 ft bowrider · shrink wrap, winterization
+Quoted $1,153.25 · Booked Tuesday, September 29th in the morning · deposit link sent
+Dana wants her boat wrapped before the frost…
+```
+
+It adds `☎️ CALL BACK …` when Marina promised you'd call, and `URGENT` or `transferred to you`
+when those apply. Outbound calls get a `📤 Marina called …` version.
+
+**Engine changes that make this possible** (useful beyond Marina):
+- A new trigger: **quote.deposit_paid** (it also switches on the "Deposit paid" push notification
+  that was already written but never fired).
+- Conditions can read the quote's **live** state: `quote_deposit_paid`, `quote_booked`,
+  `quote_link_sent` and `quote_status`. They are re-read when a wait resumes, so a sequence stops
+  the moment the customer pays.
+- Message templates can use `{{ quote.public_url }}`, `{{ quote.subtotal }}`,
+  `{{ quote.deposit }}`, `{{ quote.boat }}`, `{{ booking.when }}` ("Tuesday, September 29th in
+  the morning"), `{{ call.owner_summary }}`, and a `| dollars` filter ("$481.25").
+- Waits accept **quiet hours**: `within_hours: { start: "09:00", end: "20:00" }` in the company's
+  time zone.
+- A message that renders empty is never sent.
+- A fix for mid-call tools: `call.*` automations now fire once, at the end of the call.
+
+**Morning digest.** For companies with the digest on, it now also lists today's jobs,
+**quoted-not-booked (call today)** with names, numbers and amounts, **paid-no-date**, and
+any receptionist setup problems (⚠️). The text puts totals first, so on a busy day any
+truncation cuts names, not numbers.
+
+**Health check.** `GET /api/organizations/{orgId}/voice/health?companyId=…` checks the
+env and secrets, texting, the owner phone, the price list, Stripe, the booking windows, and,
+for each Retell number, whether it's bound to the right agent, whether the agent is
+published, where the post-call and inbound webhooks point, and where every tool URL points.
+Before cutover it lists each Care tool still pointing at `a1marinecare.ca`, so it doubles as
+the cutover checklist.
+
+New companies get all of the recipes above automatically. For companies that already exist
+(A1), run once:
+
+```
+railway run npm run job:seed-a1-recipes
+```
+
+It skips anything already installed. It adds the owner-only recipes switched **on**, and the
+ones that text customers as **drafts** for you to review and turn on. The *existing* Quote
+follow-up and Booking reminder keep their current wording; edit them under Automations to add
+`{{ quote.public_url }}` and your crew-prep text.
+
 ## Setup for A1 Marine Care (before cutover — safe to do now)
 
 1. Apply `supabase/migrations/20260927120000_marina_phone_quote.sql` and
@@ -231,10 +300,19 @@ you paid. Each step can be undone by putting the old value back.
    - Step 6: replace "Tell them the link is good for the rest of the day" with "Tell them the link
      opens their quote to approve and pay".
 4. Phone number → **Inbound webhook URL** = `https://api.empirevu.com/api/retell/inbound`.
-5. Agent **Webhook URL**: leave it on the Care site for now. The Care site still sends the
-   per-call owner texts and forwards to EmpireVu. PR 2 moves that and then this URL changes to
-   `https://api.empirevu.com/api/retell/webhook`.
-6. Publish the agent. Call the business line and run the go-live test.
+5. Agent **Webhook URL** → `https://api.empirevu.com/api/retell/webhook` (enable
+   `call_analyzed`). EmpireVu now sends the per-call texts itself, so the Care site no longer
+   needs to sit in the middle. Before you flip it, turn on **Text me after every call** and set
+   the Care company's **owner phone**. Otherwise you'd get no per-call texts, or two sets if the
+   Care site's `OWNER_SMS_NUMBER` is still set.
+6. So customer replies reach you: add the Twilio number as a **Voice number with provider
+   `twilio`** for the Care company, and in Twilio set that number's messaging webhook to
+   `https://api.empirevu.com/api/twilio/sms/inbound` (it's the Care site's `/api/sms/inbound`
+   today). Then turn off the Care site's
+   own follow-ups and digest workflows (`marina-followups.yml`, `marina-digest.yml`) so
+   customers aren't texted twice.
+7. Publish the agent. Open the health check: every line should be green. Call the business
+   line and run the go-live test.
 
 To roll back, put the old URLs, header and prompt lines back and republish. The Care site's
 endpoints stay live until PR 5 removes them.

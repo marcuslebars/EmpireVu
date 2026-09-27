@@ -2,6 +2,15 @@ import type { Json, Tables } from "@/server/db/database.types";
 import type { TenantServiceContext } from "@/server/services/shared";
 import type { MessageTemplateData } from "@/server/services/workflow-engine/interpolate";
 import type { WorkflowEventContext } from "@/server/services/workflow-engine/types";
+import {
+  DEFAULT_BOOKING_POLICY,
+  localDate,
+  parseBookingPolicy,
+  spokenWindowLabel,
+} from "@/server/services/booking-windows";
+import { getQuotesConfig } from "@/server/services/quotes/config";
+import { loadCallForTemplate } from "@/server/services/retell/call-summary";
+import { boatFromSnapshot, DEFAULT_AGENT_NAME, formatDollars } from "@/server/services/retell/caller-lookup";
 
 type TraceEntityRow =
   | Tables<"activity_events">
@@ -166,18 +175,121 @@ export async function buildWorkflowEventContext(
     getTraceEntityRow(context, activityEvent.related_entity_type, activityEvent.related_entity_id),
   ]);
 
+  const fields = readCommonFields(activityEvent, entityRow, relatedEntityRow);
+  await addQuoteAndCallFields(context, activityEvent, entityRow, fields);
+
   return {
     activityEvent,
     companyId: activityEvent.company_id,
     entity: (entityRow as Json) ?? null,
     entityId: activityEvent.entity_id,
     entityType: activityEvent.entity_type,
-    fields: readCommonFields(activityEvent, entityRow, relatedEntityRow),
+    fields,
     metadata: activityEvent.metadata_json,
     relatedEntity: (relatedEntityRow as Json) ?? null,
     relatedEntityId: activityEvent.related_entity_id,
     relatedEntityType: activityEvent.related_entity_type,
   };
+}
+
+/**
+ * LIVE quote + call fields, so conditions (and resume_conditions after a wait) can ask
+ * "has the deposit been paid?" / "is a date booked yet?" — re-read every time the context
+ * is rebuilt, which is exactly what a resumed wait needs.
+ *
+ *   quote_id, quote_status, quote_deposit_paid (bool), quote_booked (bool),
+ *   quote_link_sent (bool — the hosted quote link has been texted/emailed)
+ *   call_id, call_direction
+ *   message_from, message_preview (contact.sms_received)
+ *
+ * The quote comes from the event's metadata.quoteId (quote.* events), the booking's
+ * quote_id (booking.* events), or — for call.* events — the quote Marina created on that
+ * call (the call's lead → quotes.source_lead_id). Best-effort: an unreadable quote simply leaves the fields
+ * null, and a condition on them then doesn't match.
+ */
+async function addQuoteAndCallFields(
+  context: TenantServiceContext,
+  activityEvent: Tables<"activity_events">,
+  entityRow: TraceEntityRow | null,
+  fields: Record<string, Json>,
+): Promise<void> {
+  const metadata = asJsonRecord(activityEvent.metadata_json);
+  const callId = readIdField(metadata.callId);
+  let quoteId =
+    readIdField(metadata.quoteId) ??
+    readIdField(metadata.quote_id) ??
+    (entityRow && "scheduled_for" in entityRow ? readIdField((entityRow as { quote_id?: Json }).quote_id) : null);
+  if (!quoteId && callId) quoteId = await quoteMadeOnCall(context, callId);
+
+  fields.quote_id = quoteId;
+  fields.quote_status = null;
+  fields.quote_deposit_paid = null;
+  fields.quote_booked = null;
+  fields.quote_link_sent = null;
+  if (quoteId) {
+    try {
+      const [{ data: quote }, { data: booked }, { data: linkSent }] = await Promise.all([
+        context.supabase
+          .from("quotes")
+          .select("status, deposit_paid_at")
+          .eq("organization_id", context.organizationId)
+          .eq("id", quoteId)
+          .maybeSingle(),
+        context.supabase
+          .from("bookings")
+          .select("id")
+          .eq("organization_id", context.organizationId)
+          .eq("quote_id", quoteId)
+          .neq("status", "cancelled")
+          .limit(1),
+        context.supabase
+          .from("quote_events")
+          .select("id")
+          .eq("organization_id", context.organizationId)
+          .eq("quote_id", quoteId)
+          .in("event_type", ["deposit_link_sent", "checkout_session_created"])
+          .limit(1),
+      ]);
+      if (quote) {
+        fields.quote_status = (quote as { status: string }).status;
+        fields.quote_deposit_paid = Boolean((quote as { deposit_paid_at: string | null }).deposit_paid_at);
+        fields.quote_booked = ((booked ?? []) as unknown[]).length > 0;
+        fields.quote_link_sent = ((linkSent ?? []) as unknown[]).length > 0;
+      }
+    } catch (err) {
+      console.error("[workflow-context] quote fields unavailable:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  fields.call_id = callId;
+  fields.call_direction = typeof metadata.direction === "string" ? metadata.direction : null;
+  fields.message_from = typeof metadata.from === "string" ? metadata.from : null;
+  fields.message_preview = typeof metadata.bodyPreview === "string" ? metadata.bodyPreview : null;
+}
+
+/** The quote Marina made during a call, via the call's lead. */
+async function quoteMadeOnCall(context: TenantServiceContext, callId: string): Promise<string | null> {
+  try {
+    const { data: call } = await context.supabase
+      .from("retell_calls")
+      .select("lead_id")
+      .eq("organization_id", context.organizationId)
+      .eq("call_id", callId)
+      .maybeSingle();
+    const leadId = (call as { lead_id: string | null } | null)?.lead_id;
+    if (!leadId) return null;
+    const { data: quote } = await context.supabase
+      .from("quotes")
+      .select("id")
+      .eq("organization_id", context.organizationId)
+      .eq("source_lead_id", leadId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return (quote as { id: string } | null)?.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Message template data (Task 8) ───────────────────────────────────────────
@@ -231,6 +343,24 @@ export async function buildMessageTemplateData(
     bookingId ? loadRowById(context, "bookings", bookingId) : Promise.resolve(null),
   ]);
 
+  const timeZone =
+    (typeof company?.timezone === "string" && company.timezone) || process.env.BUSINESS_TIMEZONE?.trim() || "America/Toronto";
+
+  const quoteId = readIdField(eventContext.fields.quote_id);
+  const callId = readIdField(eventContext.fields.call_id);
+  const [quote, call] = await Promise.all([
+    quoteId ? loadQuoteForTemplate(context, quoteId) : Promise.resolve(null),
+    callId
+      ? loadCallForTemplate(context.supabase, context.organizationId, callId, {
+          agentName: await agentNameFor(context, companyId),
+          timeZone,
+        }).catch((err: unknown) => {
+          console.error("[workflow-context] call unavailable:", err instanceof Error ? err.message : err);
+          return null;
+        })
+      : Promise.resolve(null),
+  ]);
+
   return {
     contact,
     company: company
@@ -241,9 +371,69 @@ export async function buildMessageTemplateData(
           review_url: (company as Record<string, unknown>).brand_review_url ?? null,
         }
       : null,
-    booking,
-    // No supported trigger is quote-based yet; `{{ quote.* }}` renders empty until wired.
-    quote: null,
+    booking: booking ? withWindowLabels(booking, company, timeZone) : null,
+    quote,
+    call: call as Record<string, unknown> | null,
     fields: eventContext.fields as Record<string, unknown>,
   };
+}
+// ── Quote / call / booking-window template helpers ─────────────────────────────
+
+/**
+ * `{{ quote.* }}`: the quote row plus what a customer text needs —
+ *   quote.public_url (the hosted page: review, approve, pay the deposit)
+ *   quote.subtotal / quote.total / quote.deposit ("$672", "$759.36", "$250")
+ *   quote.boat ("24 ft bowrider"), quote.number
+ */
+async function loadQuoteForTemplate(
+  context: TenantServiceContext,
+  quoteId: string,
+): Promise<Record<string, unknown> | null> {
+  const { data } = await context.supabase
+    .from("quotes")
+    .select("*")
+    .eq("organization_id", context.organizationId)
+    .eq("id", quoteId)
+    .maybeSingle();
+  if (!data) return null;
+  const q = data as Record<string, unknown>;
+  const cents = (k: string) => Number(q[k] ?? 0);
+  return {
+    ...q,
+    number: q.quote_number ?? null,
+    public_url: q.public_token ? `${getQuotesConfig().publicBaseUrl}/q/${q.public_token}` : null,
+    subtotal: formatDollars(cents("subtotal_cents")),
+    total: formatDollars(cents("total_cents")),
+    deposit: formatDollars(cents("approved_deposit_cents") || cents("deposit_cents")),
+    boat: boatFromSnapshot(q.input_snapshot),
+  };
+}
+
+/** booking.window ("morning") and booking.when ("Tuesday, September 29th in the morning"). */
+function withWindowLabels(
+  booking: Record<string, unknown>,
+  company: Record<string, unknown> | null,
+  timeZone: string,
+): Record<string, unknown> {
+  const key = typeof booking.window_key === "string" ? booking.window_key : null;
+  const at = typeof booking.scheduled_for === "string" ? new Date(booking.scheduled_for) : null;
+  if (!key || !at || Number.isNaN(at.getTime())) return booking;
+  const policy = parseBookingPolicy(company?.booking_policy ?? null) ?? DEFAULT_BOOKING_POLICY;
+  const w = policy.windows.find((x) => x.key === key);
+  if (!w) return booking;
+  return { ...booking, window: w.key, when: spokenWindowLabel(localDate(at, timeZone), w) };
+}
+
+async function agentNameFor(context: TenantServiceContext, companyId: string | null): Promise<string> {
+  if (!companyId) return DEFAULT_AGENT_NAME;
+  const { data } = await context.supabase
+    .from("company_voice_profiles")
+    .select("dynamic_variables")
+    .eq("company_id", companyId)
+    .eq("active", true)
+    .limit(1)
+    .maybeSingle();
+  const dyn = (data as { dynamic_variables?: Record<string, unknown> } | null)?.dynamic_variables;
+  const name = dyn && typeof dyn.agent_name === "string" ? dyn.agent_name.trim() : "";
+  return name || DEFAULT_AGENT_NAME;
 }
