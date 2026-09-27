@@ -10,6 +10,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { ApiError } from "@m/lib/api";
+import { startQueryCachePersistence } from "@m/lib/offlineCache";
 import { App } from "@m/App";
 
 const queryClient = new QueryClient({
@@ -23,6 +24,9 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// Writes while someone is signed in; the session provider owns hydration and clearing.
+startQueryCachePersistence(queryClient);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
