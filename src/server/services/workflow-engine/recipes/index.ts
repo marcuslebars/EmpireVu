@@ -6,6 +6,14 @@ import { quoteFollowUp } from "@/server/services/workflow-engine/recipes/quote-f
 import { reviewRequest } from "@/server/services/workflow-engine/recipes/review-request";
 import { staleLeadNudge } from "@/server/services/workflow-engine/recipes/stale-lead-nudge";
 import { urgentCallEscalation } from "@/server/services/workflow-engine/recipes/urgent-call-escalation";
+import {
+  callSummaryToOwner,
+  customerTextToOwner,
+  depositPaidOwnerAlert,
+  depositPaidPickDate,
+  missedCallSummaryToOwner,
+  postCallQuoteText,
+} from "@/server/services/workflow-engine/recipes/marina";
 import type { Recipe } from "@/server/services/workflow-engine/recipes/types";
 
 /** The recipe catalog. Order = display order in the Automations → Recipes section. */
@@ -18,6 +26,13 @@ export const ALL_RECIPES: readonly Recipe[] = [
   reviewRequest,
   noShowRecovery,
   urgentCallEscalation,
+  // The receptionist pack (Marina) — see recipes/marina.ts.
+  callSummaryToOwner,
+  missedCallSummaryToOwner,
+  postCallQuoteText,
+  depositPaidOwnerAlert,
+  depositPaidPickDate,
+  customerTextToOwner,
 ];
 
 const RECIPES_BY_SLUG = new Map(ALL_RECIPES.map((recipe) => [recipe.slug, recipe]));

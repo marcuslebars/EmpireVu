@@ -16,7 +16,11 @@ import {
   renderDigestEmail,
   renderDigestSms,
   type DigestData,
+  type DigestJob,
+  type DigestPerson,
 } from "@/server/templates/digest";
+import { boatFromSnapshot } from "@/server/services/retell/caller-lookup";
+import { companyReceptionistHealth, hasReceptionist } from "@/server/services/retell/health";
 
 /**
  * Owner daily digest (Task 15). Company-scoped: one message per company with digest enabled
@@ -228,6 +232,18 @@ export async function computeDigestData(
       .then((r) => r.count ?? 0),
   ]);
 
+  const lists = await digestLists(context, company, nowMs, timeZone, dayStartIso, dayEndIso).catch((err: unknown) => {
+    console.error("[digest] call-back lists unavailable:", err instanceof Error ? err.message : err);
+    return { callToday: [], paidNoDate: [], todaysJobs: [] };
+  });
+
+  // Receptionist setup check, only for companies that have one. Best-effort and bounded.
+  const receptionistWarnings = (await hasReceptionist(context.supabase, org, companyId).catch(() => false))
+    ? await companyReceptionistHealth(context.supabase, org, companyId)
+        .then((r) => r.warnings.slice(0, 3))
+        .catch(() => [])
+    : [];
+
   // Usage this month for the company + the org's cap on the one metered feature that has one.
   const usageRows = await getMonthlyUsage(context.supabase, org).catch(() => []);
   const companyUsage = usageRows.filter((row) => row.companyId === companyId);
@@ -257,7 +273,134 @@ export async function computeDigestData(
       paidCents: attribution?.paidCentsTotal ?? 0,
       currency: DIGEST_CURRENCY,
     },
+    ...lists,
+    receptionistWarnings,
   };
+}
+
+const LIST_LIMIT = 6;
+
+/**
+ * The three lists the receptionist's owners live by (from the A1 Marine Care 7am text):
+ * who was quoted but hasn't booked (call them today), who paid but never picked a date,
+ * and who's on today's schedule. Company-scoped; each list capped.
+ */
+async function digestLists(
+  context: TenantServiceContext,
+  company: Tables<"companies">,
+  nowMs: number,
+  timeZone: string,
+  dayStartIso: string,
+  dayEndIso: string,
+): Promise<Pick<DigestData, "callToday" | "paidNoDate" | "todaysJobs">> {
+  const org = context.organizationId;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = context.supabase as any;
+  const weekAgo = new Date(nowMs - 7 * 86_400_000).toISOString();
+  const twoWeeksAgo = new Date(nowMs - 14 * 86_400_000).toISOString();
+
+  const [{ data: openQuotes }, { data: paidQuotes }, { data: today }] = await Promise.all([
+    db
+      .from("quotes")
+      .select("id, contact_id, subtotal_cents, input_snapshot")
+      .eq("organization_id", org)
+      .eq("company_id", company.id)
+      .in("status", ["sent", "viewed", "approved"])
+      .is("deposit_paid_at", null)
+      .is("superseded_by", null)
+      .gte("sent_at", weekAgo)
+      .order("sent_at", { ascending: true })
+      .limit(50),
+    db
+      .from("quotes")
+      .select("id, contact_id, subtotal_cents, input_snapshot")
+      .eq("organization_id", org)
+      .eq("company_id", company.id)
+      .gte("deposit_paid_at", twoWeeksAgo)
+      .order("deposit_paid_at", { ascending: true })
+      .limit(50),
+    db
+      .from("bookings")
+      .select("scheduled_for, window_key, contact_id, title")
+      .eq("organization_id", org)
+      .eq("company_id", company.id)
+      .neq("status", "cancelled")
+      .gte("scheduled_for", dayStartIso)
+      .lt("scheduled_for", dayEndIso)
+      .order("scheduled_for", { ascending: true })
+      .limit(20),
+  ]);
+
+  type Q = { id: string; contact_id: string | null; subtotal_cents: number; input_snapshot: unknown };
+  const quotes = [...((openQuotes ?? []) as Q[]), ...((paidQuotes ?? []) as Q[])];
+  const quoteIds = quotes.map((q) => q.id);
+  const booked = new Set<string>();
+  if (quoteIds.length) {
+    const { data } = await db
+      .from("bookings")
+      .select("quote_id")
+      .eq("organization_id", org)
+      .in("quote_id", quoteIds)
+      .neq("status", "cancelled");
+    for (const b of (data ?? []) as Array<{ quote_id: string }>) booked.add(b.quote_id);
+  }
+
+  const contactIds = [
+    ...new Set([
+      ...quotes.map((q) => q.contact_id),
+      ...((today ?? []) as Array<{ contact_id: string | null }>).map((b) => b.contact_id),
+    ].filter((id): id is string => Boolean(id))),
+  ];
+  const contacts = new Map<string, { name: string; phone: string | null }>();
+  if (contactIds.length) {
+    const { data } = await db
+      .from("contacts")
+      .select("id, first_name, last_name, phone")
+      .eq("organization_id", org)
+      .in("id", contactIds);
+    for (const c of (data ?? []) as Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>) {
+      contacts.set(c.id, { name: [c.first_name, c.last_name].filter(Boolean).join(" ") || "Customer", phone: c.phone });
+    }
+  }
+
+  const person = (q: Q): DigestPerson | null => {
+    const c = q.contact_id ? contacts.get(q.contact_id) : undefined;
+    if (!c) return null;
+    return { name: c.name, phone: c.phone, boat: boatFromSnapshot(q.input_snapshot) || null, amountCents: Number(q.subtotal_cents ?? 0) };
+  };
+  const unique = (list: DigestPerson[]) => {
+    const seen = new Set<string>();
+    return list.filter((p) => {
+      const key = p.phone ?? p.name;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const callToday = unique(
+    ((openQuotes ?? []) as Q[]).filter((q) => !booked.has(q.id)).map(person).filter((p): p is DigestPerson => p !== null),
+  ).slice(0, LIST_LIMIT);
+  const paidNoDate = unique(
+    ((paidQuotes ?? []) as Q[]).filter((q) => !booked.has(q.id)).map(person).filter((p): p is DigestPerson => p !== null),
+  ).slice(0, LIST_LIMIT);
+
+  const todaysJobs: DigestJob[] = ((today ?? []) as Array<{
+    scheduled_for: string;
+    window_key: string | null;
+    contact_id: string | null;
+    title: string;
+  }>).map((b) => {
+    const at = new Date(b.scheduled_for);
+    const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", hourCycle: "h23" }).format(at));
+    const when = b.window_key
+      ? hour < 12 ? "AM" : "PM"
+      : new Intl.DateTimeFormat("en-CA", { timeZone, hour: "numeric", minute: "2-digit" }).format(at).replace(/\s?[ap]\.?m\.?$/i, "");
+    const name = (b.contact_id && contacts.get(b.contact_id)?.name) || b.title;
+    return { when, name };
+  });
+
+  return { callToday, paidNoDate, todaysJobs };
 }
 
 /** The org's usage-vs-cap for the one capped metered feature (voice preferred, then SMS). */

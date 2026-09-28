@@ -396,6 +396,22 @@ async function runPhoneLeadIntake(fields: RetellCallFields, rawPayload: unknown)
       // A lead already exists for this call (e.g. the mid-call capture created it).
       // Enrich the row with any newer transcript/analysis, but never create a second lead.
       await upsertRetellCall(admin, { callId, tenant, fields, rawPayload, leadId: existing.lead_id });
+
+      // The call.* triggers belong to the END of the call. When a mid-call tool (capture-lead,
+      // Marina's quote) filed the lead, they were deliberately held back — so the post-call
+      // payload fires them now, exactly once.
+      if (isPostCall(fields) && !(await callTriggersEmitted(admin, tenant.organizationId, callId))) {
+        const { data: linked } = await admin.from("retell_calls")
+          .select("contact_id")
+          .eq("call_id", callId)
+          .maybeSingle();
+        await emitRetellCallTriggers(admin, {
+          organizationId: tenant.organizationId,
+          companyId: tenant.companyId,
+          contactId: (linked as { contact_id: string | null } | null)?.contact_id ?? null,
+          fields,
+        });
+      }
       return { duplicate: true, leadId: existing.lead_id, callId, urgent: fields.urgent };
     }
   }
@@ -436,16 +452,47 @@ async function runPhoneLeadIntake(fields: RetellCallFields, rawPayload: unknown)
     console.error("[retell:lead] failed to link call to lead:", err);
   }
 
-  // (5) Task 9 triggers: call.missed / call.completed (+ call.urgent). Only on a fresh
-  //     ingest (the duplicate path returned above), so a retry doesn't re-fire them.
-  await emitRetellCallTriggers(admin, {
-    organizationId: tenant.organizationId,
-    companyId: tenant.companyId,
-    contactId: linkedContactId,
-    fields,
-  });
+  // (5) Task 9 triggers: call.missed / call.completed (+ call.urgent) — only once the call
+  //     is OVER. A mid-call capture has no duration, voicemail flag or summary yet, and
+  //     classifying it would fire "call completed" automations while the caller is still on
+  //     the line; the post-call payload fires them via the duplicate path above instead.
+  if (isPostCall(fields)) {
+    await emitRetellCallTriggers(admin, {
+      organizationId: tenant.organizationId,
+      companyId: tenant.companyId,
+      contactId: linkedContactId,
+      fields,
+    });
+  }
 
   return { duplicate: false, leadId: result.leadId, callId, urgent: fields.urgent };
+}
+
+/** A mid-call tool invocation (capture-lead, Marina's quote) is not the end of the call. */
+export function isPostCall(fields: Pick<RetellCallFields, "event">): boolean {
+  return fields.event !== "capture_lead";
+}
+
+/** Have this call's call.* triggers already fired? (Keyed by the Retell call id in the
+ *  event metadata; the webhook queue already dedupes redeliveries, this guards the
+ *  capture → analyzed hand-off.) Fails toward "not yet" only when the lookup itself works. */
+async function callTriggersEmitted(
+  admin: RetellAdminClient,
+  organizationId: string | null,
+  callId: string,
+): Promise<boolean> {
+  if (!organizationId) return true; // nothing would be emitted anyway
+  const { data, error } = await admin.from("activity_events")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .in("event_type", ["call.missed", "call.completed"])
+    .eq("metadata_json->>callId", callId)
+    .limit(1);
+  if (error) {
+    console.error("[retell] could not check call triggers; not re-firing:", error.message);
+    return true;
+  }
+  return (data ?? []).length > 0;
 }
 
 /** call.missed = inbound reached voicemail, ended in <5s, or was not successful; else

@@ -13,12 +13,14 @@ Marina exactly as it does today.
 
 | Tool | Endpoint | Status |
 | --- | --- | --- |
-| `quote_shrink_wrap` | `POST /api/retell/functions/quote` | **Ready** (this PR) |
-| Returning-caller lookup (inbound webhook) | `POST /api/retell/inbound` | **Ready** (this PR) |
-| `check_availability` | `POST /api/retell/functions/availability` | Next PR (half-day booking windows) |
-| `book_wrap_date` | `POST /api/retell/functions/book` | Next PR |
-| `send_deposit_link` | `POST /api/retell/functions/deposit-link` | Next PR |
-| Owner SMS per call, follow-up texts, speed-to-lead, 7am digest, health | — | PR 2 |
+| `quote_shrink_wrap` | `POST /api/retell/functions/quote` | **Ready** (PR 1a) |
+| Returning-caller lookup (inbound webhook) | `POST /api/retell/inbound` | **Ready** (PR 1a) |
+| `check_availability` | `POST /api/retell/functions/availability` | **Ready** (PR 1b) |
+| `book_wrap_date` | `POST /api/retell/functions/book` | **Ready** (PR 1b) |
+| `send_deposit_link` | `POST /api/retell/functions/deposit-link` | **Ready** (PR 1b) |
+| Owner text per call, customer follow-ups, deposit alerts, reply relay | Automations (recipes) | **Ready** (PR 2) |
+| Call-back lists in the morning digest, setup health check | Digest + `GET /api/organizations/{org}/voice/health` | **Ready** (PR 2) |
+| Speed-to-lead (Marina calls a new web lead) | — | Later: needs the Care site's forms to post to EmpireVu first (PR 5) |
 
 ## Pricing parity
 
@@ -110,10 +112,156 @@ in the company's voice profile (`company_voice_profiles.dynamic_variables`):
 | `greeting_returning` | `Thanks for calling {{company_name}}, this is {{agent_name}}. Hi {{caller_first_name}} — are you calling about the {{caller_boat}}?` |
 | `agent_name` | `Marina` |
 
+## Booking by half-day window
+
+A mobile crew books "Tuesday morning", not "10:00". That's a per-company **booking policy**
+in `companies.booking_policy` (migration `20260928120000_marina_booking_windows.sql`). A
+company without one keeps the hourly public-booking page exactly as before, and Marina's
+booking tools answer "the owner will call to set the date".
+
+```json
+{
+  "mode": "windows",
+  "windows": [
+    { "key": "morning",   "start": "09:00", "durationMinutes": 180, "spoken": "in the morning" },
+    { "key": "afternoon", "start": "13:00", "durationMinutes": 180, "spoken": "in the afternoon" }
+  ],
+  "capacityPerWindow": 2,
+  "leadTimeHours": 24,
+  "horizonDays": 21,
+  "workingDays": [1, 2, 3, 4, 5, 6]
+}
+```
+
+Every field is optional after `mode` (defaults shown). A malformed policy is logged and
+treated as the defaults: a typo in settings must not stop Marina booking.
+
+- **Capacity counts every booking the crew has in that window**, not just Marina's. A job
+  booked into the window counts, and so does a job added by hand in the app whose hours
+  overlap the window. (The Care site only counted its own shrink-wrap bookings.)
+- **Lead time works by date**, like the Care site: with 24 h notice, a call on Sunday afternoon
+  can book Monday morning. A window that has already started is never offered.
+- `src/test/marina-booking.test.ts` replays **280 availability cases generated from the
+  Care site's own `findAvailableSlots`**, including the November DST change. Every one matches.
+
+Bookings now carry `quote_id`, `window_key`, `source` (`marina`) and `source_call_id`.
+`(quote_id, source_call_id)` is unique, so a retried tool call can never book the same caller
+twice.
+
+## `POST /api/retell/functions/availability`
+
+Arguments: `preferred_date` (YYYY-MM-DD, optional) and `preferred_window` (`morning` /
+`afternoon` / `am` / `pm`, optional). It returns up to three openings, nearest first, each with a
+ready-to-read `label`, plus a `say` line: *"The next openings are Monday, September 28th in the
+morning, or …"*. If the preferred window is open, it's first and `preferred_open: true`.
+
+## `POST /api/retell/functions/book`
+
+Arguments: `quote_id` (from the quote tool, or the returning-caller `quote_id` variable),
+`date`, `window`. The quote must belong to the company the caller dialled. Otherwise the
+tool answers `quote_not_found`, so a model can't book against another brand's quote. A full or
+too-soon window comes back with up to three `alternatives`. On success it creates a
+**pending** booking linked to the quote and the contact, and fires `booking.created`, which
+drives the booking-reminder automation. Say: *"You're booked for Tuesday, September 29th in
+the morning. We'll text to confirm the arrival time the day before."*
+
+## `POST /api/retell/functions/deposit-link`
+
+Arguments: `quote_id`, plus an optional `phone` / `email` if different from the quote's
+contact. It texts the caller the quote's **hosted page** (`/q/{token}`), where they approve the
+quote and pay the deposit on the company's own Stripe account:
+
+> Hi Dana, it's Marina from A1 Marine Care. Here's your quote — $672 + HST. Tap to approve it
+> and pay the $250 deposit that holds Tuesday, September 29 in the morning (it comes off your
+> final invoice): https://…/q/…
+
+- The text goes through the normal consent-checked messaging path (`message_log`, STOP footer
+  on the first text, opt-outs honoured). If the text is blocked or fails, it falls back to email when there's
+  an address.
+- It records a `deposit_link_sent` quote event, which is what the returning-caller
+  `deposit_link_sent` variable reads.
+- If the deposit is already paid it says so and sends nothing. If the quote is draft,
+  cancelled or expired, nothing is sent and Marina promises a manual follow-up.
+
+**One behaviour change from the Care site.** There, the link went straight to a Stripe
+checkout. Here it opens the quote first: one extra tap ("Approve"), but the customer sees the
+line items and the company's terms before paying, and the approval is recorded. The link stays
+valid for the life of the quote (30 days by default), not "the rest of the day". **Update
+Marina's prompt**: remove "The deposit link is good for the rest of the day" (see cutover).
+
+## After the call: automations (PR 2)
+
+Everything the Care site did around Marina's calls is now an ordinary automation, so it can be
+switched on, off or reworded per company under **Automations**:
+
+| Recipe | Trigger | What it does | Replaces on the Care site |
+| --- | --- | --- | --- |
+| **Text me after every call** | call completed | Texts you the call summary below | `webhook.ts` owner SMS |
+| **Text me about missed calls** | call missed | Same, for voicemail and hang-ups | `webhook.ts` owner SMS |
+| **Text the quote after a call** | call completed | Quoted on the phone but no link went out → texts the quote link | post-call quote text |
+| **Text me when a deposit is paid** | deposit paid | 💰 who, what, how much | Stripe webhook owner text |
+| **Remind paid customers to pick a date** | deposit paid | 4 h later, if still no date: booking link (9am–8pm only) | pick-date text |
+| **Forward customer texts to me** | customer texts back | Relays the text with who it's from | `inbound-sms.ts` relay |
+| **Quote follow-up** *(existing, improved)* | quote sent | Now includes the quote link and **stops once they've paid or booked**; only sends 9am–8pm | 20-hour nudge |
+| **Booking reminder** *(existing)* | booking upcoming | The day-before text; reword it for crew-prep instructions | reminder text |
+
+The owner's call summary is built from what actually happened on the call in EmpireVu (the quote
+created, the booking made, the deposit):
+
+```
+📞 Marina call done · (705) 555-1234 · 3m05s
+Dana Lee · 24 ft bowrider · shrink wrap, winterization
+Quoted $1,153.25 · Booked Tuesday, September 29th in the morning · deposit link sent
+Dana wants her boat wrapped before the frost…
+```
+
+It adds `☎️ CALL BACK …` when Marina promised you'd call, and `URGENT` or `transferred to you`
+when those apply. Outbound calls get a `📤 Marina called …` version.
+
+**Engine changes that make this possible** (useful beyond Marina):
+- A new trigger: **quote.deposit_paid** (it also switches on the "Deposit paid" push notification
+  that was already written but never fired).
+- Conditions can read the quote's **live** state: `quote_deposit_paid`, `quote_booked`,
+  `quote_link_sent` and `quote_status`. They are re-read when a wait resumes, so a sequence stops
+  the moment the customer pays.
+- Message templates can use `{{ quote.public_url }}`, `{{ quote.subtotal }}`,
+  `{{ quote.deposit }}`, `{{ quote.boat }}`, `{{ booking.when }}` ("Tuesday, September 29th in
+  the morning"), `{{ call.owner_summary }}`, and a `| dollars` filter ("$481.25").
+- Waits accept **quiet hours**: `within_hours: { start: "09:00", end: "20:00" }` in the company's
+  time zone.
+- A message that renders empty is never sent.
+- A fix for mid-call tools: `call.*` automations now fire once, at the end of the call.
+
+**Morning digest.** For companies with the digest on, it now also lists today's jobs,
+**quoted-not-booked (call today)** with names, numbers and amounts, **paid-no-date**, and
+any receptionist setup problems (⚠️). The text puts totals first, so on a busy day any
+truncation cuts names, not numbers.
+
+**Health check.** `GET /api/organizations/{orgId}/voice/health?companyId=…` checks the
+env and secrets, texting, the owner phone, the price list, Stripe, the booking windows, and,
+for each Retell number, whether it's bound to the right agent, whether the agent is
+published, where the post-call and inbound webhooks point, and where every tool URL points.
+Before cutover it lists each Care tool still pointing at `a1marinecare.ca`, so it doubles as
+the cutover checklist.
+
+New companies get all of the recipes above automatically. For companies that already exist
+(A1), run once:
+
+```
+railway run npm run job:seed-a1-recipes
+```
+
+It skips anything already installed. It adds the owner-only recipes switched **on**, and the
+ones that text customers as **drafts** for you to review and turn on. The *existing* Quote
+follow-up and Booking reminder keep their current wording; edit them under Automations to add
+`{{ quote.public_url }}` and your crew-prep text.
+
 ## Setup for A1 Marine Care (before cutover — safe to do now)
 
-1. Apply `supabase/migrations/20260927120000_marina_phone_quote.sql` in the Supabase SQL editor.
-2. Run `supabase/seeds/a1-care-shrink-wrap.sql` (re-runnable).
+1. Apply `supabase/migrations/20260927120000_marina_phone_quote.sql` and
+   `20260928120000_marina_booking_windows.sql` in the Supabase SQL editor.
+2. Run `supabase/seeds/a1-care-shrink-wrap.sql` (re-runnable). It sets the catalog, the $250
+   deposit and the half-day booking policy.
 3. Confirm the Care company has a chargeable Stripe account (Settings → Payments), or deposits
    will fail at checkout once the deposit tool is live.
 4. Add a `voice_numbers` row for Marina's Care number (Settings → Integrations → Voice numbers,
@@ -123,8 +271,63 @@ in the company's voice profile (`company_voice_profiles.dynamic_variables`):
 5. Set the two greeting templates above on the Care voice profile to keep today's opener word
    for word.
 6. Test without touching the live agent: duplicate the Care agent in Retell, point the copy's
-   `quote_shrink_wrap` tool at `https://api.empirevu.com/api/retell/functions/quote` with the
-   EmpireVu header, and call it on a spare number mapped in `voice_numbers`.
+   four tools at the EmpireVu URLs below with the `x-empirevu-retell-secret` header, set the copy's
+   phone number's inbound webhook to `/api/retell/inbound`, map that number in `voice_numbers`,
+   and call it from your own phone.
 
-Cutover of the live agent waits until booking and deposits are here too (next PR) — moving
-the quote tool alone would split one caller's quote and booking across two databases.
+## Cutover (the live Care agent)
+
+Do this when a test call on the duplicate agent has quoted, booked and texted a link that
+you paid. Each step can be undone by putting the old value back.
+
+1. **Carry over the calendar first**, so capacity counts every job already booked and
+   returning callers are recognised:
+   ```
+   # on the Care site's Railway service (read-only)
+   railway run npx tsx scripts/export-for-empirevu.ts > a1-care-export.json
+   # on EmpireVu — dry run first, read the report, then apply
+   railway run npm run job:import-a1-care -- --file a1-care-export.json
+   railway run npm run job:import-a1-care -- --file a1-care-export.json --apply
+   ```
+   It brings over every upcoming, non-cancelled booking (shrink wraps into their morning or
+   afternoon window, other services at their time slot) and the last 45 days of shrink-wrap
+   quotes, with deposits already paid. The import is **silent**: no customer emails or texts,
+   no automations, and imported quotes are marked as already reminded. If EmpireVu would price a
+   quote differently from what the customer was told, the dry run lists it and the customer's
+   number is kept. Re-running skips what's already imported. The file holds customer details,
+   so delete it afterwards.
+   Until the Care site's own booking page books through EmpireVu too (PR 5), keep an eye on
+   double bookings from the website.
+2. In Retell, on the live Care agent, change each custom function:
+
+   | Tool | New URL |
+   | --- | --- |
+   | `quote_shrink_wrap` | `https://api.empirevu.com/api/retell/functions/quote` |
+   | `check_availability` | `https://api.empirevu.com/api/retell/functions/availability` |
+   | `book_wrap_date` | `https://api.empirevu.com/api/retell/functions/book` |
+   | `send_deposit_link` | `https://api.empirevu.com/api/retell/functions/deposit-link` |
+
+   Replace the header `x-a1-retell-secret` with `x-empirevu-retell-secret: <RETELL_FUNCTION_SECRET>`
+   (the EmpireVu value). Keep **Payload: args only** OFF.
+3. Prompt edits (two lines):
+   - In PRICING RULES, replace "The deposit link is good for the rest of the day — never quote any
+     other window for it." with "The deposit link opens their quote; they approve it and pay there."
+   - Step 6: replace "Tell them the link is good for the rest of the day" with "Tell them the link
+     opens their quote to approve and pay".
+4. Phone number → **Inbound webhook URL** = `https://api.empirevu.com/api/retell/inbound`.
+5. Agent **Webhook URL** → `https://api.empirevu.com/api/retell/webhook` (enable
+   `call_analyzed`). EmpireVu now sends the per-call texts itself, so the Care site no longer
+   needs to sit in the middle. Before you flip it, turn on **Text me after every call** and set
+   the Care company's **owner phone**. Otherwise you'd get no per-call texts, or two sets if the
+   Care site's `OWNER_SMS_NUMBER` is still set.
+6. So customer replies reach you: add the Twilio number as a **Voice number with provider
+   `twilio`** for the Care company, and in Twilio set that number's messaging webhook to
+   `https://api.empirevu.com/api/twilio/sms/inbound` (it's the Care site's `/api/sms/inbound`
+   today). Then turn off the Care site's
+   own follow-ups and digest workflows (`marina-followups.yml`, `marina-digest.yml`) so
+   customers aren't texted twice.
+7. Publish the agent. Open the health check: every line should be green. Call the business
+   line and run the go-live test.
+
+To roll back, put the old URLs, header and prompt lines back and republish. The Care site's
+endpoints stay live until PR 5 removes them.

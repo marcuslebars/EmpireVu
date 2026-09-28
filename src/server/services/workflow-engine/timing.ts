@@ -55,6 +55,7 @@ export function resolveUntil(expr: string, data: MessageTemplateData): string | 
 export interface WaitSpec {
   duration?: string;
   until?: string;
+  within_hours?: { start: string; end: string };
 }
 
 /**
@@ -62,16 +63,37 @@ export interface WaitSpec {
  * Falls back to `now` when neither resolves, so a mis-authored wait continues rather than
  * stalling the sequence forever.
  */
-export function computeResumeAt(wait: WaitSpec, data: MessageTemplateData, nowMs: number = Date.now()): string {
-  if (wait.duration) {
-    const ms = parseDuration(wait.duration);
-    if (ms != null) return new Date(nowMs + ms).toISOString();
-  }
-  if (wait.until) {
+export function computeResumeAt(
+  wait: WaitSpec,
+  data: MessageTemplateData,
+  nowMs: number = Date.now(),
+  timeZone: string = "America/Toronto",
+): string {
+  let resumeMs = nowMs;
+  if (wait.duration && parseDuration(wait.duration) != null) {
+    resumeMs = nowMs + (parseDuration(wait.duration) as number);
+  } else if (wait.until) {
     const iso = resolveUntil(wait.until, data);
-    if (iso) return iso;
+    if (iso) resumeMs = new Date(iso).getTime();
   }
-  return new Date(nowMs).toISOString();
+  if (wait.within_hours) resumeMs = nextWithinHours(resumeMs, wait.within_hours, timeZone);
+  return new Date(resumeMs).toISOString();
+}
+
+/**
+ * The first instant at or after `ms` that falls inside the daily local window
+ * [start, end). DST-safe (each boundary is computed at its own wall-clock). A window whose
+ * end isn't after its start is ignored rather than trapping a run forever.
+ */
+export function nextWithinHours(ms: number, window: { start: string; end: string }, timeZone: string): number {
+  if (window.end <= window.start) return ms;
+  const start = localDailySlotUtcMs(window.start, timeZone, ms);
+  const end = localDailySlotUtcMs(window.end, timeZone, ms);
+  if (ms < start) return start;
+  if (ms < end) return ms;
+  // After today's window: tomorrow's opening. +26h from today's opening always lands on
+  // tomorrow's local date (even across a DST change), then re-anchor to its start time.
+  return localDailySlotUtcMs(window.start, timeZone, start + 26 * 3_600_000);
 }
 
 // ── Timezone-aware daily slots (DST-safe; no dependency) ─────────────────────

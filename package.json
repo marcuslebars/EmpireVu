@@ -25,6 +25,7 @@
     "job:billing-reconcile": "tsx src/server/jobs/billing-reconcile.ts",
     "job:quote-maintenance": "tsx src/server/jobs/quote-maintenance.ts",
     "job:seed-a1-recipes": "tsx src/server/jobs/seed-a1-recipes.ts",
+    "job:import-a1-care": "tsx src/server/jobs/import-a1-care.ts",
     "job:seed-demo": "tsx src/server/jobs/seed-demo-org.ts"
   },
   "dependencies": {

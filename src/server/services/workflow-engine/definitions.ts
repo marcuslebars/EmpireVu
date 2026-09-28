@@ -105,6 +105,12 @@ const workflowActionSchema = z.discriminatedUnion("type", [
     type: z.literal("wait"),
     duration: z.string().max(20).optional(),
     until: z.string().max(200).optional(),
+    within_hours: z
+      .object({
+        start: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+        end: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+      })
+      .optional(),
     resume_conditions: z.array(workflowConditionSchema).optional(),
     time_saved_seconds: z.number().int().nonnegative().optional(),
   }),

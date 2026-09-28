@@ -111,6 +111,26 @@ describe("provisionRetellAgent", () => {
     expect(calls).not.toContain("createPhoneNumber");
   });
 
+  it("points the number's inbound webhook at the returning-caller lookup, and the agent's at post-call", async () => {
+    const bodies: Record<string, Record<string, unknown>> = {};
+    const client: RetellClient = {
+      createLlm: async () => ({ llm_id: "llm_1" }),
+      updateLlm: async () => ({ llm_id: "llm_1" }),
+      createAgent: async (b) => ((bodies.agent = b), { agent_id: "agent_1" }),
+      updateAgent: async () => ({ agent_id: "agent_1" }),
+      createPhoneNumber: async (b) => ((bodies.number = b), { phone_number: "+17055551234" }),
+      updatePhoneNumber: async () => ({ phone_number: "+17055551234" }),
+      listPhoneNumbers: async () => [],
+    };
+    await provisionRetellAgent(client, {
+      ...baseInput,
+      webhookUrl: "https://api.empirevu.com/api/retell/webhook",
+      inboundWebhookUrl: "https://api.empirevu.com/api/retell/inbound",
+    });
+    expect(bodies.agent.webhook_url).toBe("https://api.empirevu.com/api/retell/webhook");
+    expect(bodies.number.inbound_webhook_url).toBe("https://api.empirevu.com/api/retell/inbound");
+  });
+
   it("attaches a supplied existing number instead of purchasing", async () => {
     const calls: string[] = [];
     const result = await provisionRetellAgent(mockRetell(calls), { ...baseInput, attachNumber: "+14165550100" });

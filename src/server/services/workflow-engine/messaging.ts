@@ -159,6 +159,13 @@ export async function deliverMessage(input: DeliverMessageInput): Promise<Delive
     return { status: "blocked", reason: "no_recipient", body: input.body };
   }
 
+  // A template whose data didn't resolve (e.g. {{ call.owner_summary }} on a call we have
+  // no record of) renders to nothing. Never send a blank text or email.
+  if (!input.body.trim()) {
+    await writeMessageLog(context, { ...base, body: input.body, status: "blocked", error: "empty_body" });
+    return { status: "blocked", reason: "empty_body", body: input.body };
+  }
+
   // Consent — only for a known contact (owner/literal recipients are the author's choice).
   if (input.consentContact) {
     const consent = checkConsent(input.consentContact, channel);

@@ -101,6 +101,8 @@ export interface ProvisionInput {
   beginMessage?: string;
   voiceId?: string;
   webhookUrl?: string | null;
+  /** Retell's inbound-call webhook (returning-caller lookup) — set on the phone number. */
+  inboundWebhookUrl?: string | null;
   /** Purchase a new number in this area code (US) when no number is attached yet. */
   areaCode?: number | null;
   /** Attach this already-owned Retell number instead of purchasing. */
@@ -143,7 +145,14 @@ export async function provisionRetellAgent(client: RetellClient, input: Provisio
   const inboundAgents = [{ agent_id: agentId, agent_version: "latest", weight: 1 }];
   const bindBody: Record<string, unknown> = {
     inbound_agents: inboundAgents,
-    ...(input.webhookUrl ? { inbound_webhook_url: input.webhookUrl } : {}),
+    // The number's inbound webhook is the returning-caller lookup (/api/retell/inbound),
+    // not the post-call webhook: pointing it at the post-call URL answered the ring with no
+    // dynamic variables. Fall back to the old behaviour only when no lookup URL is given.
+    ...(input.inboundWebhookUrl
+      ? { inbound_webhook_url: input.inboundWebhookUrl }
+      : input.webhookUrl
+        ? { inbound_webhook_url: input.webhookUrl }
+        : {}),
     nickname: `${input.companyName} — Marina`,
   };
 
