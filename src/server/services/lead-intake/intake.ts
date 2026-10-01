@@ -278,6 +278,22 @@ async function parseIntoRecords(
   if (existing) {
     matched = true;
     contactId = existing.id;
+    // A manually added contact may have no inquiry consent yet. Record this new
+    // inquiry just as we do for a new contact, without replacing prior consent or
+    // clearing an SMS opt-out. The predicates also protect a concurrent opt-out.
+    const { error } = await admin
+      .from("contacts")
+      .update({
+        sms_consent_at: envelope.receivedAt ?? new Date().toISOString(),
+        consent_source: "implied_inquiry",
+      })
+      .eq("organization_id", orgId)
+      .eq("company_id", companyId)
+      .eq("id", contactId)
+      .is("sms_consent_at", null)
+      .is("consent_source", null)
+      .is("sms_opt_out_at", null);
+    if (error) throw error;
     returning = await buildReturning(admin, orgId, contactId);
   } else {
     const { firstName, lastName } = splitName(envelope.contact.name);
