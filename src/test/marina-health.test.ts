@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_BOOKING_POLICY } from "@/server/services/booking-windows";
-import { pointsHere, receptionistHealth, type HealthInput, type RetellReader } from "@/server/services/retell/health";
+import { getReceptionistBaseUrl, pointsHere, receptionistHealth, type HealthInput, type RetellReader } from "@/server/services/retell/health";
 
 const BASE = "https://api.empirevu.com";
 const ENV = { RETELL_INTAKE_ENABLED: "1", RETELL_API_KEY: "k", RETELL_FUNCTION_SECRET: "s" };
@@ -124,5 +124,31 @@ describe("receptionist health", () => {
     expect(pointsHere("https://www.api.empirevu.com/api/retell/inbound/", "/api/retell/inbound", BASE)).toBe(true);
     expect(pointsHere("https://api.empirevu.com/api/retell/webhook", "/api/retell/inbound", BASE)).toBe(false);
     expect(pointsHere("not a url", "/api/retell/inbound", BASE)).toBe(false);
+  });
+});
+
+describe("receptionist API origin", () => {
+  it("checks the API host when customer links use a separate app host", async () => {
+    const env = { ...ENV, APP_BASE_URL: "https://app.empirevu.com", RETELL_PUBLIC_BASE_URL: BASE };
+    const r = await receptionistHealth(input({ baseUrl: getReceptionistBaseUrl(env), env }));
+    expect(r.ok).toBe(true);
+    expect(env.APP_BASE_URL).toBe("https://app.empirevu.com");
+    expect(pointsHere("https://a1marinecare.ca/api/retell/inbound", "/api/retell/inbound", getReceptionistBaseUrl(env))).toBe(false);
+  });
+
+  it("trims the API override and removes trailing slashes", () => {
+    expect(getReceptionistBaseUrl({ RETELL_PUBLIC_BASE_URL: `  ${BASE}///  `, APP_BASE_URL: "https://app.empirevu.com" })).toBe(BASE);
+  });
+
+  it("preserves single-host deployments when the override is absent", () => {
+    expect(getReceptionistBaseUrl({ APP_BASE_URL: "https://single.example/" })).toBe("https://single.example");
+  });
+
+  it("falls back to the app host for an empty override", () => {
+    expect(getReceptionistBaseUrl({ RETELL_PUBLIC_BASE_URL: "  ", APP_BASE_URL: " https://single.example/ " })).toBe("https://single.example");
+  });
+
+  it("returns no origin when neither is configured", () => {
+    expect(getReceptionistBaseUrl({})).toBeNull();
   });
 });
