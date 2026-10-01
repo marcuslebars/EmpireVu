@@ -119,6 +119,11 @@ export function pointsHere(url: string | null | undefined, path: string, baseUrl
   return !base || u.host.replace(/^www\./, "") === base.host.replace(/^www\./, "");
 }
 
+/** API origin used for Retell endpoints; customer-facing links keep APP_BASE_URL. */
+export function getReceptionistBaseUrl(env: Record<string, string | undefined>): string | null {
+  return (env.RETELL_PUBLIC_BASE_URL?.trim() || env.APP_BASE_URL?.trim() || "").replace(/\/+$/, "") || null;
+}
+
 function hasError<T extends object>(v: T | { error: string }): v is { error: string } {
   return "error" in v;
 }
@@ -250,7 +255,7 @@ export async function companyReceptionistHealth(db: Db, organizationId: string, 
     company,
     numbers: numbers ?? [],
     hasCatalog: (count ?? 0) > 0,
-    baseUrl: (process.env.APP_BASE_URL ?? "").replace(/\/+$/, "") || null,
+    baseUrl: getReceptionistBaseUrl(process.env),
     env: process.env,
     smsConfigured: isSmsSendConfigured(),
     retell: apiKey ? createRetellReader(apiKey) : null,
