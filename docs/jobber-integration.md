@@ -167,7 +167,11 @@ To connect the A1 Jobber account (once, by an admin):
 
 ## Rollout (flip the flag)
 
-1. Apply the migration to the EmpireVu Supabase project.
+1. Apply the migration **manually in the Supabase SQL editor** (Railway does not run
+   migrations): `supabase/migrations/20260807000000_add_jobber_sync.sql`. Then run
+   `supabase/tests/verify-jobber-sync.sql` — it must print `ALL AUTOMATED JOBBER SYNC
+   SCHEMA/RLS CHECKS PASSED`. Harmless to defer while the flag is off, but it **must** be
+   applied before step 5.
 2. Deploy the intake change (EmpireVu `#34` — accepts `winter-storage-quote`) **before** the
    storage site starts sending that `formType`.
 3. Complete the one-time OAuth connect above.
