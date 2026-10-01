@@ -31,6 +31,7 @@ vi.mock("@/server/supabase/admin", () => ({
 }));
 
 import { handleLeadIntake } from "@/server/services/lead-intake/intake";
+import { checkConsent, type ConsentContact } from "@/server/services/workflow-engine/messaging";
 
 function createFakeAdmin(seed: Record<string, Row[]>) {
   const store: Record<string, Row[]> = {
@@ -53,6 +54,7 @@ function createFakeAdmin(seed: Record<string, Row[]>) {
       rows().filter((r) =>
         filters.every(([c, o, v]) => {
           if (o === "eq") return r[c] === v;
+          if (o === "isNull") return r[c] == null;
           if (o === "notNull") return r[c] != null;
           if (o === "like") return new RegExp(`^${String(v).replace(/%/g, ".*")}$`).test(String(r[c] ?? ""));
           if (o === "in") return Array.isArray(v) && v.includes(r[c]);
@@ -78,6 +80,7 @@ function createFakeAdmin(seed: Record<string, Row[]>) {
       update(p: Row) { op = "update"; payload = p; return b; },
       select() { return b; },
       eq(c: string, v: unknown) { filters.push([c, "eq", v]); return b; },
+      is(c: string, v: unknown) { filters.push([c, "isNull", v]); return b; },
       not(c: string) { filters.push([c, "notNull", null]); return b; },
       in(c: string, v: unknown) { filters.push([c, "in", v]); return b; },
       like(c: string, v: unknown) { filters.push([c, "like", v]); return b; },
@@ -186,6 +189,88 @@ describe("intake — never drop", () => {
     expect(newActivity?.company_id).toBe("co-storage"); // scoped to the lead's brand
     expect(newActivity?.metadata_json?.crossBrandBrands).toEqual(["A1 Marine Care"]);
     expect(fake.store.raw_leads[0].needs_attention).toBe(false);
+  });
+});
+
+describe("intake — inquiry consent for matched contacts", () => {
+  function existingContact(overrides: Row = {}): Row {
+    return {
+      id: "c-storage",
+      organization_id: "org-a1",
+      company_id: "co-storage",
+      email: "jane@example.com",
+      phone: "705-555-0101",
+      sms_consent_at: null,
+      consent_source: null,
+      sms_opt_out_at: null,
+      email_opt_out_at: null,
+      ...overrides,
+    };
+  }
+
+  it("records a new inquiry for an existing contact, allowing the requested deposit text", async () => {
+    const contact = existingContact();
+    fake.store.contacts.push(contact);
+    const env = validEnvelope();
+    await handleLeadIntake(JSON.stringify(env), env);
+
+    expect(fake.store.contacts).toHaveLength(1);
+    expect(contact.sms_consent_at).toBe(env.receivedAt);
+    expect(contact.consent_source).toBe("implied_inquiry");
+    expect(checkConsent(contact as ConsentContact, "sms", Date.parse(env.receivedAt))).toEqual({ ok: true });
+    expect(fake.store.raw_leads[0].matched).toBe(true);
+  });
+
+  it("does not clear or bypass an SMS opt-out", async () => {
+    const contact = existingContact({ sms_opt_out_at: "2026-07-01T00:00:00.000Z" });
+    const before = { ...contact };
+    fake.store.contacts.push(contact);
+    const env = validEnvelope();
+    await handleLeadIntake(JSON.stringify(env), env);
+
+    expect(contact).toEqual(before);
+    expect(checkConsent(contact as ConsentContact, "sms")).toEqual({ ok: false, reason: "opted_out" });
+    expect(fake.store.raw_leads[0].contact_id).toBe(contact.id);
+  });
+
+  it.each([
+    { label: "express consent", sms_consent_at: null, consent_source: "express" },
+    { label: "existing inquiry consent", sms_consent_at: "2026-07-01T00:00:00.000Z", consent_source: "implied_inquiry" },
+    { label: "an existing timestamp", sms_consent_at: "2026-07-01T00:00:00.000Z", consent_source: null },
+  ])("preserves $label", async ({ label: _label, ...consent }) => {
+    const contact = existingContact(consent);
+    fake.store.contacts.push(contact);
+    const env = validEnvelope();
+    await handleLeadIntake(JSON.stringify(env), env);
+
+    expect(contact.sms_consent_at).toBe(consent.sms_consent_at);
+    expect(contact.consent_source).toBe(consent.consent_source);
+  });
+
+  it("keeps an email opt-out when recording the inquiry", async () => {
+    const contact = existingContact({ email_opt_out_at: "2026-07-01T00:00:00.000Z" });
+    fake.store.contacts.push(contact);
+    const env = validEnvelope();
+    await handleLeadIntake(JSON.stringify(env), env);
+
+    expect(checkConsent(contact as ConsentContact, "sms", Date.parse(env.receivedAt))).toEqual({ ok: true });
+    expect(checkConsent(contact as ConsentContact, "email")).toEqual({ ok: false, reason: "opted_out" });
+    expect(contact.email_opt_out_at).toBe("2026-07-01T00:00:00.000Z");
+  });
+
+  it("only updates the matched contact in the resolved company and organization", async () => {
+    const contact = existingContact();
+    const otherCompany = existingContact({ id: "c-care", company_id: "co-care" });
+    const otherOrg = existingContact({ id: "c-other", organization_id: "org-other" });
+    fake.store.contacts.push(contact, otherCompany, otherOrg);
+    const env = validEnvelope();
+    await handleLeadIntake(JSON.stringify(env), env);
+
+    expect(contact.consent_source).toBe("implied_inquiry");
+    expect(otherCompany.sms_consent_at).toBeNull();
+    expect(otherCompany.consent_source).toBeNull();
+    expect(otherOrg.sms_consent_at).toBeNull();
+    expect(otherOrg.consent_source).toBeNull();
   });
 });
 
