@@ -150,19 +150,19 @@ async function findExistingContact(
   orgId: string,
   companyId: string,
   contact: { email?: string; phone?: string },
-): Promise<{ id: string; company_id: string | null } | null> {
+): Promise<{ id: string; company_id: string | null; phone: string | null } | null> {
   const email = normalizeEmail(contact.email);
   const phone10 = normalizePhoneLast10(contact.phone);
 
   if (email) {
     const { data } = await admin
       .from("contacts")
-      .select("id, company_id")
+      .select("id, company_id, phone")
       .eq("organization_id", orgId)
       .eq("company_id", companyId)
       .eq("email", email)
       .limit(1);
-    if (data && data[0]) return data[0];
+    if (data && data[0]) return { id: data[0].id, company_id: data[0].company_id, phone: data[0].phone ?? null };
   }
 
   if (phone10) {
@@ -176,7 +176,7 @@ async function findExistingContact(
       .not("phone", "is", null)
       .limit(2000);
     const hit = (data ?? []).find((c) => normalizePhoneLast10(c.phone) === phone10);
-    if (hit) return { id: hit.id, company_id: hit.company_id };
+    if (hit) return { id: hit.id, company_id: hit.company_id, phone: hit.phone ?? null };
   }
 
   return null;
@@ -286,17 +286,44 @@ async function parseIntoRecords(
   let matched = false;
   let returning: ReturningInfo | null = null;
 
+  // Express consent attaches to a matched contact ONLY when it is about that contact's
+  // phone: the submitted number equals the contact's (last 10), or the contact has no
+  // phone yet (we set it). A match by email with a different number never grants express
+  // consent — the opt-in stays on the raw lead / activity as evidence only.
+  let expressApplied = expressConsent;
+  let fillPhone = false;
+  if (existing && expressConsent) {
+    const submitted10 = normalizePhoneLast10(envelope.contact.phone);
+    const existing10 = normalizePhoneLast10(existing.phone);
+    if (!existing10 && submitted10) {
+      fillPhone = true;
+    } else if (!submitted10 || existing10 !== submitted10) {
+      expressApplied = false;
+    }
+  }
+  const matchedConsentSource = expressApplied ? consentSource : "implied_inquiry";
+
   if (existing) {
     matched = true;
     contactId = existing.id;
+    if (fillPhone && envelope.contact.phone) {
+      const { error: phoneError } = await admin
+        .from("contacts")
+        .update({ phone: envelope.contact.phone })
+        .eq("organization_id", orgId)
+        .eq("company_id", companyId)
+        .eq("id", contactId)
+        .is("phone", null);
+      if (phoneError) throw phoneError;
+    }
     // A manually added contact may have no inquiry consent yet. Record this new
     // inquiry just as we do for a new contact, without replacing prior consent or
     // clearing an SMS opt-out. The predicates also protect a concurrent opt-out.
     const { error } = await admin
       .from("contacts")
       .update({
-        sms_consent_at: expressConsent ? consentAt : envelope.receivedAt ?? new Date().toISOString(),
-        consent_source: consentSource,
+        sms_consent_at: expressApplied ? consentAt : envelope.receivedAt ?? new Date().toISOString(),
+        consent_source: matchedConsentSource,
       })
       .eq("organization_id", orgId)
       .eq("company_id", companyId)
@@ -305,7 +332,7 @@ async function parseIntoRecords(
       .is("consent_source", null)
       .is("sms_opt_out_at", null);
     if (error) throw error;
-    if (expressConsent) {
+    if (expressApplied) {
       // An explicit opt-in upgrades a prior IMPLIED consent to express. It never
       // touches an opted-out contact, and never rewrites an existing express record.
       const { error: upgradeError } = await admin
@@ -346,7 +373,15 @@ async function parseIntoRecords(
       // forms opt in via `workflowTrigger`, and the contact.created event is stamped with
       // the unauthenticated source so the Task 5 paid-action guard throttles it.
       workflowTrigger
-        ? { dispatchWorkflow: true, eventMetadata: { source: workflowTrigger.source } }
+        ? {
+            dispatchWorkflow: true,
+            eventMetadata: {
+              source: workflowTrigger.source,
+              ...(workflowTrigger.paidActionsVerified === undefined
+                ? {}
+                : { paidActionsVerified: workflowTrigger.paidActionsVerified }),
+            },
+          }
         : { dispatchWorkflow: false },
     );
     contactId = created.id;
@@ -370,7 +405,18 @@ async function parseIntoRecords(
       asset: envelope.asset ?? null,
       matched,
       crossBrandBrands,
-      ...(envelope.meta?.smsConsent ? { smsConsent: envelope.meta.smsConsent } : {}),
+      ...(envelope.meta?.smsConsent
+        ? {
+            smsConsent: envelope.meta.smsConsent,
+            // Whether the opt-in was recorded on the contact (false = a matched contact
+            // whose phone differs from the submitted one; evidence kept here only).
+            smsConsentApplied: expressApplied,
+            ...(expressConsent && !expressApplied ? { smsConsentPhone: envelope.contact.phone ?? null } : {}),
+          }
+        : {}),
+      ...(workflowTrigger?.paidActionsVerified === false
+        ? { paidActionsSkipped: "bot_check_unverified" }
+        : {}),
     },
     occurredAt: envelope.receivedAt,
   });
@@ -451,7 +497,15 @@ export interface HandleLeadIntakeOptions {
    * unauthenticated-sourced. Omitted = unchanged behavior (no dispatch) for every
    * existing caller — the A1 spokes, Retell/Telnyx phone leads, the onboarding test lead.
    */
-  workflowTrigger?: { source: string };
+  workflowTrigger?: {
+    source: string;
+    /**
+     * False when the submission's bot check did not actually verify (Turnstile unset or
+     * degraded): the lead + owner alert still happen, but the paid-action guard refuses
+     * customer-facing paid actions (send_sms / call_lead) for this trigger.
+     */
+    paidActionsVerified?: boolean;
+  };
 }
 
 export async function handleLeadIntake(

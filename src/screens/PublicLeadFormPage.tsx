@@ -34,25 +34,35 @@ function originOf(url: string | null | undefined): string | undefined {
   }
 }
 
+function isFramed(): boolean {
+  try {
+    return window.parent !== window;
+  } catch {
+    return true;
+  }
+}
+
 /** Read embed context once: parent page, the site embedding us, and attribution. */
 function readContext() {
   const params = new URLSearchParams(window.location.search);
   const embed = params.get("embed") === "1";
+  const framed = isFramed();
   const parentPage = params.get("page") || undefined;
   const utm: Record<string, string> = {};
   for (const key of UTM_KEYS) {
     const value = params.get(key);
     if (value) utm[key] = value.slice(0, 200);
   }
-  // Chrome/Safari expose the real embedding origin; fall back to the referrer, then to
-  // what the embed script told us. Used only for the form's allowed-websites check.
+  // Whenever we're framed (with or without ?embed=1), take the embedding origin from the
+  // BROWSER only: ancestorOrigins (Chrome/Safari), else the referrer origin (Firefox).
+  // The `page` URL param is set by the embedder and is never trusted for this check.
   let embedOrigin: string | undefined;
-  if (embed) {
+  if (framed) {
     const ancestors = (window.location as Location & { ancestorOrigins?: DOMStringList }).ancestorOrigins;
-    embedOrigin = (ancestors && ancestors.length > 0 ? ancestors[0] : undefined) ?? originOf(document.referrer) ?? originOf(parentPage);
+    embedOrigin = (ancestors && ancestors.length > 0 ? ancestors[0] : undefined) ?? originOf(document.referrer);
   }
-  const page = parentPage ?? (embed ? document.referrer || undefined : window.location.href);
-  return { embed, page, utm: Object.keys(utm).length > 0 ? utm : undefined, embedOrigin };
+  const page = parentPage ?? (framed ? document.referrer || undefined : window.location.href);
+  return { embed, framed, page, utm: Object.keys(utm).length > 0 ? utm : undefined, embedOrigin };
 }
 
 export default function PublicLeadFormPage() {
@@ -129,7 +139,10 @@ export default function PublicLeadFormPage() {
   const accent = config?.company.primaryColor ?? "#0f172a";
   const isQuote = config?.form.formType !== "contact";
   const hasReach = phone.trim().length > 0 || email.trim().length > 0;
-  const canSubmit = hasReach && !submitting;
+  // A form restricted to listed websites can't prove where it is embedded when the
+  // browser hides the parent origin — block rather than submit blind.
+  const unverifiableEmbed = Boolean(config?.form.restrictedToSites && ctx.framed && !ctx.embedOrigin);
+  const canSubmit = hasReach && !submitting && !unverifiableEmbed;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -151,6 +164,7 @@ export default function PublicLeadFormPage() {
         smsConsent: phone.trim() ? smsConsent : undefined,
         page: ctx.page,
         embedOrigin: ctx.embedOrigin,
+        framed: ctx.framed,
         utm: ctx.utm,
         website: websiteRef.current?.value || undefined,
         formStartedAt,
@@ -288,6 +302,13 @@ export default function PublicLeadFormPage() {
 
                 <TurnstileWidget onToken={handleTurnstileToken} />
 
+                {unverifiableEmbed && (
+                  <p className="text-sm text-amber-700" role="alert">
+                    This form can&rsquo;t confirm the website it&rsquo;s on, so it can&rsquo;t send from here.
+                    {config.company.phone ? ` Please call ${config.company.phone}` : " Please contact the business directly"}
+                    {" "}or open the form in a new tab.
+                  </p>
+                )}
                 {submitError && <p className="text-sm text-red-600" role="alert">{submitError}</p>}
 
                 <button

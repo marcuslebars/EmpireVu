@@ -182,6 +182,7 @@ describe("public config — display-safe only", () => {
       expect(text).not.toContain(secret);
     }
     expect(config.form.smsConsentText).toMatch(/Reply STOP to opt out/);
+    expect(config.form.restrictedToSites).toBe(false);
   });
 });
 
@@ -258,6 +259,59 @@ describe("through handleLeadIntake (the same durable path)", () => {
     // Matched contacts are deduped, not re-created, and never re-dispatch contact.created.
     expect(fake.store.contacts).toHaveLength(2);
     expect(fake.store.workflow_event_jobs).toHaveLength(0);
+  });
+});
+
+describe("consent attribution (matched contacts)", () => {
+  const target = { organizationId: "org-K", companyId: "co-K" };
+
+  it("email match with a DIFFERENT phone: no express consent on the contact; evidence kept on the activity", async () => {
+    fake.store.contacts.push({ id: "c-1", organization_id: "org-K", company_id: "co-K", email: "a@example.com", phone: "705-555-0101", sms_consent_at: null, consent_source: null, sms_opt_out_at: null });
+    const env = envelopeFor({ email: "a@example.com", phone: "416-555-0199", smsConsent: true });
+    await handleLeadIntake(JSON.stringify(env), env, { target, workflowTrigger: { source: "public_form" } });
+    const c = fake.store.contacts.find((x) => x.id === "c-1");
+    expect(c?.consent_source).toBe("implied_inquiry"); // inquiry only — never express
+    expect(c?.phone).toBe("705-555-0101");
+    const lead = fake.store.activity_events.find((e) => e.metadata_json?.leadId);
+    expect(lead?.metadata_json).toMatchObject({ smsConsentApplied: false, smsConsentPhone: "416-555-0199" });
+    expect(lead?.metadata_json?.smsConsent?.granted).toBe(true);
+  });
+
+  it("an existing implied consent is NOT upgraded when the phones differ", async () => {
+    fake.store.contacts.push({ id: "c-1", organization_id: "org-K", company_id: "co-K", email: "a@example.com", phone: "705-555-0101", sms_consent_at: "2026-01-01T00:00:00.000Z", consent_source: "implied_inquiry", sms_opt_out_at: null });
+    const env = envelopeFor({ email: "a@example.com", phone: "416-555-0199", smsConsent: true });
+    await handleLeadIntake(JSON.stringify(env), env, { target, workflowTrigger: { source: "public_form" } });
+    expect(fake.store.contacts.find((x) => x.id === "c-1")?.consent_source).toBe("implied_inquiry");
+  });
+
+  it("same phone (different formatting) → express; a contact with no phone gets the phone + express", async () => {
+    fake.store.contacts.push(
+      { id: "c-1", organization_id: "org-K", company_id: "co-K", email: "a@example.com", phone: "+1 (705) 555-0101", sms_consent_at: null, consent_source: null, sms_opt_out_at: null },
+      { id: "c-2", organization_id: "org-K", company_id: "co-K", email: "b@example.com", phone: null, sms_consent_at: null, consent_source: null, sms_opt_out_at: null },
+    );
+    let env = envelopeFor({ email: "a@example.com", phone: "705-555-0101", smsConsent: true });
+    await handleLeadIntake(JSON.stringify(env), env, { target, workflowTrigger: { source: "public_form" } });
+    env = envelopeFor({ email: "b@example.com", phone: "416-555-0199", smsConsent: true });
+    await handleLeadIntake(JSON.stringify(env), env, { target, workflowTrigger: { source: "public_form" } });
+    expect(fake.store.contacts.find((x) => x.id === "c-1")?.consent_source).toBe("express_optin");
+    const c2 = fake.store.contacts.find((x) => x.id === "c-2");
+    expect(c2?.phone).toBe("416-555-0199");
+    expect(c2?.consent_source).toBe("express_optin");
+  });
+});
+
+describe("unverified bot check", () => {
+  it("stamps paidActionsVerified=false on contact.created and notes the skip on the lead activity", async () => {
+    const env = envelopeFor({ name: "Pat", phone: "705-555-0199", smsConsent: true });
+    await handleLeadIntake(JSON.stringify(env), env, {
+      target: { organizationId: "org-K", companyId: "co-K" },
+      workflowTrigger: { source: "public_form", paidActionsVerified: false },
+    });
+    const created = fake.store.activity_events.find((e) => e.event_type === "contact.created");
+    expect(created?.metadata_json).toMatchObject({ source: "public_form", paidActionsVerified: false });
+    expect(fake.store.workflow_event_jobs).toHaveLength(1); // owner alert still runs
+    const lead = fake.store.activity_events.find((e) => e.metadata_json?.leadId);
+    expect(lead?.metadata_json?.paidActionsSkipped).toBe("bot_check_unverified");
   });
 });
 

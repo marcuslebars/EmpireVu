@@ -90,26 +90,52 @@ an SMS opt-in checkbox. Service choice rides in `services[]` and in the message 
   `organizationId` / `companyId` / `sourceSite` in the body is stripped. `sourceSite` on the
   envelope is the company slug (a free-text tag in pinned mode — it never routes).
 - **Revocation** (`active=false`) makes the link and every embed return 404 immediately.
+> **Production requirement:** set `TURNSTILE_SECRET_KEY` (and `VITE_TURNSTILE_SITE_KEY`) on
+> `[web]` before relying on instant-reply SMS / auto-call automations for form leads. Until
+> Turnstile *actually verifies* a submission, form leads still land and still alert the
+> owner, but customer-facing paid actions (`send_sms`, `call_lead`) are refused for them
+> (`guard:unverified`, visible as the run's failure reason in Automations; the lead's
+> activity carries `paidActionsSkipped: "bot_check_unverified"`).
+
 - **Abuse layers** (all before any write):
-  1. body cap 16 KB → 413;
-  2. per-IP limit `public_form_post` 8 / 10 min → 429;
+  1. body cap 16 KB → 413 — checked on `Content-Length` **and** enforced while streaming the
+     body (a chunked / lying request is cut off at 16 KB, never fully buffered);
+  2. per-IP limit `public_form_post` 8 / 10 min → 429, keyed on `trustedClientIp()`: the
+     **rightmost public** `x-forwarded-for` hop (the one Railway's edge appends — the edge does
+     not strip client-sent values, so the leftmost hop is forgeable), internal hops skipped,
+     falling back to `x-real-ip`. If a CDN is ever placed in front of Railway, switch to that
+     CDN's verified client-IP header;
   3. per-form limit `public_form_post_key` 100 / hour → 429;
   4. Origin: a write with no `Origin` → 403; a cross-origin site must be on
      `allowed_origins` when the list is non-empty; the hosted page (app origin) is always
-     allowed, but when the list is non-empty and the iframe reports an embedding site
-     (`location.ancestorOrigins` → `document.referrer` → `page`) that isn't listed → 403;
+     allowed, but when the list is non-empty: an iframe whose **browser-reported** embedding
+     origin (`location.ancestorOrigins`, else the `document.referrer` origin — never the
+     embedder-supplied `?page=`) isn't listed → 403, and a framed page with no
+     browser-reported origin at all → 403 (`embed_origin_unknown`; the page also blocks the
+     Send button and tells the visitor to call or open the form in a new tab). Framing is
+     detected whenever `window.parent !== window`, with or without `?embed=1`;
   5. honeypot `website` + minimum fill time 3 s → 400 (generic, so a real person can just
      press Send again);
   6. Cloudflare Turnstile (fail-open until `TURNSTILE_SECRET_KEY` is set — render it with
      `VITE_TURNSTILE_SITE_KEY`, which the hosted page and the test-lead button both do).
+     Whether it *verified* (not unset/degraded) decides if paid automations may run.
   The GET is limited to 60 / 10 min per IP (`public_form_get`).
-- `allowed_origins` is a **browser-level control**, not the security boundary: the embed
-  origin is reported by the client. The real protections are tenant pinning, rate limits,
-  bot checks, and the paid-action guard below.
-- **Paid-action guard.** New contacts from a form dispatch `contact.created` stamped
-  `metadata.source = "public_form"`, which is in the guard's unauthenticated-source set
-  (`workflow-engine/guards.ts`) — so a `call_lead` / `send_sms` automation triggered by a
-  stranger's submission gets the same cooldown + daily cap as public booking.
+- `allowed_origins` is a **browser-level control**, not the security boundary. The real
+  protections are tenant pinning, rate limits, bot checks, and the paid-action guard below.
+  **Follow-up (not done):** serving `Content-Security-Policy: frame-ancestors <allowed>` for
+  `/f/*` would let the browser refuse to render the form on unlisted sites. The SPA is served
+  by a static rewrite to `index.html`, so a per-key header needs a DB lookup in middleware
+  (a new service-role surface) — deliberately left as a follow-up.
+- **Paid-action guard** (`workflow-engine/guards.ts`). New contacts from a form dispatch
+  `contact.created` stamped `metadata.source = "public_form"` (+ `paidActionsVerified`),
+  which is in the guard's unauthenticated-source set (same set as `public_booking`):
+  - `call_lead`: 24 h per-phone cooldown + per-org daily cap (unchanged, from placed calls);
+  - `send_sms` to the contact: a **per-destination-phone cooldown** and a **per-company 24 h
+    cap**, both counted from `message_log` (channel `sms`, outbound, `sent`). Defaults
+    `UNAUTH_SMS_COOLDOWN_HOURS=24`, `UNAUTH_SMS_DAILY_CAP=100` (the cap counts *all* the
+    company's sent SMS in 24 h — once reached, only unauthenticated-triggered texts stop).
+    SMS to the owner / a literal number the author typed is not throttled;
+  - `paidActionsVerified=false` → every paid action refused (`guard:unverified`).
 - **Public GET exposes display fields only:** company name, logo URL (https only), public
   reply phone (`brand_reply_phone` — never the owner's personal number), brand colour,
   active catalog **labels** (no keys, no prices), the form type, and the consent wording.
@@ -127,8 +153,13 @@ stored are the same string:
 > is not a condition of purchase.
 
 - **Ticked** → `meta.smsConsent = { granted: true, text, capturedAt }`; the contact is
-  recorded with `consent_source = 'express_optin'` (express — does not expire). A matched
-  contact's *implied* consent is upgraded; an opted-out contact is never touched.
+  recorded with `consent_source = 'express_optin'` (express — does not expire). For a
+  **matched** contact, express consent is applied (and implied consent upgraded) **only when
+  the submitted phone is that contact's phone** (last 10 digits), or the contact had no phone
+  (the submitted one is then saved). A match by email with a *different* number keeps the
+  contact's consent as it was (inquiry consent only); the opt-in is kept as evidence on the
+  raw lead and the lead activity (`smsConsentApplied: false`, `smsConsentPhone`). An
+  opted-out contact is never touched.
 - **Unticked** → implied inquiry consent (`implied_inquiry`, 6 months), exactly like
   every other lead path.
 - The raw envelope (with the consent text) stays in `raw_leads.raw_payload` as the record.

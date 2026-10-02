@@ -16,7 +16,7 @@ import {
   toPublicFormConfig,
   touchPublicFormKey,
 } from "@/server/services/lead-intake/public-forms";
-import { clientIp, enforceRateLimit } from "@/server/services/rate-limit";
+import { enforceRateLimit, trustedClientIp } from "@/server/services/rate-limit";
 import { assessFormSignals, verifyTurnstile } from "@/server/services/turnstile";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ interface RouteContext {
  * body can never choose an org/company.
  *
  *   GET  → display-safe config (company name/logo/public phone, catalog labels, consent text).
- *   POST → abuse layers (body cap, per-IP + per-form rate limits, Origin / allowed_origins,
+ *   POST → abuse layers (streamed body cap, per-IP + per-form rate limits, Origin / allowed_origins,
  *          honeypot + minimum fill time, Turnstile) → schemaVersion-1 envelope →
  *          handleLeadIntake with the key's org/company pinned (durable raw_leads write
  *          first; dedup, notification, contact.created automations unchanged after it).
@@ -41,6 +41,36 @@ const GENERIC_REJECT = "Your request could not be sent. Please try again.";
 
 function readField(raw: unknown, key: string): unknown {
   return raw && typeof raw === "object" ? (raw as Record<string, unknown>)[key] : undefined;
+}
+
+/**
+ * Read the body as text, aborting once it exceeds `max` bytes — Content-Length can be
+ * absent (chunked) or lie, so the stream itself is capped. Returns null when too large.
+ */
+async function readBodyCapped(request: Request, max: number): Promise<string | null> {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      total += value.byteLength;
+      if (total > max) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      chunks.push(value);
+    }
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 function json(body: unknown, status: number, headers: Record<string, string> = {}): NextResponse {
@@ -71,7 +101,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     scope: "public_form_get",
     limit: 60,
     windowSeconds: 600,
-    keyParts: [clientIp(request)],
+    keyParts: [trustedClientIp(request)],
   });
   if (limited) return limited;
 
@@ -109,12 +139,12 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     scope: "public_form_post",
     limit: 8,
     windowSeconds: 600,
-    keyParts: [clientIp(request)],
+    keyParts: [trustedClientIp(request)],
   });
   if (ipLimited) return ipLimited;
 
-  const rawBody = await request.text();
-  if (new TextEncoder().encode(rawBody).length > PUBLIC_FORM_MAX_BODY_BYTES) {
+  const rawBody = await readBodyCapped(request, PUBLIC_FORM_MAX_BODY_BYTES);
+  if (rawBody === null) {
     return json({ error: "That message is too long." }, 413);
   }
 
@@ -142,6 +172,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   const decision = evaluateOrigin({
     requestOrigin: request.headers.get("origin"),
     embedOrigin: typeof embedOrigin === "string" ? embedOrigin : null,
+    framed: readField(parsedBody, "framed") === true,
     allowedOrigins: form.allowedOrigins,
     selfOrigins: selfOrigins(request),
     write: true,
@@ -206,7 +237,9 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   try {
     result = await handleLeadIntake(JSON.stringify(envelope), envelope, {
       target: { organizationId: form.organizationId, companyId: form.companyId },
-      workflowTrigger: { source: PUBLIC_FORM_SOURCE },
+      // Customer-facing paid automations (instant-reply SMS, call_lead) only run when
+      // the bot check actually verified — not when Turnstile is unset or degraded.
+      workflowTrigger: { source: PUBLIC_FORM_SOURCE, paidActionsVerified: turnstile.ok && !turnstile.degraded },
     });
   } catch (err) {
     console.error(

@@ -93,6 +93,8 @@ export const publicFormSubmissionSchema = z
     page: optionalTrimmed(2000),
     /** Origin of the site embedding the iframe, as observed by the hosted page. */
     embedOrigin: optionalTrimmed(300),
+    /** True when the hosted page is running inside a frame (any frame, ?embed=1 or not). */
+    framed: z.boolean().optional(),
     utm: z.record(z.string().max(40), z.string().max(200)).optional(),
     // Abuse signals (see turnstile.ts).
     website: z.string().max(500).optional(),
@@ -229,7 +231,7 @@ export interface OriginDecision {
   ok: boolean;
   /** The origin to echo in Access-Control-Allow-Origin (cross-origin callers only). */
   corsOrigin: string | null;
-  reason?: "missing_origin" | "origin_not_allowed" | "embed_origin_not_allowed";
+  reason?: "missing_origin" | "origin_not_allowed" | "embed_origin_not_allowed" | "embed_origin_unknown";
 }
 
 /**
@@ -247,6 +249,8 @@ export interface OriginDecision {
 export function evaluateOrigin(args: {
   requestOrigin: string | null;
   embedOrigin?: string | null;
+  /** The hosted page reports it is inside a frame. */
+  framed?: boolean;
   allowedOrigins: string[];
   selfOrigins: string[];
   write: boolean;
@@ -262,6 +266,11 @@ export function evaluateOrigin(args: {
     const embed = normalizeOrigin(args.embedOrigin);
     if (allowed.length > 0 && embed && !args.selfOrigins.includes(embed) && !allowed.includes(embed)) {
       return { ok: false, corsOrigin: null, reason: "embed_origin_not_allowed" };
+    }
+    // Restricted form, framed, but the browser gave no embedding origin (no
+    // ancestorOrigins and a suppressed referrer): can't prove the site is allowed.
+    if (allowed.length > 0 && args.framed && !embed) {
+      return { ok: false, corsOrigin: null, reason: "embed_origin_unknown" };
     }
     return { ok: true, corsOrigin: null };
   }

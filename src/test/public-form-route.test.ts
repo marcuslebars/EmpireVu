@@ -32,6 +32,7 @@ vi.mock("@/server/services/lead-intake/public-forms", async () => {
 const enforceRateLimit = vi.fn();
 vi.mock("@/server/services/rate-limit", () => ({
   clientIp: () => "203.0.113.9",
+  trustedClientIp: () => "203.0.113.9",
   enforceRateLimit: (...args: unknown[]) => enforceRateLimit(...args),
 }));
 
@@ -101,7 +102,8 @@ describe("POST — tenancy pinning + envelope", () => {
     const [rawBody, envelope, options] = handleLeadIntake.mock.calls[0];
     expect(options).toEqual({
       target: { organizationId: "org-K", companyId: "co-K" },
-      workflowTrigger: { source: "public_form" },
+      // Turnstile unset in this test → degraded → paid actions NOT verified.
+      workflowTrigger: { source: "public_form", paidActionsVerified: false },
     });
     expect(JSON.parse(rawBody as string)).toEqual(envelope);
     expect(JSON.stringify(envelope)).not.toContain("EVIL");
@@ -304,5 +306,86 @@ describe("hosted page route", () => {
     const { isPublicPath } = await import("@/lib/public-routes");
     expect(isPublicPath(`/f/${KEY}`)).toBe(true);
     expect(isPublicPath("/settings/f/thing")).toBe(false);
+  });
+});
+
+describe("POST — review fixes", () => {
+  it("paid actions are verified only when Turnstile actually verified the token", async () => {
+    process.env.TURNSTILE_SECRET_KEY = "secret";
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ success: true })));
+    try {
+      const res = await POST(post({ ...goodBody, turnstileToken: "tok" }), ctx);
+      expect(res.status).toBe(200);
+      expect(handleLeadIntake.mock.calls[0][2].workflowTrigger).toEqual({ source: "public_form", paidActionsVerified: true });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("Turnstile network failure (degraded, fail-open) → lead kept, paid actions not verified", async () => {
+    process.env.TURNSTILE_SECRET_KEY = "secret";
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("cf down"));
+    try {
+      const res = await POST(post({ ...goodBody, turnstileToken: "tok" }), ctx);
+      expect(res.status).toBe(200);
+      expect(handleLeadIntake.mock.calls[0][2].workflowTrigger.paidActionsVerified).toBe(false);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("restricted form framed with no browser-reported embedding origin → 403", async () => {
+    resolvePublicFormKey.mockResolvedValue(form({ allowedOrigins: ["https://kirksnow.ca"] }));
+    const res = await POST(post({ ...goodBody, framed: true }), ctx);
+    expect(res.status).toBe(403);
+    expect(handleLeadIntake).not.toHaveBeenCalled();
+  });
+
+  it("unrestricted form framed anywhere → allowed", async () => {
+    const res = await POST(post({ ...goodBody, framed: true }), ctx);
+    expect(res.status).toBe(200);
+  });
+
+  it("chunked body (no Content-Length) over 16 KB → 413 without buffering it all", async () => {
+    const chunk = new TextEncoder().encode("x".repeat(4096));
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        if (pulled > 100) controller.close();
+        else controller.enqueue(chunk);
+      },
+    });
+    const req = new Request(`${APP}/api/public/forms/${KEY}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: APP, host: "app.example.com" },
+      body: stream,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    expect(req.headers.get("content-length")).toBeNull();
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(413);
+    expect(pulled).toBeLessThan(10); // stopped reading right after the cap
+    expect(handleLeadIntake).not.toHaveBeenCalled();
+  });
+
+  it("GET tells the page whether the form is restricted, without listing the sites", async () => {
+    resolvePublicFormKey.mockResolvedValue(form({ allowedOrigins: ["https://kirksnow.ca"] }));
+    const res = await GET(new Request(`${APP}/api/public/forms/${KEY}`, { headers: { host: "app.example.com" } }), ctx);
+    const text = await res.text();
+    expect(JSON.parse(text).data.form.restrictedToSites).toBe(true);
+    expect(text).not.toContain("kirksnow.ca");
+  });
+});
+
+describe("trustedClientIp", () => {
+  it("takes the rightmost public hop (the one our edge appended), skipping internal hops", async () => {
+    const { trustedClientIp } = await vi.importActual<typeof import("@/server/services/rate-limit")>("@/server/services/rate-limit");
+    const r = (xff: string) => new Request("https://x/", { headers: { "x-forwarded-for": xff } });
+    // Client-forged leftmost values are ignored.
+    expect(trustedClientIp(r("1.1.1.1, 2.2.2.2, 198.51.100.7"))).toBe("198.51.100.7");
+    expect(trustedClientIp(r("6.6.6.6, 198.51.100.7, 10.0.0.1, 100.64.0.3"))).toBe("198.51.100.7");
+    expect(trustedClientIp(new Request("https://x/", { headers: { "x-real-ip": "198.51.100.8" } }))).toBe("198.51.100.8");
+    expect(trustedClientIp(new Request("https://x/"))).toBeNull();
   });
 });

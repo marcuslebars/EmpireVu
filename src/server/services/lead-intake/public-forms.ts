@@ -42,6 +42,8 @@ export interface PublicFormConfig {
   form: {
     formType: PublicFormType;
     smsConsentText: string;
+    /** True when the form only works on listed websites (the list itself is not exposed). */
+    restrictedToSites: boolean;
   };
   company: {
     name: string;
@@ -151,6 +153,7 @@ export function toPublicFormConfig(form: ResolvedPublicForm, services: string[])
     form: {
       formType: form.formType,
       smsConsentText: smsConsentText(form.company.name),
+      restrictedToSites: form.allowedOrigins.length > 0,
     },
     company: {
       name: form.company.name,

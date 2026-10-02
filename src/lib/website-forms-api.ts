@@ -25,7 +25,7 @@ export interface PublicFormKey {
 
 /** What the public GET returns — display-safe only. */
 export interface PublicFormConfig {
-  form: { formType: PublicFormType; smsConsentText: string };
+  form: { formType: PublicFormType; smsConsentText: string; restrictedToSites: boolean };
   company: { name: string; logoUrl: string | null; phone: string | null; primaryColor: string | null };
   services: string[];
 }
@@ -40,6 +40,7 @@ export interface PublicFormSubmission {
   smsConsent?: boolean;
   page?: string;
   embedOrigin?: string;
+  framed?: boolean;
   utm?: Record<string, string>;
   website?: string;
   formStartedAt?: number;
