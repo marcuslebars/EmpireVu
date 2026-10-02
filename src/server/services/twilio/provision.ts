@@ -9,13 +9,28 @@
 //     failed after the purchase, the next run finds and reuses it instead of buying again.
 // Twilio REST calls sit behind an injectable client so tests never touch the real API.
 // Runs under the caller's RLS client (admin-only route; voice_numbers admins-manage policy).
+//
+// OWNERSHIP (one Twilio account serves every tenant): before ANY webhook is touched, a
+// number must be claimable by THIS company —
+//   • never the shared fallback sender TWILIO_FROM_NUMBER;
+//   • no voice_numbers row for it in ANY org (cross-org lookup via the sanctioned
+//     findVoiceNumberOwner in missed-call.ts), unless it is this same company's twilio row;
+//   • not FriendlyName-tagged for a different company;
+//   • when attaching an untagged number: no voice/SMS webhook already configured.
+// Claimed numbers are tagged `EmpireVu catcher <companyId>`. The DB backstop is the global
+// UNIQUE on voice_numbers.phone_e164.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Tables } from "@/server/db/database.types";
 import { buildForwardingInstructions, prettyPhone, type ForwardingInstructions } from "@/lib/carrier-forwarding";
 import { ValidationError } from "@/server/organizations/context";
 import { toE164 } from "@/server/services/retell/payload";
 import { assertCompanyInOrganization, type TenantServiceContext } from "@/server/services/shared";
-import { CATCHER_MODE } from "@/server/services/twilio/missed-call";
+import {
+  CATCHER_MODE,
+  createMissedCallAdminClient,
+  findVoiceNumberOwner,
+  type VoiceNumberOwner,
+} from "@/server/services/twilio/missed-call";
 import {
   numberCountry,
   SMS_INBOUND_PATH,
@@ -43,7 +58,7 @@ export interface TwilioNumbersClient {
   searchAvailableLocal(country: string, areaCode: number | null): Promise<TwilioAvailableNumber[]>;
   listIncoming(filter: { phoneNumber?: string; friendlyName?: string }): Promise<TwilioIncomingNumber[]>;
   purchase(input: { phoneNumber: string; friendlyName: string; voiceUrl: string; smsUrl: string }): Promise<TwilioIncomingNumber>;
-  updateWebhooks(sid: string, input: { voiceUrl: string; smsUrl: string }): Promise<TwilioIncomingNumber>;
+  updateWebhooks(sid: string, input: { voiceUrl: string; smsUrl: string; friendlyName: string }): Promise<TwilioIncomingNumber>;
 }
 
 export function getTwilioCredentials(): { accountSid: string; authToken: string } | null {
@@ -102,6 +117,7 @@ export function createTwilioNumbersClient(creds: { accountSid: string; authToken
     },
     async updateWebhooks(sid, input) {
       return (await call("POST", `${account}/IncomingPhoneNumbers/${encodeURIComponent(sid)}.json`, {
+        FriendlyName: input.friendlyName,
         VoiceUrl: input.voiceUrl,
         VoiceMethod: "POST",
         SmsUrl: input.smsUrl,
@@ -111,9 +127,64 @@ export function createTwilioNumbersClient(creds: { accountSid: string; authToken
   };
 }
 
-/** FriendlyName tag on numbers we buy — the crash-safe idempotency key. */
+const TAG_PREFIX = "EmpireVu catcher ";
+
+/** FriendlyName tag on numbers we buy/attach — ownership marker + crash-safe idempotency key. */
 export function catcherFriendlyName(companyId: string): string {
-  return `EmpireVu catcher ${companyId}`;
+  return `${TAG_PREFIX}${companyId}`;
+}
+
+/** Twilio's out-of-the-box demo handlers count as "not configured". */
+function isConfiguredWebhook(url: string | null | undefined): boolean {
+  const value = url?.trim();
+  return Boolean(value) && !/^https?:\/\/demo\.twilio\.com\//i.test(value ?? "");
+}
+
+export interface ProvisionDeps {
+  client?: TwilioNumbersClient;
+  /** Cross-org owner lookup (service role); injectable for tests. */
+  lookupOwner?: (phoneE164: string) => Promise<VoiceNumberOwner | null>;
+}
+
+/**
+ * Refuse (ValidationError) unless this company may claim the number. Runs BEFORE any
+ * Twilio webhook change. Exported for tests.
+ */
+export async function assertNumberClaimable(
+  context: TenantServiceContext,
+  companyId: string,
+  number: TwilioIncomingNumber,
+  opts: { attaching: boolean; lookupOwner: (phoneE164: string) => Promise<VoiceNumberOwner | null> },
+): Promise<void> {
+  const phone = toE164(number.phone_number) ?? number.phone_number;
+  const pretty = prettyPhone(phone);
+
+  const sharedSender = toE164(process.env.TWILIO_FROM_NUMBER);
+  if (sharedSender && phone === sharedSender) {
+    throw new ValidationError(`${pretty} is the platform's shared SMS sender and can't be a catcher number.`);
+  }
+
+  const tag = number.friendly_name ?? "";
+  const ours = tag === catcherFriendlyName(companyId);
+  if (tag.startsWith(TAG_PREFIX) && !ours) {
+    throw new ValidationError(`${pretty} belongs to another company.`);
+  }
+
+  const owner = await opts.lookupOwner(phone);
+  if (owner) {
+    const sameCompany =
+      owner.organization_id === context.organizationId && owner.company_id === companyId && owner.provider === "twilio";
+    if (!sameCompany) {
+      throw new ValidationError(`${pretty} is already connected to another EmpireVu company or account.`);
+    }
+    return;
+  }
+
+  if (opts.attaching && !ours && (isConfiguredWebhook(number.voice_url) || isConfiguredWebhook(number.sms_url))) {
+    throw new ValidationError(
+      `${pretty} already has voice/SMS webhooks configured in Twilio. Clear them in the Twilio console first if it really is free.`,
+    );
+  }
 }
 
 export interface ProvisionCatcherInput {
@@ -229,12 +300,14 @@ async function saveCatcherRow(
 export async function provisionMissedCallCatcher(
   context: TenantServiceContext,
   input: ProvisionCatcherInput,
-  client?: TwilioNumbersClient,
+  deps: ProvisionDeps = {},
 ): Promise<ProvisionCatcherResult> {
   await assertCompanyInOrganization(context, input.companyId);
 
   const creds = getTwilioCredentials();
-  const twilio = client ?? (creds ? createTwilioNumbersClient(creds) : null);
+  const twilio = deps.client ?? (creds ? createTwilioNumbersClient(creds) : null);
+  const lookupOwner =
+    deps.lookupOwner ?? ((phone: string) => findVoiceNumberOwner(createMissedCallAdminClient(), phone));
   if (!twilio) {
     throw new ValidationError("Twilio is not configured. Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN on the server.");
   }
@@ -254,13 +327,16 @@ export async function provisionMissedCallCatcher(
     if (!wanted) throw new ValidationError("Enter a valid phone number to attach.");
     [number = null] = await twilio.listIncoming({ phoneNumber: wanted });
     if (!number) throw new ValidationError(`${prettyPhone(wanted)} isn't in the Twilio account. Buy one instead, or check the number.`);
+    await assertNumberClaimable(context, input.companyId, number, { attaching: true, lookupOwner });
   } else if (previous) {
     [number = null] = await twilio.listIncoming({ phoneNumber: previous.phone_e164 });
+    if (number) await assertNumberClaimable(context, input.companyId, number, { attaching: false, lookupOwner });
   }
 
   if (!number) {
     // A number we bought for this company on an earlier run whose DB write never landed.
     [number = null] = await twilio.listIncoming({ friendlyName: catcherFriendlyName(input.companyId) });
+    if (number) await assertNumberClaimable(context, input.companyId, number, { attaching: false, lookupOwner });
   }
 
   if (!number) {
@@ -283,8 +359,9 @@ export async function provisionMissedCallCatcher(
   }
 
   let webhooksUpdated = false;
-  if (number.voice_url !== voiceUrl || number.sms_url !== smsUrl) {
-    number = { ...number, ...(await twilio.updateWebhooks(number.sid, { voiceUrl, smsUrl })) };
+  const friendlyName = catcherFriendlyName(input.companyId);
+  if (number.voice_url !== voiceUrl || number.sms_url !== smsUrl || number.friendly_name !== friendlyName) {
+    number = { ...number, ...(await twilio.updateWebhooks(number.sid, { voiceUrl, smsUrl, friendlyName })) };
     webhooksUpdated = true;
   }
 

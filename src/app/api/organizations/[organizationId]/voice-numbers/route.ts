@@ -15,8 +15,7 @@ interface RouteContext {
 const createInputSchema = z.object({
   companyId: z.string().uuid(),
   phone: z.string().min(1).max(40),
-  provider: z.enum(["retell", "telnyx", "twilio"]),
-  mode: z.enum(["ai_receptionist", "missed_call_catcher", "sms_only"]).optional(),
+  provider: z.enum(["retell", "telnyx"]),
   providerAgentId: z.string().max(200).nullable().optional(),
   brandLabel: z.string().max(120).nullable().optional(),
 });
@@ -51,7 +50,6 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
         provider: input.provider,
         providerAgentId: input.providerAgentId ?? null,
         brandLabel: input.brandLabel ?? null,
-        mode: input.mode,
       },
     );
     return NextResponse.json({ data });

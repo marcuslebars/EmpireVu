@@ -162,6 +162,30 @@ export async function resolveCatcherTenant(admin: AdminClient, calledNumber: str
   };
 }
 
+export interface VoiceNumberOwner {
+  organization_id: string;
+  company_id: string;
+  provider: string;
+  mode: string;
+  active: boolean;
+}
+
+/**
+ * Who owns this number, across ALL orgs (service role — an RLS client only sees its own
+ * org, which is exactly what a takeover attempt would exploit). Used by catcher
+ * provisioning to refuse numbers already connected elsewhere, active or not. Returns only
+ * ownership columns.
+ */
+export async function findVoiceNumberOwner(admin: AdminClient, phoneE164: string): Promise<VoiceNumberOwner | null> {
+  const { data, error } = await admin
+    .from("voice_numbers")
+    .select("organization_id, company_id, provider, mode, active")
+    .eq("phone_e164", phoneE164)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as VoiceNumberOwner | null) ?? null;
+}
+
 // ── Lead envelope ─────────────────────────────────────────────────────────────
 
 /** A missed call → the canonical phone-lead envelope, so it flows through the SAME intake
@@ -239,6 +263,41 @@ async function recentTextBack(
   if (error) throw error;
   const rows = (data ?? []) as Array<Pick<MissedCallRow, "id" | "contact_id" | "lead_id">>;
   return rows[0] ?? null;
+}
+
+/**
+ * Will a call.missed actually text the caller? True when the company (or an org-wide)
+ * workflow on call.missed is ACTIVE and has a send_sms to the contact. Drives the push copy
+ * so it never claims "texting them back" when the automation is off/draft. Best-effort.
+ */
+export async function textBackAutomationActive(admin: AdminClient, organizationId: string, companyId: string): Promise<boolean> {
+  try {
+    const { data, error } = await admin
+      .from("workflows")
+      .select("company_id, definition")
+      .eq("organization_id", organizationId)
+      .eq("trigger_event", "call.missed")
+      .eq("status", "active")
+      .limit(50);
+    if (error) throw error;
+    const rows = (data ?? []) as Array<Pick<Tables<"workflows">, "company_id" | "definition">>;
+    return rows.some((row) => {
+      if (row.company_id !== null && row.company_id !== companyId) return false;
+      const definition = row.definition;
+      const actions =
+        definition && typeof definition === "object" && !Array.isArray(definition) ? definition.actions : null;
+      return (
+        Array.isArray(actions) &&
+        actions.some((action) => {
+          if (!action || typeof action !== "object" || Array.isArray(action)) return false;
+          return action.type === "send_sms" && action.to !== "owner";
+        })
+      );
+    });
+  } catch (err) {
+    console.error("[missed-call] could not read text-back automation state:", err instanceof Error ? err.message : err);
+    return false;
+  }
 }
 
 export interface HandleMissedCallResult {
@@ -370,7 +429,13 @@ export async function handleMissedCall(payload: unknown, now: number = Date.now(
       entityType: contactId ? "contact" : "company",
       entityId: contactId ?? tenant.companyId,
       eventType: "call.missed",
-      metadata: { ...baseMetadata, contactId, leadId, textBackSuppressed: suppressed },
+      metadata: {
+        ...baseMetadata,
+        contactId,
+        leadId,
+        textBackSuppressed: suppressed,
+        textBackActive: suppressed ? false : await textBackAutomationActive(admin, tenant.organizationId, tenant.companyId),
+      },
     };
     await emitActivityEventAndDispatch(context, input, suppressed ? { emitOnly: true } : {});
   }
@@ -380,6 +445,11 @@ export async function handleMissedCall(payload: unknown, now: number = Date.now(
 }
 
 // ── Worker: the voicemail ─────────────────────────────────────────────────────
+
+/** Twilio only transcribes recordings up to 2 minutes. */
+const TRANSCRIBE_MAX_SECONDS = 120;
+/** If a transcript is expected but never arrives, the owner alert goes out after this. */
+export const ALERT_FALLBACK_DELAY_MS = 10 * 60_000;
 
 function voicemailAnchor(row: MissedCallRow): Pick<CreateActivityEventInput, "entityType" | "entityId"> {
   return row.contact_id
@@ -393,29 +463,44 @@ export function playableRecordingUrl(recordingUrl: string | null): string | null
   return /\.(mp3|wav)$/i.test(recordingUrl) ? recordingUrl : `${recordingUrl}.mp3`;
 }
 
+/**
+ * Where the owner should go: the contact's page in the app (Calls tab has the player). The
+ * raw Twilio recording URL is a bearer link (anyone holding it can listen), so it is never
+ * put in an email.
+ */
+export function appLinkForMissedCall(row: Pick<MissedCallRow, "contact_id">): string | null {
+  const base = process.env.APP_BASE_URL?.trim().replace(/\/+$/, "");
+  if (!base) return null;
+  return row.contact_id ? `${base}/crm/${row.contact_id}` : `${base}/`;
+}
+
 /** Plain-text owner email for a voicemail. Pure + tested. */
 export function buildVoicemailOwnerAlert(args: {
   companyName: string | null;
   callerNumber: string | null;
-  recordingUrl: string | null;
+  appUrl: string | null;
   durationSeconds: number | null;
   transcript: string | null;
   textBackStatus: string;
+  /** An SMS to the caller was actually sent (message_log), not just an event emitted. */
+  textedBack: boolean;
 }): { subject: string; body: string } {
   const who = args.callerNumber ?? "a private number";
+  const textLine =
+    args.textBackStatus === "anonymous"
+      ? "Their caller ID was withheld, so no text-back could be sent."
+      : args.textedBack
+        ? "We already texted them back automatically."
+        : args.textBackStatus === "suppressed"
+          ? "They called again within a few minutes — no second text was sent."
+          : "No automatic text went out — reply to them yourself.";
   const lines = [
-    `New voicemail from ${who}${args.companyName ? ` for ${args.companyName}` : ""}.`,
+    `New voicemail from ${who}${args.companyName ? ` for ${args.companyName}` : ""}${args.durationSeconds ? ` (${args.durationSeconds}s)` : ""}.`,
     "",
-    args.transcript ? `"${args.transcript}"` : "(No transcript — tap the link to listen.)",
+    args.transcript ? `"${args.transcript}"` : "(No transcript — open the call in EmpireVu to listen.)",
     "",
-    args.recordingUrl ? `Listen: ${args.recordingUrl}${args.durationSeconds ? ` (${args.durationSeconds}s)` : ""}` : null,
-    args.textBackStatus === "emitted"
-      ? "We already texted them back automatically."
-      : args.textBackStatus === "suppressed"
-        ? "They called again within a few minutes — they were already texted, so no second text was sent."
-        : args.textBackStatus === "anonymous"
-          ? "Their caller ID was withheld, so no text-back could be sent."
-          : null,
+    args.appUrl ? `Listen and call back: ${args.appUrl}` : null,
+    textLine,
     "Call them back while it's hot.",
   ];
   return {
@@ -424,43 +509,109 @@ export function buildVoicemailOwnerAlert(args: {
   };
 }
 
-async function alertOwnerOfVoicemail(admin: AdminClient, row: MissedCallRow, transcript: string | null): Promise<void> {
-  const context: TenantServiceContext = { organizationId: row.organization_id, actorProfileId: null, supabase: admin };
-  const { data: company } = await admin
-    .from("companies")
-    .select("name, owner_email, owner_phone_e164")
+async function smsSentToCaller(admin: AdminClient, row: MissedCallRow): Promise<boolean> {
+  if (!row.contact_id) return false;
+  const { data, error } = await admin
+    .from("message_log")
+    .select("id")
     .eq("organization_id", row.organization_id)
-    .eq("id", row.company_id)
-    .maybeSingle();
-  const companyRow = company as Pick<Tables<"companies">, "name" | "owner_email" | "owner_phone_e164"> | null;
-  const owner = await resolveOwnerContacts(context, companyRow);
-  const alert = buildVoicemailOwnerAlert({
-    companyName: companyRow?.name ?? null,
-    callerNumber: row.from_number,
-    recordingUrl: row.recording_url,
-    durationSeconds: row.recording_duration_seconds,
-    transcript,
-    textBackStatus: row.text_back_status,
-  });
-  await deliverMessage({
-    context,
-    channel: "email",
-    to: owner.email,
-    subject: alert.subject,
-    body: alert.body,
-    companyId: row.company_id,
-    contactId: null,
-    consentContact: null,
-  });
-  await updateMissedCall(admin, row.id, { owner_alerted_at: new Date().toISOString() });
+    .eq("contact_id", row.contact_id)
+    .eq("channel", "sms")
+    .eq("direction", "outbound")
+    .eq("status", "sent")
+    .gte("created_at", row.created_at)
+    .limit(1);
+  if (error) return false;
+  return (data ?? []).length > 0;
+}
+
+/** Atomically claim the one-time owner alert (owner_alerted_at IS NULL → now). */
+async function claimOwnerAlert(admin: AdminClient, rowId: string): Promise<boolean> {
+  const { data, error } = await admin
+    .from("missed_calls")
+    .update({ owner_alerted_at: new Date().toISOString() })
+    .eq("id", rowId)
+    .is("owner_alerted_at", null)
+    .select("id");
+  if (error) throw error;
+  return (data ?? []).length > 0;
+}
+
+/** Send the owner email exactly once per call (claim first; un-claim if sending throws). */
+async function alertOwnerOfVoicemail(admin: AdminClient, rowId: string, callSid: string): Promise<void> {
+  if (!(await claimOwnerAlert(admin, rowId))) return;
+  try {
+    const row = await loadMissedCall(admin, callSid);
+    if (!row) return;
+    const context: TenantServiceContext = { organizationId: row.organization_id, actorProfileId: null, supabase: admin };
+    const { data: company } = await admin
+      .from("companies")
+      .select("name, owner_email, owner_phone_e164")
+      .eq("organization_id", row.organization_id)
+      .eq("id", row.company_id)
+      .maybeSingle();
+    const companyRow = company as Pick<Tables<"companies">, "name" | "owner_email" | "owner_phone_e164"> | null;
+    const owner = await resolveOwnerContacts(context, companyRow);
+    const alert = buildVoicemailOwnerAlert({
+      companyName: companyRow?.name ?? null,
+      callerNumber: row.from_number,
+      appUrl: appLinkForMissedCall(row),
+      durationSeconds: row.recording_duration_seconds,
+      transcript: row.transcription_text,
+      textBackStatus: row.text_back_status,
+      textedBack: await smsSentToCaller(admin, row),
+    });
+    await deliverMessage({
+      context,
+      channel: "email",
+      to: owner.email,
+      subject: alert.subject,
+      body: alert.body,
+      companyId: row.company_id,
+      contactId: null,
+      consentContact: null,
+    });
+  } catch (err) {
+    // Release the claim so the fallback / a retry can send it.
+    await admin.from("missed_calls").update({ owner_alerted_at: null }).eq("id", rowId);
+    throw err;
+  }
+}
+
+async function alertOwnerSafely(admin: AdminClient, rowId: string, callSid: string): Promise<void> {
+  try {
+    await alertOwnerOfVoicemail(admin, rowId, callSid);
+  } catch (err) {
+    console.error("[missed-call] owner voicemail alert failed:", err instanceof Error ? err.message : err);
+  }
+}
+
+/** Queue a delayed "send the alert if it still hasn't gone" job (same durable queue). */
+async function scheduleAlertFallback(admin: AdminClient, callSid: string, recordingSid: string): Promise<void> {
+  const { error } = await admin.from("inbound_webhook_jobs").upsert(
+    {
+      provider: VOICEMAIL_JOB_PROVIDER,
+      external_id: `alert:${recordingSid}`,
+      payload: toJson({ CallSid: callSid, AlertFallback: "true" }),
+      status: "pending",
+      max_attempts: 5,
+      run_at: new Date(Date.now() + ALERT_FALLBACK_DELAY_MS).toISOString(),
+    },
+    { onConflict: "provider,external_id", ignoreDuplicates: true },
+  );
+  if (error) throw error;
 }
 
 /**
- * Process a voicemail callback (worker handler for provider='twilio_voicemail'): the
- * <Record> action / recording-status callback (store the recording, timeline + push), or
- * the transcription callback (store the text, owner email). The missed_calls row is the
- * tenant link — if the call job hasn't been processed yet, throw so the job retries with
- * backoff. Everything after the recording is stored is best-effort.
+ * Process a voicemail callback (worker handler for provider='twilio_voicemail'):
+ *   • recording (<Record> action / status callback): store it, timeline + push, then the
+ *     owner email — now, unless a transcript is coming (transcription on AND ≤ 120 s), in
+ *     which case a delayed fallback job guarantees the email even if no transcript arrives;
+ *   • transcription: needs the recording stored first (throws → retry), stores the text,
+ *     sends the owner email with it;
+ *   • AlertFallback: sends the email if it still hasn't gone.
+ * The owner email is sent at most once (owner_alerted_at claim). The missed_calls row is the
+ * tenant link — if the call job hasn't been processed yet, throw so the job retries.
  */
 export async function handleVoicemail(payload: unknown): Promise<void> {
   const fields = readVoicemailFields(payload);
@@ -472,9 +623,21 @@ export async function handleVoicemail(payload: unknown): Promise<void> {
     throw new Error(`No missed_calls row for ${fields.callSid} yet — will retry once the call is processed.`);
   }
   const context: TenantServiceContext = { organizationId: row.organization_id, actorProfileId: null, supabase: admin };
+  const worthAlerting = (seconds: number | null) => (seconds ?? 0) >= MIN_VOICEMAIL_SECONDS;
+
+  // Fallback: the transcript never came.
+  if (readField(payload, "AlertFallback") === "true") {
+    if (!row.owner_alerted_at && worthAlerting(row.recording_duration_seconds)) {
+      await alertOwnerSafely(admin, row.id, row.call_sid);
+    }
+    return;
+  }
 
   // Transcription callback.
   if (fields.transcriptionSid) {
+    if (!row.recording_sid) {
+      throw new Error(`Transcription for ${row.call_sid} arrived before its recording — will retry.`);
+    }
     if (row.transcription_sid === fields.transcriptionSid) return;
     await updateMissedCall(admin, row.id, {
       transcription_sid: fields.transcriptionSid,
@@ -493,12 +656,8 @@ export async function handleVoicemail(payload: unknown): Promise<void> {
         console.error("[missed-call] transcript activity failed:", err instanceof Error ? err.message : err);
       }
     }
-    if (!row.owner_alerted_at && (row.recording_duration_seconds ?? 0) >= MIN_VOICEMAIL_SECONDS) {
-      try {
-        await alertOwnerOfVoicemail(admin, row, fields.transcriptionText);
-      } catch (err) {
-        console.error("[missed-call] owner voicemail alert failed:", err instanceof Error ? err.message : err);
-      }
+    if (worthAlerting(row.recording_duration_seconds)) {
+      await alertOwnerSafely(admin, row.id, row.call_sid);
     }
     return;
   }
@@ -514,7 +673,7 @@ export async function handleVoicemail(payload: unknown): Promise<void> {
     recording_duration_seconds: fields.recordingDurationSeconds,
     voicemail_at: new Date().toISOString(),
   });
-  if ((fields.recordingDurationSeconds ?? 0) < MIN_VOICEMAIL_SECONDS) return;
+  if (!worthAlerting(fields.recordingDurationSeconds)) return;
 
   // Timeline + push (push fans out from the activity event). Best-effort.
   try {
@@ -535,17 +694,15 @@ export async function handleVoicemail(payload: unknown): Promise<void> {
     console.error("[missed-call] voicemail activity failed:", err instanceof Error ? err.message : err);
   }
 
-  // Owner email now — unless a transcript is coming, in which case the transcription
-  // callback sends it with the text included.
-  if (!transcriptionEnabled()) {
+  const transcriptExpected =
+    transcriptionEnabled() && (fields.recordingDurationSeconds ?? 0) <= TRANSCRIBE_MAX_SECONDS;
+  if (transcriptExpected) {
     try {
-      await alertOwnerOfVoicemail(
-        admin,
-        { ...row, recording_url: recordingUrl, recording_duration_seconds: fields.recordingDurationSeconds },
-        null,
-      );
+      await scheduleAlertFallback(admin, row.call_sid, fields.recordingSid);
+      return;
     } catch (err) {
-      console.error("[missed-call] owner voicemail alert failed:", err instanceof Error ? err.message : err);
+      console.error("[missed-call] could not schedule the alert fallback; alerting now:", err instanceof Error ? err.message : err);
     }
   }
+  await alertOwnerSafely(admin, row.id, row.call_sid);
 }

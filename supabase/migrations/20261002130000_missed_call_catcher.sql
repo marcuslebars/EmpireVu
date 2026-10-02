@@ -11,6 +11,8 @@
 --      check constraint only admits rows that were previously rejected.)
 --   2) voice_numbers.mode — what the number does when called. Existing rows are AI
 --      receptionist numbers (Retell/Telnyx), hence the default.
+--   (voice_numbers.phone_e164 is already globally UNIQUE from 20260904180000 — active or
+--    not — so one number can never belong to two tenants at the DB level; no extra index.)
 --   3) voice_numbers.provider_number_sid — the provider's id for the number (Twilio
 --      IncomingPhoneNumber SID, PN…) so provisioning can re-configure it idempotently.
 --   4) missed_calls — one row per caught call (keyed by Twilio CallSid), carrying the
@@ -52,7 +54,7 @@ create table if not exists public.missed_calls (
   forwarded_from text,
   caller_phone_last10 text,
   caller_name text,
-  contact_id uuid references public.contacts (id) on delete set null,
+  contact_id uuid,
   lead_id text,
   -- 'pending' → processed; 'emitted' (call.missed dispatched → text-back),
   -- 'suppressed' (same caller inside the throttle window), 'anonymous' (no caller id),
@@ -72,7 +74,12 @@ create table if not exists public.missed_calls (
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
   foreign key (company_id, organization_id)
-    references public.companies (id, organization_id) on delete cascade
+    references public.companies (id, organization_id) on delete cascade,
+  -- Org-scoped contact link (contacts has unique (id, organization_id)). Deleting the
+  -- contact nulls ONLY contact_id (column-list SET NULL, Postgres 15+) — organization_id
+  -- is not null and must survive.
+  foreign key (contact_id, organization_id)
+    references public.contacts (id, organization_id) on delete set null (contact_id)
 );
 
 create index if not exists missed_calls_org_created_idx

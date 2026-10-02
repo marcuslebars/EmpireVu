@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   activities: [] as Array<Record<string, unknown>>,
   emails: [] as Array<Record<string, unknown>>,
   leadCounter: 0,
+  emailFailures: 0,
 }));
 
 vi.mock("@/server/supabase/admin", () => ({ createSupabaseAdminClient: () => h.db?.client }));
@@ -56,6 +57,10 @@ vi.mock("@/server/services/activity-events", () => ({
 vi.mock("@/server/services/workflow-engine/messaging", () => ({
   resolveOwnerContacts: () => Promise.resolve({ email: "owner@muskoka.test", phone: null }),
   deliverMessage: (input: Record<string, unknown>) => {
+    if (h.emailFailures > 0) {
+      h.emailFailures -= 1;
+      return Promise.reject(new Error("resend down"));
+    }
     h.emails.push(input);
     return Promise.resolve({ status: "sent", body: input.body });
   },
@@ -112,6 +117,8 @@ beforeEach(() => {
   h.activities.length = 0;
   h.emails.length = 0;
   h.leadCounter = 0;
+  h.emailFailures = 0;
+  process.env.APP_BASE_URL = "https://app.crankleads.test";
   delete process.env.MISSED_CALL_TEXTBACK_WINDOW_MINUTES;
   delete process.env.MISSED_CALL_TRANSCRIBE;
 });
@@ -181,6 +188,20 @@ describe("handleMissedCall", () => {
       lead_id: "lead_1",
       text_back_status: "emitted",
     });
+  });
+
+  it("marks textBackActive only when an active call.missed workflow texts the contact", async () => {
+    await handleMissedCall(call({ CallSid: "CA1" }), NOW);
+    expect(h.dispatches[0].input).toMatchObject({ metadata: { textBackActive: false } });
+
+    db().tables.workflows = [
+      {
+        organization_id: ORG, company_id: COMPANY, trigger_event: "call.missed", status: "active",
+        definition: { actions: [{ type: "send_sms", to: "contact", body: "Hi" }] },
+      },
+    ];
+    await handleMissedCall(call({ CallSid: "CA9", From: "+17055550777" }), NOW);
+    expect(h.dispatches[1].input).toMatchObject({ metadata: { textBackActive: true } });
   });
 
   it("emits call.missed exactly once per CallSid (job retry / redelivery)", async () => {
@@ -290,6 +311,23 @@ describe("handleVoicemail", () => {
     expect(h.emails).toHaveLength(1);
     expect(h.emails[0]).toMatchObject({ channel: "email", to: "owner@muskoka.test", consentContact: null, companyId: COMPANY });
     expect(String(h.emails[0].subject)).toBe("Voicemail from +17055550123 — Muskoka Plumbing");
+    const body = String(h.emails[0].body);
+    // Links to the app's contact page — never the raw (bearer) Twilio recording URL.
+    expect(body).toContain("Listen and call back: https://app.crankleads.test/crm/contact-1");
+    expect(body).not.toContain("api.twilio.com");
+    // No SMS in message_log → it must not claim a text went out.
+    expect(body).toContain("No automatic text went out");
+  });
+
+  it("says the caller was texted back only when an SMS was actually sent", async () => {
+    await handleMissedCall(call(), NOW);
+    db().tables.message_log = [
+      {
+        organization_id: ORG, contact_id: "contact-1", channel: "sms", direction: "outbound", status: "sent",
+        created_at: new Date(Date.now() + 1000).toISOString(),
+      },
+    ];
+    await handleVoicemail(recording());
     expect(String(h.emails[0].body)).toContain("We already texted them back automatically.");
   });
 
@@ -301,40 +339,81 @@ describe("handleVoicemail", () => {
     expect(h.emails).toHaveLength(0);
   });
 
-  it("with transcription on, the owner email waits for — and includes — the transcript", async () => {
+  it("with transcription on, the owner email waits for — and includes — the transcript (and a fallback is queued)", async () => {
     process.env.MISSED_CALL_TRANSCRIBE = "true";
     await handleMissedCall(call(), NOW);
     await handleVoicemail(recording());
     expect(h.emails).toHaveLength(0);
+    const fallback = db().tables.inbound_webhook_jobs.find((j) => j.external_id === "alert:RE1");
+    expect(fallback).toMatchObject({ provider: "twilio_voicemail", status: "pending", payload: { CallSid: "CA1", AlertFallback: "true" } });
+    expect(Date.parse(String(fallback?.run_at))).toBeGreaterThan(Date.now() + 5 * 60_000);
 
     await handleVoicemail({ CallSid: "CA1", TranscriptionSid: "TR1", TranscriptionStatus: "completed", TranscriptionText: "Hi, my furnace is out." });
     expect(db().tables.missed_calls[0]).toMatchObject({ transcription_sid: "TR1", transcription_text: "Hi, my furnace is out." });
     expect(h.activities.some((a) => a.event_type === "call.voicemail_transcribed")).toBe(true);
     expect(h.emails).toHaveLength(1);
     expect(String(h.emails[0].body)).toContain('"Hi, my furnace is out."');
+
+    // The fallback job then runs: already alerted → nothing more.
+    await handleVoicemail(fallback?.payload);
+    expect(h.emails).toHaveLength(1);
   });
 
-  it("a failing owner alert never fails the job (the recording is already stored)", async () => {
+  it("transcript never arrives → the fallback job sends the alert (once)", async () => {
+    process.env.MISSED_CALL_TRANSCRIBE = "true";
     await handleMissedCall(call(), NOW);
-    db().failNext("companies", { message: "boom" });
-    // resolveCatcherTenant isn't called here; the companies read in the alert fails.
+    await handleVoicemail(recording());
+    await handleVoicemail({ CallSid: "CA1", AlertFallback: "true" });
+    await handleVoicemail({ CallSid: "CA1", AlertFallback: "true" });
+    expect(h.emails).toHaveLength(1);
+    expect(String(h.emails[0].body)).toContain("No transcript");
+  });
+
+  it("a transcription that arrives before its recording throws (retryable) instead of losing the alert", async () => {
+    process.env.MISSED_CALL_TRANSCRIBE = "true";
+    await handleMissedCall(call(), NOW);
+    await expect(
+      handleVoicemail({ CallSid: "CA1", TranscriptionSid: "TR1", TranscriptionStatus: "completed", TranscriptionText: "Hello" }),
+    ).rejects.toThrow(/before its recording/);
+    expect(h.emails).toHaveLength(0);
+  });
+
+  it("a recording longer than Twilio's 120s transcription limit alerts immediately even with transcription on", async () => {
+    process.env.MISSED_CALL_TRANSCRIBE = "true";
+    await handleMissedCall(call(), NOW);
+    await handleVoicemail(recording({ RecordingDuration: "150" }));
+    expect(h.emails).toHaveLength(1);
+    expect((db().tables.inbound_webhook_jobs ?? []).some((j) => j.external_id === "alert:RE1")).toBe(false);
+  });
+
+  it("a failing owner alert never fails the job, and releases the claim so the fallback can resend", async () => {
+    await handleMissedCall(call(), NOW);
+    h.emailFailures = 1;
     await expect(handleVoicemail(recording())).resolves.toBeUndefined();
-    expect(db().tables.missed_calls[0].recording_sid).toBe("RE1");
+    const row = db().tables.missed_calls[0];
+    expect(row.recording_sid).toBe("RE1");
+    expect(row.owner_alerted_at).toBeNull();
+
+    await handleVoicemail({ CallSid: "CA1", AlertFallback: "true" });
+    expect(h.emails).toHaveLength(1);
   });
 });
 
 describe("buildVoicemailOwnerAlert", () => {
-  it("names the caller and explains a withheld number", () => {
+  it("names the caller, links to the app, and explains a withheld number", () => {
     const alert = buildVoicemailOwnerAlert({
       companyName: null,
       callerNumber: null,
-      recordingUrl: "https://r/RE1.mp3",
+      appUrl: "https://app.crankleads.test/",
       durationSeconds: 9,
       transcript: null,
       textBackStatus: "anonymous",
+      textedBack: false,
     });
     expect(alert.subject).toBe("Voicemail from a private number");
-    expect(alert.body).toContain("Listen: https://r/RE1.mp3 (9s)");
+    expect(alert.body).toContain("New voicemail from a private number (9s).");
+    expect(alert.body).toContain("Listen and call back: https://app.crankleads.test/");
     expect(alert.body).toContain("caller ID was withheld");
   });
 });
+

@@ -95,12 +95,48 @@ Migration `supabase/migrations/20261002130000_missed_call_catcher.sql` (rollback
   for `provider='twilio'` rows, but the old constraint made them impossible to insert).
 - `voice_numbers.mode` — `ai_receptionist` (default; Retell/Telnyx) | `missed_call_catcher` |
   `sms_only`. `voice_numbers.provider_number_sid` — the Twilio `PN…` sid.
-- `missed_calls` — one row per caught call: tenant, `call_sid` (unique), from/to/forwarded-from,
+- `missed_calls` — one row per caught call (contact link is the org-scoped composite FK
+  `(contact_id, organization_id) → contacts(id, organization_id) on delete set null (contact_id)`,
+  Postgres 15+): tenant, `call_sid` (unique), from/to/forwarded-from,
   contact + lead link, `text_back_status`, voicemail (`recording_sid`, `recording_url`,
   `recording_duration_seconds`, `voicemail_at`), transcription, `owner_alerted_at`,
   `raw_payload`. RLS on: members **select**; writes are service-role only (the worker).
 - The contact page **Calls** tab (`listContactCalls`) now also lists caught calls, with the
   voicemail as the playable recording and the transcript.
+
+### Number ownership (one Twilio account, many tenants)
+
+All tenants share the platform's Twilio account, and inbound SMS/calls route by the
+receiving number — so who may claim a number is a security boundary. Twilio
+(`provider='twilio'`) `voice_numbers` rows are created **only** by provisioning; the manual
+Settings → Voice numbers API accepts `retell`/`telnyx` only. Before any webhook is changed,
+provisioning refuses a number when:
+
+- it is the shared fallback sender `TWILIO_FROM_NUMBER` (E.164-normalised);
+- it has a `voice_numbers` row in **any** org (active or not) that isn't this same company's
+  Twilio row — checked with a service-role, cross-org lookup (`findVoiceNumberOwner`);
+- its Twilio FriendlyName is `EmpireVu catcher <other companyId>`;
+- (attach) it is untagged and already has a non-demo Voice/SMS webhook configured — clear it
+  in the Twilio console first if it really is free.
+
+Claimed numbers are tagged `EmpireVu catcher <companyId>`. DB backstop: `voice_numbers.phone_e164`
+is globally `UNIQUE` (since `20260904180000`).
+
+### Owner alerts
+
+- **Push** on `call.missed` says "Text-back on its way" only when the company has an
+  **active** `call.missed` workflow with a customer `send_sms` (`metadata.textBackActive`,
+  set at emission); otherwise "New missed call from …".
+- **Email** for a voicemail is sent **exactly once** (`missed_calls.owner_alerted_at` is
+  claimed atomically before sending and released if the send throws). It links to the
+  contact's page in the app (`{APP_BASE_URL}/crm/{contactId}`, Calls tab player) — **never**
+  the raw Twilio recording URL, which is a bearer link (anyone holding it can listen; it is
+  stored in `missed_calls.recording_url` for the in-app player only). It says "we already
+  texted them back" only if an outbound SMS to the contact is actually in `message_log`.
+- With `MISSED_CALL_TRANSCRIBE=true` and a recording ≤ 120 s (Twilio's transcription limit)
+  the email waits for the transcript; a delayed fallback job (`inbound_webhook_jobs`
+  `alert:<RecordingSid>`, +10 min) sends it if the transcript never comes. A transcript that
+  arrives before its recording is retried. Longer recordings alert immediately.
 
 ## Setup (per client, ~5 minutes)
 

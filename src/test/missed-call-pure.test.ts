@@ -117,15 +117,21 @@ function event(eventType: string, metadata: Record<string, unknown>): Tables<"ac
 
 describe("push mapping", () => {
   it("alerts on a caught missed call (not on a Retell short call) and on a voicemail", () => {
-    expect(pushMessageForEvent(event("call.missed", { source: "missed_call_catcher", fromNumber: "+17055550123" }), "Lead")).toMatchObject({
+    expect(
+      pushMessageForEvent(event("call.missed", { source: "missed_call_catcher", fromNumber: "+17055550123", textBackActive: true }), "Lead"),
+    ).toMatchObject({
       title: "Missed call — +17055550123",
-      body: "We texted them back. Tap to follow up.",
+      body: "Text-back on its way. Tap to follow up.",
       category: "leads",
     });
+    // Automation off/draft → never claims a text went out.
+    expect(
+      pushMessageForEvent(event("call.missed", { source: "missed_call_catcher", fromNumber: "+17055550123", textBackActive: false }), "Lead")?.body,
+    ).toBe("New missed call from +17055550123. Tap to call or text them back.");
     expect(pushMessageForEvent(event("call.missed", { callId: "retell_1" }), "Paul")).toBeNull();
     expect(
       pushMessageForEvent(event("call.missed", { source: "missed_call_catcher", textBackSuppressed: true }), "Paul")?.body,
-    ).toMatch(/already texted/);
+    ).toMatch(/text already went out/);
     expect(pushMessageForEvent(event("call.voicemail", { fromNumber: "+17055550123" }), "Paul Smith")).toMatchObject({
       title: "Voicemail — Paul Smith",
     });
