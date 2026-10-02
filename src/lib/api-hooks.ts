@@ -9,6 +9,8 @@ import {
   fetchDashboardActivity,
   fetchAutomationImpact,
   fetchAttribution,
+  fetchMonthlyScorecard,
+  updateMonthlyScorecard,
   fetchDigestSettings,
   updateDigestSettings,
   sendTestDigest,
@@ -157,6 +159,28 @@ export function useAttribution(
     queryFn: () => fetchAttribution(orgId, params),
     enabled: Boolean(orgId),
     staleTime: 30_000,
+  });
+}
+
+// ─── Monthly results scorecard ─────────────────────────────────────────────────
+
+export function useMonthlyScorecard(orgId: string, companyId: string | null) {
+  return useQuery({
+    queryKey: ["monthly-scorecard", orgId, companyId],
+    queryFn: () => fetchMonthlyScorecard(orgId, companyId!),
+    enabled: Boolean(orgId && companyId),
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdateMonthlyScorecard(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { companyId: string; month?: string; operatorNote?: string | null; enabled?: boolean }) =>
+      updateMonthlyScorecard(orgId, input),
+    onSuccess: (_data, variables) => {
+      void qc.invalidateQueries({ queryKey: ["monthly-scorecard", orgId, variables.companyId] });
+    },
   });
 }
 
