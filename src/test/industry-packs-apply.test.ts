@@ -32,6 +32,7 @@ function query(table: string) {
   const api = {
     select: () => api,
     eq: (col: string, value: unknown) => (filters.push((row) => row[col] === value), api),
+    in: (col: string, values: unknown[]) => (filters.push((row) => values.includes(row[col])), api),
     is: (col: string, value: unknown) => (filters.push((row) => (row[col] ?? null) === value), api),
     order: () => api,
     update: (p: Row) => ((op = "update"), (patch = p), api),
@@ -76,7 +77,8 @@ vi.mock("@/server/outbound/sms", () => ({ isSmsSendConfigured: () => true }));
 vi.mock("@/server/outbound/email", () => ({ isEmailSendConfigured: () => true }));
 vi.mock("@/server/services/voice", () => ({ isVoiceConfigured: () => false }));
 
-import { applyIndustryPack, listIndustryPacks } from "@/server/services/packs/apply";
+import { applyIndustryPack, appliedPackJson, bookingPolicyJson, listIndustryPacks } from "@/server/services/packs/apply";
+import { ValidationError } from "@/server/organizations/context";
 import { getPack } from "@/server/services/packs";
 import { updateCatalogItemPrices } from "@/server/services/quotes/catalog-items";
 import { getRecipe } from "@/server/services/workflow-engine/recipes";
@@ -253,5 +255,41 @@ describe("listIndustryPacks + updateCatalogItemPrices", () => {
       updateCatalogItemPrices(ctx(OTHER_ORG), { companyId: COMPANY, items: [{ id, rateCents: 100 }] }),
     ).rejects.toThrow();
     expect(store.service_catalog_items[0].rate_cents).toBe(0);
+  });
+});
+
+describe("updateCatalogItemPrices validates the whole batch before writing", () => {
+  it("rejects unknown ids (400) and writes nothing, even when earlier ids are valid", async () => {
+    await applyIndustryPack(ctx(ORG), COMPANY, "roofing", { recipes: "none" });
+    const good = store.service_catalog_items[0].id as string;
+    const missing = "00000000-0000-4000-8000-999999999999";
+    const err = await updateCatalogItemPrices(ctx(ORG), {
+      companyId: COMPANY,
+      items: [{ id: good, rateCents: 5000 }, { id: missing, rateCents: 100 }],
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ValidationError);
+    expect((err as Error).message).toContain(missing);
+    expect(store.service_catalog_items[0]).toMatchObject({ rate_cents: 0, active: false });
+  });
+
+  it("treats another company's item in the same org as unknown", async () => {
+    const otherCompany = uuid();
+    store.companies.push({ id: otherCompany, organization_id: ORG, name: "Other", booking_policy: null, industry_pack: null });
+    await applyIndustryPack(ctx(ORG), otherCompany, "roofing", { recipes: "none" });
+    const foreign = store.service_catalog_items[0].id as string;
+    await expect(
+      updateCatalogItemPrices(ctx(ORG), { companyId: COMPANY, items: [{ id: foreign, rateCents: 100 }] }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(store.service_catalog_items[0].rate_cents).toBe(0);
+  });
+});
+
+describe("JSON mapping helpers (no casts)", () => {
+  it("map the applied-pack record and booking policy field by field", () => {
+    const applied = { id: "roofing", version: 2, appliedAt: "2026-10-02T14:00:00.000Z", recipes: ["review-request"] };
+    expect(appliedPackJson(applied)).toEqual(applied);
+    const booking = getPack("hvac-plumbing")!.booking!;
+    expect(bookingPolicyJson(booking)).toEqual(JSON.parse(JSON.stringify(booking)));
+    expect(bookingPolicyJson({ mode: "windows" })).toEqual({ mode: "windows" });
   });
 });

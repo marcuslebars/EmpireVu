@@ -146,6 +146,24 @@ function toNeedsPrice(items: Tables<"service_catalog_items">[]): NeedsPriceItem[
     .map((i) => ({ id: i.id, label: i.label, unit: i.unit_label, pricingType: i.pricing_type }));
 }
 
+// ── JSON mapping (explicit fields — no casts; Working Protocol #13) ───────────
+
+export function appliedPackJson(applied: AppliedIndustryPack): Json {
+  return { id: applied.id, version: applied.version, appliedAt: applied.appliedAt, recipes: [...applied.recipes] };
+}
+
+export function bookingPolicyJson(policy: NonNullable<IndustryPack["booking"]>): Json {
+  const out: { [key: string]: Json } = { mode: policy.mode };
+  if (policy.windows) {
+    out.windows = policy.windows.map((w) => ({ key: w.key, start: w.start, durationMinutes: w.durationMinutes, spoken: w.spoken }));
+  }
+  if (policy.capacityPerWindow !== undefined) out.capacityPerWindow = policy.capacityPerWindow;
+  if (policy.leadTimeHours !== undefined) out.leadTimeHours = policy.leadTimeHours;
+  if (policy.horizonDays !== undefined) out.horizonDays = policy.horizonDays;
+  if (policy.workingDays) out.workingDays = [...policy.workingDays];
+  return out;
+}
+
 // ── Data access ────────────────────────────────────────────────────────────────
 
 async function loadCompanyPackState(
@@ -307,7 +325,7 @@ export async function applyIndustryPack(
     if (!pack.booking) report.bookingPolicy = "not_in_pack";
     else if (company.booking_policy != null) report.bookingPolicy = "kept_existing";
     else {
-      await updateCompany(context, companyId, { booking_policy: pack.booking as unknown as Json });
+      await updateCompany(context, companyId, { booking_policy: bookingPolicyJson(pack.booking) });
       report.bookingPolicy = "applied";
     }
   }
@@ -321,7 +339,7 @@ export async function applyIndustryPack(
   ];
   const recipeSlugs = [...new Set([...(previous?.id === pack.id ? previous.recipes : []), ...touched])];
   report.applied = { id: pack.id, version: pack.version, appliedAt: new Date().toISOString(), recipes: recipeSlugs };
-  await updateCompany(context, companyId, { industry_pack: report.applied as unknown as Json });
+  await updateCompany(context, companyId, { industry_pack: appliedPackJson(report.applied) });
 
   return report;
 }
