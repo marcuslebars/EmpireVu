@@ -11,7 +11,7 @@ import type { WorkflowAction, WorkflowEventContext } from "@/server/services/wor
  * a stranger controls. Signed intake (HMAC) stamps `intake`, which is trusted and NOT in
  * this set, so intake-triggered automations are never throttled here.
  */
-const UNAUTHENTICATED_SOURCES = new Set(["public_booking", "waitlist", "intake_unverified"]);
+const UNAUTHENTICATED_SOURCES = new Set(["public_booking", "public_form", "waitlist", "intake_unverified"]);
 
 /** Feature key an operator can override to raise/lower the daily cap per org. */
 export const PUBLIC_OUTBOUND_CALLS_DAILY_FEATURE = "public_outbound_calls_daily";

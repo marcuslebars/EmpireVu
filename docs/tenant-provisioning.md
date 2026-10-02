@@ -4,7 +4,8 @@ A brand-new tenant can receive **web leads** and **Marina calls** with **no env 
 
 ## New tenant — onboarding checklist
 
-1. **Web leads:** Settings → **Integrations** → *Create key* (optionally pin a company). Copy the full key **once** (only its hash is stored). Put it in the tenant site's **server** env and post leads with:
+0. **Web leads (non-technical owner — the default):** onboarding → *Website leads* (or Settings → Integrations → **Website lead form**) → *Create your form*. Give the owner the hosted link and the one-line embed snippet; press *Send a test lead*. No server, no secret. See [website-forms.md](website-forms.md).
+1. **Web leads (developer, server-to-server):** Settings → **Integrations** → *Create key* (optionally pin a company). Copy the full key **once** (only its hash is stored). Put it in the tenant site's **server** env and post leads with:
    ```
    POST https://app.empirevu.com/api/intake
    x-empirevu-key: <the key>

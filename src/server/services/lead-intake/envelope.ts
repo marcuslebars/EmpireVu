@@ -123,6 +123,21 @@ export const leadEnvelopeSchema = z.object({
 
       /** Short reference printed on a downloaded PDF, so the two match. */
       quoteRef: z.string().max(40).optional(),
+
+      /**
+       * Explicit SMS consent captured on the form (website forms / embed). `granted`
+       * true = the person ticked an opt-in checkbox → the contact is recorded with
+       * EXPRESS consent (`express_optin`, does not expire). Absent or false = the
+       * inquiry itself is implied consent, exactly as before. `text` is the exact
+       * wording shown, kept in raw_leads as the consent record. Additive + optional.
+       */
+      smsConsent: z
+        .object({
+          granted: z.boolean(),
+          text: z.string().max(600).optional(),
+          capturedAt: z.string().datetime().optional(),
+        })
+        .optional(),
     })
     .optional(),
 });

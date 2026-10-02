@@ -257,9 +257,20 @@ async function buildReturning(
 /** Parse a valid envelope into contacts + activity (+ booking). Best-effort. */
 async function parseIntoRecords(
   admin: AdminClient,
-  args: { orgId: string; companyId: string; envelope: LeadEnvelope; leadId: string },
+  args: {
+    orgId: string;
+    companyId: string;
+    envelope: LeadEnvelope;
+    leadId: string;
+    workflowTrigger?: HandleLeadIntakeOptions["workflowTrigger"];
+  },
 ): Promise<{ contactId: string; matched: boolean; returning: ReturningInfo | null; crossBrandBrands: string[] }> {
-  const { orgId, companyId, envelope, leadId } = args;
+  const { orgId, companyId, envelope, leadId, workflowTrigger } = args;
+  // Express consent only when the form captured an explicit opt-in (website forms);
+  // every other path keeps recording the inquiry as implied consent, unchanged.
+  const expressConsent = envelope.meta?.smsConsent?.granted === true;
+  const consentSource = expressConsent ? "express_optin" : "implied_inquiry";
+  const consentAt = envelope.meta?.smsConsent?.capturedAt ?? envelope.receivedAt ?? new Date().toISOString();
   const ctx: TenantServiceContext = {
     organizationId: orgId,
     actorProfileId: null,
@@ -284,8 +295,8 @@ async function parseIntoRecords(
     const { error } = await admin
       .from("contacts")
       .update({
-        sms_consent_at: envelope.receivedAt ?? new Date().toISOString(),
-        consent_source: "implied_inquiry",
+        sms_consent_at: expressConsent ? consentAt : envelope.receivedAt ?? new Date().toISOString(),
+        consent_source: consentSource,
       })
       .eq("organization_id", orgId)
       .eq("company_id", companyId)
@@ -294,6 +305,19 @@ async function parseIntoRecords(
       .is("consent_source", null)
       .is("sms_opt_out_at", null);
     if (error) throw error;
+    if (expressConsent) {
+      // An explicit opt-in upgrades a prior IMPLIED consent to express. It never
+      // touches an opted-out contact, and never rewrites an existing express record.
+      const { error: upgradeError } = await admin
+        .from("contacts")
+        .update({ sms_consent_at: consentAt, consent_source: consentSource })
+        .eq("organization_id", orgId)
+        .eq("company_id", companyId)
+        .eq("id", contactId)
+        .eq("consent_source", "implied_inquiry")
+        .is("sms_opt_out_at", null);
+      if (upgradeError) throw upgradeError;
+    }
     returning = await buildReturning(admin, orgId, contactId);
   } else {
     const { firstName, lastName } = splitName(envelope.contact.name);
@@ -307,8 +331,9 @@ async function parseIntoRecords(
         phone: envelope.contact.phone ?? null,
         notes: envelope.message ?? null,
         // Implied consent (Task 8): the lead initiated contact via this inquiry (CASL).
-        smsConsentAt: envelope.receivedAt ?? new Date().toISOString(),
-        consentSource: "implied_inquiry",
+        // A ticked opt-in checkbox on a website form records express consent instead.
+        smsConsentAt: expressConsent ? consentAt : envelope.receivedAt ?? new Date().toISOString(),
+        consentSource,
         metadata: {
           source: envelope.source,
           sourceSite: envelope.sourceSite,
@@ -317,7 +342,12 @@ async function parseIntoRecords(
           meta: envelope.meta ?? null,
         },
       },
-      { dispatchWorkflow: false },
+      // Spokes/phone leads: no workflow dispatch (the intake notifies directly). Website
+      // forms opt in via `workflowTrigger`, and the contact.created event is stamped with
+      // the unauthenticated source so the Task 5 paid-action guard throttles it.
+      workflowTrigger
+        ? { dispatchWorkflow: true, eventMetadata: { source: workflowTrigger.source } }
+        : { dispatchWorkflow: false },
     );
     contactId = created.id;
   }
@@ -340,6 +370,7 @@ async function parseIntoRecords(
       asset: envelope.asset ?? null,
       matched,
       crossBrandBrands,
+      ...(envelope.meta?.smsConsent ? { smsConsent: envelope.meta.smsConsent } : {}),
     },
     occurredAt: envelope.receivedAt,
   });
@@ -413,6 +444,14 @@ export interface HandleLeadIntakeOptions {
    * (legacy HMAC mode), the org/company are resolved from sourceSite as before.
    */
   target?: { organizationId: string; companyId: string | null };
+  /**
+   * Opt-in (website forms only): dispatch `contact.created` for a NEW contact so the
+   * tenant's automations (new-lead owner alert, instant reply) run, stamping the event
+   * with `source` (e.g. "public_form") so the paid-action guard treats it as
+   * unauthenticated-sourced. Omitted = unchanged behavior (no dispatch) for every
+   * existing caller — the A1 spokes, Retell/Telnyx phone leads, the onboarding test lead.
+   */
+  workflowTrigger?: { source: string };
 }
 
 export async function handleLeadIntake(
@@ -457,7 +496,13 @@ export async function handleLeadIntake(
   let crossBrandBrands: string[] = [];
   if (parse.valid && envelope && orgId && companyId) {
     try {
-      const enriched = await parseIntoRecords(admin, { orgId, companyId, envelope, leadId });
+      const enriched = await parseIntoRecords(admin, {
+        orgId,
+        companyId,
+        envelope,
+        leadId,
+        workflowTrigger: options.workflowTrigger,
+      });
       returning = enriched.returning;
       crossBrandBrands = enriched.crossBrandBrands;
       // Urgent phone-leads (Retell post-call analysis) stay flagged for attention even on

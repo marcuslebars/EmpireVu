@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { Inserts, Tables } from "@/server/db/database.types";
+import type { Inserts, Json, Tables } from "@/server/db/database.types";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import {
@@ -67,6 +67,12 @@ export type DeleteContactInput = z.infer<typeof deleteContactInputSchema>;
 
 interface ContactMutationOptions {
   dispatchWorkflow?: boolean;
+  /**
+   * Extra metadata merged into the `contact.created` activity event (createContact
+   * only) — e.g. `{ source: "public_form" }` so the paid-action guard can recognise an
+   * unauthenticated-sourced trigger. Cannot override contactId/stage.
+   */
+  eventMetadata?: Record<string, Json>;
 }
 
 export interface ListContactsOptions {
@@ -136,6 +142,7 @@ export async function createContact(
     entityType: "contact",
     eventType: "contact.created",
     metadata: {
+      ...(options.eventMetadata ?? {}),
       contactId: data.id,
       stage: data.stage,
     },
