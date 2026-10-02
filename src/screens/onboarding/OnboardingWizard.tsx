@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { PhoneModeStep } from "@/components/onboarding/PhoneModeStep";
 import { useOrg } from "@/lib/org-context";
 import { toast } from "@/components/ui/sonner";
 import { relativeTime } from "@/lib/format";
@@ -34,6 +35,7 @@ import {
   type CatalogItemInput,
   type CreatedIntakeKey,
 } from "@/lib/api-client";
+import { WebsiteFormStep } from "@/components/website-forms/WebsiteFormsPanel";
 import { IndustryPackPicker } from "@/components/onboarding/IndustryPackPicker";
 import { useIndustryPacks, usePackRecipes } from "@/lib/industry-pack-hooks";
 
@@ -642,11 +644,11 @@ export default function OnboardingWizard() {
             ) : active === "services" ? (
               <ServicesStep {...stepProps} />
             ) : active === "phone" ? (
-              <PhoneStep {...stepProps} />
+              <PhoneModeStep {...stepProps} aiStep={<PhoneStep {...stepProps} />} />
             ) : active === "payments" ? (
               <PaymentsStep {...stepProps} />
             ) : active === "website" ? (
-              <WebsiteStep {...stepProps} />
+              <WebsiteFormStep orgId={stepProps.orgId} companyId={stepProps.companyId} onDone={stepProps.onDone} advanced={<WebsiteStep {...stepProps} />} />
             ) : active === "test_call" ? (
               <TestCallStep {...stepProps} phoneNumber={(dataByStep.get("phone")?.phoneNumber as string) ?? null} />
             ) : active === "team" ? (

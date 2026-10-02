@@ -16,6 +16,11 @@ function metadataString(event: ActivityEvent, key: string): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+/** Intake names a phone-only lead "Lead" — the caller's number reads better in a push. */
+function callerLabel(name: string | null, fromNumber: string | null): string | null {
+  return name && name.trim().toLowerCase() !== "lead" ? name : fromNumber ?? name;
+}
+
 export function pushMessageForEvent(event: ActivityEvent, contactName: string | null): PushMessage | null {
   const name = contactName ?? metadataString(event, "name") ?? metadataString(event, "contactName");
   const base = { organizationId: event.organization_id, companyId: event.company_id };
@@ -36,6 +41,37 @@ export function pushMessageForEvent(event: ActivityEvent, contactName: string | 
         urgent: true,
         data: { ...base, screen: "lead", recordId: event.entity_id },
       };
+    case "call.missed": {
+      // Only the missed-call catcher's calls (no AI answered) — a Retell short call /
+      // voicemail already has its own lead + receptionist flow.
+      if (metadataString(event, "source") !== "missed_call_catcher") return null;
+      const meta = (event.metadata_json as Record<string, unknown> | null) ?? {};
+      const who = callerLabel(name, metadataString(event, "fromNumber"));
+      // Only claim a text-back when the automation is actually on (textBackActive is set
+      // at emission from the company's active call.missed workflows).
+      return {
+        title: who ? `Missed call — ${who}` : "Missed call",
+        body:
+          meta.anonymous === true
+            ? "Caller ID was withheld, so no text-back was possible."
+            : meta.textBackSuppressed === true
+              ? "They called again — a text already went out a few minutes ago."
+              : meta.textBackActive === true
+                ? "Text-back on its way. Tap to follow up."
+                : `New missed call${who ? ` from ${who}` : ""}. Tap to call or text them back.`,
+        category: "leads",
+        data: { ...base, screen: "lead", recordId: event.entity_id },
+      };
+    }
+    case "call.voicemail": {
+      const who = callerLabel(name, metadataString(event, "fromNumber"));
+      return {
+        title: who ? `Voicemail — ${who}` : "New voicemail",
+        body: "Tap to listen and call them back.",
+        category: "leads",
+        data: { ...base, screen: "lead", recordId: event.entity_id },
+      };
+    }
     case "contact.call_completed":
       return {
         title: name ? `Call finished — ${name}` : "Call finished",
