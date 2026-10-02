@@ -2274,6 +2274,7 @@ export function saveCatalogPrices(
   input: { companyId: string; items: Array<{ id: string; rateCents: number }> },
 ): Promise<{ updated: number }> {
   return apiFetch(`/api/organizations/${orgId}/industry-packs/prices`, { method: "PATCH", body: JSON.stringify(input) });
+}
 
 // ── Missed-call catcher (docs/missed-call-catcher.md) ───────────────────────────
 type ForwardingInstructions = import("@/lib/carrier-forwarding").ForwardingInstructions;
