@@ -147,3 +147,66 @@ describe("assertPaidActionAllowed", () => {
     });
   });
 });
+
+// ── SMS leg for unauthenticated sources (public_form / public_booking) ─────────
+const SEND_SMS = { type: "send_sms", to: "contact", body: "Thanks!" } as WorkflowAction;
+const recent = () => new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+describe("assertPaidActionAllowed — send_sms from unauthenticated sources", () => {
+  it("refuses a second SMS to the same phone inside the cooldown (counted from message_log)", async () => {
+    const ctx = context({
+      contacts: { phone: "+17055550188", company_id: "co-1" },
+      message_log: [{ to_addr: "(705) 555-0188", created_at: recent() }],
+    });
+    await expect(assertPaidActionAllowed(ctx, unauthEvent("public_form"), SEND_SMS, "contact-1")).rejects.toThrowError(
+      "guard:sms_cooldown",
+    );
+  });
+
+  it("refuses once the company's 24h SMS cap is reached (env-configurable)", async () => {
+    process.env.UNAUTH_SMS_DAILY_CAP = "2";
+    try {
+      const ctx = context({
+        contacts: { phone: "+15145550000", company_id: "co-1" },
+        message_log: [
+          { to_addr: "+19995551234", created_at: recent() },
+          { to_addr: "+18885554321", created_at: recent() },
+        ],
+      });
+      await expect(assertPaidActionAllowed(ctx, unauthEvent("public_booking"), SEND_SMS, "contact-1")).rejects.toThrowError(
+        "guard:sms_daily_cap",
+      );
+    } finally {
+      delete process.env.UNAUTH_SMS_DAILY_CAP;
+    }
+  });
+
+  it("allows an SMS under the cap to a number not texted recently", async () => {
+    const ctx = context({
+      contacts: { phone: "+15145550000", company_id: "co-1" },
+      message_log: [{ to_addr: "+19995551234", created_at: recent() }],
+    });
+    await expect(assertPaidActionAllowed(ctx, unauthEvent("public_form"), SEND_SMS, "contact-1")).resolves.toBeUndefined();
+  });
+
+  it("an owner/literal recipient (no contact) is not throttled", async () => {
+    const ctx = context({ message_log: [{ to_addr: "+17055550188", created_at: recent() }] });
+    await expect(assertPaidActionAllowed(ctx, unauthEvent("public_form"), SEND_SMS, null)).resolves.toBeUndefined();
+  });
+
+  it("authenticated triggers are never SMS-throttled", async () => {
+    const ctx = context({
+      contacts: { phone: "+17055550188", company_id: "co-1" },
+      message_log: [{ to_addr: "+17055550188", created_at: recent() }],
+    });
+    await expect(assertPaidActionAllowed(ctx, authEvent(), SEND_SMS, "contact-1")).resolves.toBeUndefined();
+  });
+
+  it("a public-form trigger whose bot check didn't verify gets no paid actions (guard:unverified)", async () => {
+    const event = unauthEvent("public_form");
+    event.metadata = { source: "public_form", paidActionsVerified: false };
+    const ctx = context({ contacts: { phone: "+15145550000", company_id: "co-1" }, message_log: [] });
+    await expect(assertPaidActionAllowed(ctx, event, SEND_SMS, "contact-1")).rejects.toThrowError("guard:unverified");
+    await expect(assertPaidActionAllowed(ctx, event, CALL_LEAD, "contact-1")).rejects.toThrowError("guard:unverified");
+  });
+});

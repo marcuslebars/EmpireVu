@@ -4,6 +4,7 @@ import { Copy, Check, Trash2, Plus, KeyRound, Phone, Loader2 } from "lucide-reac
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
 import { useOrg } from "@/lib/org-context";
+import { WebsiteFormsSettingsSection } from "@/components/website-forms/WebsiteFormsPanel";
 import {
   useCompanies,
   useIntakeKeys,
@@ -111,11 +112,14 @@ export function IntegrationsSettings() {
 
   return (
     <div className="space-y-8">
+      {/* ── Website lead form (publishable key, hosted page + embed) ── */}
+      <WebsiteFormsSettingsSection orgId={organizationId} />
+
       {/* ── Intake keys ── */}
       <div>
         <div className="flex items-center gap-2 mb-1">
           <KeyRound className="w-4 h-4 text-primary" />
-          <h3 className="text-sm font-semibold text-foreground">Lead intake keys</h3>
+          <h3 className="text-sm font-semibold text-foreground">Lead intake keys (advanced: server-to-server)</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-3">
           A key lets a website post leads to {platformBrand.name}, pinned to a company. The full key is shown once — store it in the site's server env.

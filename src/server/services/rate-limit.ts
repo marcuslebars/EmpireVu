@@ -23,6 +23,39 @@ export function clientIp(request: Request): string | null {
   return request.headers.get("x-real-ip");
 }
 
+const PRIVATE_IP = [
+  /^10\./,
+  /^127\./,
+  /^192\.168\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, // CGNAT / internal mesh
+  /^169\.254\./,
+  /^::1$/,
+  /^f[cd][0-9a-f]{2}:/i,
+  /^fe80:/i,
+];
+
+/**
+ * The client IP as appended by OUR edge, for keying per-IP limits on unauthenticated
+ * routes where a spoofed key would defeat the limit. Railway's edge APPENDS the real
+ * client address to x-forwarded-for (it does not strip client-sent values), so the
+ * leftmost hop is attacker-controlled; the rightmost public hop is the one the edge
+ * added. Internal/private hops (Railway's mesh, localhost) are skipped from the right.
+ * Falls back to x-real-ip, then null. If a CDN is ever put in front of Railway, the
+ * rightmost public hop becomes the CDN — switch to that CDN's verified client header.
+ * See docs/EMPIREVU_RUNBOOK.md (Abuse controls).
+ */
+export function trustedClientIp(request: Request): string | null {
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded) {
+    const hops = forwarded.split(",").map((h) => h.trim()).filter(Boolean);
+    for (let i = hops.length - 1; i >= 0; i--) {
+      if (!PRIVATE_IP.some((re) => re.test(hops[i]))) return hops[i];
+    }
+  }
+  return request.headers.get("x-real-ip");
+}
+
 export interface EnforceRateLimitOptions {
   /** Stable identifier for this limit, e.g. "public_booking_post". First key segment. */
   scope: string;

@@ -14,6 +14,7 @@ import DeleteAccountPage from "@/screens/DeleteAccountPage";
 import PrivacyPolicyPage from "@/screens/PrivacyPolicyPage";
 import PublicBookingPage from "@/screens/PublicBookingPage";
 import PublicQuotePage from "@/screens/PublicQuotePage";
+import PublicLeadFormPage from "@/screens/PublicLeadFormPage";
 import AcceptInvitePage from "@/screens/AcceptInvitePage";
 import SignInPage from "./screens/SignInPage";
 import SignUpPage from "./screens/SignUpPage";
@@ -31,6 +32,7 @@ import ContactDetailPage from "./screens/ContactDetailPage";
 import InboxPage from "./screens/InboxPage";
 import AutomationsPage from "./screens/AutomationsPage";
 import ReportsAttributionPage from "./screens/ReportsAttributionPage";
+import ReportsMonthlyPage from "./screens/ReportsMonthlyPage";
 import SettingsPage from "./screens/SettingsPage";
 import NotFound from "./screens/NotFound";
 import { Loader2, AlertTriangle, Bug, ChevronDown, ChevronRight } from "lucide-react";
@@ -309,6 +311,8 @@ function AppRoutes() {
       <Route path="/book/:companyId" element={<PublicBookingPage />} />
       {/* Customer-facing quote. Public + unauthenticated: the token is the credential. */}
       <Route path="/q/:token" element={<PublicQuotePage />} />
+      {/* Hosted website lead form (and the /embed/v1.js iframe). Public: the publishable form key is the credential. */}
+      <Route path="/f/:formKey" element={<PublicLeadFormPage />} />
       {/* Team invitation. Public: the token is the credential; the page prompts sign-in if needed. */}
       <Route path="/invite/:token" element={<AcceptInvitePage />} />
       <Route element={<AppLayout />}>
@@ -381,6 +385,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <ReportsAttributionPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reports/monthly"
+          element={
+            <ProtectedRoute>
+              <ReportsMonthlyPage />
             </ProtectedRoute>
           }
         />

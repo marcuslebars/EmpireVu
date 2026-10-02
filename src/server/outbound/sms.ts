@@ -14,6 +14,12 @@ import { OutboundNotConfiguredError, OutboundSendError } from "@/server/outbound
 export interface SendSmsInput {
   to: string;
   body: string;
+  /**
+   * Sending number override (E.164) — the company's own Twilio number (e.g. its
+   * missed-call catcher), so a text-back comes from the number the customer just called
+   * and their reply routes back to that company. Defaults to TWILIO_FROM_NUMBER.
+   */
+  from?: string;
 }
 
 export interface OutboundSmsConfig {
@@ -68,7 +74,7 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
       },
       body: new URLSearchParams({
         Body: input.body,
-        From: config.from,
+        From: input.from?.trim() || config.from,
         To: input.to,
       }).toString(),
     });

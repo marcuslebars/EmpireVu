@@ -9,6 +9,12 @@ import { toJson } from "@/server/db/json";
 import { handleJobberWebhook } from "@/server/services/jobber/webhook";
 import { ingestRetellCall } from "@/server/services/retell/lead-adapter";
 import { handleInboundSms } from "@/server/services/twilio/inbound-sms";
+import {
+  handleMissedCall,
+  handleVoicemail,
+  VOICE_JOB_PROVIDER,
+  VOICEMAIL_JOB_PROVIDER,
+} from "@/server/services/twilio/missed-call";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -137,6 +143,13 @@ export async function dispatchInboundWebhookJob(job: InboundWebhookJob): Promise
       return;
     case "twilio":
       await handleInboundSms(job.payload);
+      return;
+    case VOICE_JOB_PROVIDER:
+      // Missed-call catcher: a forwarded (unanswered) call → lead + call.missed.
+      await handleMissedCall(job.payload);
+      return;
+    case VOICEMAIL_JOB_PROVIDER:
+      await handleVoicemail(job.payload);
       return;
     default:
       throw new Error(`Unknown inbound webhook provider: ${job.provider}`);

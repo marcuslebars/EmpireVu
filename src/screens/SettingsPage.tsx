@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone, Send, Copy, Trash2, Mail, CreditCard, Landmark } from "lucide-react";
+import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone, Send, Copy, Trash2, Mail, CreditCard, Landmark, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
 import { useOrg } from "@/lib/org-context";
@@ -21,9 +21,11 @@ import { BillingSettings } from "@/components/settings/BillingSettings";
 import { PaymentsSettings } from "@/components/settings/PaymentsSettings";
 import { IntegrationsSettings } from "@/components/settings/IntegrationsSettings";
 import { DigestSettings } from "@/components/settings/DigestSettings";
+import { IndustryPackSettings } from "@/components/settings/IndustryPackSettings";
 
 const sections = [
   { id: "org", label: "Organization", icon: Building2, description: "Manage organization name, slug, and companies" },
+  { id: "packs", label: "Industry pack", icon: Package, description: "Apply a starter pack for your trade and price its services" },
   { id: "voice", label: "Voice (Marina)", icon: Phone, description: "Set each company's outbound agent, caller ID, and system prompt" },
   { id: "members", label: "Members & Permissions", icon: Users, description: "Manage team roles and access controls" },
   { id: "billing", label: "Billing & Plans", icon: CreditCard, description: "Manage your subscription and plan" },
@@ -409,6 +411,8 @@ export default function SettingsPage() {
         <div className="lg:col-span-3 bg-card border border-border rounded-xl p-4 sm:p-6">
           {active === "org" ? (
             <OrganizationSettings />
+          ) : active === "packs" ? (
+            <IndustryPackSettings />
           ) : active === "voice" ? (
             <VoiceSettings />
           ) : active === "members" ? (

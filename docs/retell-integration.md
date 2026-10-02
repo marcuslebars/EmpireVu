@@ -130,6 +130,9 @@ emission never fails the lead ingest), anchored to the linked contact (else the 
 - **`call.urgent`** — additionally emitted when `is_urgent` is true (see Urgency escalation above).
 
 Use these in Automations to, say, text a missed caller back or start a `wait`-based follow-up sequence.
+A business **without** the AI receptionist gets the same `call.missed` trigger from the
+[missed-call catcher](missed-call-catcher.md) (carrier forwarding → Twilio number), with
+`metadata.source = 'missed_call_catcher'` and `metadata.callId` = the Twilio CallSid.
 
 ## Webhook + function configuration in Retell
 

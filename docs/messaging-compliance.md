@@ -13,6 +13,8 @@ Consent lives on `contacts`:
 | `sms_opt_out_at` | Set when the contact opts out of SMS — a hard block. |
 | `email_opt_out_at` | Same, for email. |
 
+**Express consent from website forms.** The hosted lead page / embed (see [website-forms.md](website-forms.md)) shows an optional, unticked SMS opt-in checkbox when a phone is entered: *"Yes, {Company} may text me about my request at the number above. Message frequency varies. Message and data rates may apply. Reply STOP to opt out, HELP for help. Consent is not a condition of purchase."* Ticked → `consent_source = 'express_optin'` (a matched contact gets it — upgrading implied consent — only when the submitted phone is the contact's phone, or the contact had none; a different number leaves the contact's consent unchanged and keeps the opt-in as evidence on the lead only; an opted-out contact is never touched); the exact wording + timestamp are kept in `raw_leads.raw_payload.meta.smsConsent`. Unticked → implied inquiry consent, as below. Owners should confirm the wording with counsel for their market.
+
 **Implied consent** (the customer initiated contact — a form, a booking, a phone call) is valid for **6 months** from the inquiry. **Express consent** does not expire. `checkConsent` (server-side, enforced at send time) refuses when:
 
 - the channel's opt-out timestamp is set (`opted_out`), or
@@ -32,3 +34,7 @@ Under CRTC rules every commercial SMS must offer an unsubscribe. The **first** o
 ## Records
 
 Every outbound message is written to `message_log` (channel, direction, to/from, body, status, provider ref, the workflow run) and metered in `usage_events`. `message_log` is the audit trail for what was sent, to whom, and whether it was blocked — keep it.
+
+## Missed-call text-back (catcher)
+
+A missed call caught by the [missed-call catcher](missed-call-catcher.md) is an inquiry: the caller phoned the business, so intake stamps **implied consent** (`implied_inquiry`) on the contact, exactly as for a Retell call or a web form. The `missed-call-text-back` recipe's message names the business (`{{company.name}} here`) and is the first SMS, so it carries `Reply STOP to opt out`. It is sent **from the company's own catcher number**, so a STOP reply lands on that number and opts the contact out of that company. A caller who opted out is never texted back on a later missed call (`checkConsent` at send time), a withheld caller ID is never texted, and a repeat call within `MISSED_CALL_TEXTBACK_WINDOW_MINUTES` doesn't trigger a second text.
