@@ -109,6 +109,8 @@ export interface BookingDeps {
   sendText(tenant: BookingTenant, to: { phone: string; contact: ContactForMessage | null }, body: string): Promise<{ status: string; reason?: string }>;
   sendEmail(tenant: BookingTenant, to: { email: string; contact: ContactForMessage | null }, subject: string, body: string): Promise<{ status: string; reason?: string }>;
   recordQuoteEvent(tenant: BookingTenant, quoteId: string, eventType: string, metadata: Record<string, unknown>): Promise<void>;
+  /** Marina told the caller the owner will text the link — make sure the owner knows. Optional; best-effort. */
+  reportLinkFailure?(tenant: BookingTenant, failure: { quoteId: string; contactId: string | null; why: string }): Promise<void>;
   quoteUrl(token: string): string;
   now(): Date;
 }
@@ -329,6 +331,15 @@ export async function runDepositLink(
   const quoteId = text(req.args.quote_id);
   if (!quoteId) return { ok: false, reason: "missing_info", say: "I need the quote first — let me price it." };
 
+  let contactIdForAlert: string | null = null;
+  const tellOwner = async (why: string) => {
+    try {
+      await deps.reportLinkFailure?.(tenant, { quoteId, contactId: contactIdForAlert, why });
+    } catch (err) {
+      console.error("[retell:deposit-link] owner alert failed:", err instanceof Error ? err.message : err);
+    }
+  };
+
   try {
     const quote = await deps.loadQuote(tenant, quoteId);
     if (!quote) return { ok: false, reason: "quote_not_found", say: SAY_QUOTE_NOT_FOUND };
@@ -339,7 +350,9 @@ export async function runDepositLink(
         say: "Good news — the deposit for that one is already paid, so the spot is held. Nothing more to pay today.",
       };
     }
+    contactIdForAlert = quote.contact_id ?? null;
     if (!["sent", "viewed", "approved"].includes(quote.status)) {
+      await tellOwner("the quote isn't ready to pay");
       return { ok: false, reason: "not_payable", say: SAY_LINK_FAILED };
     }
 
@@ -379,6 +392,7 @@ export async function runDepositLink(
 
     if (sentBy.length === 0) {
       console.error(`[retell:deposit-link] nothing sent for quote ${quote.id}: ${lastReason ?? "unknown"}`);
+      await tellOwner(phone && email ? "text and email both failed" : phone ? "the text failed" : "the email failed");
       return { ok: false, reason: "send_failed", say: SAY_LINK_FAILED };
     }
 
@@ -399,6 +413,7 @@ export async function runDepositLink(
     };
   } catch (err) {
     console.error("[retell:deposit-link] failed:", err instanceof Error ? err.message : err);
+    await tellOwner("something went wrong sending it");
     return { ok: false, reason: "error", say: SAY_LINK_FAILED };
   }
 }
@@ -600,6 +615,16 @@ export const defaultBookingDeps: BookingDeps = {
     } catch (err) {
       console.error(`[retell] failed to record '${eventType}':`, err instanceof Error ? err.message : err);
     }
+  },
+
+  async reportLinkFailure(tenant, failure) {
+    await emitActivityEventAndDispatch(serviceContext(tenant), {
+      companyId: tenant.companyId,
+      entityId: failure.contactId ?? tenant.companyId,
+      entityType: failure.contactId ? "contact" : "company",
+      eventType: "quote.deposit_link_failed",
+      metadata: { quoteId: failure.quoteId, contactId: failure.contactId, failureReason: failure.why },
+    });
   },
 
   quoteUrl(token) {

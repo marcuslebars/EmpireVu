@@ -70,6 +70,8 @@ export interface RetellCallFields {
   event: string | null;
   /** call.metadata — arbitrary object we set when placing an outbound call (contactId, org, …). */
   metadata: Record<string, unknown> | null;
+  /** Why the call ended (e.g. "user_hangup", "call_transfer"); optional so hand-built fixtures stay valid. */
+  disconnectionReason?: string | null;
   // Call metering (from the post-call analyzed payload; null for a mid-call capture):
   durationMs: number | null;
   startTimestamp: string | null;
@@ -168,6 +170,7 @@ export function readRetellCallFields(payload: unknown): RetellCallFields {
     customAnalysisData: custom,
     event: readString(payload, ["event"]),
     metadata: asRecord(readPath(call, "metadata")),
+    disconnectionReason: readString(call, ["disconnection_reason"]) ?? undefined,
     durationMs,
     startTimestamp: epochMsToIso(startMs),
     endTimestamp: epochMsToIso(endMs),
@@ -542,9 +545,113 @@ async function emitRetellCallTriggers(
     if (args.fields.urgent) {
       await emitActivityEventAndDispatch(context, { ...base, eventType: "call.urgent" });
     }
+    if (args.companyId && looksAbandoned(args.fields)) {
+      const callerLast10 = normalizePhoneLast10(args.fields.fromNumber);
+      if (callerLast10 && (await shouldSendRecovery(admin, { ...args, companyId: args.companyId, callerLast10 }))) {
+        await emitActivityEventAndDispatch(context, {
+          ...base,
+          eventType: "call.abandoned",
+          metadata: { ...base.metadata, callerLast10 },
+        });
+      }
+    }
   } catch (err) {
     console.error("[retell] failed to emit call triggers:", err instanceof Error ? err.message : err);
   }
+}
+
+// ── Hung up before a quote (ported from a1marinecare/src/lib/retell/followups.ts) ─────────
+
+const RECOVERY_COOLDOWN_DAYS = 7;
+const KNOWN_CALLER_LOOKBACK_DAYS = 120;
+
+/**
+ * PURE — an inbound call that got far enough to be about the service (≥15s, mentions shrink
+ * wrap / winterizing) but ended without a transfer or voicemail. Same test as the Care site.
+ */
+export function looksAbandoned(
+  fields: Pick<
+    RetellCallFields,
+    "direction" | "fromNumber" | "durationMs" | "inVoicemail" | "disconnectionReason" | "servicesRequested" | "callSummary" | "transcript"
+  >,
+): boolean {
+  if (fields.direction && fields.direction !== "inbound") return false;
+  if (!fields.fromNumber) return false;
+  if (fields.durationMs == null || fields.durationMs < 15_000) return false;
+  if ((fields.disconnectionReason ?? "").includes("transfer")) return false;
+  if (fields.inVoicemail === true) return false;
+  const text = [fields.servicesRequested.join(" "), fields.callSummary ?? "", (fields.transcript ?? "").slice(0, 4000)].join(" ");
+  return /shrink|wrap|winteri[sz]/i.test(text);
+}
+
+/** No quote on this call, not a returning customer, no recovery text to this number in 7 days. */
+async function shouldSendRecovery(
+  admin: RetellAdminClient,
+  args: { organizationId: string | null; companyId: string; contactId: string | null; callerLast10: string; fields: RetellCallFields },
+): Promise<boolean> {
+  if (!args.organizationId || !args.fields.callId) return false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = admin as any;
+  const { data: call } = await db.from("retell_calls").select("lead_id").eq("call_id", args.fields.callId).maybeSingle();
+  const leadId = (call as { lead_id: string | null } | null)?.lead_id ?? null;
+  if (leadId) {
+    const { data: quoteOnCall } = await db.from("quotes").select("id").eq("source_lead_id", leadId).limit(1).maybeSingle();
+    if (quoteOnCall) return false;
+  }
+  if (args.contactId) {
+    const since = new Date(Date.now() - KNOWN_CALLER_LOOKBACK_DAYS * 86_400_000).toISOString();
+    const { data: priorQuote } = await db
+      .from("quotes")
+      .select("id")
+      .eq("organization_id", args.organizationId)
+      .eq("company_id", args.companyId)
+      .eq("contact_id", args.contactId)
+      .gte("created_at", since)
+      .limit(1)
+      .maybeSingle();
+    if (priorQuote) return false;
+  }
+  const cooldown = new Date(Date.now() - RECOVERY_COOLDOWN_DAYS * 86_400_000).toISOString();
+  const { data: recent } = await db
+    .from("activity_events")
+    .select("id")
+    .eq("organization_id", args.organizationId)
+    .eq("company_id", args.companyId)
+    .eq("event_type", "call.abandoned")
+    .eq("metadata_json->>callerLast10", args.callerLast10)
+    .gte("created_at", cooldown)
+    .limit(1);
+  return (recent ?? []).length === 0;
+}
+
+/**
+ * Retell `call_started` for an inbound call → `call.started` (the owner's "📞 answering a call
+ * from…" text). Best-effort and quick: resolve the company by the dialled number, emit, done.
+ * Workflows run on the worker, so the webhook ACKs immediately.
+ */
+export async function announceCallStarted(payload: unknown): Promise<void> {
+  const fields = readRetellCallFields(payload);
+  if (isOutboundCall(fields) || !getRetellConfig().enabled) return;
+  const admin = createRetellAdminClient();
+  const tenant = await resolveRetellTenant(admin, {
+    toNumber: fields.toNumber,
+    agentId: fields.agentId,
+    legacySourceSite: getRetellConfig().sourceSite,
+  });
+  if (!tenant.organizationId || !tenant.companyId || tenant.resolvedBy === "legacy") return;
+  const context: TenantServiceContext = { organizationId: tenant.organizationId, actorProfileId: null, supabase: admin };
+  await emitActivityEventAndDispatch(context, {
+    companyId: tenant.companyId,
+    entityId: tenant.companyId,
+    entityType: "company",
+    eventType: "call.started",
+    metadata: {
+      callId: fields.callId,
+      direction: fields.direction ?? "inbound",
+      callerNumber: fields.fromNumber,
+      startedAt: fields.startTimestamp ?? new Date().toISOString(),
+    },
+  });
 }
 
 export interface RetellWebhookResult {

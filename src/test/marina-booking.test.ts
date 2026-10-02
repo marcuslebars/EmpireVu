@@ -317,4 +317,39 @@ describe("send_deposit_link", () => {
     const { deps } = fakeDeps({ loadQuote: vi.fn(async () => ({ ...QUOTE, status: "cancelled" })) });
     expect(await runDepositLink(req({ quote_id: QUOTE_ID }), deps)).toMatchObject({ ok: false, reason: "not_payable" });
   });
+
+  it("tells the owner when the caller was promised a link that didn't go out", async () => {
+    const reportLinkFailure = vi.fn(async () => {});
+    const { deps } = fakeDeps({ sendText: vi.fn(async () => ({ status: "failed", reason: "twilio 500" })), reportLinkFailure });
+    await runDepositLink(req({ quote_id: QUOTE_ID }), deps);
+    expect(reportLinkFailure).toHaveBeenCalledWith(expect.anything(), {
+      quoteId: QUOTE_ID,
+      contactId: QUOTE.contact_id,
+      why: "the text failed",
+    });
+  });
+
+  it("tells the owner when the quote isn't payable, but not when it's already paid or sent fine", async () => {
+    const reportLinkFailure = vi.fn(async () => {});
+    const notPayable = fakeDeps({ loadQuote: vi.fn(async () => ({ ...QUOTE, status: "cancelled" })), reportLinkFailure });
+    await runDepositLink(req({ quote_id: QUOTE_ID }), notPayable.deps);
+    expect(reportLinkFailure).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ why: "the quote isn't ready to pay" }));
+
+    reportLinkFailure.mockClear();
+    const paid = fakeDeps({ loadQuote: vi.fn(async () => ({ ...QUOTE, deposit_paid_at: "2026-09-26T00:00:00Z" })), reportLinkFailure });
+    await runDepositLink(req({ quote_id: QUOTE_ID }), paid.deps);
+    const ok = fakeDeps({ reportLinkFailure });
+    await runDepositLink(req({ quote_id: QUOTE_ID }), ok.deps);
+    expect(reportLinkFailure).not.toHaveBeenCalled();
+  });
+
+  it("never lets a failing owner alert break the call", async () => {
+    const { deps } = fakeDeps({
+      sendText: vi.fn(async () => ({ status: "failed", reason: "twilio 500" })),
+      reportLinkFailure: vi.fn(async () => {
+        throw new Error("db down");
+      }),
+    });
+    expect(await runDepositLink(req({ quote_id: QUOTE_ID }), deps)).toMatchObject({ ok: false, reason: "send_failed" });
+  });
 });
