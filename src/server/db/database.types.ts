@@ -168,6 +168,7 @@ export interface Database {
           created_at: string;
           created_by: string | null;
           id: string;
+          industry_pack: Json | null;
           name: string;
           notes: string | null;
           organization_id: string;
@@ -207,6 +208,7 @@ export interface Database {
           created_at?: string;
           created_by?: string | null;
           id?: string;
+          industry_pack?: Json | null;
           name: string;
           notes?: string | null;
           organization_id: string;
@@ -246,6 +248,7 @@ export interface Database {
           created_at?: string;
           created_by?: string | null;
           id?: string;
+          industry_pack?: Json | null;
           name?: string;
           notes?: string | null;
           organization_id?: string;
