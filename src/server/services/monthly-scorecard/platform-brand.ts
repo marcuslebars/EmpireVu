@@ -1,18 +1,12 @@
 /**
- * THE ONE PLACE the monthly scorecard reads the platform's own brand (the done-for-you
- * service the client bought — "CrankLeads" today), as opposed to the CLIENT's company name,
- * which comes from `companies.name` and is shown prominently in the email body.
- *
- * Used for: the sender display name on the From line, and the footer ("Sent by CrankLeads").
- * Nothing else in the scorecard hardcodes a platform name.
- *
- * Another PR is centralizing platform branding; when it lands, replace the body of
- * `scorecardPlatformBrandName()` with a call into that module and delete this file's env read.
- *
- * Env: PLATFORM_BRAND_NAME [monthly-scorecard] — defaults to "CrankLeads".
+ * The monthly scorecard's platform brand (sender display name + footer). Delegates to the
+ * central platform-brand module (docs/branding.md) so one env var rebrands everything.
+ * The CLIENT's company name comes from `companies.name` and is shown in the email body.
  */
+import { getPlatformBrand } from "@/server/platform-brand";
+
 export const DEFAULT_PLATFORM_BRAND_NAME = "CrankLeads";
 
 export function scorecardPlatformBrandName(): string {
-  return process.env.PLATFORM_BRAND_NAME?.trim() || DEFAULT_PLATFORM_BRAND_NAME;
+  return getPlatformBrand().name || DEFAULT_PLATFORM_BRAND_NAME;
 }

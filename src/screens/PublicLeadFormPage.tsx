@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { CheckCircle2, Loader2, Phone } from "lucide-react";
+import { platformBrand } from "@/lib/platform-brand";
+import { useDocumentTitle } from "@/lib/use-document-title";
 
 import TurnstileWidget from "@/components/TurnstileWidget";
 import { fetchPublicFormConfig, submitPublicForm, type PublicFormConfig } from "@/lib/website-forms-api";
@@ -15,7 +17,7 @@ import { fetchPublicFormConfig, submitPublicForm, type PublicFormConfig } from "
  */
 
 /** Platform credit in the footer. Single constant — branding is centralized later. */
-export const POWERED_BY_NAME = "CrankLeads";
+const POWERED_BY_NAME = platformBrand.name;
 
 const OTHER = "__other__";
 const RESIZE_MESSAGE = "evform:resize";
@@ -135,6 +137,8 @@ export default function PublicLeadFormPage() {
       window.removeEventListener("load", post);
     };
   }, [ctx.embed, formKey, status, done]);
+
+  useDocumentTitle(config?.company.name ? `${config.company.name} — ${config.form.formType === "contact" ? "Contact us" : "Get a quote"}` : null);
 
   const accent = config?.company.primaryColor ?? "#0f172a";
   const isQuote = config?.form.formType !== "contact";

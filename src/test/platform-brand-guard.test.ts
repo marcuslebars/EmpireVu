@@ -40,11 +40,7 @@ const SCANNED = [
  * Files allowed to still contain the display string, with the reason. Keep this short;
  * every entry is debt.
  */
-const ALLOW: Record<string, string> = {
-  // Owned by a parallel PR (do-not-touch for the branding PR). TODO: switch its three
-  // headings to platformBrand.name, then delete this entry.
-  "src/screens/onboarding/OnboardingWizard.tsx": "parallel PR — adopt platformBrand there",
-};
+const ALLOW: Record<string, string> = {};
 
 const DISPLAY_NAME = /Empire\s?Vu/;
 
