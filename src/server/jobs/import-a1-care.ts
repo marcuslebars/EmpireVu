@@ -107,16 +107,77 @@ async function findOrCreateContact(
   return { id: created.id, created: true };
 }
 
-async function alreadyImportedQuote(db: Db, companyId: string, a1Id: string): Promise<string | null> {
+interface ImportedQuoteRow {
+  id: string;
+  organization_id: string;
+  status: string;
+  deposit_paid_at: string | null;
+  created_at: string;
+}
+
+async function alreadyImportedQuote(db: Db, companyId: string, a1Id: string): Promise<ImportedQuoteRow | null> {
   const { data } = await db
     .from("quotes")
-    .select("id")
+    .select("id, organization_id, status, deposit_paid_at, created_at")
     .eq("company_id", companyId)
     .eq("source", IMPORT_SOURCE)
     .ilike("notes", `%a1marinecare quote ${a1Id}%`)
     .limit(1)
     .maybeSingle();
-  return data?.id ?? null;
+  return data ?? null;
+}
+
+async function hasDepositLinkEvent(db: Db, quoteId: string): Promise<boolean> {
+  const { data } = await db
+    .from("quote_events")
+    .select("id")
+    .eq("quote_id", quoteId)
+    .in("event_type", ["deposit_link_sent", "checkout_session_created"])
+    .limit(1)
+    .maybeSingle();
+  return Boolean(data);
+}
+
+/**
+ * Bring an already-imported quote up to date with the Care site, so a re-run right before
+ * cutover carries what happened since the first run: a deposit paid there, a deposit link
+ * sent there, and the original quote date (created_at drives Marina's "you got a quote
+ * yesterday" and the returning-caller lookback). Only ever moves forward — never un-pays,
+ * never touches a quote EmpireVu has since moved past "sent", and stays quiet (no events
+ * that fire automations, same as a first import).
+ */
+async function resyncQuote(db: Db, existing: ImportedQuoteRow, q: PlannedImportQuote): Promise<string[]> {
+  const changes: string[] = [];
+  const updates: Record<string, unknown> = {};
+
+  if (Date.parse(existing.created_at) !== Date.parse(q.createdAt)) {
+    updates.created_at = q.createdAt;
+    changes.push("quote date");
+  }
+  if (q.paid && !existing.deposit_paid_at && (existing.status === "sent" || existing.status === "draft")) {
+    updates.status = "deposit_paid";
+    updates.deposit_paid_at = q.paid.at;
+    changes.push("deposit paid");
+  }
+  if (Object.keys(updates).length && APPLY) {
+    const { error } = await db.from("quotes").update(updates).eq("id", existing.id);
+    if (error) throw error;
+  }
+
+  if (q.linkSent && !q.paid && !existing.deposit_paid_at && !(await hasDepositLinkEvent(db, existing.id))) {
+    changes.push("deposit link sent");
+    if (APPLY) {
+      const { error } = await db.from("quote_events").insert({
+        organization_id: existing.organization_id,
+        quote_id: existing.id,
+        event_type: "deposit_link_sent",
+        actor_profile_id: null,
+        metadata: { by: "import", source: IMPORT_SOURCE },
+      });
+      if (error) throw error;
+    }
+  }
+  return changes;
 }
 
 async function importQuote(
@@ -127,11 +188,17 @@ async function importQuote(
   contactId: string | null,
   report: Record<string, number>,
   mismatches: string[],
+  updates: string[],
 ): Promise<string | null> {
   const existing = await alreadyImportedQuote(db, company.id, q.a1Id);
   if (existing) {
     report.quotesSkipped += 1;
-    return existing;
+    const changes = await resyncQuote(db, existing, q);
+    if (changes.length) {
+      report.quotesUpdated += 1;
+      updates.push(`${q.person.name}: ${changes.join(", ")}`);
+    }
+    return existing.id;
   }
   if (q.manualReview || q.quotedCents == null) {
     report.quotesManual += 1;
@@ -166,6 +233,8 @@ async function importQuote(
     .from("quotes")
     .update({
       status: q.paid ? "deposit_paid" : "sent",
+      // Keep the Care site's quote date, not the import time.
+      created_at: q.createdAt,
       sent_at: q.createdAt,
       valid_until: validUntil,
       expires_at: validUntil,
@@ -217,11 +286,13 @@ async function main(): Promise<number> {
     contactsCreated: 0,
     quotesCreated: 0,
     quotesSkipped: 0,
+    quotesUpdated: 0,
     quotesManual: 0,
     bookingsCreated: 0,
     bookingsSkipped: 0,
   };
   const mismatches: string[] = [];
+  const updates: string[] = [];
   const contactCache = new Map<string, string>();
   const quoteIdByA1 = new Map<string, string | null>();
   const contactByA1Quote = new Map<string, string | null>();
@@ -230,7 +301,7 @@ async function main(): Promise<number> {
     const contact = await findOrCreateContact(db, company, q.person, q.createdAt, contactCache);
     if (contact.created) report.contactsCreated += 1;
     contactByA1Quote.set(q.a1Id, contact.id);
-    quoteIdByA1.set(q.a1Id, await importQuote(db, ctx, company, q, contact.id, report, mismatches));
+    quoteIdByA1.set(q.a1Id, await importQuote(db, ctx, company, q, contact.id, report, mismatches, updates));
   }
 
   for (const b of plan.bookings) {
@@ -277,9 +348,11 @@ async function main(): Promise<number> {
 
   log(
     `contacts +${report.contactsCreated} · quotes +${report.quotesCreated} (already there ${report.quotesSkipped}, ` +
-      `no price to carry ${report.quotesManual}) · bookings +${report.bookingsCreated} (already there ${report.bookingsSkipped}).`,
+      `brought up to date ${report.quotesUpdated}, no price to carry ${report.quotesManual}) · ` +
+      `bookings +${report.bookingsCreated} (already there ${report.bookingsSkipped}).`,
   );
   for (const m of mismatches) log(`price differs: ${m}`);
+  for (const u of updates) log(`brought up to date: ${u}`);
   if (!APPLY) log("Nothing was written. Re-run with --apply to import.");
   return 0;
 }
