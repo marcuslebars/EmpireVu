@@ -69,6 +69,7 @@ function makeContext(retellRows: Array<Record<string, unknown>>): TenantServiceC
   const supabase = {
     from(table: string) {
       if (table === "contacts") return chain({ data: { id: "c-1" }, error: null });
+      if (table === "missed_calls") return chain({ data: [], error: null });
       return chain({ data: retellRows, error: null });
     },
   };

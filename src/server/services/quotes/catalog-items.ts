@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { Inserts, Tables } from "@/server/db/database.types";
 import { slugify } from "@/server/db/helpers";
+import { ValidationError } from "@/server/organizations/context";
 import { assertCompanyInOrganization, insertRow, type TenantServiceContext } from "@/server/services/shared";
 
 /**
@@ -65,4 +66,67 @@ export async function createCatalogItem(
     unit_label: input.unitLabel?.trim() || null,
   };
   return insertRow(context, "service_catalog_items", row);
+}
+
+export const catalogPriceUpdateSchema = z.object({
+  companyId: z.string().uuid(),
+  items: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        rateCents: z.number().int().nonnegative().max(100_000_000),
+        minimumCents: z.number().int().nonnegative().max(100_000_000).optional(),
+      }),
+    )
+    .min(1)
+    .max(60),
+});
+
+export type CatalogPriceUpdate = z.infer<typeof catalogPriceUpdateSchema>;
+
+/**
+ * Enter prices on existing catalog items (industry packs create them price-less and
+ * inactive). A positive rate switches the item on so quotes can use it; setting a rate
+ * back to 0 switches it off again so nothing is ever quoted at $0.
+ */
+export async function updateCatalogItemPrices(
+  context: TenantServiceContext,
+  input: CatalogPriceUpdate,
+): Promise<Tables<"service_catalog_items">[]> {
+  await assertCompanyInOrganization(context, input.companyId);
+
+  // Validate every id up front so a bad id can't leave a half-applied batch.
+  const ids = [...new Set(input.items.map((i) => i.id))];
+  const { data: found, error: findError } = await context.supabase
+    .from("service_catalog_items")
+    .select("id")
+    .eq("organization_id", context.organizationId)
+    .eq("company_id", input.companyId)
+    .in("id", ids);
+  if (findError) throw findError;
+  const known = new Set(((found ?? []) as Array<{ id: string }>).map((r) => r.id));
+  const unknown = ids.filter((id) => !known.has(id));
+  if (unknown.length > 0) {
+    throw new ValidationError(`Unknown catalog item${unknown.length === 1 ? "" : "s"} for this company: ${unknown.join(", ")}`);
+  }
+
+  const updated: Tables<"service_catalog_items">[] = [];
+  for (const item of input.items) {
+    const priced = item.rateCents > 0 || (item.minimumCents ?? 0) > 0;
+    const { data, error } = await context.supabase
+      .from("service_catalog_items")
+      .update({
+        rate_cents: item.rateCents,
+        ...(item.minimumCents !== undefined ? { minimum_cents: item.minimumCents } : {}),
+        active: priced,
+      })
+      .eq("organization_id", context.organizationId)
+      .eq("company_id", input.companyId)
+      .eq("id", item.id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    updated.push(data as Tables<"service_catalog_items">);
+  }
+  return updated;
 }

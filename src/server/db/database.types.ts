@@ -168,6 +168,7 @@ export interface Database {
           created_at: string;
           created_by: string | null;
           id: string;
+          industry_pack: Json | null;
           name: string;
           notes: string | null;
           organization_id: string;
@@ -208,6 +209,7 @@ export interface Database {
           created_at?: string;
           created_by?: string | null;
           id?: string;
+          industry_pack?: Json | null;
           name: string;
           notes?: string | null;
           organization_id: string;
@@ -248,6 +250,7 @@ export interface Database {
           created_at?: string;
           created_by?: string | null;
           id?: string;
+          industry_pack?: Json | null;
           name?: string;
           notes?: string | null;
           organization_id?: string;
@@ -2158,6 +2161,48 @@ export interface Database {
         };
         Relationships: [];
       };
+      public_form_keys: {
+        Row: {
+          active: boolean;
+          allowed_origins: string[];
+          company_id: string;
+          created_at: string;
+          created_by: string | null;
+          form_type: string;
+          id: string;
+          label: string | null;
+          last_used_at: string | null;
+          organization_id: string;
+          public_key: string;
+        };
+        Insert: {
+          active?: boolean;
+          allowed_origins?: string[];
+          company_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          form_type?: string;
+          id?: string;
+          label?: string | null;
+          last_used_at?: string | null;
+          organization_id: string;
+          public_key: string;
+        };
+        Update: {
+          active?: boolean;
+          allowed_origins?: string[];
+          company_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          form_type?: string;
+          id?: string;
+          label?: string | null;
+          last_used_at?: string | null;
+          organization_id?: string;
+          public_key?: string;
+        };
+        Relationships: [];
+      };
       voice_numbers: {
         Row: {
           active: boolean;
@@ -2165,10 +2210,12 @@ export interface Database {
           company_id: string;
           created_at: string;
           id: string;
+          mode: string;
           organization_id: string;
           phone_e164: string;
           provider: string;
           provider_agent_id: string | null;
+          provider_number_sid: string | null;
         };
         Insert: {
           active?: boolean;
@@ -2176,10 +2223,12 @@ export interface Database {
           company_id: string;
           created_at?: string;
           id?: string;
+          mode?: string;
           organization_id: string;
           phone_e164: string;
           provider: string;
           provider_agent_id?: string | null;
+          provider_number_sid?: string | null;
         };
         Update: {
           active?: boolean;
@@ -2187,10 +2236,12 @@ export interface Database {
           company_id?: string;
           created_at?: string;
           id?: string;
+          mode?: string;
           organization_id?: string;
           phone_e164?: string;
           provider?: string;
           provider_agent_id?: string | null;
+          provider_number_sid?: string | null;
         };
         Relationships: [];
       };
@@ -2524,6 +2575,87 @@ export interface Database {
           user_id?: string;
           digest_date?: string;
           sent_at?: string;
+        };
+        Relationships: [];
+      };
+      missed_calls: {
+        Row: {
+          call_sid: string;
+          caller_name: string | null;
+          caller_phone_last10: string | null;
+          company_id: string;
+          contact_id: string | null;
+          created_at: string;
+          forwarded_from: string | null;
+          from_number: string | null;
+          id: string;
+          lead_id: string | null;
+          organization_id: string;
+          owner_alerted_at: string | null;
+          provider: string;
+          raw_payload: Json;
+          recording_duration_seconds: number | null;
+          recording_sid: string | null;
+          recording_url: string | null;
+          text_back_status: string;
+          to_number: string | null;
+          transcription_sid: string | null;
+          transcription_status: string | null;
+          transcription_text: string | null;
+          updated_at: string;
+          voicemail_at: string | null;
+        };
+        Insert: {
+          call_sid: string;
+          caller_name?: string | null;
+          caller_phone_last10?: string | null;
+          company_id: string;
+          contact_id?: string | null;
+          created_at?: string;
+          forwarded_from?: string | null;
+          from_number?: string | null;
+          id?: string;
+          lead_id?: string | null;
+          organization_id: string;
+          owner_alerted_at?: string | null;
+          provider?: string;
+          raw_payload?: Json;
+          recording_duration_seconds?: number | null;
+          recording_sid?: string | null;
+          recording_url?: string | null;
+          text_back_status?: string;
+          to_number?: string | null;
+          transcription_sid?: string | null;
+          transcription_status?: string | null;
+          transcription_text?: string | null;
+          updated_at?: string;
+          voicemail_at?: string | null;
+        };
+        Update: {
+          call_sid?: string;
+          caller_name?: string | null;
+          caller_phone_last10?: string | null;
+          company_id?: string;
+          contact_id?: string | null;
+          created_at?: string;
+          forwarded_from?: string | null;
+          from_number?: string | null;
+          id?: string;
+          lead_id?: string | null;
+          organization_id?: string;
+          owner_alerted_at?: string | null;
+          provider?: string;
+          raw_payload?: Json;
+          recording_duration_seconds?: number | null;
+          recording_sid?: string | null;
+          recording_url?: string | null;
+          text_back_status?: string;
+          to_number?: string | null;
+          transcription_sid?: string | null;
+          transcription_status?: string | null;
+          transcription_text?: string | null;
+          updated_at?: string;
+          voicemail_at?: string | null;
         };
         Relationships: [];
       };

@@ -11,14 +11,43 @@ import type { WorkflowAction, WorkflowEventContext } from "@/server/services/wor
  * a stranger controls. Signed intake (HMAC) stamps `intake`, which is trusted and NOT in
  * this set, so intake-triggered automations are never throttled here.
  */
-const UNAUTHENTICATED_SOURCES = new Set(["public_booking", "waitlist", "intake_unverified"]);
+const UNAUTHENTICATED_SOURCES = new Set(["public_booking", "public_form", "waitlist", "intake_unverified"]);
 
 /** Feature key an operator can override to raise/lower the daily cap per org. */
 export const PUBLIC_OUTBOUND_CALLS_DAILY_FEATURE = "public_outbound_calls_daily";
 const DEFAULT_DAILY_CAP = 20;
 const COOLDOWN_HOURS = 24;
 
-export type PaidActionGuardReason = "guard:cooldown" | "guard:daily_cap" | "guard:usage_cap";
+export type PaidActionGuardReason =
+  | "guard:cooldown"
+  | "guard:daily_cap"
+  | "guard:usage_cap"
+  | "guard:sms_cooldown"
+  | "guard:sms_daily_cap"
+  | "guard:unverified";
+
+// ── SMS throttle for unauthenticated-sourced triggers ────────────────────────
+// A public form or booking must not be able to make a tenant text arbitrary numbers
+// (SMS pumping / sender-reputation damage). Counted from message_log (channel sms,
+// outbound, status sent) — the record of what actually went out.
+/** Hours before the same destination phone can get another unauthenticated-triggered SMS. */
+export const DEFAULT_UNAUTH_SMS_COOLDOWN_HOURS = 24;
+/** Max outbound SMS (all sources) a company may have sent in 24h for an unauthenticated
+ *  trigger to still be allowed to send one more. Authenticated triggers are not capped. */
+export const DEFAULT_UNAUTH_SMS_DAILY_CAP = 100;
+
+function envPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const n = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+export function unauthSmsLimits(): { cooldownHours: number; dailyCap: number } {
+  return {
+    cooldownHours: envPositiveInt("UNAUTH_SMS_COOLDOWN_HOURS", DEFAULT_UNAUTH_SMS_COOLDOWN_HOURS),
+    dailyCap: envPositiveInt("UNAUTH_SMS_DAILY_CAP", DEFAULT_UNAUTH_SMS_DAILY_CAP),
+  };
+}
 
 /**
  * A deliberate, expected refusal — NOT a crash. Its message is the reason string, so the
@@ -107,6 +136,19 @@ export async function assertPaidActionAllowed(
     return; // authenticated or trusted — no further throttle
   }
 
+  // A public-form submission whose bot check did NOT actually verify (Turnstile unset or
+  // degraded) still creates the lead and alerts the owner, but never drives a paid,
+  // customer-facing action. Only events that carry the flag are affected.
+  if (asRecord(eventContext.metadata)["paidActionsVerified"] === false) {
+    logRefusal("guard:unverified", action, context.organizationId, eventContext.companyId);
+    throw new PaidActionGuardError("guard:unverified");
+  }
+
+  if (action.type === "send_sms") {
+    await assertUnauthenticatedSmsAllowed(context, eventContext, action, contactId);
+    return;
+  }
+
   // The call targets the contact's company; fall back to the event's company.
   let companyId = eventContext.companyId;
   let targetPhone: string | null = null;
@@ -160,6 +202,71 @@ export async function assertPaidActionAllowed(
   if (unauthenticatedCallCount >= cap) {
     logRefusal("guard:daily_cap", action, context.organizationId, companyId);
     throw new PaidActionGuardError("guard:daily_cap");
+  }
+}
+
+/**
+ * SMS leg of the guard for unauthenticated-sourced triggers: a per-destination cooldown and
+ * a per-company 24h cap, both read from message_log. Messages to the owner / a literal
+ * number the workflow author typed (no contact) are not throttled here.
+ */
+async function assertUnauthenticatedSmsAllowed(
+  context: TenantServiceContext,
+  eventContext: WorkflowEventContext,
+  action: WorkflowAction,
+  contactId: string | null,
+): Promise<void> {
+  if (!contactId) return;
+
+  let companyId = eventContext.companyId;
+  let targetPhone: string | null = null;
+  const { data, error } = await context.supabase
+    .from("contacts")
+    .select("phone, company_id")
+    .eq("organization_id", context.organizationId)
+    .eq("id", contactId)
+    .maybeSingle();
+  if (error) throw error;
+  const contact = data as { phone: string | null; company_id: string | null } | null;
+  if (contact) {
+    targetPhone = contact.phone;
+    companyId = contact.company_id ?? companyId;
+  }
+
+  const { cooldownHours, dailyCap } = unauthSmsLimits();
+  const windowHours = Math.max(cooldownHours, 24);
+  const sinceIso = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
+  const capSinceMs = Date.now() - 24 * 60 * 60 * 1000;
+  const cooldownSinceMs = Date.now() - cooldownHours * 60 * 60 * 1000;
+
+  let query = context.supabase
+    .from("message_log")
+    .select("to_addr, created_at")
+    .eq("organization_id", context.organizationId)
+    .eq("channel", "sms")
+    .eq("direction", "outbound")
+    .eq("status", "sent")
+    .gte("created_at", sinceIso)
+    .order("created_at", { ascending: false })
+    .limit(Math.max(dailyCap, 1) + 500);
+  query = companyId ? query.eq("company_id", companyId) : query;
+  const { data: sent, error: sentError } = await query;
+  if (sentError) throw sentError;
+  const rows = (sent ?? []) as Array<{ to_addr: string | null; created_at: string }>;
+
+  const target = normalizePhone(targetPhone);
+  let lastDay = 0;
+  for (const row of rows) {
+    const at = Date.parse(row.created_at);
+    if (target && normalizePhone(row.to_addr) === target && (!Number.isFinite(at) || at >= cooldownSinceMs)) {
+      logRefusal("guard:sms_cooldown", action, context.organizationId, companyId);
+      throw new PaidActionGuardError("guard:sms_cooldown");
+    }
+    if (!Number.isFinite(at) || at >= capSinceMs) lastDay += 1;
+  }
+  if (lastDay >= dailyCap) {
+    logRefusal("guard:sms_daily_cap", action, context.organizationId, companyId);
+    throw new PaidActionGuardError("guard:sms_daily_cap");
   }
 }
 

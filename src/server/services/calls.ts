@@ -80,7 +80,7 @@ export async function listContactCalls(
   }
 
   const rows = (data ?? []) as Tables<"retell_calls">[];
-  return rows.map((row) => ({
+  const retellCalls: ContactCall[] = rows.map((row) => ({
     id: row.id,
     callId: row.call_id,
     direction: row.direction,
@@ -93,4 +93,43 @@ export async function listContactCalls(
     transcript: row.transcript,
     segments: normalizeTranscriptSegments(row.transcript_object),
   }));
+
+  // Missed-call catcher calls (no AI answered): the voicemail recording + transcript, if
+  // any. Same org-members RLS (missed_calls_members_select) + explicit org filter.
+  const { data: missedData, error: missedError } = await context.supabase
+    .from("missed_calls")
+    .select("*")
+    .eq("organization_id", context.organizationId)
+    .eq("contact_id", contactId)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (missedError) {
+    throw missedError;
+  }
+  const missedCalls = ((missedData ?? []) as Tables<"missed_calls">[]).map(missedCallToContactCall);
+
+  if (missedCalls.length === 0) return retellCalls;
+  return [...retellCalls, ...missedCalls].sort((a, b) => (b.startedAt ?? "").localeCompare(a.startedAt ?? ""));
+}
+
+/** A caught missed call → the contact Calls-tab shape (voicemail as the recording). */
+export function missedCallToContactCall(row: Tables<"missed_calls">): ContactCall {
+  const summary = row.recording_url
+    ? "Missed call — left a voicemail."
+    : row.text_back_status === "emitted"
+      ? "Missed call — texted back automatically."
+      : "Missed call.";
+  return {
+    id: row.id,
+    callId: row.call_sid,
+    direction: "inbound",
+    startedAt: row.created_at,
+    durationSeconds: row.recording_duration_seconds,
+    summary,
+    sentiment: null,
+    inVoicemail: Boolean(row.recording_url),
+    recordingUrl: row.recording_url,
+    transcript: row.transcription_text,
+    segments: [],
+  };
 }
