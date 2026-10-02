@@ -280,6 +280,13 @@ async function addQuoteAndCallFields(
     entityRow && "scheduled_for" in entityRow
       ? String((entityRow as { source?: Json }).source ?? "").startsWith("import:")
       : null;
+  // booking.*: whole hours from now until the booking starts (negative once it has begun).
+  // Re-read on every wait resume, so a "day before" reminder pushed into quiet hours can
+  // check it's still the day before: booking_hours_until greater_than 12.
+  const bookingAt =
+    entityRow && "scheduled_for" in entityRow ? new Date(String((entityRow as { scheduled_for: Json }).scheduled_for)) : null;
+  fields.booking_hours_until =
+    bookingAt && !Number.isNaN(bookingAt.getTime()) ? Math.floor((bookingAt.getTime() - Date.now()) / 3_600_000) : null;
 
   // quote.deposit_link_failed: why, and a short quote reference for the owner.
   fields.failure_reason = typeof metadata.failureReason === "string" ? metadata.failureReason : null;
