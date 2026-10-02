@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { PhoneModeStep } from "@/components/onboarding/PhoneModeStep";
 import { useOrg } from "@/lib/org-context";
 import { toast } from "@/components/ui/sonner";
 import { relativeTime } from "@/lib/format";
@@ -628,7 +629,7 @@ export default function OnboardingWizard() {
             ) : active === "services" ? (
               <ServicesStep {...stepProps} />
             ) : active === "phone" ? (
-              <PhoneStep {...stepProps} />
+              <PhoneModeStep {...stepProps} aiStep={<PhoneStep {...stepProps} />} />
             ) : active === "payments" ? (
               <PaymentsStep {...stepProps} />
             ) : active === "website" ? (

@@ -113,6 +113,37 @@ async function writeMessageLog(context: TenantServiceContext, row: MessageLogRow
   }
 }
 
+// ── Sending number ────────────────────────────────────────────────────────────
+/**
+ * The company's own Twilio number to send SMS from (its missed-call catcher first, then any
+ * other active Twilio number), so a text-back comes from the number the customer called and
+ * their reply routes back to this company (inbound SMS resolves the tenant by `To`). Null →
+ * the deployment-wide TWILIO_FROM_NUMBER. Best-effort: a lookup failure never blocks a send.
+ */
+export async function resolveCompanySmsFrom(
+  context: TenantServiceContext,
+  companyId: string | null,
+): Promise<string | null> {
+  if (!companyId) return null;
+  try {
+    const { data, error } = await context.supabase
+      .from("voice_numbers")
+      .select("phone_e164, mode")
+      .eq("organization_id", context.organizationId)
+      .eq("company_id", companyId)
+      .eq("provider", "twilio")
+      .eq("active", true)
+      .limit(5);
+    if (error) throw error;
+    const rows = (data ?? []) as Array<Pick<Tables<"voice_numbers">, "phone_e164" | "mode">>;
+    const catcher = rows.find((row) => row.mode === "missed_call_catcher");
+    return (catcher ?? rows[0])?.phone_e164 ?? null;
+  } catch (err) {
+    console.error("[messaging] sending-number lookup failed:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // ── Deliver ───────────────────────────────────────────────────────────────────
 export interface DeliverMessageInput {
   context: TenantServiceContext;
@@ -186,7 +217,8 @@ export async function deliverMessage(input: DeliverMessageInput): Promise<Delive
   let providerRef: string | null = null;
   try {
     if (channel === "sms") {
-      providerRef = (await sendSms({ to: input.to, body })).sid;
+      const from = await resolveCompanySmsFrom(context, companyId);
+      providerRef = (await sendSms(from ? { to: input.to, body, from } : { to: input.to, body })).sid;
     } else {
       providerRef = (
         await sendEmail({

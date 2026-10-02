@@ -11,14 +11,18 @@ import { assertCompanyInOrganization, insertRow, type TenantServiceContext } fro
  *
  * Provisioning via the Retell API is Task 13; here a number is entered manually.
  */
-export type VoiceProvider = "retell" | "telnyx";
-const PROVIDERS: readonly VoiceProvider[] = ["retell", "telnyx"];
+export type VoiceProvider = "retell" | "telnyx" | "twilio";
+const PROVIDERS: readonly VoiceProvider[] = ["retell", "telnyx", "twilio"];
+/** What the number does when called (voice_numbers.mode). Twilio numbers are SMS lines or
+ *  missed-call catchers (provisioned via services/twilio/provision.ts). */
+export type VoiceNumberMode = "ai_receptionist" | "missed_call_catcher" | "sms_only";
 
 export interface VoiceNumberView {
   id: string;
   companyId: string;
   phoneE164: string;
   provider: string;
+  mode: string;
   providerAgentId: string | null;
   brandLabel: string | null;
   active: boolean;
@@ -31,6 +35,7 @@ function toView(row: Tables<"voice_numbers">): VoiceNumberView {
     companyId: row.company_id,
     phoneE164: row.phone_e164,
     provider: row.provider,
+    mode: row.mode,
     providerAgentId: row.provider_agent_id,
     brandLabel: row.brand_label,
     active: row.active,
@@ -54,6 +59,8 @@ export interface CreateVoiceNumberInput {
   provider: VoiceProvider;
   providerAgentId?: string | null;
   brandLabel?: string | null;
+  /** Defaults: retell/telnyx → ai_receptionist, twilio → sms_only. */
+  mode?: VoiceNumberMode;
 }
 
 export async function createVoiceNumber(
@@ -61,7 +68,7 @@ export async function createVoiceNumber(
   input: CreateVoiceNumberInput,
 ): Promise<VoiceNumberView> {
   if (!PROVIDERS.includes(input.provider)) {
-    throw new ValidationError("provider must be 'retell' or 'telnyx'.");
+    throw new ValidationError("provider must be 'retell', 'telnyx' or 'twilio'.");
   }
   const phoneE164 = toE164(input.phone);
   if (!phoneE164) {
@@ -75,6 +82,7 @@ export async function createVoiceNumber(
     company_id: input.companyId,
     phone_e164: phoneE164,
     provider: input.provider,
+    mode: input.mode ?? (input.provider === "twilio" ? "sms_only" : "ai_receptionist"),
     provider_agent_id: input.providerAgentId?.trim() || null,
     brand_label: input.brandLabel?.trim() || null,
     active: true,
