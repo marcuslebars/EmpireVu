@@ -1,6 +1,8 @@
 import type { Json, Tables } from "@/server/db/database.types";
 import { ValidationError } from "@/server/organizations/context";
 import { toIsoDate } from "@/server/db/helpers";
+import { getPlatformBrand } from "@/server/platform-brand";
+import { defaultOwnerAlertSubject } from "@/server/templates/platform-emails";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { updateBookingStatus } from "@/server/services/bookings";
 import { assignContactOwner, updateContactStage } from "@/server/services/contacts";
@@ -364,7 +366,7 @@ export async function executeWorkflowActions(
       case "notify_owner": {
         const data = await getTemplateData();
         const owner = await getOwnerContacts();
-        const subject = action.subject ? renderTemplate(action.subject, data) : "EmpireVu alert";
+        const subject = action.subject ? renderTemplate(action.subject, data) : defaultOwnerAlertSubject(getPlatformBrand());
         const body = renderTemplate(action.body, data);
         const wantSms = action.channel === "sms" || action.channel === "both";
         const wantEmail = action.channel === "email" || action.channel === "both";
@@ -393,6 +395,8 @@ export async function executeWorkflowActions(
               to: owner.email,
               body,
               subject,
+              // An owner alert comes from the platform, not the company the owner runs.
+              fromName: getPlatformBrand().emailFromName,
               companyId: eventContext.companyId,
               contactId: null,
               consentContact: null,

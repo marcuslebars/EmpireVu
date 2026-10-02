@@ -7,9 +7,17 @@
  * It describes what this codebase actually does. When a data flow changes — a new
  * subprocessor, a new category of data, a change to retention — this page changes with it.
  * DRAFT: written from the code, not reviewed by a lawyer.
+ *
+ * Product name, contact address and legal entity come from the platform brand
+ * (src/lib/platform-brand-core.ts). TODO(owner/legal): set VITE_PLATFORM_LEGAL_NAME to
+ * the registered entity that operates the service — it defaults to the product name,
+ * which is a placeholder, not a legal identity. No legal text was invented here.
  */
+import { platformBrand } from "@/lib/platform-brand";
 
-const CONTACT_EMAIL = "hello@empirevu.com";
+const CONTACT_EMAIL = platformBrand.supportEmail;
+const PRODUCT = platformBrand.name;
+const LEGAL_NAME = platformBrand.legalName;
 const LAST_UPDATED = "20 September 2026";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -32,13 +40,13 @@ export default function PrivacyPolicyPage() {
 
         <Section title="Who this covers">
           <p>
-            EmpireVu is business software for marine and field-service companies: a shared inbox,
-            calendar, CRM, quotes and job records, on the web and in the EmpireVu mobile app.
+            {PRODUCT} is business software for marine and field-service companies: a shared inbox,
+            calendar, CRM, quotes and job records, on the web and in the {PRODUCT} mobile app.
           </p>
           <p>
             We handle two different kinds of data, and they have different rules.{" "}
             <span className="text-foreground">Account data</span> is about the businesses and people
-            who use EmpireVu — we decide how that is handled, and this policy describes it.{" "}
+            who use {PRODUCT} — we decide how that is handled, and this policy describes it.{" "}
             <span className="text-foreground">Business content</span> is what a business stores about
             its own customers — contacts, bookings, messages, quotes, job photos. That belongs to the
             business. We process it on their instructions and do not use it for our own purposes.
@@ -58,7 +66,7 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>
               <span className="text-foreground">Calls and messages:</span> SMS and email sent through
-              EmpireVu, and records of calls placed by the AI voice agent, including outcome and
+              {PRODUCT}, and records of calls placed by the AI voice agent, including outcome and
               transcript where one is produced.
             </li>
             <li>
@@ -102,7 +110,7 @@ export default function PrivacyPolicyPage() {
               To send notifications you have turned on, subject to your notification preferences and
               quiet hours.
             </li>
-            <li>To take payments and deposits, and to bill for EmpireVu itself.</li>
+            <li>To take payments and deposits, and to bill for {PRODUCT} itself.</li>
             <li>To keep the service secure, diagnose faults, and meet legal obligations.</li>
           </ul>
           <p className="text-foreground">
@@ -170,13 +178,13 @@ export default function PrivacyPolicyPage() {
               {CONTACT_EMAIL}
             </a>{" "}
             and we will respond within the period the law allows. If your data was entered by a
-            business that uses EmpireVu, we will refer you to that business, which decides what
+            business that uses {PRODUCT}, we will refer you to that business, which decides what
             happens to its records.
           </p>
         </Section>
 
         <Section title="Children">
-          <p>EmpireVu is a tool for businesses. It is not directed at anyone under 18.</p>
+          <p>{PRODUCT} is a tool for businesses. It is not directed at anyone under 18.</p>
         </Section>
 
         <Section title="Changes">
@@ -188,9 +196,13 @@ export default function PrivacyPolicyPage() {
 
         <Section title="Contact">
           <p>
-            EmpireVu —{" "}
+            {LEGAL_NAME} —{" "}
             <a className="text-primary underline" href={`mailto:${CONTACT_EMAIL}`}>
               {CONTACT_EMAIL}
+            </a>{" "}
+            ·{" "}
+            <a className="text-primary underline" href={platformBrand.websiteUrl}>
+              {platformBrand.websiteUrl.replace(/^https?:\/\//, "")}
             </a>
           </p>
         </Section>

@@ -11,6 +11,7 @@
  * digest as ⚠️ lines.
  */
 import { isSmsSendConfigured } from "@/server/outbound/sms";
+import { getPlatformBrand } from "@/server/platform-brand";
 import { parseBookingPolicy } from "@/server/services/booking-windows";
 
 export interface HealthCheck {
@@ -133,6 +134,8 @@ export async function receptionistHealth(input: HealthInput): Promise<HealthRepo
   const checks: HealthCheck[] = [];
   const add = (name: string, ok: boolean, detail: string) => checks.push({ name, ok, detail });
   const env = (k: string) => Boolean(input.env[k]?.trim());
+  // Owner-facing detail text names the platform the way the owner knows it (CrankLeads by default).
+  const platform = getPlatformBrand(input.env).name;
 
   add("receptionist switched on", input.env.RETELL_INTAKE_ENABLED === "1", input.env.RETELL_INTAKE_ENABLED === "1" ? "RETELL_INTAKE_ENABLED=1" : "RETELL_INTAKE_ENABLED is not 1 — calls aren't filed and tools answer \"not available\"");
   add("Retell key", env("RETELL_API_KEY"), env("RETELL_API_KEY") ? "set" : "RETELL_API_KEY missing — webhooks can't be verified");
@@ -175,7 +178,7 @@ export async function receptionistHealth(input: HealthInput): Promise<HealthRepo
       add(
         `${label} returning callers`,
         lookupOk,
-        lookupOk ? "inbound webhook → EmpireVu" : `inbound webhook is ${num.inbound_webhook_url || "not set"} — returning callers won't be recognised`,
+        lookupOk ? `inbound webhook → ${platform}` : `inbound webhook is ${num.inbound_webhook_url || "not set"} — returning callers won't be recognised`,
       );
     }
 
@@ -192,7 +195,7 @@ export async function receptionistHealth(input: HealthInput): Promise<HealthRepo
     add(
       `${label} post-call webhook`,
       hookOk,
-      hookOk ? "→ EmpireVu" : `goes to ${agent.webhook_url || "nowhere"} — EmpireVu only sees calls if that forwards them`,
+      hookOk ? `→ ${platform}` : `goes to ${agent.webhook_url || "nowhere"} — ${platform} only sees calls if that forwards them`,
     );
 
     const llmId = agent.response_engine?.llm_id;
@@ -211,8 +214,8 @@ export async function receptionistHealth(input: HealthInput): Promise<HealthRepo
           `${label} tools`,
           elsewhere.length === 0,
           elsewhere.length === 0
-            ? `${tools.length} tool${tools.length === 1 ? "" : "s"} → EmpireVu`
-            : `${elsewhere.map((t) => `${t.name ?? "tool"} → ${parse(t.url)?.host ?? t.url}`).join(", ")} — not EmpireVu`,
+            ? `${tools.length} tool${tools.length === 1 ? "" : "s"} → ${platform}`
+            : `${elsewhere.map((t) => `${t.name ?? "tool"} → ${parse(t.url)?.host ?? t.url}`).join(", ")} — not ${platform}`,
         );
       }
     }

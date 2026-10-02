@@ -5,6 +5,8 @@ import { z } from "zod";
 import type { Tables } from "@/server/db/database.types";
 import { ValidationError } from "@/server/organizations/context";
 import { sendEmail } from "@/server/outbound/email";
+import { getPlatformBrand } from "@/server/platform-brand";
+import { renderInvitationEmail } from "@/server/templates/platform-emails";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 import type { TenantServiceContext } from "@/server/services/shared";
 
@@ -138,13 +140,15 @@ export async function createInvitation(
   // missing RESEND config or a transient send failure never blocks the invitation.
   let emailSent = false;
   try {
+    // Brand the From display name as the PLATFORM (PLATFORM_EMAIL_FROM_NAME, CrankLeads by
+    // default) even though the address is the shared, Resend-verified OUTBOUND_FROM_EMAIL
+    // (which may sit on a tenant domain).
+    const message = renderInvitationEmail({ role: input.role, inviteUrl }, getPlatformBrand());
     await sendEmail({
       to: email,
-      subject: "You've been invited to join a team on EmpireVu",
-      // Brand the From display name as EmpireVu even though the address is the shared,
-      // Resend-verified OUTBOUND_FROM_EMAIL (which may sit on a tenant domain).
-      fromName: "EmpireVu",
-      body: `You've been invited to join a team on EmpireVu as ${input.role}.\n\nAccept your invitation:\n${inviteUrl}\n\nThis link expires in 7 days.`,
+      subject: message.subject,
+      fromName: message.fromName,
+      body: message.body,
     });
     emailSent = true;
   } catch {

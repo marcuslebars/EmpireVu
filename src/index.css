@@ -58,6 +58,11 @@
     --warning: 38 92% 55%;
     --urgent: 0 72% 51%;
     --card-elevated: 222 18% 11%;
+
+    /* Platform brand accent (wordmark only). Default = CrankLeads lime; overridden at
+       runtime from VITE_PLATFORM_BRAND_ACCENT_HSL by applyPlatformBrandToDocument().
+       Deliberately NOT wired into --primary — see docs/branding.md. */
+    --brand-accent: 82 85% 55%;
   }
 }
 

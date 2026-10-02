@@ -1,4 +1,5 @@
 import type { Json, Tables } from "@/server/db/database.types";
+import { getPlatformBrand } from "@/server/platform-brand";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { assertCompanyInOrganization } from "@/server/services/shared";
@@ -448,10 +449,14 @@ async function renderAndDeliver(
 
   if (settings.channels.includes("email")) {
     if (owner.email) {
+      const platform = getPlatformBrand();
+      // Owner-facing: fall back to the platform's sender name, not the bare OUTBOUND_FROM_EMAIL.
+      const fromName = company.brand_from_name ?? platform.emailFromName;
       const email = renderDigestEmail(data, {
         deepLink,
         primaryColor: company.brand_primary_color,
-        fromName: company.brand_from_name,
+        fromName,
+        platform,
       });
       try {
         const result = await deliverMessage({
@@ -464,7 +469,7 @@ async function renderAndDeliver(
           companyId: company.id,
           contactId: null,
           consentContact: null,
-          fromName: company.brand_from_name,
+          fromName,
           replyTo: company.brand_reply_email,
         });
         emailStatus = result.status;

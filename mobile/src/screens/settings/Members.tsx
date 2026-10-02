@@ -19,6 +19,7 @@ import { Screen } from "@m/ui/Screen";
 import { Btn, ErrorBanner, Field, Pills, QueryView, Section, TextInput } from "@m/ui/kit";
 import { Sheet } from "@m/ui/sheet";
 import { useToast } from "@m/ui/toast";
+import { brand } from "@m/lib/brand";
 
 const ROLE_TONE: Record<string, Tone> = { owner: "pri", admin: "warn", member: "suc" };
 
@@ -46,7 +47,7 @@ export function Members() {
       if (result.emailSent) {
         toast(`Invitation sent to ${result.invitation.email}`);
       } else if (navigator.share) {
-        await navigator.share({ title: `Join ${scope.org.name} on EmpireVu`, url: result.inviteUrl }).catch(() => undefined);
+        await navigator.share({ title: `Join ${scope.org.name} on ${brand.name}`, url: result.inviteUrl }).catch(() => undefined);
       } else {
         await navigator.clipboard?.writeText(result.inviteUrl);
         toast("Invite link copied");

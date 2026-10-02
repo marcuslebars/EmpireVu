@@ -6,6 +6,7 @@ import { signInWithProvider, signUp } from "@m/lib/auth";
 import { platform } from "@m/lib/native";
 import { Logo } from "@m/screens/auth/SignIn";
 import { Btn, ErrorBanner, Field, TextInput } from "@m/ui/kit";
+import { brand } from "@m/lib/brand";
 
 export function SignUp({ go }: { go: (route: AuthRoute) => void }) {
   const [email, setEmail] = useState("");
@@ -54,7 +55,7 @@ export function SignUp({ go }: { go: (route: AuthRoute) => void }) {
       <Logo height={28} />
       <div>
         <div style={{ font: "700 21px/1.2 Inter, sans-serif", letterSpacing: "-.03em" }}>Create your account</div>
-        <div className="sub" style={{ fontSize: 13, marginTop: 6 }}>Get started with EmpireVu</div>
+        <div className="sub" style={{ fontSize: 13, marginTop: 6 }}>Get started with {brand.name}</div>
       </div>
       {platform === "ios" ? (
         <Btn variant="secondary" size="md" icon={AppleLogo} iconWeight="fill" onClick={() => void signInWithProvider("apple")}>

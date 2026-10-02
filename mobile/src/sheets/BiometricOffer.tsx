@@ -6,6 +6,7 @@ import { useSession } from "@m/state/session";
 import { Btn } from "@m/ui/kit";
 import { Sheet } from "@m/ui/sheet";
 import { useToast } from "@m/ui/toast";
+import { brand } from "@m/lib/brand";
 
 /** After a password or phone-code sign-in, offer biometric unlock once per sign-in. */
 export function BiometricOffer() {
@@ -35,7 +36,7 @@ export function BiometricOffer() {
         <span style={{ width: 44, height: 44, borderRadius: 14, background: "hsl(215 100% 55% / .14)", color: "hsl(215 100% 68%)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
           <Icon size={24} />
         </span>
-        <p className="muted-p">Unlock EmpireVu with {info.label} instead of typing your password. Your password always still works.</p>
+        <p className="muted-p">Unlock {brand.name} with {info.label} instead of typing your password. Your password always still works.</p>
       </div>
       <Btn
         size="lg"

@@ -5,6 +5,7 @@ import { acceptInvitation, fetchInvitationPreview } from "@m/lib/api";
 import { humanize } from "@m/lib/format";
 import { useSession } from "@m/state/session";
 import { Btn, ErrorBanner, Skeletons } from "@m/ui/kit";
+import { brand } from "@m/lib/brand";
 
 export function AcceptInvite({ token }: { token: string }) {
   const session = useSession();
@@ -30,7 +31,7 @@ export function AcceptInvite({ token }: { token: string }) {
         <>
           <ErrorBanner error={preview.error} />
           <Btn variant="secondary" size="md" onClick={session.clearInvite}>
-            Continue to EmpireVu
+            Continue to {brand.name}
           </Btn>
         </>
       ) : (

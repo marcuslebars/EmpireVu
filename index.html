@@ -3,14 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/empirevu-favicon.svg" />
-    <link rel="icon" type="image/png" href="/empirevu-favicon.png" />
-    <title>EmpireVu</title>
-    <meta name="description" content="EmpireVu - Your business operations platform" />
-    <meta name="author" content="EmpireVu" />
+    <!--
+      %VITE_PLATFORM_*% placeholders are filled at build time from the platform brand
+      (src/lib/platform-brand-core.ts via vite.config.ts): env value, else the default.
+      See docs/branding.md. Do not hardcode a product name here.
+    -->
+    <link rel="icon" type="image/svg+xml" href="%VITE_PLATFORM_BRAND_FAVICON_URL%" />
+    <title>%VITE_PLATFORM_BRAND_NAME%</title>
+    <meta name="application-name" content="%VITE_PLATFORM_BRAND_NAME%" />
+    <meta name="apple-mobile-web-app-title" content="%VITE_PLATFORM_BRAND_NAME%" />
+    <meta name="description" content="%VITE_PLATFORM_BRAND_NAME% - %VITE_PLATFORM_BRAND_TAGLINE%" />
+    <meta name="author" content="%VITE_PLATFORM_BRAND_NAME%" />
 
-    <meta property="og:title" content="EmpireVu" />
-    <meta property="og:description" content="EmpireVu - Your business operations platform" />
+    <meta property="og:title" content="%VITE_PLATFORM_BRAND_NAME%" />
+    <meta property="og:description" content="%VITE_PLATFORM_BRAND_NAME% - %VITE_PLATFORM_BRAND_TAGLINE%" />
     <meta property="og:type" content="website" />
   </head>
 
