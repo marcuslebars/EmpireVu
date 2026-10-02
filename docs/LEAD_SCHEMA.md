@@ -75,7 +75,8 @@ X-EmpireVu-Signature: sha256=<hex HMAC-SHA256 of the raw request body>
 | `message` | — | Single free-text field. Spokes must fold their `message`/`notes` into this one. |
 | `lineItems[]` | — | `{description, quantity, unitPriceCents}` — integer cents. |
 | `asset` | — | `{makeModel?, lengthFt?, type?, marina?}`. |
-| `meta` | — | `{site?, page?, preferredDate?, preferredTime?, utm?}`. |
+| `meta` | — | `{site?, page?, preferredDate?, preferredTime?, utm?, smsConsent?}` (+ the phone-lead / self-serve-quote keys documented in `envelope.ts`). |
+| `meta.smsConsent` | — | `{granted, text?, capturedAt?}` — an explicit SMS opt-in checkbox (website forms). `granted: true` records the contact with **express** consent (`express_optin`); absent/false keeps implied inquiry consent. `text` is the exact wording shown. Additive, optional. |
 
 ### Reconciled spoke deviations (from the Phase 0 audit)
 
@@ -131,3 +132,12 @@ The spoke forwarders are intentionally **mirrored per-repo** (not a shared packa
 ## Versioning
 
 Bump `schemaVersion` for breaking changes; the intake keeps accepting older versions (older payloads are still valid envelopes). Never repurpose a field's meaning within a version.
+
+## Website lead forms (`source: "public_form"`)
+
+The hosted lead page / embed script (see [website-forms.md](website-forms.md)) emit this same
+schemaVersion-1 envelope server-side: `source: "public_form"`, `sourceSite` = the company slug
+(or `"embed"`), `formType` = the form key's type (`quote` | `contact`), the chosen service in
+`services[]` and in `message`, and `meta.site` / `meta.page` / `meta.utm` / `meta.preferredDate`
+/ `meta.smsConsent` from the request. The tenant is pinned by the form key — `sourceSite` is a tag.
+

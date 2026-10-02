@@ -35,6 +35,7 @@ import {
   type CatalogItemInput,
   type CreatedIntakeKey,
 } from "@/lib/api-client";
+import { WebsiteFormStep } from "@/components/website-forms/WebsiteFormsPanel";
 
 const STEPS = [
   { key: "business", title: "Business", icon: Building2 },
@@ -633,7 +634,7 @@ export default function OnboardingWizard() {
             ) : active === "payments" ? (
               <PaymentsStep {...stepProps} />
             ) : active === "website" ? (
-              <WebsiteStep {...stepProps} />
+              <WebsiteFormStep orgId={stepProps.orgId} companyId={stepProps.companyId} onDone={stepProps.onDone} advanced={<WebsiteStep {...stepProps} />} />
             ) : active === "test_call" ? (
               <TestCallStep {...stepProps} phoneNumber={(dataByStep.get("phone")?.phoneNumber as string) ?? null} />
             ) : active === "team" ? (

@@ -2037,6 +2037,48 @@ export interface Database {
         };
         Relationships: [];
       };
+      public_form_keys: {
+        Row: {
+          active: boolean;
+          allowed_origins: string[];
+          company_id: string;
+          created_at: string;
+          created_by: string | null;
+          form_type: string;
+          id: string;
+          label: string | null;
+          last_used_at: string | null;
+          organization_id: string;
+          public_key: string;
+        };
+        Insert: {
+          active?: boolean;
+          allowed_origins?: string[];
+          company_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          form_type?: string;
+          id?: string;
+          label?: string | null;
+          last_used_at?: string | null;
+          organization_id: string;
+          public_key: string;
+        };
+        Update: {
+          active?: boolean;
+          allowed_origins?: string[];
+          company_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          form_type?: string;
+          id?: string;
+          label?: string | null;
+          last_used_at?: string | null;
+          organization_id?: string;
+          public_key?: string;
+        };
+        Relationships: [];
+      };
       voice_numbers: {
         Row: {
           active: boolean;
