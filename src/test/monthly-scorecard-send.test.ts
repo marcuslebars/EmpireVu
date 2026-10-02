@@ -60,9 +60,10 @@ function seed(): FakeDb {
         company({ id: "co-canceled", organization_id: "org-3", name: "Gone Roofing" }),
       ],
       organizations: [
-        { id: ORG_1, subscription_status: "active" },
-        { id: "org-2", subscription_status: "active" },
-        { id: "org-3", subscription_status: "canceled" },
+        { id: ORG_1, subscription_status: "active", plan: "operate", slug: "maple" },
+        { id: "org-2", subscription_status: "active", plan: "operate", slug: "optout" },
+        { id: "org-3", subscription_status: "canceled", plan: "launch", slug: "gone" },
+        { id: "org-a1", subscription_status: "active", plan: "front_desk", slug: "a1-group" },
       ],
       contacts: [
         { id: "c-1", organization_id: ORG_1, company_id: CO_1, created_at: "2026-10-10T15:00:00.000Z", metadata: { formType: "quote" }, consent_source: null },
@@ -175,6 +176,29 @@ describe("runMonthlyScorecards — scheduled run on Nov 2", () => {
     const noEmail = await runMonthlyScorecards(db.client, { nowMs: NOV_2, companyId: CO_1 });
     expect(noEmail[0]).toMatchObject({ result: "skipped", reason: "no_email" });
     expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the org owner/admin — NEVER to the platform OWNER_EMAIL", async () => {
+    vi.stubEnv("OWNER_EMAIL", "platform@crankleads.test");
+    const db = seed();
+    db.tables.companies[0].owner_email = null;
+    db.tables.organization_memberships = [{ organization_id: ORG_1, profile_id: "p-admin", role: "admin" }];
+    db.tables.profiles = [{ id: "p-admin", email: "admin@maple.test" }];
+    const outcomes = await runMonthlyScorecards(db.client, { nowMs: NOV_2, companyId: CO_1 });
+    expect(outcomes[0]).toMatchObject({ result: "sent", recipient: "admin@maple.test" });
+    expect(sendEmail.mock.calls.map((c) => (c[0] as { to: string }).to)).toEqual(["admin@maple.test"]);
+  });
+
+  it("skips (no_email) instead of emailing OWNER_EMAIL — even for the house org", async () => {
+    vi.stubEnv("OWNER_EMAIL", "platform@crankleads.test");
+    const db = seed();
+    db.tables.companies.push(company({ id: "co-a1", organization_id: "org-a1", name: "A1 Marine Care", owner_email: null }));
+    db.tables.companies[0].owner_email = null; // Maple: tenant, no owner/admin members either
+    const outcomes = await runMonthlyScorecards(db.client, { nowMs: NOV_2 });
+    expect(outcomes.find((o) => o.companyId === CO_1)).toMatchObject({ result: "skipped", reason: "no_email" });
+    expect(outcomes.find((o) => o.companyId === "co-a1")).toMatchObject({ result: "skipped", reason: "no_email" });
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(sends(db).find((row) => row.company_id === CO_1)).toMatchObject({ status: "skipped", detail: { skipped: "no_email" } });
   });
 
   it("keeps every scorecard read and write inside the company's tenant", async () => {

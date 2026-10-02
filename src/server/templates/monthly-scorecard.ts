@@ -186,7 +186,7 @@ ${tile("Jobs booked", String(m.jobsBooked), deltaText(card.deltas?.jobsBooked ??
       : `<p style="margin:0">Everything's running well — we'll keep watching response times and follow-ups.</p>`;
   const note = card.operatorNote
     ? `<div style="margin:12px 0 0;padding:12px 14px;background:#f6f7f9;border-left:3px solid ${esc(primary)};border-radius:6px">
-<div style="font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em">A note from your ${esc(brand)} team</div>
+<div style="font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em">A note from your account team</div>
 <div style="margin-top:4px;white-space:pre-line">${esc(card.operatorNote)}</div></div>`
     : "";
 
@@ -232,7 +232,7 @@ ${button}
     ...(card.suggestions.length > 0
       ? card.suggestions.map((s, index) => `${index + 1}. ${s.title}. ${s.detail}`)
       : ["Everything's running well — we'll keep watching response times and follow-ups."]),
-    ...(card.operatorNote ? ["", `A note from your ${brand} team:`, card.operatorNote] : []),
+    ...(card.operatorNote ? ["", "A note from your account team:", card.operatorNote] : []),
     "",
     `See your full results: ${options.reportUrl}`,
     "",

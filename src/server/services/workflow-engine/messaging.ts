@@ -53,33 +53,81 @@ export interface OwnerContacts {
   phone: string | null;
 }
 
+export interface ResolveOwnerOptions {
+  /**
+   * Allow the deployment-wide OWNER_EMAIL as a last resort — and then ONLY for the house org.
+   * Default true (owner alerts / digest). Tenant reports that must never reach the platform
+   * inbox (the monthly scorecard) pass false.
+   */
+  allowPlatformFallback?: boolean;
+}
+
+/** Slug of the house/platform org (A1) — same source as lead intake (LEAD_INTAKE_ORG_SLUG). */
+function houseOrgSlug(): string {
+  return process.env.LEAD_INTAKE_ORG_SLUG ?? "a1-group";
+}
+
+/**
+ * Is this org the platform's own ("house") org? plan='internal' (billing's own marker) or the
+ * lead-intake org slug (A1). Only the house org may route owner mail to the global OWNER_EMAIL:
+ * that inbox belongs to the platform operator, so using it for any other tenant would email
+ * that tenant's data to the platform (cross-tenant leak) and the tenant would never get it.
+ */
+export async function isHouseOrganization(context: TenantServiceContext): Promise<boolean> {
+  const { data } = await context.supabase
+    .from("organizations")
+    .select("plan, slug")
+    .eq("id", context.organizationId)
+    .maybeSingle();
+  const org = data as { plan: string | null; slug: string | null } | null;
+  return Boolean(org && (org.plan === "internal" || org.slug === houseOrgSlug()));
+}
+
+/**
+ * Owner recipients for owner-facing messages (alerts, digest, scorecard).
+ *
+ *  - email: companies.owner_email → (house org only, when allowed) OWNER_EMAIL → the org's
+ *    owner, then admin, user email. A tenant org NEVER falls back to OWNER_EMAIL.
+ *    The house org (A1) keeps its original order (OWNER_EMAIL before the org owner's profile)
+ *    so its alerts keep going where they always have.
+ *  - phone: companies.owner_phone_e164 only.
+ */
 export async function resolveOwnerContacts(
   context: TenantServiceContext,
   company: Pick<Tables<"companies">, "owner_email" | "owner_phone_e164"> | null,
+  options: ResolveOwnerOptions = {},
 ): Promise<OwnerContacts> {
   let email = company?.owner_email?.trim() || null;
   const phone = company?.owner_phone_e164?.trim() || null;
-  if (!email) email = process.env.OWNER_EMAIL?.trim() || null;
+  if (!email && options.allowPlatformFallback !== false) {
+    const platformEmail = process.env.OWNER_EMAIL?.trim() || null;
+    if (platformEmail && (await isHouseOrganization(context).catch(() => false))) email = platformEmail;
+  }
   if (!email) email = await orgOwnerEmail(context);
   return { email, phone };
 }
 
-async function orgOwnerEmail(context: TenantServiceContext): Promise<string | null> {
-  const { data: membership } = await context.supabase
+/** The org's owner's email, else an admin's (owners first; deterministic by role then id). */
+export async function orgOwnerEmail(context: TenantServiceContext): Promise<string | null> {
+  const { data: memberships } = await context.supabase
     .from("organization_memberships")
-    .select("profile_id")
+    .select("profile_id, role")
     .eq("organization_id", context.organizationId)
-    .eq("role", "owner")
-    .limit(1)
-    .maybeSingle();
-  const profileId = (membership as { profile_id: string } | null)?.profile_id;
-  if (!profileId) return null;
-  const { data: profile } = await context.supabase
-    .from("profiles")
-    .select("email")
-    .eq("id", profileId)
-    .maybeSingle();
-  return (profile as { email: string } | null)?.email ?? null;
+    .in("role", ["owner", "admin"])
+    .limit(50);
+  const ranked = ((memberships ?? []) as Array<{ profile_id: string; role: string }>)
+    .slice()
+    .sort((a, b) => (a.role === b.role ? a.profile_id.localeCompare(b.profile_id) : a.role === "owner" ? -1 : 1));
+  for (const membership of ranked) {
+    const { data: profile } = await context.supabase
+      .from("profiles")
+      .select("email")
+      .eq("id", membership.profile_id)
+      .maybeSingle();
+    const email = (profile as { email: string | null } | null)?.email?.trim();
+    if (email) return email;
+  }
+  return null;
 }
 
 // ── STOP footer (first outbound SMS to a contact) ────────────────────────────

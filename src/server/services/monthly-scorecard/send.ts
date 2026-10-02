@@ -28,6 +28,10 @@ import { renderScorecardEmail, type RenderedScorecardEmail } from "@/server/temp
  * sends nothing. A row left `failed`/`skipped` is re-claimed by a later run with a
  * conditional update (only one claimer wins). `force` re-sends a month already `sent`.
  *
+ * Recipient: companies.owner_email → the org's owner/admin user email. NEVER the global
+ * OWNER_EMAIL (that's the platform inbox — a tenant's results must not go there); with no
+ * recipient the company is skipped (`no_email`) and logged.
+ *
  * Opt-out: companies.monthly_scorecard `{ enabled: false }` (default: enabled). Owner messages
  * are transactional reporting — no consent check, no approval gate (same as the daily digest).
  */
@@ -201,7 +205,7 @@ async function processCompany(
       reportUrl: scorecardReportUrl(),
       primaryColor: company.brand_primary_color,
     });
-    const owner = await resolveOwnerContacts(context, company);
+    const owner = await resolveOwnerContacts(context, company, { allowPlatformFallback: false });
     return { ...base, result: "dry_run", reason: skip ?? undefined, recipient: owner.email, subject: email.subject, email };
   }
 
@@ -224,7 +228,7 @@ async function processCompany(
     }
   }
 
-  const owner = await resolveOwnerContacts(context, company);
+  const owner = await resolveOwnerContacts(context, company, { allowPlatformFallback: false });
   if (!owner.email) {
     console.warn(`[monthly-scorecard] company ${company.id}: no owner email — skipping`);
     await recordSkip(admin, company, monthDate, "no_email");

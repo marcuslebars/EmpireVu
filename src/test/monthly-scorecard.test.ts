@@ -272,7 +272,7 @@ describe("renderScorecardEmail", () => {
     expect(lines).toContain("- AI receptionist calls: 3 (42 min on the phone)");
     expect(lines).toContain("- Revenue we helped win: $500.00 (collected · $3,500.00 approved)");
     expect(lines).toContain("1. Close the gaps on missed-call text-backs. Only 1 of 3 missed calls got a text back. We'll check caller numbers and the SMS setup so every missed caller hears from you.");
-    expect(lines).toContain("A note from your CrankLeads team:");
+    expect(lines).toContain("A note from your account team:");
     expect(lines).toContain("See your full results: https://app.test/reports/monthly");
     expect(lines[lines.length - 1]).toBe("Sent by CrankLeads for Maple & Sons Plumbing. Questions? Just reply to this email.");
   });

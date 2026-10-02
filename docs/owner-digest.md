@@ -21,7 +21,7 @@ different audiences, separate idempotency.
 - **Templates** ([`src/server/templates/digest.ts`](../src/server/templates/digest.ts)): pure
   `renderDigestSms` / `renderDigestEmail`, reusing the quote-email house style. Golden-tested.
 - **Delivery**: `notify_owner` plumbing — `resolveOwnerContacts` (companies.owner_email /
-  owner_phone_e164 → `OWNER_EMAIL` → org owner) + `deliverMessage`, which writes `message_log`
+  owner_phone_e164 → [house org only] `OWNER_EMAIL` → org owner, then admin) + `deliverMessage`, which writes `message_log`
   and meters usage. Owner messages carry no consent check and never require approval.
 
 Migration: `supabase/migrations/20260922120000_owner_digest.sql` (+ rollback). Reuses existing

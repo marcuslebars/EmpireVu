@@ -87,14 +87,18 @@ When no rule fires, the email says "Everything's running well…".
 **owner/admin** sets it with `PUT /ui/monthly-scorecard` `{ companyId, month, operatorNote }`
 or from the Monthly results page. An empty value clears it. RLS also limits writes to
 admins (`monthly_scorecard_notes_admins_*` policies). It shows under "A note from your
-CrankLeads team". To get a note into the email, set it for the month being reported (for
+account team". The label doesn't use the platform brand, because any org admin can write the
+note, not just CrankLeads staff. To get a note into the email, set it for the month being reported (for
 example the October note before the November 1st run).
 
 ## Sending, idempotency, opt-out
 
-- **Recipient**: same as the digest, `resolveOwnerContacts`: `companies.owner_email`, then
-  `OWNER_EMAIL`, then the org owner's profile email. With no email, the company is skipped and
-  logged as `skipped / no_email`.
+- **Recipient**: `resolveOwnerContacts(…, { allowPlatformFallback: false })`:
+  `companies.owner_email`, then the org's **owner**, then an **admin**, using their profile
+  email. It **never** uses the global `OWNER_EMAIL`, not even for the house org. That inbox
+  belongs to the platform, so falling back to it would email one tenant's results to the
+  platform, and the client would never get them. With no recipient, the company is skipped
+  and logged as `skipped / no_email`.
 - **Delivery**: `deliverMessage` (email). It writes `message_log` with no contact and meters
   `email_sent`. The From display name is `PLATFORM_BRAND_NAME`. Owner reporting has no consent
   check and no approval gate, the same as the digest.
