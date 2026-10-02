@@ -2099,7 +2099,7 @@ export function createComment(orgId: string, input: CreateCommentInput): Promise
 }
 
 // ── Missed-call catcher (docs/missed-call-catcher.md) ───────────────────────────
-type ForwardingInstructions = import("@/lib/carrier-forwarding").ForwardingInstructions;
+type ForwardingInstructions = import("./carrier-forwarding").ForwardingInstructions;
 
 export interface MissedCallCatcherStatus {
   configured: boolean;
