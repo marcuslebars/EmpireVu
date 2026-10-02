@@ -7,8 +7,11 @@ import { reviewRequest } from "@/server/services/workflow-engine/recipes/review-
 import { staleLeadNudge } from "@/server/services/workflow-engine/recipes/stale-lead-nudge";
 import { urgentCallEscalation } from "@/server/services/workflow-engine/recipes/urgent-call-escalation";
 import {
+  callAbandonedRecoveryText,
+  callStartedToOwner,
   callSummaryToOwner,
   customerTextToOwner,
+  depositLinkFailedOwnerAlert,
   depositPaidOwnerAlert,
   depositPaidPickDate,
   missedCallSummaryToOwner,
@@ -33,6 +36,9 @@ export const ALL_RECIPES: readonly Recipe[] = [
   depositPaidOwnerAlert,
   depositPaidPickDate,
   customerTextToOwner,
+  callStartedToOwner,
+  callAbandonedRecoveryText,
+  depositLinkFailedOwnerAlert,
 ];
 
 const RECIPES_BY_SLUG = new Map(ALL_RECIPES.map((recipe) => [recipe.slug, recipe]));

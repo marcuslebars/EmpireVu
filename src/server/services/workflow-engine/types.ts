@@ -10,12 +10,19 @@ export const supportedWorkflowTriggerEventTypes = [
   "call.missed",
   "call.completed",
   "call.urgent",
+  // The receptionist just picked up an inbound call (Retell call_started) — "📞 answering a call from…".
+  "call.started",
+  // An inbound caller asked about the service but hung up before getting a quote, isn't a
+  // returning customer, and hasn't had a recovery text in 7 days — a nudge to finish online.
+  "call.abandoned",
   "quote.sent",
   "quote.viewed",
   "quote.approved",
   "quote.expiring",
   // The customer paid the deposit (Stripe checkout completed). Pick-date texts, owner alerts.
   "quote.deposit_paid",
+  // The receptionist promised the caller a deposit link but it didn't go out — tell the owner.
+  "quote.deposit_link_failed",
   "booking.upcoming",
   "booking.cancelled",
   "booking.no_show",

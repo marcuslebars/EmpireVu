@@ -9,7 +9,7 @@ import {
   spokenWindowLabel,
 } from "@/server/services/booking-windows";
 import { getQuotesConfig } from "@/server/services/quotes/config";
-import { loadCallForTemplate } from "@/server/services/retell/call-summary";
+import { loadCallForTemplate, ownerClockTime, prettyPhone } from "@/server/services/retell/call-summary";
 import { boatFromSnapshot, DEFAULT_AGENT_NAME, formatDollars } from "@/server/services/retell/caller-lookup";
 
 type TraceEntityRow =
@@ -265,6 +265,32 @@ async function addQuoteAndCallFields(
   fields.call_direction = typeof metadata.direction === "string" ? metadata.direction : null;
   fields.message_from = typeof metadata.from === "string" ? metadata.from : null;
   fields.message_preview = typeof metadata.bodyPreview === "string" ? metadata.bodyPreview : null;
+
+  // call.started: who's calling and when — "📞 Marina answering a call from 705-555-1234 (2:05p.m.)."
+  fields.call_from = typeof metadata.callerNumber === "string" ? prettyPhone(metadata.callerNumber) : null;
+  const startedAt = typeof metadata.startedAt === "string" ? new Date(metadata.startedAt) : null;
+  fields.call_time =
+    startedAt && !Number.isNaN(startedAt.getTime())
+      ? ownerClockTime(startedAt, process.env.BUSINESS_TIMEZONE?.trim() || "America/Toronto")
+      : null;
+
+  // booking.*: was this booking brought over by an import (e.g. from the A1 Care site, which
+  // still sends its own reminders for it)? Lets a reminder skip it: booking_imported equals false.
+  fields.booking_imported =
+    entityRow && "scheduled_for" in entityRow
+      ? String((entityRow as { source?: Json }).source ?? "").startsWith("import:")
+      : null;
+  // booking.*: whole hours from now until the booking starts (negative once it has begun).
+  // Re-read on every wait resume, so a "day before" reminder pushed into quiet hours can
+  // check it's still the day before: booking_hours_until greater_than 12.
+  const bookingAt =
+    entityRow && "scheduled_for" in entityRow ? new Date(String((entityRow as { scheduled_for: Json }).scheduled_for)) : null;
+  fields.booking_hours_until =
+    bookingAt && !Number.isNaN(bookingAt.getTime()) ? Math.floor((bookingAt.getTime() - Date.now()) / 3_600_000) : null;
+
+  // quote.deposit_link_failed: why, and a short quote reference for the owner.
+  fields.failure_reason = typeof metadata.failureReason === "string" ? metadata.failureReason : null;
+  fields.quote_short_id = quoteId ? quoteId.slice(0, 8) : null;
 }
 
 /** The quote Marina made during a call, via the call's lead. */
@@ -349,7 +375,7 @@ export async function buildMessageTemplateData(
   const quoteId = readIdField(eventContext.fields.quote_id);
   const callId = readIdField(eventContext.fields.call_id);
   const [quote, call] = await Promise.all([
-    quoteId ? loadQuoteForTemplate(context, quoteId) : Promise.resolve(null),
+    quoteId ? loadQuoteForTemplate(context, quoteId, { company, timeZone }) : Promise.resolve(null),
     callId
       ? loadCallForTemplate(context.supabase, context.organizationId, callId, {
           agentName: await agentNameFor(context, companyId),
@@ -384,10 +410,13 @@ export async function buildMessageTemplateData(
  *   quote.public_url (the hosted page: review, approve, pay the deposit)
  *   quote.subtotal / quote.total / quote.deposit ("$672", "$759.36", "$250")
  *   quote.boat ("24 ft bowrider"), quote.number
+ *   quote.booked_when ("Tuesday, October 6th in the morning", or "no date yet — call to book")
+ *   quote.paid_via (" (via Marina)" when the receptionist sent the deposit link on a call, else "")
  */
 async function loadQuoteForTemplate(
   context: TenantServiceContext,
   quoteId: string,
+  opts: { company: Record<string, unknown> | null; timeZone: string },
 ): Promise<Record<string, unknown> | null> {
   const { data } = await context.supabase
     .from("quotes")
@@ -398,6 +427,43 @@ async function loadQuoteForTemplate(
   if (!data) return null;
   const q = data as Record<string, unknown>;
   const cents = (k: string) => Number(q[k] ?? 0);
+
+  let bookedWhen = "no date yet — call to book";
+  let paidVia = "";
+  try {
+    const [{ data: booking }, { data: viaMarina }] = await Promise.all([
+      context.supabase
+        .from("bookings")
+        .select("scheduled_for, window_key")
+        .eq("organization_id", context.organizationId)
+        .eq("quote_id", quoteId)
+        .neq("status", "cancelled")
+        .order("scheduled_for", { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+      context.supabase
+        .from("quote_events")
+        .select("id")
+        .eq("organization_id", context.organizationId)
+        .eq("quote_id", quoteId)
+        .eq("event_type", "deposit_link_sent")
+        .eq("metadata->>by", "marina")
+        .limit(1),
+    ]);
+    if (booking) {
+      const b = booking as { scheduled_for: string; window_key: string | null };
+      const policy = parseBookingPolicy(opts.company?.booking_policy ?? null) ?? DEFAULT_BOOKING_POLICY;
+      const w = policy.windows.find((x) => x.key === b.window_key);
+      const date = localDate(new Date(b.scheduled_for), opts.timeZone);
+      bookedWhen = w ? spokenWindowLabel(date, w) : date;
+    }
+    if (((viaMarina ?? []) as unknown[]).length > 0) {
+      paidVia = ` (via ${await agentNameFor(context, typeof q.company_id === "string" ? q.company_id : null)})`;
+    }
+  } catch (err) {
+    console.error("[workflow-context] quote booking/link details unavailable:", err instanceof Error ? err.message : err);
+  }
+
   return {
     ...q,
     number: q.quote_number ?? null,
@@ -406,6 +472,8 @@ async function loadQuoteForTemplate(
     total: formatDollars(cents("total_cents")),
     deposit: formatDollars(cents("approved_deposit_cents") || cents("deposit_cents")),
     boat: boatFromSnapshot(q.input_snapshot),
+    booked_when: bookedWhen,
+    paid_via: paidVia,
   };
 }
 

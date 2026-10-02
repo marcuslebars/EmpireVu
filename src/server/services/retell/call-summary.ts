@@ -9,7 +9,7 @@
  * Surfaced to automations as `{{ call.owner_summary }}` (workflow-engine/context.ts), so the
  * "Text me after every call" recipe is an ordinary, editable notify_owner step.
  *
- *   📞 Marina call done · (705) 555-1234 · 3m05s
+ *   📞 Marina call done · 705-555-1234 · 3m05s
  *   Dana Lee · 24 ft bowrider · shrink wrap, winterization
  *   Quoted $1,153.25 · Booked Tuesday, September 29th in the morning · deposit link sent
  *   The caller wanted…
@@ -38,11 +38,19 @@ export interface CallSummaryInput {
   depositLinkSent: boolean;
 }
 
-/** "(705) 555-1234" for a North American number; the raw value otherwise. */
+/** "705-555-1234" for a North American number (the A1 Care site's owner-text format); the raw value otherwise. */
 export function prettyPhone(raw: string | null | undefined): string {
   const d = (raw ?? "").replace(/\D/g, "");
   const ten = d.length === 11 && d.startsWith("1") ? d.slice(1) : d;
-  return ten.length === 10 ? `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}` : raw?.trim() || "unknown number";
+  return ten.length === 10 ? `${ten.slice(0, 3)}-${ten.slice(3, 6)}-${ten.slice(6)}` : raw?.trim() || "unknown number";
+}
+
+/** "2:05p.m." — the clock time in the owner's call-started text (A1 Care site format). */
+export function ownerClockTime(at: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, hour: "numeric", minute: "2-digit" })
+    .format(at)
+    .toLowerCase()
+    .replace(/\s+/g, "");
 }
 
 export function formatDuration(ms: number | null): string {

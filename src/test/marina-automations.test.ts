@@ -40,7 +40,7 @@ describe("call summary text", () => {
   it("says who, what was quoted and booked, and the gist", () => {
     expect(buildCallSummary(baseCall)).toBe(
       [
-        "📞 Marina call done · (705) 555-1234 · 3m05s",
+        "📞 Marina call done · 705-555-1234 · 3m05s",
         "Dana Lee · 24 ft bowrider · shrink wrap, winterization",
         "Quoted $1,153.25 · Booked Tuesday, September 29th in the morning · deposit link sent",
         "Dana wants her 24 ft bowrider wrapped before the frost and booked Tuesday morning.",
@@ -57,7 +57,7 @@ describe("call summary text", () => {
       analysis: { callback_requested: true, caller_name: "ignored when the contact is known" },
     });
     expect(text).toContain("Quoted $1,153.25 · deposit PAID · URGENT");
-    expect(text).toContain("☎️ CALL BACK (705) 555-1234 — Marina told them you'd call within the hour.");
+    expect(text).toContain("☎️ CALL BACK 705-555-1234 — Marina told them you'd call within the hour.");
   });
 
   it("marks a transfer instead of a callback", () => {
@@ -78,18 +78,18 @@ describe("call summary text", () => {
       summary: null,
       analysis: { caller_name: "Mike", boat_length_ft: 22, boat_type: "pontoon" },
     });
-    expect(text).toBe("📞 Marina call done · (705) 555-1234 · 12s · voicemail\nMike · 22 ft pontoon");
+    expect(text).toBe("📞 Marina call done · 705-555-1234 · 12s · voicemail\nMike · 22 ft pontoon");
   });
 
   it("reports an outbound call nobody answered", () => {
     const text = buildCallSummary({ ...baseCall, direction: "outbound", durationMs: 4000, disconnectionReason: "dial_no_answer" });
-    expect(text.split("\n")[0]).toBe("📤 Marina called (705) 996-1010 · Dana Lee · 24 ft bowrider · 4s");
+    expect(text.split("\n")[0]).toBe("📤 Marina called 705-996-1010 · Dana Lee · 24 ft bowrider · 4s");
     expect(text.split("\n")[1]).toMatch(/^no answer · Quoted/);
     expect(text).not.toContain("wrapped before the frost"); // no summary for a missed call
   });
 
   it("formats phones and durations", () => {
-    expect(prettyPhone("17055551234")).toBe("(705) 555-1234");
+    expect(prettyPhone("17055551234")).toBe("705-555-1234");
     expect(prettyPhone(null)).toBe("unknown number");
     expect(formatDuration(59_400)).toBe("59s");
     expect(formatDuration(null)).toBe("");

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { enqueueInboundWebhookJob } from "@/server/services/inbound-webhook-jobs";
 import { logRetellPayload } from "@/server/services/retell/auth";
 import { getRetellConfig } from "@/server/services/retell/config";
-import { persistRetellCallRaw } from "@/server/services/retell/lead-adapter";
+import { announceCallStarted, persistRetellCallRaw } from "@/server/services/retell/lead-adapter";
 import { readString } from "@/server/services/retell/payload";
 import { verifyRetellSignature } from "@/server/services/retell/signature";
 import { createRetellAdminClient } from "@/server/services/retell/tenant";
@@ -47,6 +47,15 @@ export async function POST(request: Request): Promise<NextResponse> {
   logRetellPayload("webhook", payload);
 
   const event = readString(payload, ["event"]);
+  if (event === "call_started") {
+    // The owner's "📞 answering a call from…" text. Best-effort: never fail or delay the ACK.
+    try {
+      await announceCallStarted(payload);
+    } catch (err) {
+      console.error("[retell] call_started announce failed:", err instanceof Error ? err.message : err);
+    }
+    return NextResponse.json({ ok: true }, { status: 200 });
+  }
   if (event !== "call_analyzed") {
     return NextResponse.json({ ok: true, ignored: event ?? "unknown" }, { status: 200 });
   }

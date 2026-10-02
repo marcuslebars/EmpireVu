@@ -157,4 +157,73 @@ export const customerTextToOwner: Recipe = {
   },
 };
 
+/** 📞 The receptionist just picked up — a heads-up while the call is live. */
+export const callStartedToOwner: Recipe = {
+  slug: "call-started-to-owner",
+  name: "Text me when a call comes in",
+  description: "The moment your receptionist answers a call, text you the caller's number so you can listen in or expect a follow-up.",
+  trigger_event: "call.started",
+  default_status: "active",
+  requires: ["sms"],
+  definition: {
+    version: 1,
+    conditions: [{ field: "call_from", operator: "exists" }],
+    estimated_time_saved_seconds: 10,
+    actions: [{ type: "notify_owner", channel: "sms", body: "📞 Answering a call from {{call_from}} ({{call_time}})." }],
+  },
+};
+
+/**
+ * Asked about the service, then hung up before a quote → one recovery text. Not for
+ * returning customers, and at most once a week per number (see call.abandoned).
+ */
+export const callAbandonedRecoveryText: Recipe = {
+  slug: "call-abandoned-recovery-text",
+  name: "Text callers who hang up before a quote",
+  description:
+    "When someone asks about your service but the call ends before they get a quote, text them once so they can finish online or call back.",
+  trigger_event: "call.abandoned",
+  default_status: "active",
+  requires: ["sms"],
+  definition: {
+    version: 1,
+    conditions: [],
+    estimated_time_saved_seconds: 180,
+    actions: [
+      {
+        type: "send_sms",
+        to: "contact",
+        body:
+          "Hi, it's {{company.name}} — sorry we didn't get all the way through just now. Book or get a price here: " +
+          "{{company.booking_url}} — or reply and we'll call you back.",
+      },
+    ],
+  },
+};
+
+/** ⚠️ The caller was promised the deposit link but it didn't go out. */
+export const depositLinkFailedOwnerAlert: Recipe = {
+  slug: "deposit-link-failed-owner-alert",
+  name: "Text me if a deposit link fails",
+  description:
+    "If your receptionist can't send a caller their deposit link, text you who it was so you can send it yourself — they were told you would.",
+  trigger_event: "quote.deposit_link_failed",
+  default_status: "active",
+  requires: ["sms"],
+  definition: {
+    version: 1,
+    conditions: [],
+    estimated_time_saved_seconds: 120,
+    actions: [
+      {
+        type: "notify_owner",
+        channel: "sms",
+        body:
+          "⚠️ Couldn't send the deposit link to {{contact.first_name}} {{contact.last_name}} ({{contact.phone}}) — " +
+          "{{failure_reason}}. They were told you'd text it within the hour: {{quote.public_url}} (quote {{quote_short_id}})",
+      },
+    ],
+  },
+};
+
 export { CIVIL_HOURS };
