@@ -2097,3 +2097,32 @@ export function createComment(orgId: string, input: CreateCommentInput): Promise
     body: JSON.stringify(input),
   });
 }
+
+// ── Missed-call catcher (docs/missed-call-catcher.md) ───────────────────────────
+type ForwardingInstructions = import("./carrier-forwarding").ForwardingInstructions;
+
+export interface MissedCallCatcherStatus {
+  configured: boolean;
+  number: { id: string; phoneNumber: string; phoneNumberPretty: string; createdAt: string } | null;
+  instructions: ForwardingInstructions | null;
+}
+
+export interface MissedCallCatcherProvisionResult {
+  phoneNumber: string;
+  phoneNumberPretty: string;
+  numberSid: string;
+  purchased: boolean;
+  webhooksUpdated: boolean;
+  instructions: ForwardingInstructions;
+}
+
+export function getMissedCallCatcher(orgId: string, companyId: string): Promise<MissedCallCatcherStatus> {
+  return apiFetch(`/api/organizations/${orgId}/missed-call-catcher?companyId=${encodeURIComponent(companyId)}`);
+}
+
+export function provisionMissedCallCatcher(
+  orgId: string,
+  input: { companyId: string; areaCode?: number; attachNumber?: string },
+): Promise<MissedCallCatcherProvisionResult> {
+  return apiFetch(`/api/organizations/${orgId}/missed-call-catcher`, { method: "POST", body: JSON.stringify(input) });
+}

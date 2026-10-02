@@ -11,6 +11,12 @@ import { assertCompanyInOrganization, insertRow, type TenantServiceContext } fro
  *
  * Provisioning via the Retell API is Task 13; here a number is entered manually.
  */
+/**
+ * Manual entry is AI-receptionist numbers only. Twilio rows ('twilio' provider: missed-call
+ * catcher / SMS lines) are created ONLY by services/twilio/provision.ts, which proves the
+ * number is in the platform's Twilio account and not already owned by another tenant —
+ * a hand-typed twilio row would let one org capture another's inbound SMS/calls.
+ */
 export type VoiceProvider = "retell" | "telnyx";
 const PROVIDERS: readonly VoiceProvider[] = ["retell", "telnyx"];
 
@@ -19,6 +25,7 @@ export interface VoiceNumberView {
   companyId: string;
   phoneE164: string;
   provider: string;
+  mode: string;
   providerAgentId: string | null;
   brandLabel: string | null;
   active: boolean;
@@ -31,6 +38,7 @@ function toView(row: Tables<"voice_numbers">): VoiceNumberView {
     companyId: row.company_id,
     phoneE164: row.phone_e164,
     provider: row.provider,
+    mode: row.mode,
     providerAgentId: row.provider_agent_id,
     brandLabel: row.brand_label,
     active: row.active,
@@ -61,7 +69,7 @@ export async function createVoiceNumber(
   input: CreateVoiceNumberInput,
 ): Promise<VoiceNumberView> {
   if (!PROVIDERS.includes(input.provider)) {
-    throw new ValidationError("provider must be 'retell' or 'telnyx'.");
+    throw new ValidationError("provider must be 'retell' or 'telnyx'. Twilio numbers are set up via the missed-call catcher.");
   }
   const phoneE164 = toE164(input.phone);
   if (!phoneE164) {
@@ -75,6 +83,7 @@ export async function createVoiceNumber(
     company_id: input.companyId,
     phone_e164: phoneE164,
     provider: input.provider,
+    mode: "ai_receptionist",
     provider_agent_id: input.providerAgentId?.trim() || null,
     brand_label: input.brandLabel?.trim() || null,
     active: true,

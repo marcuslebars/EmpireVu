@@ -13,6 +13,7 @@ A brand-new tenant can receive **web leads** and **Marina calls** with **no env 
    ```
    The org + company are pinned by the key — the payload can't choose them. `sourceSite` is just a free-text tag.
 2. **Marina calls:** Settings → Integrations → **Voice numbers** → add the tenant's phone (E.164), provider `retell`, and the Retell **agent id** (`provider_agent_id`). An inbound call is routed to the tenant by the number it arrived on, then by agent id. (Number *provisioning* via the Retell API is Task 13; today it's manual entry.)
+   - **No AI (Catch plan):** instead of (or alongside) Marina, set up the **missed-call catcher** — Onboarding → Phone → "Missed-call catcher (no AI)" buys/attaches a Twilio number (`voice_numbers` `provider='twilio'`, `mode='missed_call_catcher'`) and shows the owner the carrier forwarding codes. See [missed-call-catcher.md](missed-call-catcher.md).
 3. **Per-company voice/prompt** stays in `company_voice_profiles` — `voice_numbers.provider_agent_id` only links a number to its agent.
 4. Verify: `node scripts/dev/sign-intake.mjs --key <key> --send` returns `200` with a `leadId`, and a test call to the number lands a `retell_calls` row + lead scoped to the right company.
 
