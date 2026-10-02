@@ -74,8 +74,48 @@ export interface ReceptionistContext {
   transferNumber?: string | null;
 }
 
-/** Build Marina's general prompt from the onboarding answers. Pure + tested. */
-export function buildReceptionistPrompt(ctx: ReceptionistContext): string {
+/**
+ * Trade knowledge from an industry starter pack (src/server/services/packs). Optional: with
+ * no notes the prompt is byte-for-byte what it was before packs existed (golden test).
+ */
+export interface ReceptionistPackNotes {
+  packName: string;
+  businessSummary: string;
+  seasonalNotes: string[];
+  qualifyingQuestions: string[];
+  urgentKeywords: string[];
+  faqs: Array<{ question: string; answer: string }>;
+}
+
+function packNotesLines(notes: ReceptionistPackNotes): string[] {
+  const lines = ["", `About this business (${notes.packName}): ${notes.businessSummary}`];
+  if (notes.seasonalNotes.length > 0) {
+    lines.push("", `Seasonal context:\n${notes.seasonalNotes.map((s) => `- ${s}`).join("\n")}`);
+  }
+  if (notes.qualifyingQuestions.length > 0) {
+    lines.push(
+      "",
+      `With a new enquiry, work these questions in naturally (don't read them out as a list):\n${notes.qualifyingQuestions.map((q) => `- ${q}`).join("\n")}`,
+    );
+  }
+  if (notes.urgentKeywords.length > 0) {
+    lines.push(
+      "",
+      `Treat the call as urgent if the caller mentions anything like: ${notes.urgentKeywords.map((k) => `"${k}"`).join(", ")}. ` +
+        "Say you're flagging it for the team right away, confirm the address and the best callback number, and keep it short.",
+    );
+  }
+  if (notes.faqs.length > 0) {
+    lines.push("", `Common questions and how to handle them:\n${notes.faqs.map((f) => `- Q: ${f.question}\n  A: ${f.answer}`).join("\n")}`);
+  }
+  return lines;
+}
+
+/**
+ * Build Marina's general prompt from the onboarding answers. Pure + tested. `packNotes`
+ * (optional) appends the company's industry-pack knowledge before the closing rule.
+ */
+export function buildReceptionistPrompt(ctx: ReceptionistContext, packNotes?: ReceptionistPackNotes | null): string {
   const lines = [
     `You are Marina, the friendly virtual receptionist for ${ctx.companyName}. You answer inbound phone calls.`,
     `Be warm, concise, and helpful. Your goals: understand what the caller needs, answer questions about the services below, capture their name and phone number, and book them in or take a message.`,
@@ -86,6 +126,7 @@ export function buildReceptionistPrompt(ctx: ReceptionistContext): string {
   if (ctx.hoursText) lines.push("", `Business hours: ${ctx.hoursText}.`);
   if (ctx.bookingUrl) lines.push("", `To book, offer to text them the booking link: ${ctx.bookingUrl}.`);
   if (ctx.transferNumber) lines.push("", `If the caller needs a human or has an urgent issue, offer to transfer them to ${ctx.transferNumber}.`);
+  if (packNotes) lines.push(...packNotesLines(packNotes));
   lines.push(
     "",
     "Never invent prices or availability you weren't given. If you don't know something, say you'll have the team follow up, and make sure you have their callback number.",

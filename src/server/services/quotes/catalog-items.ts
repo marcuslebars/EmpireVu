@@ -66,3 +66,50 @@ export async function createCatalogItem(
   };
   return insertRow(context, "service_catalog_items", row);
 }
+
+export const catalogPriceUpdateSchema = z.object({
+  companyId: z.string().uuid(),
+  items: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        rateCents: z.number().int().nonnegative().max(100_000_000),
+        minimumCents: z.number().int().nonnegative().max(100_000_000).optional(),
+      }),
+    )
+    .min(1)
+    .max(60),
+});
+
+export type CatalogPriceUpdate = z.infer<typeof catalogPriceUpdateSchema>;
+
+/**
+ * Enter prices on existing catalog items (industry packs create them price-less and
+ * inactive). A positive rate switches the item on so quotes can use it; setting a rate
+ * back to 0 switches it off again so nothing is ever quoted at $0.
+ */
+export async function updateCatalogItemPrices(
+  context: TenantServiceContext,
+  input: CatalogPriceUpdate,
+): Promise<Tables<"service_catalog_items">[]> {
+  await assertCompanyInOrganization(context, input.companyId);
+  const updated: Tables<"service_catalog_items">[] = [];
+  for (const item of input.items) {
+    const priced = item.rateCents > 0 || (item.minimumCents ?? 0) > 0;
+    const { data, error } = await context.supabase
+      .from("service_catalog_items")
+      .update({
+        rate_cents: item.rateCents,
+        ...(item.minimumCents !== undefined ? { minimum_cents: item.minimumCents } : {}),
+        active: priced,
+      })
+      .eq("organization_id", context.organizationId)
+      .eq("company_id", input.companyId)
+      .eq("id", item.id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    updated.push(data as Tables<"service_catalog_items">);
+  }
+  return updated;
+}

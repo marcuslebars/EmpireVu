@@ -2,6 +2,8 @@ import type { Tables } from "@/server/db/database.types";
 import { listCatalogItems } from "@/server/services/quotes/catalog-items";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { upsertCompanyVoiceProfile } from "@/server/services/company-voice-profiles";
+import { getPack, packReceptionistNotes } from "@/server/services/packs";
+import { parseAppliedIndustryPack } from "@/server/services/packs/types";
 import {
   buildReceptionistPrompt,
   createRetellClient,
@@ -112,14 +114,21 @@ export async function provisionPhoneForCompany(
   const webhookUrl = `${baseUrl}/api/retell/webhook`;
   const bookingUrl = baseUrl ? `${baseUrl}/book/${company.id}` : null;
 
-  const prompt = buildReceptionistPrompt({
-    companyName: company.name,
-    services,
-    hoursText: hoursToText(company.hours),
-    bookingUrl,
-    serviceArea: company.service_area,
-    transferNumber: input.transferNumber ?? company.owner_phone_e164,
-  });
+  // The company's industry pack (if one was applied) adds trade FAQs / urgency keywords.
+  const appliedPack = parseAppliedIndustryPack(company.industry_pack);
+  const pack = appliedPack ? getPack(appliedPack.id) : null;
+
+  const prompt = buildReceptionistPrompt(
+    {
+      companyName: company.name,
+      services,
+      hoursText: hoursToText(company.hours),
+      bookingUrl,
+      serviceArea: company.service_area,
+      transferNumber: input.transferNumber ?? company.owner_phone_e164,
+    },
+    pack ? packReceptionistNotes(pack) : null,
+  );
 
   const result = await provisionRetellAgent(retell, {
     companyName: company.name,

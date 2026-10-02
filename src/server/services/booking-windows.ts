@@ -63,6 +63,9 @@ const policySchema = z.object({
   workingDays: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),
 });
 
+/** The stored policy's shape, for callers that author one (industry packs). */
+export const bookingPolicyInputSchema = policySchema;
+
 /**
  * The company's policy, or null when it doesn't book by window. Partial policies are
  * filled from the defaults; a malformed one is logged and treated as the default — a

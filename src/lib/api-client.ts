@@ -2097,3 +2097,85 @@ export function createComment(orgId: string, input: CreateCommentInput): Promise
     body: JSON.stringify(input),
   });
 }
+
+// ─── Industry starter packs ──────────────────────────────────────────────────
+
+export interface IndustryPackService {
+  key: string;
+  label: string;
+  /** Singular unit noun — shown as "per <unit>". */
+  unit: string;
+  pricingType: string;
+  category: string;
+  description: string;
+}
+
+export interface IndustryPackSummary {
+  id: string;
+  version: number;
+  name: string;
+  tagline: string;
+  description: string;
+  services: IndustryPackService[];
+  recipes: string[];
+  reviewRequestDelay: string;
+  hasBookingDefaults: boolean;
+}
+
+export interface AppliedIndustryPack {
+  id: string;
+  version: number;
+  appliedAt: string;
+  recipes: string[];
+}
+
+export interface NeedsPriceItem {
+  id: string;
+  label: string;
+  unit: string | null;
+  pricingType: string;
+}
+
+export interface IndustryPackListing {
+  packs: IndustryPackSummary[];
+  applied: AppliedIndustryPack | null;
+  needsPrices: NeedsPriceItem[];
+}
+
+export interface ApplyIndustryPackInput {
+  companyId: string;
+  packId: string;
+  services?: boolean;
+  recipes?: "all" | "none" | string[];
+  bookingPolicy?: boolean;
+}
+
+export interface ApplyIndustryPackReport {
+  pack: { id: string; version: number; name: string };
+  services: { created: Array<{ id: string; label: string }>; skipped: Array<{ label: string; reason: string }> };
+  needsPrices: NeedsPriceItem[];
+  recipes: {
+    installed: Array<{ slug: string; workflowId: string; status: "active" | "draft"; disabledReason: string | null }>;
+    updated: Array<{ slug: string; workflowId: string }>;
+    unchanged: string[];
+    skippedOwnerEdited: Array<{ slug: string; workflowId: string }>;
+  };
+  bookingPolicy: "applied" | "kept_existing" | "not_requested" | "not_in_pack";
+  applied: AppliedIndustryPack;
+}
+
+export function fetchIndustryPacks(orgId: string, companyId?: string | null): Promise<IndustryPackListing> {
+  const qs = companyId ? `?companyId=${encodeURIComponent(companyId)}` : "";
+  return apiFetch(`/api/organizations/${orgId}/industry-packs${qs}`);
+}
+
+export function applyIndustryPack(orgId: string, input: ApplyIndustryPackInput): Promise<ApplyIndustryPackReport> {
+  return apiFetch(`/api/organizations/${orgId}/industry-packs/apply`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function saveCatalogPrices(
+  orgId: string,
+  input: { companyId: string; items: Array<{ id: string; rateCents: number }> },
+): Promise<{ updated: number }> {
+  return apiFetch(`/api/organizations/${orgId}/industry-packs/prices`, { method: "PATCH", body: JSON.stringify(input) });
+}

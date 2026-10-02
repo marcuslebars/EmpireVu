@@ -34,6 +34,8 @@ import {
   type CatalogItemInput,
   type CreatedIntakeKey,
 } from "@/lib/api-client";
+import { IndustryPackPicker } from "@/components/onboarding/IndustryPackPicker";
+import { useIndustryPacks, usePackRecipes } from "@/lib/industry-pack-hooks";
 
 const STEPS = [
   { key: "business", title: "Business", icon: Building2 },
@@ -149,6 +151,8 @@ function BusinessStep({ orgId, companyId, onDone }: StepProps) {
 // ── Step 2: Services ────────────────────────────────────────────────────────
 function ServicesStep({ orgId, companyId, onDone }: StepProps) {
   const saveItems = useSaveCatalogItems(orgId);
+  const { data: packs } = useIndustryPacks(orgId, companyId);
+  const packApplied = Boolean(packs?.applied);
   const [url, setUrl] = useState("");
   const [parsing, setParsing] = useState(false);
   const [rows, setRows] = useState<CatalogItemInput[]>([]);
@@ -180,6 +184,8 @@ function ServicesStep({ orgId, companyId, onDone }: StepProps) {
 
   const save = async () => {
     const items = rows.filter((r) => r.label.trim());
+    // A pack already added the services (owner prices them in the pack card) — nothing more to save.
+    if (companyId && items.length === 0 && packApplied) return onDone();
     if (!companyId || items.length === 0) return;
     try {
       await saveItems.mutateAsync({ companyId, items });
@@ -192,7 +198,8 @@ function ServicesStep({ orgId, companyId, onDone }: StepProps) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">Paste your website URL and we'll draft your service list — you edit and confirm before anything is saved. Prices stay blank unless your site states them.</p>
+      <IndustryPackPicker orgId={orgId} companyId={companyId} />
+      <p className="text-sm text-muted-foreground">{packApplied ? "Anything else? " : ""}Paste your website URL and we'll draft your service list — you edit and confirm before anything is saved. Prices stay blank unless your site states them.</p>
       <div className="flex gap-2 max-w-xl">
         <input className={input} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://yourbusiness.com/services" />
         <button className={primaryBtn} disabled={!url.trim() || parsing} onClick={() => void parse()}>
@@ -219,8 +226,9 @@ function ServicesStep({ orgId, companyId, onDone }: StepProps) {
       <div className="flex items-center gap-2">
         <button onClick={addBlank} className="text-xs font-medium text-primary hover:opacity-80">+ Add service manually</button>
       </div>
-      <button className={primaryBtn} disabled={!companyId || rows.filter((r) => r.label.trim()).length === 0 || saveItems.isPending} onClick={() => void save()}>
-        {saveItems.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Save {rows.filter((r) => r.label.trim()).length} services
+      <button className={primaryBtn} disabled={!companyId || (rows.filter((r) => r.label.trim()).length === 0 && !packApplied) || saveItems.isPending} onClick={() => void save()}>
+        {saveItems.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}{" "}
+        {rows.filter((r) => r.label.trim()).length === 0 && packApplied ? "Continue" : `Save ${rows.filter((r) => r.label.trim()).length} services`}
       </button>
     </div>
   );
@@ -449,18 +457,23 @@ function TeamStep({ orgId, onDone }: StepProps) {
 function RecipesStep({ orgId, companyId, onDone }: StepProps) {
   const { data: recipes } = useRecipeCatalog(orgId, companyId);
   const install = useInstallRecipes(orgId);
+  const { pack, applyRecipes, isPending: packPending } = usePackRecipes(orgId, companyId);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (recipes) setSelected(new Set(recipes.filter((r) => r.defaultStatus === "active" && !r.installed).map((r) => r.slug)));
-  }, [recipes]);
+    // With an industry pack, preselect the pack's automations; otherwise the default-on ones.
+    if (recipes) setSelected(new Set(recipes.filter((r) => !r.installed && (pack ? pack.recipes.includes(r.slug) : r.defaultStatus === "active")).map((r) => r.slug)));
+  }, [recipes, pack]);
 
   const toggle = (slug: string) => setSelected((s) => { const n = new Set(s); if (n.has(slug)) n.delete(slug); else n.add(slug); return n; });
 
   const go = async () => {
     if (!companyId) return;
     try {
-      const only = [...selected];
+      // Pack automations (chosen, or already installed) get the trade's wording; owner-edited ones are left alone.
+      const packSlugs = pack ? pack.recipes.filter((s) => selected.has(s) || recipes?.some((r) => r.slug === s && r.installed)) : [];
+      if (packSlugs.length > 0) await applyRecipes(packSlugs);
+      const only = [...selected].filter((s) => !packSlugs.includes(s));
       if (only.length > 0) await install.mutateAsync({ companyId, only });
       toast.success("Automations turned on");
       onDone();
@@ -472,19 +485,20 @@ function RecipesStep({ orgId, companyId, onDone }: StepProps) {
   return (
     <div className="space-y-4 max-w-xl">
       <p className="text-sm text-muted-foreground">Turn on proven automations. These run in the background — reply to missed calls, follow up on quotes, remind about bookings.</p>
+      {pack && <p className="text-xs text-primary">Messages are written for your {pack.name} pack.</p>}
       <div className="space-y-2">
         {(recipes ?? []).map((r) => (
           <label key={r.slug} className="flex items-start gap-3 bg-card border border-border rounded-lg p-3 cursor-pointer">
             <input type="checkbox" className="mt-1" checked={r.installed || selected.has(r.slug)} disabled={r.installed} onChange={() => toggle(r.slug)} />
             <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">{r.name} {r.installed && <span className="text-[10px] text-emerald-400">· installed</span>}</p>
+              <p className="text-sm font-medium text-foreground">{r.name} {r.installed && <span className="text-[10px] text-emerald-400">· installed</span>}{pack?.recipes.includes(r.slug) && <span className="text-[10px] text-primary"> · {pack.name}</span>}</p>
               <p className="text-xs text-muted-foreground">{r.description}</p>
             </div>
           </label>
         ))}
       </div>
-      <button className={primaryBtn} disabled={!companyId || install.isPending} onClick={() => void go()}>
-        {install.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Finish setup
+      <button className={primaryBtn} disabled={!companyId || install.isPending || packPending} onClick={() => void go()}>
+        {install.isPending || packPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Finish setup
       </button>
     </div>
   );

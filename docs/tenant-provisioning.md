@@ -4,6 +4,8 @@ A brand-new tenant can receive **web leads** and **Marina calls** with **no env 
 
 ## New tenant — onboarding checklist
 
+> Installing a trades client (CrankLeads)? Start from an **industry pack** — see the 30-minute checklist in [industry-packs.md](industry-packs.md). The steps below cover the lower-level wiring.
+
 1. **Web leads:** Settings → **Integrations** → *Create key* (optionally pin a company). Copy the full key **once** (only its hash is stored). Put it in the tenant site's **server** env and post leads with:
    ```
    POST https://app.empirevu.com/api/intake
