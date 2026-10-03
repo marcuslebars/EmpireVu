@@ -10,6 +10,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { ApiError } from "@m/lib/api";
+import { brand } from "@m/lib/brand";
 import { App } from "@m/App";
 
 const queryClient = new QueryClient({
@@ -23,6 +24,9 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// The product name comes from the brand config (mobile/src/lib/brand.ts), not index.html.
+document.title = brand.name;
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

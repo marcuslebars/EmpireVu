@@ -9,6 +9,7 @@ import { useNav } from "@m/state/nav";
 import { useScope } from "@m/state/scope";
 import { Screen } from "@m/ui/Screen";
 import { Btn, Empty, ErrorBanner, Pills, Skeletons, Tag } from "@m/ui/kit";
+import { brand } from "@m/lib/brand";
 
 type Filter = "All" | "Needs review" | "Drafts";
 
@@ -31,7 +32,7 @@ export function Quotes() {
   return (
     <Screen title="Quotes" onRefresh={() => query.refetch()} trailing={<Btn size="sm" icon={Plus} onClick={() => nav.push({ name: "quote" })} style={{ marginRight: 4 }}>New</Btn>}>
       {disabled ? (
-        <Empty icon={FileText} title="Quotes aren't on for this organization" body="Stripe-native quotes are enabled per organization. Ask EmpireVu support to turn them on." />
+        <Empty icon={FileText} title="Quotes aren't on for this organization" body={`Stripe-native quotes are enabled per organization. Ask ${brand.name} support (${brand.supportEmail}) to turn them on.`} />
       ) : (
         <>
           <div className="grid2" style={{ gap: 9 }}>

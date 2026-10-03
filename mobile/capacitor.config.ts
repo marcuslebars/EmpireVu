@@ -6,6 +6,10 @@ const BACKGROUND = "#0c0e12";
 const config: CapacitorConfig = {
   // Reverse-DNS bundle id. It is permanent once published to either store.
   appId: "com.empirevu.app",
+  // Native display name is used by `cap add` only; the shipped names live in
+  // android/.../values/strings.xml and ios/App/App/Info.plist and change together with
+  // the store listing (manual — see docs/branding.md). Not routed through src/lib/brand.ts
+  // because this file runs in Node, outside Vite.
   appName: "EmpireVu",
   webDir: "dist",
   backgroundColor: BACKGROUND,

@@ -7,6 +7,7 @@
  * SMS rule (Amendment 4): hard cap 320 chars, and the deep link is ALWAYS intact — we
  * truncate the content, never the link.
  */
+import { getPlatformBrand, type PlatformBrand } from "@/server/platform-brand";
 import { esc, money } from "@/server/services/quotes/emails";
 
 export interface DigestCallStats {
@@ -158,6 +159,8 @@ export interface DigestEmailOptions {
   deepLink: string;
   primaryColor?: string | null;
   fromName?: string | null;
+  /** Platform brand for the footer (owner-facing). Defaults to getPlatformBrand(). */
+  platform?: Pick<PlatformBrand, "name" | "supportEmail">;
 }
 
 const DEFAULT_PRIMARY = "#1f2937";
@@ -172,6 +175,9 @@ function statRow(label: string, value: string, muted = false): string {
 export function renderDigestEmail(data: DigestData, options: DigestEmailOptions): { subject: string; html: string; text: string } {
   const primary = options.primaryColor || DEFAULT_PRIMARY;
   const quiet = !digestHasActivity(data);
+  const platform = options.platform ?? getPlatformBrand();
+  // The digest is OWNER-facing, so it signs off as the platform the owner bought.
+  const footerText = `Sent by ${platform.name} · ${platform.supportEmail}`;
 
   const rows = [
     statRow("Calls", `${data.calls.total}${data.calls.needsCallback > 0 ? ` (${data.calls.needsCallback} need a callback)` : ""}`),
@@ -222,6 +228,7 @@ ${button}`;
 <tr><td style="height:4px;background:${esc(primary)};font-size:0;line-height:0">&nbsp;</td></tr>
 <tr><td style="padding:24px 24px 8px"><div style="font-size:13px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#6b7280">Daily digest · ${esc(data.localDate)}</div></td></tr>
 <tr><td style="padding:0 24px 24px;font-size:16px;line-height:1.6">${bodyHtml}</td></tr>
+<tr><td style="padding:12px 24px 20px;border-top:1px solid #f3f4f6;font-size:12px;color:#9ca3af">${esc(footerText)}</td></tr>
 </table>
 </td></tr></table>
 </body></html>`;
@@ -265,6 +272,6 @@ ${button}`;
       ? `${data.companyName}: quiet night`
       : `${data.companyName}: your morning digest`,
     html,
-    text: textLines.join("\n"),
+    text: [...textLines, "", footerText].join("\n"),
   };
 }

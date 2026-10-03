@@ -39,6 +39,7 @@ import { Loader2, AlertTriangle, Bug, ChevronDown, ChevronRight } from "lucide-r
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { platformBrand } from "@/lib/platform-brand";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,7 +50,7 @@ const queryClient = new QueryClient({
   },
 });
 
-function LoadingScreen({ message = "Loading EmpireVu..." }: { message?: string }) {
+function LoadingScreen({ message = `Loading ${platformBrand.name}...` }: { message?: string }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4">
       <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -181,7 +182,7 @@ function ImpossibleStateFallback({ phase }: { phase: string }) {
               <AlertTriangle className="w-6 h-6 text-destructive" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-foreground mb-1">EmpireVu failed to load</h1>
+              <h1 className="text-xl font-semibold text-foreground mb-1">{platformBrand.name} failed to load</h1>
               <p className="text-sm text-muted-foreground">
                 An unexpected bootstrap state was reached: {phase}
               </p>
@@ -437,7 +438,7 @@ function AppBootstrap() {
                   <AlertTriangle className="w-6 h-6 text-destructive" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-semibold text-foreground mb-1">EmpireVu failed to load</h1>
+                  <h1 className="text-xl font-semibold text-foreground mb-1">{platformBrand.name} failed to load</h1>
                   <p className="text-sm text-muted-foreground">
                     An error occurred during bootstrap. Try reloading.
                   </p>
