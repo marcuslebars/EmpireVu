@@ -209,6 +209,25 @@ describe("text-back sends from the company's own Twilio number", () => {
     });
   });
 
+  it("smsFrom 'platform' (CrankLeads setup reminders to the owner) never uses the company's number", async () => {
+    sendSms.mockClear();
+    const context = ctxWith([
+      { organization_id: "org-1", company_id: "co-1", provider: "twilio", active: true, phone_e164: "+17055550100", mode: "missed_call_catcher" },
+    ]);
+    const result = await deliverMessage({
+      context,
+      channel: "sms",
+      to: "+17055550101",
+      body: "CrankLeads: 1 step left",
+      companyId: "co-1",
+      contactId: null,
+      consentContact: null,
+      smsFrom: "platform",
+    });
+    expect(result.status).toBe("sent");
+    expect(sendSms).toHaveBeenCalledWith({ to: "+17055550101", body: "CrankLeads: 1 step left" });
+  });
+
   it("an opted-out caller is never texted back", async () => {
     sendSms.mockClear();
     const result = await deliverMessage({

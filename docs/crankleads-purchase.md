@@ -80,7 +80,7 @@ What provisioning does (`src/server/services/crankleads/provision.ts`), in order
    fails provisioning — it's recorded (`welcome_email_error`) and flagged in the operator note.
 
 **Set-password link.** The admin `generateLink({type: "recovery"})` hashed token is sent as
-`/update-password?token_hash=…&type=recovery&next=/onboarding`; the page verifies it with
+`/update-password?token_hash=…&type=recovery&next=/onboarding?step=resume`; the page verifies it with
 `verifyOtp` (the SPA's Supabase client uses PKCE, so the raw `action_link` — an implicit-flow
 redirect — would be rejected). The link is one-time and expires with the project's email OTP
 expiry (Supabase default 1 hour — raise it to 24 h in Auth settings if you like); the buyer can
@@ -302,6 +302,129 @@ account.
 icon (`public/brand/crankleads-logo.svg`, `public/brand/crankleads-favicon.svg` — copies of the
 crankleads.com artwork). The icon/title swap is undone when the buyer leaves the page, so the
 app they log into stays EmpireVu.
+
+## Setup follow-ups (automatic chasing until the buyer is live)
+
+A buyer who pays and never finishes setup is chased automatically — nobody has to do it by
+hand. Code: `src/server/services/crankleads/setup-checklist.ts` (checklist),
+`followup-schedule.ts` (pure timing), `followup-messages.ts` (pure templates),
+`setup-followups.ts` (the pass). Tests: `src/test/crankleads-setup-followups.test.ts`.
+
+### The setup checklist (one function, reused everywhere)
+
+```ts
+// pure core
+computeSetupChecklist({ organizationId, companyId, tier, facts, appBaseUrl }): SetupChecklist
+// loader (RLS client or the worker's service-role client; every query filtered by org + company)
+loadSetupChecklist(ctx: TenantServiceContext, { companyId?, tier?, appBaseUrl? }): Promise<SetupChecklist | null>
+loadSetupFacts(ctx, companyId): Promise<SetupFacts>
+// SetupChecklist = { organizationId, companyId, tier, phonePath, steps[], doneCount, totalCount, isLive, nextStep }
+// step = { key, title, action, done, wizardStep, path: "/onboarding?step=…&org=…", deepLink }
+```
+
+Required steps per tier, in wizard order (judged from **real state**, never from the wizard's
+"Skip / mark done" buttons):
+
+| Step | Done when | catch | close | front_desk (AI) | front_desk (catcher chosen) |
+|---|---|---|---|---|---|
+| `services` — Add your prices | ≥ 1 catalog item has a price | ✓ | ✓ | ✓ | ✓ |
+| `phone` — missed-call / AI number | an active `missed_call_catcher` (or, AI path, `ai_receptionist`) `voice_numbers` row | ✓ | ✓ | ✓ | ✓ |
+| `forwarding` — Turn on call forwarding | the active catcher number's **`voice_numbers.forwarding_verified_at` is not null** (set by feat/forwarding-verify when a forwarded call actually arrives) | ✓ | ✓ | – | ✓ |
+| `test_call` — Make a test call | a `retell_calls` row for the company | – | – | ✓ | – |
+| `payments` — Connect payments | `companies.stripe_charges_enabled` | – | ✓ | ✓ | ✓ |
+| `website` — Add your website form | an active `public_form_keys` (or `intake_keys`) row has `last_used_at` (a test or real lead came through) | ✓ | ✓ | ✓ | ✓ |
+| `automations` — missed-call text-back | an **active** `missed-call-text-back` workflow | ✓ | ✓ | – | ✓ |
+
+Why: Catch sells the missed-call text-back (no money moves); Close and Front Desk starter packs
+include the quote/deposit automations, which need Stripe Connect. Team invites are never
+required. A Front Desk buyer with no number yet is assumed to be on the AI path; if they pick
+the catcher instead (catcher number, no AI number) they get the catcher steps.
+
+`isLive` = every required step done. **`crankleads_purchases.live_at`** is stamped (once, never
+cleared) by the follow-up pass the first time the checklist reports live — the purchase row is
+the per-buyer record of the sale, next to `paid_at` / `provisioned_at`.
+
+### Schedule
+
+Runs inside the **existing workflow-event worker** (`runScheduler`, throttled to every 5 min) —
+no new Railway service. For each `provisioned` purchase that isn't live (≤ 90 days old):
+
+| Stage | When (company timezone, `companies.timezone`) | Channels |
+|---|---|---|
+| `day1` | 1st business day after provisioning | email + SMS to the owner |
+| `day3` | 3rd business day | email + SMS |
+| `day5` | 5th business day | email + SMS |
+| `day10` | 10th business day | email + SMS **+ operator note to `OWNER_EMAIL`** ("buyer stuck") |
+| `live` | when the checklist first reports live (≤ 3 days after) | one "🎉 You're live" email + SMS |
+
+- Reminders only on **weekdays 09:00–18:00 local** (provisioned Friday → day 1 is Monday);
+  the live confirmation any day 08:00–21:00 local (it answers the owner's own action).
+- Several stages due at once (worker was down) → only the **latest** is sent.
+- **At most one reminder per purchase per local day**; each stage at most once.
+- **Idempotent**: `crankleads_setup_followups` has `unique (purchase_id, stage)` and a partial
+  unique `(purchase_id, local_date)` for reminders; the row is inserted (claimed) **before**
+  sending, so retries / two workers / double runs can't double-send. A failed send is recorded
+  (`email_status` / `sms_status`) and not retried.
+- **Stops** immediately when live, when `organizations.subscription_status = 'canceled'`, when
+  the owner clicks the email's "stop these reminders" link, and after day 10 / 30 days.
+
+### Messages
+
+CrankLeads-branded (sender name `CrankLeads`), short and specific — every reminder names the
+unfinished steps and links straight to the next one, e.g. SMS:
+
+> CrankLeads: Hi Jane, 2 steps left to get Jane's Roofing live: set call forwarding (dial
+> \*\*004\*+17055550000# from your business phone) and add your website form and send a test
+> lead. https://app…/onboarding?step=phone&org=…
+> Reply STOP to stop these texts.
+
+- **Deep link** `APP_BASE_URL/onboarding?step=<wizard step>&org=<orgId>`: the wizard opens on
+  that step for that org (also for accounts that already have an org). Signed out → sign-in,
+  then straight back to the step.
+- **Owner never signed in** (new user, no `last_sign_in_at`): the email also carries a fresh
+  one-time set-password link (`createSetPasswordUrl(admin, email, next)` — same token_hash
+  approach as the welcome email) whose `next` is the step. SMS never carries a login token.
+- Owner address: `companies.owner_email` / `owner_phone_e164` (`resolveOwnerContacts`), falling
+  back to the purchase's email / phone. Sent through `deliverMessage` (message_log + usage
+  metering); SMS goes **from `TWILIO_FROM_NUMBER`** (`smsFrom: "platform"`), so a STOP reply
+  only stops platform texts — never the company's own catcher number's lead alerts.
+- Opt-out: SMS "Reply STOP" (Twilio carrier-level opt-out); email footer link
+  `/api/public/crankleads/setup-reminders?token=…` (48-hex random token per purchase; GET shows
+  a confirm button, POST sets `setup_reminders_stopped_at`). Transactional messages to the
+  account owner — no marketing consent needed (docs/messaging-compliance.md).
+
+### Dashboard card
+
+CrankLeads orgs see **"Setup: 3 of 5 done"** on the dashboard with the steps and a button to the
+next one (`GET /api/organizations/{orgId}/setup-checklist`, normal RLS auth; `data: null` for
+non-CrankLeads orgs). Hidden once live.
+
+### Data
+
+Migration `20261004130000_setup_followups.sql` (rollback
+`supabase/rollback/20261004130000_setup_followups.down.sql`) — apply **after**
+`20261004120000` (feat/forwarding-verify, which adds `voice_numbers.forwarding_verified_at`):
+
+- `crankleads_purchases.live_at`, `setup_reminders_stopped_at`, `setup_reminders_stop_token`
+  (+ unique partial index on the token, partial index on not-live provisioned purchases).
+- `crankleads_setup_followups` — send log / idempotency guard (org + company tenancy, RLS on,
+  members select, writes service-role only).
+
+Handy queries:
+
+```sql
+-- who is stuck
+select business_name, tier, provisioned_at from crankleads_purchases
+ where status = 'provisioned' and live_at is null order by provisioned_at;
+-- what was sent
+select p.business_name, f.stage, f.local_date, f.next_step, f.email_status, f.sms_status, f.operator_status
+  from crankleads_setup_followups f join crankleads_purchases p on p.id = f.purchase_id
+ order by f.created_at desc limit 50;
+```
+
+Env: none new. The **[worker]** needs (existing values) `APP_BASE_URL`, `RESEND_API_KEY`,
+`OUTBOUND_FROM_EMAIL`, `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` and
+`OWNER_EMAIL`.
 
 ## "I didn't get the welcome email"
 

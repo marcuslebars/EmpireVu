@@ -136,7 +136,10 @@ function selectedPackRecipes(pack: ParsedPack, selection: ApplyPackOptions["reci
   return pack.recipes.filter((r) => wanted.has(r.slug));
 }
 
-function needsPrice(item: Tables<"service_catalog_items">): boolean {
+/** A catalog item with no price of any kind yet (pack-created services start this way). */
+export function needsPrice(
+  item: Pick<Tables<"service_catalog_items">, "rate_cents" | "minimum_cents" | "tiers" | "rate_bands">,
+): boolean {
   return item.rate_cents === 0 && item.minimum_cents === 0 && item.tiers == null && item.rate_bands == null;
 }
 

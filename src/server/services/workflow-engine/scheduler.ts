@@ -2,6 +2,7 @@ import type { Json, Tables } from "@/server/db/database.types";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { sendDailyDigests } from "@/server/services/push/digest";
 import { processOwnerDigests } from "@/server/services/owner-digest";
+import { processSetupFollowups, SETUP_FOLLOWUP_INTERVAL_MS } from "@/server/services/crankleads/setup-followups";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { processForwardingRetests } from "@/server/services/twilio/forwarding-test";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
@@ -300,6 +301,9 @@ export async function scanContactStale(admin: Admin, nowMs: number = Date.now())
   return emitted;
 }
 
+/** Last setup follow-up pass in this worker process (the pass itself is idempotent across workers). */
+let lastSetupFollowupRunMs = 0;
+
 /** One scheduler pass — called ~once/minute by the worker. */
 export async function runScheduler(
   admin: Admin,
@@ -327,5 +331,13 @@ export async function runScheduler(
   await processForwardingRetests(admin, nowMs).catch((error) =>
     console.error("[scheduler] forwarding retests failed", error instanceof Error ? error.message : error),
   );
+  // CrankLeads setup follow-ups (reminders + "you're live") — throttled to every 5 min,
+  // idempotent per (purchase, stage) and self-guarded (docs/crankleads-purchase.md).
+  if (nowMs - lastSetupFollowupRunMs >= SETUP_FOLLOWUP_INTERVAL_MS) {
+    lastSetupFollowupRunMs = nowMs;
+    await processSetupFollowups(admin, nowMs).catch((error) =>
+      console.error("[scheduler] setup follow-ups failed", error instanceof Error ? error.message : error),
+    );
+  }
   return { ticksMaterialized, ticksProcessed, entitiesEmitted };
 }

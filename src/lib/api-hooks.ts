@@ -91,6 +91,8 @@ import {
   type InboxRow,
   type ConversationThreadItem,
   fetchOnboardingProgress,
+  fetchSetupChecklist,
+  type SetupChecklist,
   saveOnboardingBusiness,
   upsertOnboardingStep,
   saveCatalogItems,
@@ -948,6 +950,16 @@ export function useOnboardingProgress(orgId: string) {
     queryKey: ["onboarding", orgId],
     queryFn: () => fetchOnboardingProgress(orgId),
     enabled: Boolean(orgId),
+  });
+}
+
+/** CrankLeads setup checklist for the dashboard card (null data → not a CrankLeads org). */
+export function useSetupChecklist(orgId: string) {
+  return useQuery<SetupChecklist | null>({
+    queryKey: ["setup-checklist", orgId],
+    queryFn: () => fetchSetupChecklist(orgId),
+    enabled: Boolean(orgId),
+    staleTime: 60_000,
   });
 }
 

@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { ForwardingTestPanel } from "@/components/onboarding/ForwardingTestPanel";
 import { PhoneModeStep } from "@/components/onboarding/PhoneModeStep";
 import { useOrg } from "@/lib/org-context";
+import { useAuth } from "@/lib/auth-context";
 import { toast } from "@/components/ui/sonner";
 import { relativeTime } from "@/lib/format";
 import {
@@ -542,13 +543,20 @@ function OrgGate({ onCreated }: { onCreated: (id: string) => void }) {
 // ── Wizard shell ──────────────────────────────────────────────────────────────
 export default function OnboardingWizard() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { session } = useAuth();
   const { organizationId, setOrganizationId } = useOrg();
+  // Deep links (`/onboarding?step=phone&org=<orgId>`) from CrankLeads setup reminders, the
+  // forwarding-test SMS and the dashboard setup card: switch to that org (only one the user belongs to) and open the step.
+  const requestedOrg = searchParams.get("org");
+  const requestedStep = searchParams.get("step");
+  useEffect(() => {
+    if (!requestedOrg || requestedOrg === organizationId) return;
+    if ((session?.organizations ?? []).some((o) => o.id === requestedOrg)) setOrganizationId(requestedOrg);
+  }, [requestedOrg, organizationId, session, setOrganizationId]);
   const { data: progress, isLoading } = useOnboardingProgress(organizationId);
   const upsertStep = useUpsertOnboardingStep(organizationId);
   const [active, setActive] = useState<StepKey | null>(null);
-  // Deep link (e.g. the forwarding-test SMS links to /onboarding?step=phone).
-  const [searchParams] = useSearchParams();
-  const requestedStep = searchParams.get("step");
 
   const company = progress?.company ?? null;
   const statusByStep = useMemo(() => {
@@ -565,6 +573,7 @@ export default function OnboardingWizard() {
   // Resume at the server-computed next step (first incomplete), else first incomplete locally.
   useEffect(() => {
     if (active !== null || !progress) return;
+    if (requestedOrg && requestedOrg !== organizationId && (session?.organizations ?? []).some((o) => o.id === requestedOrg)) return;
     const linked = STEPS.find((s) => s.key === requestedStep);
     if (linked) {
       setActive(linked.key);
@@ -573,7 +582,7 @@ export default function OnboardingWizard() {
     const hint = STEPS.find((s) => s.key === progress.nextStep);
     const firstIncomplete = STEPS.find((s) => statusByStep.get(s.key) !== "complete");
     setActive((hint ?? firstIncomplete ?? STEPS[STEPS.length - 1]).key);
-  }, [progress, active, statusByStep, requestedStep]);
+  }, [progress, active, statusByStep, requestedStep, requestedOrg, organizationId, session]);
 
   const allComplete = STEPS.every((s) => statusByStep.get(s.key) === "complete");
 

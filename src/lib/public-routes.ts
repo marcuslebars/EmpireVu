@@ -34,3 +34,32 @@ export function safeNextPath(value: string | null): string | null {
   if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return null;
   return value;
 }
+
+const POST_AUTH_KEY = "empirevu_post_auth_path";
+
+/**
+ * Remember where a signed-out visitor was going (e.g. a setup reminder's
+ * `/onboarding?step=phone&org=…` deep link) so sign-in can land them there instead of the
+ * dashboard. Same-origin paths only; best-effort (sessionStorage may be unavailable).
+ */
+export function rememberPostAuthPath(path: string): void {
+  const safe = safeNextPath(path);
+  if (!safe || typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(POST_AUTH_KEY, safe);
+  } catch {
+    /* storage unavailable — the user just lands on the dashboard */
+  }
+}
+
+/** The remembered path (once — it is cleared), or null. */
+export function takePostAuthPath(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = window.sessionStorage.getItem(POST_AUTH_KEY);
+    window.sessionStorage.removeItem(POST_AUTH_KEY);
+    return safeNextPath(value);
+  } catch {
+    return null;
+  }
+}

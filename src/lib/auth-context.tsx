@@ -10,7 +10,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase, getSupabaseConfigDiagnostic } from "@/lib/supabase";
-import { isPublicPath } from "@/lib/public-routes";
+import { isPublicPath, takePostAuthPath } from "@/lib/public-routes";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
@@ -125,8 +125,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const navigateAfterAuth = useCallback(async (context: SessionContextResponse | null) => {
     if (context && context.organizations.length > 0) {
-      console.log("[AuthContext] User has organizations, navigating to dashboard");
-      navigate("/");
+      // A deep link that sent a signed-out user to sign in (e.g. a setup reminder) wins.
+      const remembered = takePostAuthPath();
+      console.log("[AuthContext] User has organizations, navigating to", remembered ?? "dashboard");
+      navigate(remembered ?? "/");
     } else if (context) {
       console.log("[AuthContext] User has no organizations, navigating to onboarding");
       navigate("/onboarding");
