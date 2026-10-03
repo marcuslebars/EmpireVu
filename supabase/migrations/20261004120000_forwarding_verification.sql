@@ -12,11 +12,16 @@
 --      forwarding_last_test_result — the verification state of a catcher number. THIS COLUMN
 --      CONTRACT IS RELIED ON BY OTHER FEATURES (keep the names). forwarding_verified_at is
 --      set by a passed test or by a real forwarded missed call (passive proof), and cleared
---      (null) by a failed test ('not_forwarded' / 'failed'). 'answered' is inconclusive and
---      leaves it untouched.
+--      (null) ONLY by 'not_forwarded'. 'answered' / 'busy' (inconclusive) and 'failed' (our
+--      side: Twilio refused / no status) leave it untouched. forwarding_last_test_at is
+--      stamped when a test is CREATED (before dialling — cost guard) and again on completion.
 --   2) forwarding_tests — one row per test call (owner-triggered or scheduled). Written by
 --      the service role only (the test API's sanctioned service, the Twilio webhooks and the
 --      worker); org members may read their own (the wizard polls it).
+--   3) Backfill: an active catcher number that already has a missed_calls row is marked
+--      verified (forwarding_verified_at = its latest missed call) — a catcher number is only
+--      ever given to customers via carrier forwarding, so a caught call is proof forwarding
+--      worked. Idempotent (only fills NULLs; re-running changes nothing).
 
 -- 1) voice_numbers verification state
 alter table public.voice_numbers add column if not exists forwarding_verified_at timestamptz;
@@ -26,7 +31,7 @@ alter table public.voice_numbers drop constraint if exists voice_numbers_forward
 alter table public.voice_numbers
   add constraint voice_numbers_forwarding_last_test_result_check
   check (forwarding_last_test_result is null
-         or forwarding_last_test_result in ('passed', 'answered', 'not_forwarded', 'failed'));
+         or forwarding_last_test_result in ('passed', 'answered', 'busy', 'not_forwarded', 'failed'));
 
 -- 2) forwarding_tests
 create table if not exists public.forwarding_tests (
@@ -40,9 +45,11 @@ create table if not exists public.forwarding_tests (
   -- 'calling' while the test call is in flight; then exactly one outcome. 'passed' is
   -- sticky: a forwarded leg that is processed late upgrades any other outcome to passed.
   status text not null default 'calling'
-    check (status in ('calling', 'passed', 'answered', 'not_forwarded', 'failed')),
+    check (status in ('calling', 'passed', 'answered', 'busy', 'not_forwarded', 'failed')),
   -- The test call: FROM caller_id (catcher number or platform verifier) TO business_line;
-  -- carrier forwarding should bring it back to catcher_number.
+  -- carrier forwarding should bring it back to catcher_number. The forwarded leg is matched
+  -- ONLY by From = caller_id (a number we own) + To = catcher_number, never by the business
+  -- line (real forwarded customers carry it).
   caller_id text not null,
   business_line text not null,
   catcher_number text not null,
@@ -74,6 +81,9 @@ create index if not exists forwarding_tests_number_started_idx
   on public.forwarding_tests (voice_number_id, started_at desc);
 create index if not exists forwarding_tests_org_idx
   on public.forwarding_tests (organization_id);
+-- The voice webhook's leg lookup (catcher_number = To, caller_id = From, recent started_at).
+create index if not exists forwarding_tests_leg_lookup_idx
+  on public.forwarding_tests (catcher_number, caller_id, started_at desc);
 
 drop trigger if exists forwarding_tests_set_updated_at on public.forwarding_tests;
 create trigger forwarding_tests_set_updated_at
@@ -89,3 +99,19 @@ drop policy if exists "forwarding_tests_members_select" on public.forwarding_tes
 create policy "forwarding_tests_members_select"
   on public.forwarding_tests for select
   using (public.is_organization_member(organization_id));
+
+-- 3) Backfill passive proof for catcher numbers that have already caught calls.
+update public.voice_numbers vn
+set forwarding_verified_at = caught.latest_at
+from (
+  select organization_id, company_id, to_number, max(created_at) as latest_at
+  from public.missed_calls
+  group by organization_id, company_id, to_number
+) caught
+where vn.provider = 'twilio'
+  and vn.mode = 'missed_call_catcher'
+  and vn.active
+  and vn.forwarding_verified_at is null
+  and caught.organization_id = vn.organization_id
+  and caught.company_id = vn.company_id
+  and caught.to_number = vn.phone_e164;

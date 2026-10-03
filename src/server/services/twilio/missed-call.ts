@@ -18,8 +18,9 @@ import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
 import { toE164 } from "@/server/services/retell/payload";
 import type { TenantServiceContext } from "@/server/services/shared";
 import {
+  FORWARDING_TEST_LEG_KEY,
   isTestCallerId,
-  recordForwardedLegIfTest,
+  recordFlaggedForwardedLeg,
   recordPassiveForwardingProof,
 } from "@/server/services/twilio/forwarding-test";
 import { textBackWindowMinutes, transcriptionEnabled } from "@/server/services/twilio/voice-config";
@@ -306,9 +307,9 @@ export async function textBackAutomationActive(admin: AdminClient, organizationI
 }
 
 export interface HandleMissedCallResult {
-  /** forwarding_test: the forwarded leg of a forwarding test (test marked passed; no lead,
-   *  no text-back). test_caller: a call from our own test caller ID outside any test window
-   *  (never a customer — dropped). */
+  /** forwarding_test: the voice webhook flagged this call as the forwarded leg of a
+   *  forwarding test (test marked passed; no lead, no text-back). test_caller: a call from
+   *  our own test caller ID that wasn't flagged (never a customer — dropped). */
   status: "emitted" | "suppressed" | "anonymous" | "duplicate" | "forwarding_test" | "test_caller";
   contactId: string | null;
   leadId: string | null;
@@ -343,23 +344,22 @@ export async function handleMissedCall(payload: unknown, now: number = Date.now(
   }
 
   // (1b) Forwarding verification (docs/missed-call-catcher.md → Forwarding verification):
-  //      the forwarded leg of OUR test call is not a customer — mark the test passed and stop
-  //      (no missed_calls row, no lead, no text-back). If the lookup itself fails, a call from
-  //      our own test caller ID retries; anything else is handled as a normal missed call
-  //      (never drop a lead because the test table was unreachable).
-  let forwardingTestLeg = false;
-  try {
-    forwardingTestLeg = await recordForwardedLegIfTest(
+  //      the voice webhook ALONE decides whether a call is the forwarded leg of our test call
+  //      (From == the test's caller ID — a number we own — inside the window) and stamps the
+  //      test id into this durable payload. Flagged → mark the test passed and stop (no
+  //      missed_calls row, no lead, no text-back); a failure here retries the job (it is our
+  //      own call — no customer is waiting). NO re-matching: a call without the flag is
+  //      always a normal missed call, whatever its From / ForwardedFrom say.
+  const flaggedTestId = readField(payload, FORWARDING_TEST_LEG_KEY);
+  if (flaggedTestId) {
+    const passed = await recordFlaggedForwardedLeg(
       admin,
       tenant,
-      { callSid: fields.callSid, from: fields.from, to: fields.to, forwardedFrom: fields.forwardedFrom },
+      { testId: flaggedTestId, callSid: fields.callSid, forwardedFrom: fields.forwardedFrom },
       now,
     );
-  } catch (err) {
-    if (isTestCallerId(fields.from, tenant.phoneE164)) throw err;
-    console.error("[missed-call] forwarding-test lookup failed (handling as a missed call):", err instanceof Error ? err.message : err);
+    if (passed) return { status: "forwarding_test", contactId: null, leadId: null };
   }
-  if (forwardingTestLeg) return { status: "forwarding_test", contactId: null, leadId: null };
   if (isTestCallerId(fields.from, tenant.phoneE164)) {
     console.warn(`[missed-call] call ${fields.callSid} is from our own test caller ID outside any test — ignored.`);
     return { status: "test_caller", contactId: null, leadId: null };

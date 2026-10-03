@@ -2308,7 +2308,7 @@ export function provisionMissedCallCatcher(
 }
 
 // ── Forwarding verification (docs/missed-call-catcher.md → Forwarding verification) ──
-export type ForwardingTestStatus = "calling" | "passed" | "answered" | "not_forwarded" | "failed";
+export type ForwardingTestStatus = "calling" | "passed" | "answered" | "busy" | "not_forwarded" | "failed";
 
 export interface ForwardingTestView {
   id: string;

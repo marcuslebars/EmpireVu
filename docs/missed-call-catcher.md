@@ -188,18 +188,23 @@ POST /api/organizations/{orgId}/missed-call-catcher/forwarding-test   processFor
    not one of OUR numbers · one in-flight test per number (partial unique index) ·
    owner tests: 1 per 2 min, 10 per 24 h per company (429)
    1. INSERT forwarding_tests (status='calling')            ← the callbacks find it by id
+      + voice_numbers.forwarding_last_test_at = now         ← BEFORE dialling (cost guard;
+        if this write fails, no call is placed)
    2. Twilio Calls API: To=business line, From=caller ID, Timeout=40 s,
       StatusCallback + AsyncAmdStatusCallback → /api/twilio/voice/forwarding-test?testId=…&event=status|amd,
       Twiml (only if someone/voicemail answers): "This is an automatic test of your missed-call
       forwarding. Please don't answer it next time…"
         │ business line rings ~20–30 s, nobody answers → carrier conditional forwarding
         ▼
-   Catcher number ── POST /api/twilio/voice/inbound (signature-verified, DURABLE job first)
-        • From == test caller ID / business line, or ForwardedFrom == business line,
-          within 3 min of an in-flight test of THIS company → <Response><Hangup/></Response>
-          (no greeting, no voicemail)
-        • worker handleMissedCall: recordForwardedLegIfTest → test PASSED; no missed_calls row,
-          no lead, no call.missed, no text-back
+   Catcher number ── POST /api/twilio/voice/inbound (signature-verified)
+        • From == one of OUR test caller IDs (catcher itself / verifier — a pure check) → look up
+          a test with caller_id == From, catcher_number == To, started ≤ 3 min ago; a match is
+          stamped into the DURABLE job payload (EmpireVuForwardingTestId) → persist → <Hangup/>
+        • anything else (every customer, the owner calling back, ForwardedFrom == business line)
+          → persisted unflagged → greeting + voicemail
+        • worker handleMissedCall: flagged → recordFlaggedForwardedLeg → test PASSED; no
+          missed_calls row, no lead, no call.missed, no text-back. Unflagged → ALWAYS a normal
+          missed call (the worker never re-matches)
    Final call status / AMD → /api/twilio/voice/forwarding-test (signature-verified, DURABLE:
         inbound_webhook_jobs provider='twilio_forwarding_test') → worker records it and, if the
         test is still in flight, schedules a finalize job 45 s later (a forwarded leg may still
@@ -219,40 +224,65 @@ The test call's caller ID is **`TWILIO_FORWARDING_TEST_FROM` when set** (a dedic
   number calls itself via the carrier). We know of no carrier or Twilio rule that blocks that,
   but some PBX/VoIP forwarding loops treat "caller = forward target" as a loop.
 - A dedicated verifier avoids that edge, is never a customer, and makes the forwarded leg
-  unambiguous. **Recommended for production**: buy one number, set `TWILIO_FORWARDING_TEST_FROM`
-  on **web + worker**, and point its Voice URL at a TwiML Bin that just says "This number is used
-  for automatic forwarding checks" (owners sometimes call back a missed call). Never use a catcher
-  number or `TWILIO_FROM_NUMBER` for it.
+  unambiguous. **Recommended for production** (the catcher-number fallback stays for zero-setup
+  deploys): buy one number, set `TWILIO_FORWARDING_TEST_FROM` on **web + worker**, and point its
+  Voice URL at a TwiML Bin that just says "This number is used for automatic forwarding checks"
+  (owners sometimes call back a missed call). Never use a catcher number or `TWILIO_FROM_NUMBER`
+  for it.
 
-Detection does not depend on the carrier keeping the caller ID: a forwarded leg matches when
-`From` is the caller ID **or** the business line (carriers that rewrite caller ID to the
-forwarding line), **or** `ForwardedFrom` is the business line — and only within the test window
-and only against that company's own tests (the tenant is already resolved from the CALLED
-number). A real customer calling during a test has none of those fingerprints and gets the
-normal greeting + text-back.
+**Detection — one rule only.** A call on a catcher number is a test's forwarded leg **only if
+`From` equals the test's `caller_id`** (a number WE own — never a customer) **and it reaches that
+test's catcher number within 3 minutes of the test starting**. The voice webhook makes that
+decision once and records it in the durable job payload (`EmpireVuForwardingTestId`; any incoming
+copy of the key is stripped); the worker trusts the flag and never re-matches, so a call without
+the flag is **always** a normal missed call (lead + text-back). A flagged job processed late
+(queue backlog) still upgrades the test to `passed` — the only way a late pass can happen.
+
+The business line and `ForwardedFrom` are deliberately **not** fingerprints: every genuine
+forwarded customer call carries `ForwardedFrom == business line`, and the owner calling the
+catcher back from their own phone has `From == business line` — matching on those swallowed real
+leads (no lead, no text-back) and let an owner call-back "pass" a broken setup.
+
+**Trade-off:** a carrier that rewrites the caller ID of a forwarded call to the business line
+makes the test report `not_forwarded` even though forwarding works (the leg is then handled as a
+normal missed call from the business line). The owner can still prove it: any real forwarded
+missed call sets `forwarding_verified_at` (passive proof, below), or they can call the business
+line from another phone, let it ring out, and watch the call arrive in the app. Ops: if a carrier
+does this, check the call log in the Twilio console.
 
 Self-call guard: a call to a catcher number **from** the catcher number or the verifier is never
-treated as a customer (no lead, no text-back) — even outside any test window.
+treated as a customer (no lead, no text-back; hang-up TwiML) — even outside any test window.
+For such calls only, the webhook does one bounded `forwarding_tests` read **before** the durable
+write (a failure just leaves the flag off; the payload is still persisted). Customer calls do no
+I/O before the durable write.
 
 ### Outcomes
 
 | Outcome | When | `voice_numbers` |
 |---|---|---|
 | `passed` | the forwarded leg reached the catcher number (whatever the outbound leg reports — when forwarding works the outbound call is "answered" by our own catcher). Sticky: a late leg upgrades any other outcome. | `forwarding_verified_at = now` |
-| `not_forwarded` | outbound `busy` / `no-answer`, or `completed` answered by a **machine** (AMD: the carrier's voicemail picked up before forwarding — the most common misconfiguration) | `forwarding_verified_at = null` |
+| `not_forwarded` | outbound `no-answer`, or `completed` answered by a **machine** (AMD: the carrier's voicemail picked up before forwarding — the most common misconfiguration) | `forwarding_verified_at = null` (the ONLY outcome that clears it) |
 | `answered` | outbound `completed`, answered by a person (or AMD unknown) — inconclusive | unchanged |
-| `failed` | Twilio refused / `failed` / `canceled`, or no final status within 5 min (stale sweep) | `forwarding_verified_at = null` |
+| `busy` | outbound `busy` — the line was in use or rejected the call; inconclusive (many carriers only forward on busy with a separate code) | unchanged |
+| `failed` | **our side**: Twilio refused / `failed` / `canceled`, or no final status within 5 min (stale sweep). Says nothing about the customer's forwarding — ops treats it as an infrastructure problem. | unchanged |
 
-Every outcome sets `forwarding_last_test_at` and `forwarding_last_test_result`.
+Every outcome sets `forwarding_last_test_at` and `forwarding_last_test_result`;
+`forwarding_last_test_at` is also stamped when the test is created, before the call is placed.
 **Column contract (relied on by other features — don't rename):**
 `voice_numbers.forwarding_verified_at timestamptz`, `voice_numbers.forwarding_last_test_at
-timestamptz`, `voice_numbers.forwarding_last_test_result text` (`passed | answered |
+timestamptz`, `voice_numbers.forwarding_last_test_result text` (`passed | answered | busy |
 not_forwarded | failed`).
 
 **Passive proof:** a real customer call that the carrier forwarded **from the business line**
 (`ForwardedFrom` present and equal to the business line, when we know it) also sets
 `forwarding_verified_at`. A call dialled straight to the catcher number (e.g. a customer calling
-back the text-back number) has no `ForwardedFrom` and proves nothing.
+back the text-back number) has no `ForwardedFrom` and proves nothing. Passive proof only ever
+SETS verification; it never marks a test passed and never suppresses the lead / text-back.
+
+**Deploy backfill:** the migration marks every active catcher number that already has a
+`missed_calls` row as verified (`forwarding_verified_at` = its latest missed call) — a catcher
+number is only given to customers through forwarding, so a caught call is proof it worked. Only
+NULLs are filled (idempotent).
 
 ### Telling the owner
 
@@ -265,12 +295,13 @@ company's catcher number; email when there's no owner mobile), claimed once per 
   {line} rang out / went to voicemail instead of forwarding. From that phone dial **004*{catcher}#
   and press Call. Test again: {APP_BASE_URL}/onboarding?step=phone"
 - answered — "…was answered, so we couldn't check forwarding… Let it ring next time. Test again: …"
+- busy — "…got a busy signal, so we couldn't check forwarding… Try again when the line is free…"
 - failed — "We couldn't complete the forwarding test call to {line}… Check your business number in the app…"
 
 Owner-triggered tests always notify. Scheduled retests notify only when a number becomes live
 (passed, wasn't verified) and on every `not_forwarded` (broken after working, or the daily
-nudge for a new number — capped by the schedule); scheduled `answered` / `failed` stay quiet
-(visible in the app). The wizard polls `GET …/forwarding-test?companyId=` every 3 s while a test
+nudge for a new number — capped by the schedule); scheduled `answered` / `busy` / `failed` stay
+quiet — never a "not working" SMS (visible in the app). The wizard polls `GET …/forwarding-test?companyId=` every 3 s while a test
 is calling. `/onboarding?step=phone` deep-links to the Phone step.
 
 **Onboarding:** the Phone step already completes when the catcher number is provisioned. A pass
@@ -302,6 +333,13 @@ line customers call, set the business phone in Settings → Company.
 - only **Mon–Fri 10:00–16:00 in the company's timezone** (`companies.timezone` →
   `BUSINESS_TIMEZONE` → America/Toronto), each number at its own stable minute in that window
   (spreads the calls), max 10 test calls per pass; the hard 08:00–21:00 guard applies too;
+- **cost guard:** at most **2 scheduled tests per number per rolling 24 h**, counted from
+  `forwarding_tests` rows (independent of the `voice_numbers` columns, so a failing completion
+  update can't make the scheduler re-call every pass), and `forwarding_last_test_at` is stamped
+  before each call;
+- skips orgs whose `organizations.subscription_status` is `canceled`, and orgs that never
+  subscribed (`none`) unless `plan = 'internal'` (house tenants); `trialing` / `active` /
+  `past_due` keep their retests;
 - needs `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN` and `APP_BASE_URL` (or `TWILIO_WEBHOOK_BASE_URL`)
   on the **worker** — without them the pass does nothing.
 
@@ -312,14 +350,18 @@ Migration `supabase/migrations/20261004120000_forwarding_verification.sql` (roll
 `voice_numbers.forwarding_*` columns above, and `forwarding_tests` (org + company scoped,
 composite company FK, RLS on, members **select**; writes are service-role only — a test places a
 billed call, so it is only created through the rate-limited server path). One in-flight test per
-number: unique partial index on `(voice_number_id) where status = 'calling'`.
+number: unique partial index on `(voice_number_id) where status = 'calling'`. The webhook's leg
+lookup uses `(catcher_number, caller_id, started_at desc)`. The migration also backfills
+`forwarding_verified_at` from existing `missed_calls` (above).
 
 ### Not verified against live Twilio (check on first deploy)
 
 - Carrier behaviour for a call whose caller ID equals the forward target (catcher-number caller
   ID) — use `TWILIO_FORWARDING_TEST_FROM` if tests come back `not_forwarded` while a manual test
   from another phone works.
-- That `ForwardedFrom` is populated by Canadian carriers (detection doesn't need it; passive proof does).
+- That `ForwardedFrom` is populated by Canadian carriers (detection doesn't use it; passive proof does).
+- Which carriers keep the original caller ID on a conditional forward (detection needs it — see
+  the trade-off above).
 - Async AMD accuracy on carrier voicemail greetings (an `unknown` result is reported as `answered`).
 
 ## Twilio console steps (once per deployment)

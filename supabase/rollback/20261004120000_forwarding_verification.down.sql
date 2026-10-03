@@ -5,6 +5,8 @@
 -- voice_numbers.forwarding_verified_at / forwarding_last_test_result must be rolled back
 -- first. Any queued inbound_webhook_jobs with provider='twilio_forwarding_test' will
 -- dead-letter after the code is rolled back (unknown provider) — harmless.
+-- The migration's backfill of forwarding_verified_at (from existing missed_calls) needs no
+-- separate undo: dropping the column below removes it.
 
 drop table if exists public.forwarding_tests;
 

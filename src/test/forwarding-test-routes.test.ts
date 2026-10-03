@@ -44,7 +44,7 @@ vi.mock("@/server/services/twilio/forwarding-test", async (importOriginal) => {
 import { GET as orgGet, POST as orgPost } from "@/app/api/organizations/[organizationId]/missed-call-catcher/forwarding-test/route";
 import { POST as callback } from "@/app/api/twilio/voice/forwarding-test/route";
 import { POST as voiceInbound } from "@/app/api/twilio/voice/inbound/route";
-import { ForwardingTestRateLimited } from "@/server/services/twilio/forwarding-test";
+import { FORWARDING_TEST_LEG_KEY, ForwardingTestRateLimited } from "@/server/services/twilio/forwarding-test";
 
 const AUTH_TOKEN = "test-auth-token";
 const BASE = "https://app.crankleads.test";
@@ -150,7 +150,7 @@ describe("POST /api/twilio/voice/inbound — the forwarded test leg", () => {
   const leg = (over: Record<string, string> = {}) => ({ CallSid: "CAleg1", From: CATCHER, To: CATCHER, CallStatus: "ringing", ...over });
   const hangup = '<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>';
 
-  it("persists first, then hangs up (no greeting / voicemail) when it matches an in-flight test", async () => {
+  const inFlight = (over: Record<string, unknown> = {}) =>
     db().tables.forwarding_tests.push({
       id: TEST_ID,
       organization_id: ORG,
@@ -160,20 +160,56 @@ describe("POST /api/twilio/voice/inbound — the forwarded test leg", () => {
       caller_id: CATCHER,
       business_line: BUSINESS,
       catcher_number: CATCHER,
+      ...over,
     });
-    const res = await voiceInbound(twilioRequest("/api/twilio/voice/inbound", leg({ From: BUSINESS })));
+
+  it("a leg From == the test's caller ID: persisted WITH the test id flag, then a bare hang-up", async () => {
+    inFlight();
+    const res = await voiceInbound(twilioRequest("/api/twilio/voice/inbound", leg()));
     expect(res.status).toBe(200);
     expect(await res.text()).toBe(hangup);
-    expect(db().ops[0]).toMatchObject({ table: "inbound_webhook_jobs", op: "upsert" });
-    expect(db().tables.inbound_webhook_jobs[0]).toMatchObject({ provider: "twilio_voice", external_id: "CAleg1" });
+    expect(db().tables.inbound_webhook_jobs[0]).toMatchObject({
+      provider: "twilio_voice",
+      external_id: "CAleg1",
+      payload: { ...leg(), [FORWARDING_TEST_LEG_KEY]: TEST_ID },
+    });
   });
 
-  it("a call from our own test caller ID always hangs up", async () => {
+  it("the platform verifier as caller ID is matched the same way", async () => {
+    process.env.TWILIO_FORWARDING_TEST_FROM = "+14165550111";
+    inFlight({ caller_id: "+14165550111" });
+    const res = await voiceInbound(twilioRequest("/api/twilio/voice/inbound", leg({ From: "+14165550111" })));
+    expect(await res.text()).toBe(hangup);
+    expect(db().tables.inbound_webhook_jobs[0].payload).toMatchObject({ [FORWARDING_TEST_LEG_KEY]: TEST_ID });
+  });
+
+  it("From == business line / ForwardedFrom == business line during a test is a CUSTOMER: greeting, no flag, no test lookup", async () => {
+    inFlight();
+    const res1 = await voiceInbound(twilioRequest("/api/twilio/voice/inbound", leg({ From: BUSINESS })));
+    expect(await res1.text()).toContain("<Record ");
+    const res2 = await voiceInbound(
+      twilioRequest("/api/twilio/voice/inbound", leg({ CallSid: "CAcust", From: "+16475550123", ForwardedFrom: BUSINESS })),
+    );
+    expect(await res2.text()).toContain("<Record ");
+    for (const job of db().tables.inbound_webhook_jobs) {
+      expect(job.payload).not.toHaveProperty(FORWARDING_TEST_LEG_KEY);
+    }
+    // Customer calls do no forwarding_tests I/O at all, and the durable write is the first op.
+    expect(db().ops.filter((o) => o.table === "forwarding_tests")).toHaveLength(0);
+    expect(db().ops[0]).toMatchObject({ table: "inbound_webhook_jobs", op: "upsert" });
+  });
+
+  it("an incoming copy of the flag key is stripped (only this route sets it)", async () => {
+    const params = leg({ From: "+16475550123", [FORWARDING_TEST_LEG_KEY]: TEST_ID });
+    await voiceInbound(twilioRequest("/api/twilio/voice/inbound", params));
+    expect(db().tables.inbound_webhook_jobs[0].payload).not.toHaveProperty(FORWARDING_TEST_LEG_KEY);
+  });
+
+  it("a call from our own test caller ID with no test in the window hangs up, unflagged", async () => {
+    inFlight({ started_at: new Date(Date.now() - 4 * 60_000).toISOString() });
     const res = await voiceInbound(twilioRequest("/api/twilio/voice/inbound", leg()));
     expect(await res.text()).toBe(hangup);
-    process.env.TWILIO_FORWARDING_TEST_FROM = "+14165550111";
-    const res2 = await voiceInbound(twilioRequest("/api/twilio/voice/inbound", leg({ CallSid: "CAleg2", From: "+14165550111" })));
-    expect(await res2.text()).toBe(hangup);
+    expect(db().tables.inbound_webhook_jobs[0].payload).not.toHaveProperty(FORWARDING_TEST_LEG_KEY);
   });
 
   it("a real customer still gets the greeting", async () => {
@@ -181,10 +217,13 @@ describe("POST /api/twilio/voice/inbound — the forwarded test leg", () => {
     expect(await res.text()).toContain("<Record ");
   });
 
-  it("if the test lookup errors, the caller still gets the greeting (never drop a lead)", async () => {
+  it("if the test lookup errors, the leg is still persisted (unflagged)", async () => {
+    inFlight();
     db().failNext("forwarding_tests", { message: "relation does not exist" });
-    const res = await voiceInbound(twilioRequest("/api/twilio/voice/inbound", leg({ From: "+16475550123" })));
-    expect(await res.text()).toContain("<Record ");
+    const res = await voiceInbound(twilioRequest("/api/twilio/voice/inbound", leg()));
+    expect(res.status).toBe(200);
+    expect(db().tables.inbound_webhook_jobs[0]).toMatchObject({ provider: "twilio_voice", external_id: "CAleg1" });
+    expect(db().tables.inbound_webhook_jobs[0].payload).not.toHaveProperty(FORWARDING_TEST_LEG_KEY);
   });
 });
 

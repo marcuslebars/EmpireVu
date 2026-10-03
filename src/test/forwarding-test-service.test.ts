@@ -50,10 +50,13 @@ vi.mock("@/server/services/activity-events", () => ({
 import { TooManyRequestsError, ValidationError } from "@/server/organizations/context";
 import { TwilioApiError, type CreateTestCallInput, type TwilioCallsClient } from "@/server/services/twilio/calls";
 import {
+  findForwardingTestForLeg,
+  FORWARDING_TEST_LEG_KEY,
   getForwardingVerificationStatus,
   handleForwardingTestJob,
+  isTestCallerId,
+  orgEligibleForRetests,
   processForwardingRetests,
-  recordForwardedLegIfTest,
   startOwnerForwardingTest,
   sweepStaleForwardingTests,
 } from "@/server/services/twilio/forwarding-test";
@@ -71,8 +74,11 @@ afterAll(() => {
   process.env = env;
 });
 
-function seed(over: { company?: Record<string, unknown>; voiceNumber?: Record<string, unknown> } = {}): FakeDb {
+function seed(
+  over: { company?: Record<string, unknown>; voiceNumber?: Record<string, unknown>; org?: Record<string, unknown> } = {},
+): FakeDb {
   return createFakeDb({
+    organizations: [{ id: ORG, plan: "crankleads", subscription_status: "active", ...over.org }],
     voice_numbers: [
       {
         id: VN,
@@ -225,12 +231,31 @@ describe("startOwnerForwardingTest", () => {
     await expect(startOwnerForwardingTest(fakeTenantContext(db(), "org-2"), COMPANY, { calls: fakeCalls().client, now: () => T0 })).rejects.toThrow();
   });
 
-  it("a Twilio refusal completes the test as failed, clears verification and tells the owner", async () => {
+  it("stamps forwarding_last_test_at when the test is CREATED, before dialling (cost guard)", async () => {
+    let stampedBeforeDial: unknown = "unset";
+    await startTest(
+      fakeCalls(() => {
+        stampedBeforeDial = vn().forwarding_last_test_at;
+        return Promise.resolve({ sid: "CAout1", status: "queued" });
+      }),
+    );
+    expect(stampedBeforeDial).toBe(new Date(T0).toISOString());
+  });
+
+  it("if the start stamp can't be written, no call is placed", async () => {
+    const calls = fakeCalls();
+    db().failNext("voice_numbers", { message: "db down" }, "update");
+    await expect(startTest(calls)).rejects.toBeTruthy();
+    expect(calls.calls).toHaveLength(0);
+    expect(tests()[0]).toMatchObject({ status: "failed" });
+  });
+
+  it("a Twilio refusal (our side) completes the test as failed, KEEPS verification and tells the owner", async () => {
     vn().forwarding_verified_at = "2026-09-01T00:00:00.000Z";
     const { view } = await startTest(fakeCalls(() => Promise.reject(new TwilioApiError("The 'To' number is not valid.", 400, "21211"))));
     expect(view.status).toBe("failed");
     expect(tests()[0]).toMatchObject({ status: "failed", error_code: "21211" });
-    expect(vn()).toMatchObject({ forwarding_verified_at: null, forwarding_last_test_result: "failed" });
+    expect(vn()).toMatchObject({ forwarding_verified_at: "2026-09-01T00:00:00.000Z", forwarding_last_test_result: "failed" });
     expect(h.sent).toHaveLength(1);
     expect(h.sent[0]).toMatchObject({ channel: "sms", to: "+17055558888", companyId: COMPANY, contactId: null, consentContact: null });
   });
@@ -240,8 +265,22 @@ describe("startOwnerForwardingTest", () => {
 const job = (testId: string, event: string, extra: Record<string, string> = {}, now = T0 + 60_000) =>
   handleForwardingTestJob({ ForwardingTestId: testId, ForwardingTestEvent: event, CallSid: "CAout1", ...extra }, now);
 
-const forwardedLeg = (over: Record<string, string> = {}) =>
-  handleMissedCall({ CallSid: "CAleg1", From: CATCHER, To: CATCHER, CallStatus: "ringing", ...over }, T0 + 25_000);
+/**
+ * What the voice webhook does: decide (only for a call from our own test caller ID) and
+ * stamp the test id into the durable payload; then the worker handles that payload at
+ * `workerAt` (defaults to the arrival time).
+ */
+async function viaWebhook(params: Record<string, string>, arrivedAt: number, workerAt = arrivedAt) {
+  const payload: Record<string, string> = { ...params };
+  if (isTestCallerId(params.From ?? null, params.To)) {
+    const match = await findForwardingTestForLeg(db().client as never, { from: params.From ?? null, to: params.To }, arrivedAt);
+    if (match) payload[FORWARDING_TEST_LEG_KEY] = match.id;
+  }
+  return { payload, result: await handleMissedCall(payload, workerAt) };
+}
+
+const forwardedLeg = async (over: Record<string, string> = {}, arrivedAt = T0 + 25_000, workerAt = arrivedAt) =>
+  (await viaWebhook({ CallSid: "CAleg1", From: CATCHER, To: CATCHER, CallStatus: "ringing", ...over }, arrivedAt, workerAt)).result;
 
 describe("outcomes", () => {
   it("forwarded leg → passed: verified, owner texted ✅, onboarding test step completed, no lead / missed call", async () => {
@@ -265,10 +304,37 @@ describe("outcomes", () => {
     expect(h.sent).toHaveLength(1);
   });
 
-  it("forwarded leg where the carrier rewrote the caller ID to the business line still counts", async () => {
+  it("trade-off: a leg whose caller ID the carrier rewrote to the business line is NOT the test — it's a normal missed call", async () => {
     await startTest();
-    expect((await forwardedLeg({ From: BUSINESS })).status).toBe("forwarding_test");
+    const { payload, result } = await viaWebhook({ CallSid: "CArew", From: BUSINESS, To: CATCHER }, T0 + 25_000);
+    expect(payload[FORWARDING_TEST_LEG_KEY]).toBeUndefined();
+    expect(result.status).toBe("emitted");
+    expect(h.intake).toBe(1);
+    expect(tests()[0].status).toBe("calling");
+  });
+
+  it("the worker trusts the webhook's flag even when it processes the job late (queue backlog)", async () => {
+    const { view } = await startTest();
+    // Leg arrived at +25 s (flagged), outbound finalized as not_forwarded, worker runs 20 min later.
+    const { payload } = await viaWebhook({ CallSid: "CAlate0", From: "+16475550000", To: CATCHER }, T0 + 25_000);
+    expect(payload[FORWARDING_TEST_LEG_KEY]).toBeUndefined();
+    await job(view.id, "status", { CallStatus: "no-answer" });
+    await job(view.id, "finalize", {}, T0 + 110_000);
+    expect(tests()[0].status).toBe("not_forwarded");
+    const result = await handleMissedCall(
+      { CallSid: "CAleg1", From: CATCHER, To: CATCHER, [FORWARDING_TEST_LEG_KEY]: view.id },
+      T0 + 20 * 60_000,
+    );
+    expect(result.status).toBe("forwarding_test");
     expect(tests()[0].status).toBe("passed");
+  });
+
+  it("a flag naming another tenant's test is ignored (never swallows a customer)", async () => {
+    tests().push({ id: "foreign", organization_id: "org-2", company_id: "co-2", status: "calling", started_at: new Date(T0).toISOString(), caller_id: CATCHER, catcher_number: "+17055550111", trigger: "owner" });
+    const result = await handleMissedCall({ CallSid: "CAx", From: "+16475550123", To: CATCHER, [FORWARDING_TEST_LEG_KEY]: "foreign" }, T0);
+    expect(result.status).toBe("emitted");
+    expect(h.intake).toBe(1);
+    expect(tests()[0].status).toBe("calling");
   });
 
   it("does not mark onboarding for an AI-receptionist company", async () => {
@@ -315,12 +381,23 @@ describe("outcomes", () => {
     expect(String(h.sent[0].body)).toContain("was answered");
   });
 
-  it("a late forwarded leg upgrades an earlier failure to passed and re-notifies", async () => {
+  it("busy → inconclusive: verification kept, no 'not working' message", async () => {
+    vn().forwarding_verified_at = "2026-09-01T00:00:00.000Z";
     const { view } = await startTest();
     await job(view.id, "status", { CallStatus: "busy" });
     await job(view.id, "finalize", {}, T0 + 110_000);
+    expect(tests()[0].status).toBe("busy");
+    expect(vn()).toMatchObject({ forwarding_verified_at: "2026-09-01T00:00:00.000Z", forwarding_last_test_result: "busy" });
+    expect(String(h.sent[0].body)).toContain("busy signal");
+    expect(String(h.sent[0].body)).not.toContain("isn't working");
+  });
+
+  it("a late forwarded leg (From == our caller ID, inside the window) upgrades an earlier failure to passed and re-notifies", async () => {
+    const { view } = await startTest();
+    await job(view.id, "status", { CallStatus: "no-answer" });
+    await job(view.id, "finalize", {}, T0 + 110_000);
     expect(tests()[0].status).toBe("not_forwarded");
-    expect(await recordForwardedLegIfTest(db().client as never, { organizationId: ORG, companyId: COMPANY }, { callSid: "CAlate", from: CATCHER, to: CATCHER, forwardedFrom: null }, T0 + 10 * 60_000)).toBe(true);
+    expect((await forwardedLeg({ CallSid: "CAlate" }, T0 + 150_000)).status).toBe("forwarding_test");
     expect(tests()[0].status).toBe("passed");
     expect(vn().forwarding_verified_at).toBeTruthy();
     expect(h.sent).toHaveLength(2);
@@ -355,6 +432,45 @@ describe("handleMissedCall guards", () => {
     const result = await handleMissedCall({ CallSid: "CAcust", From: "+16475550123", To: CATCHER }, T0 + 20_000);
     expect(result.status).toBe("emitted");
     expect(h.intake).toBe(1);
+    expect(tests()[0].status).toBe("calling");
+  });
+
+  it("a customer forwarded FROM the business line during a test, and 20 min after it, gets a lead + text-back", async () => {
+    const { view } = await startTest();
+    const during = await viaWebhook({ CallSid: "CAc-during", From: "+16475550123", To: CATCHER, ForwardedFrom: BUSINESS }, T0 + 20_000);
+    expect(during.payload[FORWARDING_TEST_LEG_KEY]).toBeUndefined();
+    expect(during.result.status).toBe("emitted"); // call.missed → missed-call text-back recipe
+    expect(tests()[0].status).toBe("calling");
+    await job(view.id, "status", { CallStatus: "no-answer" });
+    await job(view.id, "finalize", {}, T0 + 110_000);
+    const after = await viaWebhook({ CallSid: "CAc-after", From: "+16475550124", To: CATCHER, ForwardedFrom: BUSINESS }, T0 + 20 * 60_000);
+    expect(after.payload[FORWARDING_TEST_LEG_KEY]).toBeUndefined();
+    expect(after.result.status).toBe("emitted");
+    expect(h.intake).toBe(2);
+    expect(db().tables.missed_calls).toHaveLength(2);
+    expect(tests()[0].status).toBe("not_forwarded");
+  });
+
+  it("the owner calling the catcher back (business line or cell) after not_forwarded is a normal missed call — never a pass", async () => {
+    const { view } = await startTest();
+    await job(view.id, "status", { CallStatus: "no-answer" });
+    await job(view.id, "finalize", {}, T0 + 110_000);
+    expect(tests()[0].status).toBe("not_forwarded");
+    const fromLine = await viaWebhook({ CallSid: "CAown1", From: BUSINESS, To: CATCHER }, T0 + 120_000);
+    const fromCell = await viaWebhook({ CallSid: "CAown2", From: "+17055558888", To: CATCHER }, T0 + 130_000);
+    expect(fromLine.payload[FORWARDING_TEST_LEG_KEY]).toBeUndefined();
+    expect(fromLine.result.status).toBe("emitted");
+    expect(fromCell.result.status).toBe("emitted");
+    expect(tests()[0].status).toBe("not_forwarded");
+    expect(vn()).toMatchObject({ forwarding_verified_at: null, forwarding_last_test_result: "not_forwarded" });
+  });
+
+  it("a leg from our caller ID after the detection window is not flagged and never files a lead", async () => {
+    await startTest();
+    const late = await viaWebhook({ CallSid: "CAtoolate", From: CATCHER, To: CATCHER }, T0 + 4 * 60_000);
+    expect(late.payload[FORWARDING_TEST_LEG_KEY]).toBeUndefined();
+    expect(late.result.status).toBe("test_caller");
+    expect(h.intake).toBe(0);
     expect(tests()[0].status).toBe("calling");
   });
 
@@ -400,7 +516,8 @@ describe("processForwardingRetests (worker scheduler)", () => {
     expect(n).toBe(1);
     expect(calls.calls[0]).toMatchObject({ to: BUSINESS, from: CATCHER });
     expect(tests()[0]).toMatchObject({ trigger: "scheduled", requested_by: null });
-    await handleMissedCall({ CallSid: "CAleg", From: CATCHER, To: CATCHER }, LATE + 20_000);
+    expect(vn().forwarding_last_test_at).toBe(new Date(LATE).toISOString()); // stamped at creation
+    await viaWebhook({ CallSid: "CAleg", From: CATCHER, To: CATCHER }, LATE + 20_000);
     expect(tests()[0].status).toBe("passed");
     expect(h.sent).toHaveLength(0); // still fine → no weekly spam
   });
@@ -435,6 +552,51 @@ describe("processForwardingRetests (worker scheduler)", () => {
     }
     vn().forwarding_last_test_at = new Date(LATE - 864e5).toISOString();
     expect((await retest()).n).toBe(0);
+  });
+
+  it("a scheduled busy keeps verification and sends no 'not working' SMS", async () => {
+    vn().forwarding_verified_at = new Date(LATE - 8 * 864e5).toISOString();
+    await retest();
+    await job(tests()[0].id as string, "status", { CallStatus: "busy" }, LATE + 50_000);
+    await job(tests()[0].id as string, "finalize", {}, LATE + 100_000);
+    expect(tests()[0].status).toBe("busy");
+    expect(vn().forwarding_verified_at).toBe(new Date(LATE - 8 * 864e5).toISOString());
+    expect(h.sent).toHaveLength(0);
+  });
+
+  it("a scheduled failed (our side) keeps verification and stays quiet", async () => {
+    vn().forwarding_verified_at = new Date(LATE - 8 * 864e5).toISOString();
+    await retest(LATE, fakeCalls(() => Promise.reject(new TwilioApiError("Twilio down", 500, "20500"))));
+    expect(tests()[0].status).toBe("failed");
+    expect(vn().forwarding_verified_at).toBe(new Date(LATE - 8 * 864e5).toISOString());
+    expect(h.sent).toHaveLength(0);
+  });
+
+  it("skips cancelled orgs and orgs without a subscription (internal house tenants still tested)", async () => {
+    vn().forwarding_verified_at = new Date(LATE - 8 * 864e5).toISOString();
+    db().tables.organizations[0].subscription_status = "canceled";
+    expect((await retest()).n).toBe(0);
+    db().tables.organizations[0].subscription_status = "none";
+    expect((await retest()).n).toBe(0);
+    db().tables.organizations[0].plan = "internal";
+    expect((await retest()).n).toBe(1);
+    expect(orgEligibleForRetests({ plan: "crankleads", subscription_status: "past_due" })).toBe(true);
+    expect(orgEligibleForRetests({ plan: "crankleads", subscription_status: "trialing" })).toBe(true);
+    expect(orgEligibleForRetests(null)).toBe(false);
+  });
+
+  it("cost guard: even if the outcome is never recorded, at most 2 scheduled calls per number per 24 h", async () => {
+    vn().created_at = new Date(LATE - 3 * 864e5).toISOString();
+    const calls = fakeCalls();
+    let total = 0;
+    for (let pass = 0; pass < 5; pass++) {
+      // Simulate a broken completion path: the test ends, but the number's columns are reset.
+      for (const t of tests()) t.status = "failed";
+      vn().forwarding_last_test_at = null;
+      total += (await retest(LATE - 10 * 60_000 + pass * 60_000, calls)).n;
+    }
+    expect(total).toBe(2);
+    expect(calls.calls).toHaveLength(2);
   });
 
   it("does nothing when Twilio isn't configured", async () => {

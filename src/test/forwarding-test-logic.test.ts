@@ -46,7 +46,8 @@ describe("outcomeFromCall (state machine input)", () => {
     expect(outcomeFromCall({ callStatus: "completed", answeredBy: "machine_end_beep", forwardedLegSeen: false })).toBe("not_forwarded");
     expect(outcomeFromCall({ callStatus: "completed", answeredBy: "fax", forwardedLegSeen: false })).toBe("not_forwarded");
     expect(outcomeFromCall({ callStatus: "no-answer", answeredBy: null, forwardedLegSeen: false })).toBe("not_forwarded");
-    expect(outcomeFromCall({ callStatus: "busy", answeredBy: null, forwardedLegSeen: false })).toBe("not_forwarded");
+    // busy is inconclusive (the line was in use / rejected the call), not proof of breakage.
+    expect(outcomeFromCall({ callStatus: "busy", answeredBy: null, forwardedLegSeen: false })).toBe("busy");
     expect(outcomeFromCall({ callStatus: "failed", answeredBy: null, forwardedLegSeen: false })).toBe("failed");
     expect(outcomeFromCall({ callStatus: "canceled", answeredBy: null, forwardedLegSeen: false })).toBe("failed");
   });
@@ -83,60 +84,60 @@ describe("verificationPatch (voice_numbers column contract)", () => {
       forwarding_verified_at: now,
     });
   });
-  it("not_forwarded and failed CLEAR forwarding_verified_at", () => {
+  it("ONLY not_forwarded clears forwarding_verified_at", () => {
     expect(verificationPatch("not_forwarded", now)).toMatchObject({ forwarding_verified_at: null, forwarding_last_test_result: "not_forwarded" });
-    expect(verificationPatch("failed", now)).toMatchObject({ forwarding_verified_at: null, forwarding_last_test_result: "failed" });
   });
-  it("answered is inconclusive — verification untouched", () => {
-    const patch = verificationPatch("answered", now);
-    expect(patch).toEqual({ forwarding_last_test_at: now, forwarding_last_test_result: "answered" });
-    expect("forwarding_verified_at" in patch).toBe(false);
+  it("answered / busy (inconclusive) and failed (our side) leave verification untouched", () => {
+    for (const outcome of ["answered", "busy", "failed"] as const) {
+      const patch = verificationPatch(outcome, now);
+      expect(patch).toEqual({ forwarding_last_test_at: now, forwarding_last_test_result: outcome });
+      expect("forwarding_verified_at" in patch).toBe(false);
+    }
   });
 });
 
 describe("matchForwardingTest (detection)", () => {
   const test = (over: Partial<TestCandidate> = {}): TestCandidate => ({
     id: "t1",
+    organization_id: "org-1",
+    company_id: "co-1",
     status: "calling",
     started_at: new Date(T0 - 30_000).toISOString(),
     caller_id: CATCHER,
-    business_line: BUSINESS,
     catcher_number: CATCHER,
     ...over,
   });
-  const live = { windowMs: 3 * 60_000, inFlightOnly: true };
+  const live = { windowMs: 3 * 60_000 };
 
   it("matches From == test caller ID (carrier keeps the original caller)", () => {
-    expect(matchForwardingTest([test()], { from: CATCHER, to: CATCHER, forwardedFrom: null }, T0, live)?.id).toBe("t1");
+    expect(matchForwardingTest([test()], { from: CATCHER, to: CATCHER }, T0, live)?.id).toBe("t1");
     const verifier = test({ caller_id: VERIFIER });
-    expect(matchForwardingTest([verifier], { from: VERIFIER, to: CATCHER, forwardedFrom: null }, T0, live)?.id).toBe("t1");
+    expect(matchForwardingTest([verifier], { from: VERIFIER, to: CATCHER }, T0, live)?.id).toBe("t1");
   });
-  it("matches From == business line (carrier rewrites caller ID) and ForwardedFrom == business line", () => {
-    expect(matchForwardingTest([test()], { from: "7055559999", to: CATCHER, forwardedFrom: null }, T0, live)).not.toBeNull();
-    expect(matchForwardingTest([test()], { from: "+16475550123", to: CATCHER, forwardedFrom: BUSINESS }, T0, live)).not.toBeNull();
+  it("NEVER matches the business line: owner call-backs and rewritten caller IDs are not the test", () => {
+    // The owner calling the catcher from the business line (or a carrier that rewrote the
+    // forwarded caller ID to it) must not pass a test.
+    expect(matchForwardingTest([test()], { from: "7055559999", to: CATCHER }, T0, live)).toBeNull();
+    expect(matchForwardingTest([test()], { from: BUSINESS, to: CATCHER }, T0, live)).toBeNull();
   });
   it("a real customer during a test is NOT the test", () => {
-    expect(matchForwardingTest([test()], { from: "+16475550123", to: CATCHER, forwardedFrom: null }, T0, live)).toBeNull();
-    expect(matchForwardingTest([test()], { from: "+16475550123", to: CATCHER, forwardedFrom: "+16475550000" }, T0, live)).toBeNull();
+    expect(matchForwardingTest([test()], { from: "+16475550123", to: CATCHER }, T0, live)).toBeNull();
   });
   it("must reach the test's own catcher number, inside the window", () => {
-    expect(matchForwardingTest([test()], { from: CATCHER, to: "+17055550199", forwardedFrom: null }, T0, live)).toBeNull();
+    expect(matchForwardingTest([test()], { from: CATCHER, to: "+17055550199" }, T0, live)).toBeNull();
     const old = test({ started_at: new Date(T0 - 4 * 60_000).toISOString() });
-    expect(matchForwardingTest([old], { from: CATCHER, to: CATCHER, forwardedFrom: null }, T0, live)).toBeNull();
+    expect(matchForwardingTest([old], { from: CATCHER, to: CATCHER }, T0, live)).toBeNull();
     const future = test({ started_at: new Date(T0 + 60_000).toISOString() });
-    expect(matchForwardingTest([future], { from: CATCHER, to: CATCHER, forwardedFrom: null }, T0, live)).toBeNull();
+    expect(matchForwardingTest([future], { from: CATCHER, to: CATCHER }, T0, live)).toBeNull();
   });
-  it("the live check needs an in-flight test; the worker also matches finished ones", () => {
+  it("a leg from our caller ID inside the window matches a test that was already finalized (late upgrade)", () => {
     const done = test({ status: "not_forwarded" });
-    expect(matchForwardingTest([done], { from: CATCHER, to: CATCHER, forwardedFrom: null }, T0, live)).toBeNull();
-    expect(
-      matchForwardingTest([done], { from: CATCHER, to: CATCHER, forwardedFrom: null }, T0, { windowMs: 30 * 60_000, inFlightOnly: false })?.id,
-    ).toBe("t1");
+    expect(matchForwardingTest([done], { from: CATCHER, to: CATCHER }, T0, live)?.id).toBe("t1");
   });
   it("picks the most recently started match", () => {
     const a = test({ id: "a", started_at: new Date(T0 - 90_000).toISOString() });
     const b = test({ id: "b", started_at: new Date(T0 - 10_000).toISOString() });
-    expect(matchForwardingTest([a, b], { from: CATCHER, to: CATCHER, forwardedFrom: null }, T0, live)?.id).toBe("b");
+    expect(matchForwardingTest([a, b], { from: CATCHER, to: CATCHER }, T0, live)?.id).toBe("b");
   });
 });
 
@@ -189,6 +190,7 @@ describe("retestDecision (scheduler selection)", () => {
     lastTestAt: new Date(LATE - 8 * day).toISOString(),
     timeZone: "America/Toronto",
     scheduledAttempts: 0,
+    scheduledLast24h: 0,
     inFlight: false,
     hasBusinessLine: true,
     ...over,
@@ -237,6 +239,12 @@ describe("retestDecision (scheduler selection)", () => {
       ),
     ).toMatchObject({ reason: "tested_today" });
   });
+  it("hard cap: at most 2 scheduled tests per number per 24 h", () => {
+    const fresh = { verifiedAt: null, lastTestAt: null, createdAt: new Date(LATE - 3 * day).toISOString() };
+    expect(retestDecision(candidate({ ...fresh, scheduledLast24h: 1 }), LATE).due).toBe(true);
+    expect(retestDecision(candidate({ ...fresh, scheduledLast24h: 2 }), LATE)).toMatchObject({ due: false, reason: "daily_cap" });
+    expect(retestDecision(candidate({ scheduledLast24h: 2 }), LATE)).toMatchObject({ due: false, reason: "daily_cap" });
+  });
   it("never while a test is in flight or without a business line", () => {
     expect(retestDecision(candidate({ inFlight: true }), LATE)).toMatchObject({ reason: "in_flight" });
     expect(retestDecision(candidate({ hasBusinessLine: false }), LATE)).toMatchObject({ reason: "no_business_line" });
@@ -260,7 +268,7 @@ describe("businessLineProblem (only the company's own callable number)", () => {
 
 describe("shouldNotifyOwner", () => {
   it("owner-triggered: always", () => {
-    for (const outcome of ["passed", "answered", "not_forwarded", "failed"] as const) {
+    for (const outcome of ["passed", "answered", "busy", "not_forwarded", "failed"] as const) {
       expect(shouldNotifyOwner({ trigger: "owner", outcome, wasVerified: true })).toBe(true);
     }
   });
@@ -270,6 +278,8 @@ describe("shouldNotifyOwner", () => {
     expect(shouldNotifyOwner({ trigger: "scheduled", outcome: "not_forwarded", wasVerified: true })).toBe(true);
     expect(shouldNotifyOwner({ trigger: "scheduled", outcome: "answered", wasVerified: true })).toBe(false);
     expect(shouldNotifyOwner({ trigger: "scheduled", outcome: "failed", wasVerified: true })).toBe(false);
+    expect(shouldNotifyOwner({ trigger: "scheduled", outcome: "busy", wasVerified: true })).toBe(false);
+    expect(shouldNotifyOwner({ trigger: "scheduled", outcome: "busy", wasVerified: false })).toBe(false);
   });
 });
 
@@ -313,8 +323,16 @@ describe("owner messages (golden)", () => {
         "Then run the test again in the app.",
     );
   });
+  it("busy is inconclusive, not 'not working'", () => {
+    const busy = buildForwardingResultMessage({ ...base, outcome: "busy" });
+    expect(busy.sms).toBe(
+      "Our forwarding test call to (705) 555-9999 got a busy signal, so we couldn't check forwarding for Muskoka Plumbing. Try again when the line is free. " +
+        "Test again: https://app.example.test/onboarding?step=phone",
+    );
+    expect(busy.sms).not.toMatch(/isn't working/);
+  });
   it("SMS stays within two segments' worth of characters", () => {
-    for (const outcome of ["passed", "answered", "not_forwarded", "failed"] as const) {
+    for (const outcome of ["passed", "answered", "busy", "not_forwarded", "failed"] as const) {
       expect(buildForwardingResultMessage({ ...base, outcome, companyName: "A Very Long Business Name Plumbing & Heating Ltd" }).sms.length).toBeLessThanOrEqual(320);
     }
   });

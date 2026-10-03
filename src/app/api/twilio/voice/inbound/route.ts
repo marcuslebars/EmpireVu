@@ -6,7 +6,7 @@ import {
   VOICE_JOB_PROVIDER,
   type CatcherTenant,
 } from "@/server/services/twilio/missed-call";
-import { findInFlightTestForLeg, isTestCallerId } from "@/server/services/twilio/forwarding-test";
+import { FORWARDING_TEST_LEG_KEY, findForwardingTestForLeg, isTestCallerId } from "@/server/services/twilio/forwarding-test";
 import { verifyTwilioSignature } from "@/server/services/twilio/signature";
 import {
   callbackBaseUrl,
@@ -32,18 +32,24 @@ export const dynamic = "force-dynamic";
  * The business forwards unanswered calls (carrier conditional forwarding) to a catcher
  * number whose Voice URL is this route, so every call here is a missed call. Flow:
  *   1) verify X-Twilio-Signature (fail closed → 403);
- *   2) DURABLE-FIRST: enqueue the raw params into inbound_webhook_jobs
+ *   2) forwarding-test decision (docs/missed-call-catcher.md → Forwarding verification) —
+ *      ONLY when From is one of OUR test caller IDs (the catcher number itself or the
+ *      platform verifier; a pure check, so a customer call does no I/O before step 3): look
+ *      up a test with caller_id == From and catcher_number == To that started within
+ *      TEST_DETECT_WINDOW_MS. A match stamps its id into the job payload
+ *      (FORWARDING_TEST_LEG_KEY) — the worker trusts that flag and never re-matches. A lookup
+ *      error just leaves the flag off (the job is still persisted). The business line /
+ *      ForwardedFrom are NOT fingerprints: real forwarded customers carry them;
+ *   3) DURABLE-FIRST: enqueue the params into inbound_webhook_jobs
  *      (provider='twilio_voice', external_id=CallSid) — a redelivery is a no-op; a persist
  *      failure returns 500 (Twilio then plays its error / uses the number's fallback URL);
- *   3) resolve the tenant by the CALLED number (voice_numbers, provider='twilio',
+ *   4) a call from our own test caller ID → a bare <Hangup/> (it is never a customer: no
+ *      greeting, no voicemail); the worker marks a flagged test passed;
+ *   5) resolve the tenant by the CALLED number (voice_numbers, provider='twilio',
  *      mode='missed_call_catcher') only to say the company's name: unknown number → empty
  *      <Response/> (the job stays stored for ops); a lookup error → generic greeting;
- *   4) the forwarded leg of a FORWARDING TEST (From = our test caller ID / the business line,
- *      or ForwardedFrom = the business line, while that company's test is in flight) → a bare
- *      <Hangup/>: no greeting, no voicemail; the worker marks the test passed and creates no
- *      lead / text-back (docs/missed-call-catcher.md → Forwarding verification);
- *   5) otherwise answer with TwiML: greeting + <Record> voicemail (recording/transcription
- *      callbacks go to /api/twilio/voice/recording).
+ *   6) answer with TwiML: greeting + <Record> voicemail (recording/transcription callbacks
+ *      go to /api/twilio/voice/recording).
  * The lead, call.missed and text-back happen in the worker (handleMissedCall).
  */
 export async function POST(request: Request): Promise<Response> {
@@ -65,12 +71,30 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const admin = createMissedCallAdminClient();
+  // Our own key is set only by this route, never taken from the request.
+  delete params[FORWARDING_TEST_LEG_KEY];
+  const from = params.From ?? null;
+  const to = params.To ?? params.Called ?? null;
+  const fromOurTestCallerId = to !== null && isTestCallerId(from, to);
+  let forwardingTestId: string | null = null;
+  if (fromOurTestCallerId) {
+    try {
+      forwardingTestId = (await findForwardingTestForLeg(admin, { from, to }))?.id ?? null;
+    } catch (err) {
+      console.error("[twilio-voice] forwarding-test lookup failed (leg not flagged):", err instanceof Error ? err.message : err);
+    }
+  }
+  const payload = forwardingTestId ? { ...params, [FORWARDING_TEST_LEG_KEY]: forwardingTestId } : params;
+
   try {
-    await enqueueInboundWebhookJob(admin, { provider: VOICE_JOB_PROVIDER, externalId: callSid, payload: params });
+    await enqueueInboundWebhookJob(admin, { provider: VOICE_JOB_PROVIDER, externalId: callSid, payload });
   } catch (err) {
     console.error("[twilio-voice] durable enqueue failed:", err instanceof Error ? err.message : err);
     return new Response("Failed to persist webhook.", { status: 500 });
   }
+
+  // Our own test caller ID is never a customer — no greeting, no voicemail.
+  if (fromOurTestCallerId) return twimlResponse(buildForwardingTestLegTwiml());
 
   let tenant: CatcherTenant | null | undefined;
   try {
@@ -83,22 +107,6 @@ export async function POST(request: Request): Promise<Response> {
   if (tenant === null) {
     console.warn(`[twilio-voice] call to unknown catcher number ${params.To ?? "?"} (stored; no tenant).`);
     return twimlResponse(emptyTwiml());
-  }
-
-  if (tenant) {
-    try {
-      const testLeg =
-        isTestCallerId(params.From ?? null, tenant.phoneE164) ||
-        (await findInFlightTestForLeg(admin, tenant, {
-          from: params.From ?? null,
-          to: params.To ?? params.Called ?? null,
-          forwardedFrom: params.ForwardedFrom ?? null,
-        })) !== null;
-      if (testLeg) return twimlResponse(buildForwardingTestLegTwiml());
-    } catch (err) {
-      // Can't tell — treat it as a real missed call (the worker re-checks before any text).
-      console.error("[twilio-voice] forwarding-test check failed:", err instanceof Error ? err.message : err);
-    }
   }
 
   const base = callbackBaseUrl(request);

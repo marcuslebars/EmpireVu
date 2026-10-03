@@ -52,6 +52,13 @@ function ResultLine({ test, instructions }: { test: ForwardingTestView; instruct
           <span>The test call was answered, so we couldn't check forwarding. Run it again and let it ring.</span>
         </p>
       );
+    case "busy":
+      return (
+        <p className="text-sm text-amber-400 flex items-start gap-1.5">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>Your line was busy, so we couldn't check forwarding. Run the test again when the line is free.</span>
+        </p>
+      );
     case "not_forwarded":
       return (
         <p className="text-sm text-destructive flex items-start gap-1.5">

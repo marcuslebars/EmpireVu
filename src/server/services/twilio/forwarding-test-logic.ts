@@ -14,12 +14,12 @@ import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
  *  after ~15–30 s on most carriers (GSM **61 allows up to 30 s), so 40 s covers the slowest
  *  setting plus call setup. */
 export const TEST_RING_TIMEOUT_SECONDS = 40;
-/** The forwarded leg must reach the catcher number within this long of the test starting
- *  (live check in the voice webhook, which decides between <Hangup/> and the greeting). */
+/** The forwarded leg must ARRIVE at the voice webhook within this long of the test
+ *  starting. The webhook alone decides (From == the test's caller ID, inside this window)
+ *  and stamps the test id into the durable job payload; the worker only trusts that flag —
+ *  so a backlogged queue can't change the decision, and 'passed' still wins when the job is
+ *  processed after the outbound leg was already finalized. */
 export const TEST_DETECT_WINDOW_MS = 3 * 60_000;
-/** The worker may process the forwarded-leg job late (queue backlog / retries). It still
- *  matches tests that STARTED within this window — and 'passed' wins over any outcome. */
-export const TEST_LATE_MATCH_WINDOW_MS = 30 * 60_000;
 /** After the final call status arrives, wait this long for a forwarded leg / AMD result
  *  before deciding the outcome (the leg's job may still be in the queue). */
 export const TEST_FINALIZE_GRACE_MS = 45_000;
@@ -45,10 +45,13 @@ export const UNVERIFIED_MAX_SCHEDULED_ATTEMPTS = 5;
 export const NEW_NUMBER_GRACE_MS = 2 * 3_600_000;
 /** Cap per scheduler pass (one pass per minute) — spreads cost and load. */
 export const MAX_SCHEDULED_TESTS_PER_PASS = 10;
+/** Hard cost guard: never more than this many SCHEDULED tests per number per rolling 24 h,
+ *  whatever the voice_numbers columns say (e.g. if a completion update keeps failing). */
+export const MAX_SCHEDULED_TESTS_PER_NUMBER_PER_DAY = 2;
 
 // ── State machine ────────────────────────────────────────────────────────────
 
-export type ForwardingTestOutcome = "passed" | "answered" | "not_forwarded" | "failed";
+export type ForwardingTestOutcome = "passed" | "answered" | "busy" | "not_forwarded" | "failed";
 export type ForwardingTestStatus = "calling" | ForwardingTestOutcome;
 export type ForwardingTestTrigger = "owner" | "scheduled";
 
@@ -70,8 +73,11 @@ export function answeredByMachine(answeredBy: string | null | undefined): boolea
  *     when forwarding works, the outbound call is "answered" by our own catcher);
  *   • completed (answered) by a machine → not_forwarded (voicemail picked up before forwarding);
  *   • completed by a person / unknown → answered (inconclusive — ask to retry without answering);
- *   • busy / no-answer → not_forwarded (rang out, nothing forwarded);
- *   • failed / canceled → failed (Twilio error, invalid number, …);
+ *   • busy → busy (inconclusive — the line was in use or rejected the call; many carriers
+ *     don't forward on busy unless "forward when busy" is also set, so it proves nothing);
+ *   • no-answer → not_forwarded (rang out, nothing forwarded);
+ *   • failed / canceled → failed (OUR side: Twilio error, invalid number, … — says nothing
+ *     about the customer's forwarding);
  *   • anything else (queued / ringing / in-progress / no status) → null (not decided yet).
  */
 export function outcomeFromCall(input: {
@@ -82,7 +88,8 @@ export function outcomeFromCall(input: {
   if (input.forwardedLegSeen) return "passed";
   const status = (input.callStatus ?? "").toLowerCase();
   if (status === "completed") return answeredByMachine(input.answeredBy) ? "not_forwarded" : "answered";
-  if (status === "busy" || status === "no-answer") return "not_forwarded";
+  if (status === "busy") return "busy";
+  if (status === "no-answer") return "not_forwarded";
   if (status === "failed" || status === "canceled") return "failed";
   return null;
 }
@@ -105,31 +112,32 @@ export interface VerificationPatch {
 }
 
 /**
- * voice_numbers update for an outcome. passed → verified now; not_forwarded / failed →
- * verification CLEARED (null); answered → inconclusive, verification left as it was.
+ * voice_numbers update for an outcome. passed → verified now; not_forwarded → verification
+ * CLEARED (null) — the only outcome that proves forwarding is broken. answered / busy
+ * (inconclusive) and failed (our side — Twilio refused, no status) leave it as it was.
  */
 export function verificationPatch(outcome: ForwardingTestOutcome, nowIso: string): VerificationPatch {
   const base = { forwarding_last_test_at: nowIso, forwarding_last_test_result: outcome };
   if (outcome === "passed") return { ...base, forwarding_verified_at: nowIso };
-  if (outcome === "answered") return base;
-  return { ...base, forwarding_verified_at: null };
+  if (outcome === "not_forwarded") return { ...base, forwarding_verified_at: null };
+  return base;
 }
 
 // ── Detection (the forwarded leg) ────────────────────────────────────────────
 
 export interface TestCandidate {
   id: string;
+  organization_id: string;
+  company_id: string;
   status: string;
   started_at: string;
   caller_id: string;
-  business_line: string;
   catcher_number: string;
 }
 
 export interface InboundLeg {
   from: string | null;
   to: string | null;
-  forwardedFrom: string | null;
 }
 
 const same10 = (a: string | null | undefined, b: string | null | undefined): boolean => {
@@ -139,30 +147,33 @@ const same10 = (a: string | null | undefined, b: string | null | undefined): boo
 
 /**
  * Is this inbound call on a catcher number the forwarded leg of one of these tests?
- * It must reach the test's catcher number, inside the window after the test started, and
- * carry one of the test's fingerprints:
- *   • From == the test caller ID (most carriers keep the original caller on a forward), or
- *   • From == the business line (carriers that rewrite caller ID to the forwarding line), or
- *   • ForwardedFrom == the business line (when the carrier passes the diversion header).
- * `inFlightOnly` (the live webhook) also requires the test to still be 'calling'; the
- * worker matches finished tests too, so a late leg still upgrades the result to passed.
+ * ONE fingerprint only: `From` == the test's caller ID — a number WE own (the catcher number
+ * itself, or the platform verifier TWILIO_FORWARDING_TEST_FROM), so it can never be a
+ * customer — reaching the test's own catcher number within `windowMs` of the test starting
+ * (any status: a leg that lands just after the outbound leg was finalized still upgrades
+ * the test to passed).
+ *
+ * Deliberately NOT a fingerprint: From == the business line, or ForwardedFrom == the
+ * business line. Every genuine forwarded customer call carries ForwardedFrom == the business
+ * line, and the owner calling the catcher from their own phone has From == the business
+ * line — matching those would swallow real leads (no lead, no text-back) and could pass a
+ * broken setup. Trade-off: a carrier that rewrites the caller ID of a forwarded call to the
+ * business line makes tests report not_forwarded; the owner verifies with a real missed
+ * call instead (passive proof), see docs/missed-call-catcher.md.
  * Returns the most recently started match.
  */
 export function matchForwardingTest(
   candidates: readonly TestCandidate[],
   leg: InboundLeg,
   nowMs: number,
-  options: { windowMs: number; inFlightOnly: boolean },
+  options: { windowMs: number },
 ): TestCandidate | null {
   const matches = candidates.filter((test) => {
-    if (options.inFlightOnly && test.status !== "calling") return false;
     if (!same10(leg.to, test.catcher_number)) return false;
+    if (!same10(leg.from, test.caller_id)) return false;
     const started = Date.parse(test.started_at);
     if (!Number.isFinite(started)) return false;
-    if (started > nowMs + 5_000 || nowMs - started > options.windowMs) return false;
-    return (
-      same10(leg.from, test.caller_id) || same10(leg.from, test.business_line) || same10(leg.forwardedFrom, test.business_line)
-    );
+    return started <= nowMs + 5_000 && nowMs - started <= options.windowMs;
   });
   matches.sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at));
   return matches[0] ?? null;
@@ -259,6 +270,8 @@ export interface RetestCandidate {
   timeZone: string | null;
   /** Scheduled tests already run for this number. */
   scheduledAttempts: number;
+  /** Scheduled tests started for this number in the last 24 h (hard cost cap). */
+  scheduledLast24h: number;
   inFlight: boolean;
   hasBusinessLine: boolean;
 }
@@ -278,10 +291,13 @@ export type RetestDecision = { due: true; kind: "verified_weekly" | "unverified_
  *   • verified numbers: weekly (7 days since the last proof — a test OR a real forwarded call);
  *   • unverified numbers: daily for their first 14 days (not in the first 2 h), at most
  *     UNVERIFIED_MAX_SCHEDULED_ATTEMPTS scheduled attempts; after that only the owner's button;
- *   • never while a test is in flight or with no business line on file.
+ *   • never while a test is in flight or with no business line on file;
+ *   • never more than MAX_SCHEDULED_TESTS_PER_NUMBER_PER_DAY scheduled tests per rolling 24 h
+ *     (counted from forwarding_tests rows, independent of the voice_numbers columns).
  */
 export function retestDecision(candidate: RetestCandidate, nowMs: number): RetestDecision {
   if (candidate.inFlight) return { due: false, reason: "in_flight" };
+  if (candidate.scheduledLast24h >= MAX_SCHEDULED_TESTS_PER_NUMBER_PER_DAY) return { due: false, reason: "daily_cap" };
   if (!candidate.hasBusinessLine) return { due: false, reason: "no_business_line" };
 
   const clock = localClock(candidate.timeZone, nowMs);
@@ -313,8 +329,8 @@ export function retestDecision(candidate: RetestCandidate, nowMs: number): Retes
 /**
  * Tell the owner? Owner-triggered tests: always. Scheduled: when a number becomes live
  * (passed, wasn't verified), and on every not_forwarded (verified-then-broken, or a nudge
- * for a new number — capped by the retest schedule). Scheduled answered/failed stay quiet
- * (inconclusive / our side; retried and visible in the app).
+ * for a new number — capped by the retest schedule). Scheduled answered / busy / failed stay
+ * quiet (inconclusive or our side; retried and visible in the app) — never a "not working" SMS.
  */
 export function shouldNotifyOwner(input: { trigger: ForwardingTestTrigger; outcome: ForwardingTestOutcome; wasVerified: boolean }): boolean {
   if (input.trigger === "owner") return true;
@@ -365,6 +381,10 @@ export function buildForwardingResultMessage(input: ForwardingResultMessageInput
     case "answered":
       sms = `Our forwarding test call to ${line} was answered, so we couldn't check forwarding for ${name}. Let it ring next time.${again}`;
       subject = `Forwarding test for ${name} was answered`;
+      break;
+    case "busy":
+      sms = `Our forwarding test call to ${line} got a busy signal, so we couldn't check forwarding for ${name}. Try again when the line is free.${again}`;
+      subject = `Forwarding test for ${name} got a busy signal`;
       break;
     case "failed":
     default:

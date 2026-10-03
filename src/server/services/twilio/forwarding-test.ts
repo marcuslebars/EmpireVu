@@ -13,10 +13,14 @@
 //   • Twilio callbacks: signature-verified routes; the test row is found by the testId we
 //     put in the callback URL ourselves (covered by X-Twilio-Signature) and is processed in
 //     the inbound-webhook worker;
-//   • the forwarded leg: matched inside the catcher tenant already resolved from the CALLED
-//     number (missed-call.ts), against that company's own tests only;
+//   • the forwarded leg: decided ONCE in the signature-verified voice webhook, and only for
+//     a call whose From is one of OUR numbers (the test caller ID) reaching the test's own
+//     catcher number in the window; the test id is stamped into the durable job payload and
+//     the worker (missed-call.ts) only accepts it for a test of the tenant resolved from the
+//     CALLED number. A call without the flag is always a normal missed call;
 //   • scheduled retests: the worker's scheduler pass (cross-tenant by design), each test
-//     scoped to the voice_numbers row's own organization_id + company_id.
+//     scoped to the voice_numbers row's own organization_id + company_id; cancelled orgs are
+//     skipped.
 // Listed in docs/EMPIREVU_RUNBOOK.md → "Service-role (sanctioned) surfaces".
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Json, Tables } from "@/server/db/database.types";
@@ -41,7 +45,6 @@ import {
   shouldNotifyOwner,
   TEST_DETECT_WINDOW_MS,
   TEST_FINALIZE_GRACE_MS,
-  TEST_LATE_MATCH_WINDOW_MS,
   TEST_RING_TIMEOUT_SECONDS,
   TEST_STALE_MS,
   verificationPatch,
@@ -71,6 +74,13 @@ type CompanyFields = Pick<Tables<"companies">, "id" | "organization_id" | "name"
 
 /** inbound_webhook_jobs provider for status / AMD callbacks and the delayed finalize. */
 export const FORWARDING_TEST_JOB_PROVIDER = "twilio_forwarding_test";
+/**
+ * Key the voice webhook adds to a 'twilio_voice' job payload when it decided the call is the
+ * forwarded leg of a forwarding test (value: forwarding_tests.id). Not a Twilio parameter —
+ * the webhook strips any incoming copy before deciding. The worker trusts it and never
+ * re-matches; a payload without it is always handled as a normal missed call.
+ */
+export const FORWARDING_TEST_LEG_KEY = "EmpireVuForwardingTestId";
 const CATCHER_MODE = "missed_call_catcher";
 const COMPANY_FIELDS = "id, organization_id, name, timezone, brand_reply_phone, owner_phone_e164, owner_email";
 
@@ -242,6 +252,24 @@ async function placeForwardingTest(
     throw insertError;
   }
   const row = inserted as ForwardingTestRow;
+
+  // Cost guard: stamp the number's last-test time BEFORE dialling, so a later failure to
+  // record the outcome can never make the scheduler re-call it on every pass. If even this
+  // write fails, don't place the call.
+  const { error: stampError } = await admin
+    .from("voice_numbers")
+    .update({ forwarding_last_test_at: new Date(now).toISOString() })
+    .eq("id", target.voiceNumber.id)
+    .eq("organization_id", target.company.organization_id);
+  if (stampError) {
+    console.error("[forwarding-test] could not stamp forwarding_last_test_at — not calling:", stampError.message);
+    await admin
+      .from("forwarding_tests")
+      .update({ status: "failed", completed_at: new Date(now).toISOString(), error_message: "Could not record the test start." })
+      .eq("id", row.id)
+      .eq("status", "calling");
+    throw stampError;
+  }
 
   const calls = deps.calls ?? createTwilioCallsClient(creds);
   const urls = callbackUrls(base, row.id);
@@ -516,52 +544,49 @@ async function notifyOwnerOfResult(admin: AdminClient, test: ForwardingTestRow, 
 
 // ── The forwarded leg (called from the voice webhook + missed-call worker) ───
 
-async function recentCompanyTests(
-  admin: AdminClient,
-  tenant: { organizationId: string; companyId: string },
-  sinceMs: number,
-): Promise<TestCandidate[]> {
-  const { data, error } = await admin
-    .from("forwarding_tests")
-    .select("id, status, started_at, caller_id, business_line, catcher_number")
-    .eq("organization_id", tenant.organizationId)
-    .eq("company_id", tenant.companyId)
-    .gte("started_at", new Date(sinceMs).toISOString())
-    .order("started_at", { ascending: false })
-    .limit(10);
-  if (error) throw error;
-  return (data ?? []) as TestCandidate[];
-}
-
 /**
- * Live check in the voice webhook: is this inbound call the forwarded leg of an in-flight
- * test? (Read-only — the durable job is already stored; the worker records the pass.)
+ * Voice webhook (BEFORE the durable write, and only for a call whose From is one of our own
+ * test caller IDs — see isTestCallerId; customer calls never get here): the forwarding test
+ * this leg belongs to, or null. Rule (matchForwardingTest): From == the test's caller_id AND
+ * To == its catcher number AND it arrives within TEST_DETECT_WINDOW_MS of the test starting.
  */
-export async function findInFlightTestForLeg(
+export async function findForwardingTestForLeg(
   admin: AdminClient,
-  tenant: { organizationId: string; companyId: string },
   leg: InboundLeg,
   nowMs: number = Date.now(),
 ): Promise<TestCandidate | null> {
-  const candidates = await recentCompanyTests(admin, tenant, nowMs - TEST_DETECT_WINDOW_MS);
-  return matchForwardingTest(candidates, leg, nowMs, { windowMs: TEST_DETECT_WINDOW_MS, inFlightOnly: true });
+  const from = toE164(leg.from);
+  const to = toE164(leg.to);
+  if (!from || !to || !isTestCallerId(from, to)) return null;
+  const { data, error } = await admin
+    .from("forwarding_tests")
+    .select("id, organization_id, company_id, status, started_at, caller_id, catcher_number")
+    .eq("catcher_number", to)
+    .eq("caller_id", from)
+    .gte("started_at", new Date(nowMs - TEST_DETECT_WINDOW_MS).toISOString())
+    .order("started_at", { ascending: false })
+    .limit(5);
+  if (error) throw error;
+  return matchForwardingTest((data ?? []) as TestCandidate[], { from, to }, nowMs, { windowMs: TEST_DETECT_WINDOW_MS });
 }
 
 /**
- * Worker: if this caught call is a test's forwarded leg, mark the test passed and return
- * true (the caller then skips missed_calls / lead / text-back). Late legs still match.
+ * Worker: the webhook flagged this call as the forwarded leg of test `testId` — mark the test
+ * passed ('passed' is sticky and wins over an earlier finalize, so a backlogged job still
+ * counts) and return true; the caller then skips missed_calls / lead / text-back. No
+ * re-matching here: the flag is the decision. Only a test of THIS tenant is accepted.
  */
-export async function recordForwardedLegIfTest(
+export async function recordFlaggedForwardedLeg(
   admin: AdminClient,
   tenant: { organizationId: string; companyId: string },
-  leg: InboundLeg & { callSid: string },
+  leg: { testId: string; callSid: string; forwardedFrom: string | null },
   nowMs: number = Date.now(),
 ): Promise<boolean> {
-  const candidates = await recentCompanyTests(admin, tenant, nowMs - TEST_LATE_MATCH_WINDOW_MS);
-  const match = matchForwardingTest(candidates, leg, nowMs, { windowMs: TEST_LATE_MATCH_WINDOW_MS, inFlightOnly: false });
-  if (!match) return false;
-  const test = await loadTest(admin, match.id);
-  if (!test) return false;
+  const test = await loadTest(admin, leg.testId);
+  if (!test || test.organization_id !== tenant.organizationId || test.company_id !== tenant.companyId) {
+    console.warn(`[forwarding-test] flagged leg ${leg.callSid} names test ${leg.testId}, which isn't this tenant's — ignored.`);
+    return false;
+  }
   await completeForwardingTest(
     admin,
     test,
@@ -574,7 +599,8 @@ export async function recordForwardedLegIfTest(
 
 /**
  * A call FROM our own test caller ID (the catcher number itself, or the platform verifier)
- * is never a customer — e.g. a test leg that arrived after every window. Never text it back.
+ * is never a customer — e.g. a test leg that arrived after the window. Never text it back.
+ * Pure (no I/O): the voice webhook uses it to decide whether a test lookup is needed at all.
  */
 export function isTestCallerId(from: string | null, catcherNumber: string): boolean {
   const caller = toE164(from);
@@ -744,9 +770,23 @@ export async function sweepStaleForwardingTests(admin: AdminClient, nowMs: numbe
 }
 
 /**
+ * May the scheduler place billed test calls for this org? No for a cancelled subscription,
+ * a missing org row, or an org that never subscribed ('none') unless it is an internal
+ * house tenant (plan 'internal'). trialing / active / past_due keep their retests.
+ */
+export function orgEligibleForRetests(org: Pick<Tables<"organizations">, "plan" | "subscription_status"> | null): boolean {
+  if (!org) return false;
+  const status = (org.subscription_status ?? "none").toLowerCase();
+  if (status === "canceled" || status === "cancelled") return false;
+  if (status === "none") return org.plan === "internal";
+  return true;
+}
+
+/**
  * One retest pass (called from runScheduler each minute). Re-tests verified catcher numbers
  * weekly and unverified ones daily for their first 14 days (retestDecision), only Mon–Fri
- * 10:00–16:00 in the company's timezone, at most MAX_SCHEDULED_TESTS_PER_PASS calls per pass.
+ * 10:00–16:00 in the company's timezone, at most MAX_SCHEDULED_TESTS_PER_PASS calls per pass
+ * and MAX_SCHEDULED_TESTS_PER_NUMBER_PER_DAY per number. Cancelled orgs are skipped.
  * Never throws — per-number failures are logged and the loop continues.
  */
 export async function processForwardingRetests(
@@ -777,26 +817,40 @@ export async function processForwardingRetests(
     if (companyError) throw companyError;
     const companyById = new Map(((companies ?? []) as CompanyFields[]).map((c) => [c.id, c]));
 
+    // Churned orgs get no billed test calls: skip cancelled subscriptions, and orgs that
+    // never had one (subscription_status 'none') unless they are an internal house tenant.
+    const { data: orgs, error: orgError } = await admin
+      .from("organizations")
+      .select("id, plan, subscription_status")
+      .in("id", Array.from(new Set(rows.map((r) => r.organization_id))));
+    if (orgError) throw orgError;
+    const orgById = new Map(
+      ((orgs ?? []) as Array<Pick<Tables<"organizations">, "id" | "plan" | "subscription_status">>).map((o) => [o.id, o]),
+    );
+
     const { data: tests, error: testError } = await admin
       .from("forwarding_tests")
-      .select("voice_number_id, trigger, status")
+      .select("voice_number_id, trigger, status, started_at")
       .in("voice_number_id", rows.map((r) => r.id))
       .gte("started_at", new Date(nowMs - 15 * 24 * 3_600_000).toISOString());
     if (testError) throw testError;
-    const testRows = (tests ?? []) as Array<Pick<ForwardingTestRow, "voice_number_id" | "trigger" | "status">>;
+    const testRows = (tests ?? []) as Array<Pick<ForwardingTestRow, "voice_number_id" | "trigger" | "status" | "started_at">>;
 
     for (const vn of rows) {
       if (placed >= MAX_SCHEDULED_TESTS_PER_PASS) break;
       const company = companyById.get(vn.company_id);
       if (!company || company.organization_id !== vn.organization_id) continue;
+      if (!orgEligibleForRetests(orgById.get(vn.organization_id) ?? null)) continue;
       const mine = testRows.filter((t) => t.voice_number_id === vn.id);
+      const scheduled = mine.filter((t) => t.trigger === "scheduled");
       const candidate: RetestCandidate = {
         voiceNumberId: vn.id,
         createdAt: vn.created_at,
         verifiedAt: vn.forwarding_verified_at,
         lastTestAt: vn.forwarding_last_test_at,
         timeZone: company.timezone?.trim() || fallbackTimeZone(),
-        scheduledAttempts: mine.filter((t) => t.trigger === "scheduled").length,
+        scheduledAttempts: scheduled.length,
+        scheduledLast24h: scheduled.filter((t) => nowMs - Date.parse(t.started_at) < 24 * 3_600_000).length,
         inFlight: mine.some((t) => t.status === "calling"),
         hasBusinessLine: resolveBusinessLine(company) !== null,
       };
