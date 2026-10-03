@@ -138,6 +138,7 @@ describe("POST /api/public/crankleads/checkout", () => {
       currency: "cad",
       billing_address_collection: "required",
       automatic_tax: { enabled: false },
+      managed_payments: { enabled: false },
       allow_promotion_codes: false,
       metadata,
       subscription_data: { metadata },
@@ -155,6 +156,8 @@ describe("POST /api/public/crankleads/checkout", () => {
     const [params] = sessionsCreate.mock.calls[0];
     expect(params.discounts).toEqual([{ coupon: "crankleads_founding_50" }]);
     expect(params.allow_promotion_codes).toBeUndefined();
+    // Managed Payments stays off even with Stripe Tax on (it rejects automatic_tax and only supports digital goods).
+    expect(params.managed_payments).toEqual({ enabled: false });
     expect(params.automatic_tax).toEqual({ enabled: true });
     expect(params.cancel_url).toBe("https://crankleads.com/pricing");
     expect(params.line_items).toEqual([

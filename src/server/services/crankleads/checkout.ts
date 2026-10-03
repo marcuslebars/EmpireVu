@@ -92,6 +92,19 @@ export function utmMetadata(utm: Record<string, string>): string {
 
 export class CrankleadsCheckoutUnavailableError extends Error {}
 
+/**
+ * Session params plus `managed_payments`, which this stripe SDK version doesn't type yet.
+ *
+ * The account has Stripe Managed Payments (Stripe as merchant of record) ON by default.
+ * It only supports digital products and rejects `automatic_tax`; CrankLeads includes a
+ * done-for-you setup service and EmpireVu runs its own invoicing, so every CrankLeads
+ * session opts out explicitly. HST is then handled by `automatic_tax` (Stripe Tax) when
+ * STRIPE_AUTOMATIC_TAX=true. See docs/crankleads-purchase.md.
+ */
+export type CrankleadsSessionCreateParams = Stripe.Checkout.SessionCreateParams & {
+  managed_payments: { enabled: boolean };
+};
+
 /** The exact Stripe Checkout Session params for a staged purchase (pure — golden-tested). */
 export function buildCrankleadsSessionParams(
   purchase: Pick<CrankleadsPurchase, "id">,
@@ -99,7 +112,7 @@ export function buildCrankleadsSessionParams(
   utm: Record<string, string>,
   /** A coupon already verified usable (founding offer), or null. */
   coupon: string | null,
-): Stripe.Checkout.SessionCreateParams {
+): CrankleadsSessionCreateParams {
   const monthly = crankleadsMonthlyPriceId(input.tier);
   const setup = crankleadsSetupPriceId(input.tier);
   if (!monthly || !setup) {
@@ -137,6 +150,7 @@ export function buildCrankleadsSessionParams(
     currency: "cad",
     billing_address_collection: "required",
     automatic_tax: { enabled: crankleadsAutomaticTax() },
+    managed_payments: { enabled: false },
     // Only our server-side founding coupon can discount a CrankLeads checkout — no
     // promotion-code box (any active promo code in the account would otherwise apply).
     ...(coupon ? { discounts: [{ coupon }] } : { allow_promotion_codes: false }),
