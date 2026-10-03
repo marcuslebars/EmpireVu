@@ -155,3 +155,12 @@ Add new owner-facing server modules to its `SCANNED` list. Keep `ALLOW` short (i
   delegates to `getPlatformBrand()`, so `PLATFORM_BRAND_NAME` rebrands it with everything else
   (set it on the `monthly-scorecard` cron service too).
 - **Onboarding wizard** headings use `platformBrand.name`.
+
+## Security: client env is read by name only
+
+`src/lib/platform-brand.ts` reads each `VITE_PLATFORM_*` variable by name. **Never pass
+`import.meta.env` around as an object in client code**: Vite then inlines every `VITE_*`
+variable present at build time into the public JavaScript. That happened once (Oct 2026):
+a server secret configured as `VITE_SUPABASE_SERVICE_ROLE_KEY` on the web service shipped in
+the bundle. `src/test/client-env-leak.test.ts` now fails CI on any whole-object reference.
+Never give a server secret a `VITE_` prefix.
