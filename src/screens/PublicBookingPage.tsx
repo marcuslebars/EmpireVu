@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
+import { useDocumentTitle } from "@/lib/use-document-title";
 import { Calendar, Clock, CheckCircle2, Loader2, ArrowLeft } from "lucide-react";
 import TurnstileWidget from "@/components/TurnstileWidget";
 
@@ -68,6 +69,8 @@ export default function PublicBookingPage() {
       active = false;
     };
   }, [companyId]);
+
+  useDocumentTitle(availability?.company.name ? `Book with ${availability.company.name}` : null);
 
   const tz = availability?.timezone ?? "America/Toronto";
 

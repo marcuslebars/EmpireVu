@@ -346,6 +346,21 @@ async function loadRowById(
 }
 
 /**
+ * Lead intake names a contact with no name "Lead" (see lead-intake/intake.ts splitName) so the
+ * CRM row is never blank. Customers must never get "Hi Lead," — in message templates that
+ * placeholder (or a blank first name) renders as "there".
+ */
+export const UNKNOWN_FIRST_NAME_PLACEHOLDER = "Lead";
+export const UNKNOWN_FIRST_NAME_GREETING = "there";
+
+export function withGreetingName(contact: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!contact) return contact;
+  const raw = typeof contact.first_name === "string" ? contact.first_name.trim() : "";
+  if (raw && raw !== UNKNOWN_FIRST_NAME_PLACEHOLDER) return contact;
+  return { ...contact, first_name: UNKNOWN_FIRST_NAME_GREETING };
+}
+
+/**
  * Load the contact / company / booking (+ quote when in scope) behind an event, so a
  * message template can reference `{{ contact.first_name }}`, `{{ booking.scheduled_for | date }}`,
  * `{{ company.booking_url }}`, etc. Missing entities resolve to null → their tokens render
@@ -388,7 +403,7 @@ export async function buildMessageTemplateData(
   ]);
 
   return {
-    contact,
+    contact: withGreetingName(contact),
     company: company
       ? {
           ...company,

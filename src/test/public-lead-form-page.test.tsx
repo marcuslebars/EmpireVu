@@ -1,13 +1,16 @@
 /**
  * Hosted lead page (/f/:formKey): renders the company + catalog labels from the public
- * GET, credits the platform from the single POWERED_BY_NAME constant, hides the header in
+ * GET, credits the platform from the central platform brand, hides the header in
  * embed mode, and submits to the public endpoint with phone-or-email + consent.
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import PublicLeadFormPage, { POWERED_BY_NAME } from "@/screens/PublicLeadFormPage";
+import PublicLeadFormPage from "@/screens/PublicLeadFormPage";
+import { platformBrand } from "@/lib/platform-brand";
+
+const POWERED_BY_NAME = platformBrand.name;
 
 const KEY = `evpk_${"c".repeat(48)}`;
 const config = {

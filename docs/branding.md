@@ -18,9 +18,10 @@ Rebranding again is an env change and a redeploy, not a find-and-replace.
 
 Customer-facing surfaces intentionally carry **no platform name at all** — no "Powered by"
 footer (`src/test/quote-branding.test.ts` guards this for quotes). `PlatformBrand.poweredBy`
-exists for a future opt-in, but nothing renders it today. The one leak left is the SPA's
-static `<title>` on `/book/:companyId` before the page renders (the quote page already
-overrides it with the company name) — see "Not done" below.
+exists for a future opt-in. The hosted lead form (`/f/:key`) shows a small "Powered by
+{platform name}" footer read from `platformBrand.name`. Customer pages set the browser tab
+title to the client's business (`useDocumentTitle` in `src/lib/use-document-title.ts`):
+"Book with {company}", "{company} — Get a quote", and the quote page's own title.
 
 ## The module
 
@@ -126,7 +127,6 @@ unchanged. Making the app chrome lime is a separate design task (swap `--primary
 | Waitlist operator email/Slack (`services/waitlist/notify.ts`) | Operator-only notification for the empirevu.com marketing waitlist. |
 | `EmpireVu Demo` org from `npm run job:seed-demo` | Internal store-review/demo fixture. |
 | Default hosts (`api.empirevu.com` in Jobber redirect default, CORS defaults) | Infrastructure; domains change via env, not branding. |
-| `src/screens/onboarding/OnboardingWizard.tsx` (3 headings) | Owned by a parallel PR; allow-listed in the guard test with a TODO. Adopt `platformBrand.name` there. |
 
 ## Guard test
 
@@ -135,18 +135,23 @@ unchanged. Making the app chrome lime is a separate design task (swap `--primary
 digest, lead notify, receptionist health, workflow actions, push, quote emails),
 `mobile/src`, and both `index.html` files for the display spelling `EmpireVu` / `Empire Vu`
 in code (comments stripped; lowercase identifiers like `x-empirevu-key` are not matched).
-Add new owner-facing server modules to its `SCANNED` list. Keep `ALLOW` short.
+Add new owner-facing server modules to its `SCANNED` list. Keep `ALLOW` short (it is empty today).
 
 ## Not done / follow-ups
 
 - **Legal name**: `VITE_PLATFORM_LEGAL_NAME` defaults to "CrankLeads". Set the registered
   operating entity before relying on `/privacy`; have the policy reviewed (it is a draft).
 - **Support mailbox**: `hello@crankleads.com` is an assumed default — create it or set the env.
-- **Public booking page tab title** shows the platform name until a parallel PR sets it to
-  the company name (as `PublicQuotePage` already does).
 - **Mobile store listing + native display name** (`com.empirevu.app` stays).
 - **Email sender domain**: if owner mail should come from `@crankleads.com`, verify the
   domain in Resend and change `OUTBOUND_FROM_EMAIL` / `LEAD_FROM_EMAIL`.
 - **App domain** (`app.empirevu.com`): unchanged; moving owners to a CrankLeads domain is
   DNS + Supabase redirect URLs + `APP_BASE_URL` + `MOBILE_APP_ORIGINS` + Stripe/Retell
   webhook URLs — a separate cutover.
+
+## Other surfaces that read the brand
+
+- **Monthly scorecard** sender name + footer: `services/monthly-scorecard/platform-brand.ts`
+  delegates to `getPlatformBrand()`, so `PLATFORM_BRAND_NAME` rebrands it with everything else
+  (set it on the `monthly-scorecard` cron service too).
+- **Onboarding wizard** headings use `platformBrand.name`.
