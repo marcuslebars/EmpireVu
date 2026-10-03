@@ -276,3 +276,22 @@ CrankLeads includes a done-for-you setup service and EmpireVu runs its own billi
 CrankLeads Checkout Session sends `managed_payments: { enabled: false }`. To collect HST, turn on
 Stripe Tax in the Dashboard (register Ontario/Canada, set product tax codes) and set
 `STRIPE_AUTOMATIC_TAX=true` on [web].
+
+## Checkout branding
+
+CrankLeads sells through the EmpireVu Stripe account, so by default Stripe Checkout would show
+EmpireVu's name and logo. Every CrankLeads session sets `branding_settings` (display name
+"CrankLeads", the wordmark logo hosted at `https://crankleads.com/brand/crankleads-logo.png`
+from the crankleads-system repo's `public/brand/`, dark background, lime button, Inter). Only
+EmpireVu's own plan checkouts keep the account branding.
+
+Override with `CRANKLEADS_CHECKOUT_DISPLAY_NAME`, `CRANKLEADS_CHECKOUT_LOGO_URL` (https only),
+`CRANKLEADS_CHECKOUT_BACKGROUND_COLOR` / `CRANKLEADS_CHECKOUT_BUTTON_COLOR` (`#rrggbb` only)
+on the web service; invalid values fall back to the defaults.
+
+What per-session branding can't change: the account's **business name** still appears in
+Stripe's terms text, the emailed receipt, the customer portal, and the card **statement
+descriptor**. To make those say CrankLeads too, either set Stripe → Settings → Business →
+Public details (affects EmpireVu customers as well) or sell CrankLeads from its own Stripe
+account.
+
