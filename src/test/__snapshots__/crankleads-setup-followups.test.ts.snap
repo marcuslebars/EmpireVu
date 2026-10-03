@@ -1,0 +1,57 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`follow-up templates > live + operator templates (golden) 1`] = `
+"Hi Jane,
+
+🎉 You're live! Setup is done: missed callers get a text back in seconds, and website leads land in your inbox.
+
+Every new lead shows up in EmpireVu: https://app.empirevu.test
+
+No more setup reminders from us. Questions? Just reply to this email.
+
+— The CrankLeads team"
+`;
+
+exports[`follow-up templates > live + operator templates (golden) 2`] = `
+"CrankLeads buyer stuck: Jane's Roofing (Close) — 1 step left after 10 business days
+
+They got the day-1/3/5/10 reminders (email + text) and still haven't finished setup. A personal call usually fixes it.
+
+Owner: Jane Roofer <jane@roofco.example> (705) 555-0101
+Organization: org-1
+Provisioned: 2026-10-02T19:00:00Z
+
+Setup checklist:
+  [x] Add your prices
+  [ ] Turn on call forwarding
+
+Ops: https://app.empirevu.test/internal/ops"
+`;
+
+exports[`follow-up templates > reminder email (golden) 1`] = `
+"Hi Jane,
+
+Quick nudge: your system isn't catching leads yet because setup isn't finished.
+
+2 steps left:
+  1. Set call forwarding (dial **004*+17055550000# from your business phone)
+  2. Add your website form and send a test lead
+
+Do the next one now (one click): https://app.empirevu.test/onboarding?step=phone&org=org-1
+
+Questions? Just reply to this email.
+
+— The CrankLeads team
+
+Don't want these setup reminders? Stop them: https://app.empirevu.test/api/public/crankleads/setup-reminders?token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+`;
+
+exports[`follow-up templates > reminder email (golden) 2`] = `
+"<p>Hi Jane,</p>
+<p>Quick nudge: your system isn't catching leads yet because setup isn't finished.</p>
+<p><strong>2 steps left:</strong></p>
+<ol><li>Set call forwarding (dial **004*+17055550000# from your business phone)</li><li>Add your website form and send a test lead</li></ol>
+<p><a href="https://app.empirevu.test/onboarding?step=phone&amp;org=org-1" style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600">Turn on call forwarding</a></p>
+<p>Questions? Just reply to this email.</p><p>— The CrankLeads team</p>
+<p style="font-size:12px;color:#6b7280">Don't want these setup reminders? <a href="https://app.empirevu.test/api/public/crankleads/setup-reminders?token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">Stop them</a>.</p>"
+`;

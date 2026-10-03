@@ -266,7 +266,7 @@ describe("checkout.session.completed (CrankLeads) → provisioned account", () =
     const welcome = sendEmail.mock.calls.find(([m]) => m.to === BUYER)?.[0];
     expect(welcome?.subject).toBe("Your CrankLeads system is ready — finish setup (10 min)");
     expect(welcome?.body).toContain(
-      "https://app.empirevu.test/update-password?token_hash=hashed_tok_123&type=recovery&next=%2Fonboarding",
+      "https://app.empirevu.test/update-password?token_hash=hashed_tok_123&type=recovery&next=%2Fonboarding%3Fstep%3Dresume",
     );
     expect(welcome?.body).toContain(`https://app.empirevu.test/f/${formKey}`);
     expect(welcome?.body).toContain("Set your password and log in to EmpireVu");

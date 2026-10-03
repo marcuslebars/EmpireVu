@@ -38,3 +38,15 @@ Every outbound message is written to `message_log` (channel, direction, to/from,
 ## Missed-call text-back (catcher)
 
 A missed call caught by the [missed-call catcher](missed-call-catcher.md) is an inquiry: the caller phoned the business, so intake stamps **implied consent** (`implied_inquiry`) on the contact, exactly as for a Retell call or a web form. The `missed-call-text-back` recipe's message names the business (`{{company.name}} here`) and is the first SMS, so it carries `Reply STOP to opt out`. It is sent **from the company's own catcher number**, so a STOP reply lands on that number and opts the contact out of that company. A caller who opted out is never texted back on a later missed call (`checkConsent` at send time), a withheld caller ID is never texted, and a repeat call within `MISSED_CALL_TEXTBACK_WINDOW_MINUTES` doesn't trigger a second text.
+
+## CrankLeads setup reminders (owner, transactional)
+
+The setup follow-ups ([crankleads-purchase.md](crankleads-purchase.md#setup-follow-ups-automatic-chasing-until-the-buyer-is-live))
+message the **account owner who just bought the service**, about finishing that purchase's
+setup — transactional, not marketing, so (like `notify_owner`) they are not consent-checked.
+They still respect the owner: weekdays 09:00–18:00 company-local only (the one "you're live"
+confirmation: 08:00–21:00), at most one reminder a day, four reminders total, nothing after
+the account is live or the subscription is cancelled. Every text ends "Reply STOP to stop these
+texts" and is sent from the platform number (`TWILIO_FROM_NUMBER`), so Twilio's carrier-level
+STOP handling stops them without touching the company's own number; every email has a "stop
+these reminders" link (sets `crankleads_purchases.setup_reminders_stopped_at`).

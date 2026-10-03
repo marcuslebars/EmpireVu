@@ -1675,6 +1675,33 @@ export function fetchOnboardingProgress(orgId: string): Promise<OnboardingProgre
   return apiFetch(`/api/organizations/${orgId}/onboarding/progress`);
 }
 
+/** CrankLeads setup checklist (server: services/crankleads/setup-checklist.ts). */
+export interface SetupChecklistStep {
+  key: "services" | "phone" | "forwarding" | "test_call" | "payments" | "website" | "automations";
+  title: string;
+  action: string;
+  done: boolean;
+  wizardStep: string;
+  path: string;
+  deepLink: string;
+}
+export interface SetupChecklist {
+  organizationId: string;
+  companyId: string;
+  tier: "catch" | "close" | "front_desk";
+  phonePath: "missed_call_catcher" | "ai_receptionist";
+  steps: SetupChecklistStep[];
+  doneCount: number;
+  totalCount: number;
+  isLive: boolean;
+  nextStep: SetupChecklistStep | null;
+}
+
+/** null for orgs that aren't CrankLeads purchases. */
+export function fetchSetupChecklist(orgId: string): Promise<SetupChecklist | null> {
+  return apiFetch(`/api/organizations/${orgId}/setup-checklist`);
+}
+
 export function upsertOnboardingStep(
   orgId: string,
   input: { companyId: string; step: string; status?: string; data?: Record<string, unknown>; completed?: boolean; event?: "start" | "complete" | "error" },

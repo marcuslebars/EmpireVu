@@ -2604,6 +2604,7 @@ export interface Database {
           founding: boolean;
           id: string;
           last_error: string | null;
+          live_at: string | null;
           operator_notified_at: string | null;
           organization_id: string | null;
           owner_email: string;
@@ -2614,6 +2615,9 @@ export interface Database {
           provision_attempts: number;
           provisioned_at: string | null;
           provisioning_started_at: string | null;
+          setup_followups_exempt_at: string | null;
+          setup_reminders_stop_token: string | null;
+          setup_reminders_stopped_at: string | null;
           status: string;
           stripe_checkout_session_id: string | null;
           stripe_customer_id: string | null;
@@ -2634,6 +2638,7 @@ export interface Database {
           founding?: boolean;
           id?: string;
           last_error?: string | null;
+          live_at?: string | null;
           operator_notified_at?: string | null;
           organization_id?: string | null;
           owner_email: string;
@@ -2644,6 +2649,9 @@ export interface Database {
           provision_attempts?: number;
           provisioned_at?: string | null;
           provisioning_started_at?: string | null;
+          setup_followups_exempt_at?: string | null;
+          setup_reminders_stop_token?: string | null;
+          setup_reminders_stopped_at?: string | null;
           status?: string;
           stripe_checkout_session_id?: string | null;
           stripe_customer_id?: string | null;
@@ -2664,6 +2672,7 @@ export interface Database {
           founding?: boolean;
           id?: string;
           last_error?: string | null;
+          live_at?: string | null;
           operator_notified_at?: string | null;
           organization_id?: string | null;
           owner_email?: string;
@@ -2674,6 +2683,9 @@ export interface Database {
           provision_attempts?: number;
           provisioned_at?: string | null;
           provisioning_started_at?: string | null;
+          setup_followups_exempt_at?: string | null;
+          setup_reminders_stop_token?: string | null;
+          setup_reminders_stopped_at?: string | null;
           status?: string;
           stripe_checkout_session_id?: string | null;
           stripe_customer_id?: string | null;
@@ -2683,6 +2695,57 @@ export interface Database {
           utm?: Json;
           welcome_email_error?: string | null;
           welcome_email_sent_at?: string | null;
+        };
+        Relationships: [];
+      };
+      crankleads_setup_followups: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          detail: Json;
+          email_status: string | null;
+          id: string;
+          local_date: string;
+          next_step: string | null;
+          operator_status: string | null;
+          organization_id: string;
+          purchase_id: string;
+          sms_status: string | null;
+          stage: string;
+          steps_left: number | null;
+          updated_at: string;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          detail?: Json;
+          email_status?: string | null;
+          id?: string;
+          local_date: string;
+          next_step?: string | null;
+          operator_status?: string | null;
+          organization_id: string;
+          purchase_id: string;
+          sms_status?: string | null;
+          stage: string;
+          steps_left?: number | null;
+          updated_at?: string;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          detail?: Json;
+          email_status?: string | null;
+          id?: string;
+          local_date?: string;
+          next_step?: string | null;
+          operator_status?: string | null;
+          organization_id?: string;
+          purchase_id?: string;
+          sms_status?: string | null;
+          stage?: string;
+          steps_left?: number | null;
+          updated_at?: string;
         };
         Relationships: [];
       };

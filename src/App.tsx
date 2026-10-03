@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate, useLocation } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { OrgProvider } from "@/lib/org-context";
+import { rememberPostAuthPath } from "@/lib/public-routes";
 import { ErrorBoundary, GlobalErrorHandler } from "@/components/system/ErrorBoundary";
 import { ProtectedRoute, AuthRedirect } from "@/components/system/ProtectedRoute";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -547,9 +548,18 @@ function SignUpPageWrapper() {
 function OnboardingPageWrapper() {
   console.log("[OnboardingPageWrapper] Route matched: /onboarding");
   const { status, session } = useAuth();
-  // An existing account already has an organization — never show it the onboarding wizard,
-  // even if it lands here from a stale link or redirect.
-  if (status === "authenticated" && (session?.organizations?.length ?? 0) > 0) {
+  const location = useLocation();
+  // An explicit wizard deep link (`?step=…`, from a CrankLeads setup reminder, the welcome
+  // email or the dashboard's setup card) opens the wizard even for an account that has an org.
+  const explicitStep = new URLSearchParams(location.search).has("step");
+  if (status === "unauthenticated" && explicitStep) {
+    // Signed out: sign in first, then come straight back to this step.
+    rememberPostAuthPath(`${location.pathname}${location.search}`);
+    return <Navigate to="/signin" replace />;
+  }
+  // An existing account already has an organization — never show it the onboarding wizard
+  // from a stale link or redirect (no explicit step).
+  if (status === "authenticated" && (session?.organizations?.length ?? 0) > 0 && !explicitStep) {
     return <Navigate to="/" replace />;
   }
   return (

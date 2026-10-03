@@ -181,7 +181,7 @@ async function findProfileIdByEmail(admin: AdminClient, email: string): Promise<
   return (data as { id: string } | null)?.id ?? null;
 }
 
-interface AuthUserSummary {
+export interface AuthUserSummary {
   id: string;
   email_confirmed_at?: string | null;
   last_sign_in_at?: string | null;
@@ -199,7 +199,8 @@ async function findAuthUserByEmail(admin: AdminClient, email: string): Promise<A
   return null;
 }
 
-async function getAuthUser(admin: AdminClient, id: string): Promise<AuthUserSummary | null> {
+/** The auth user's confirmation / last sign-in stamps (also used by the setup follow-ups). */
+export async function getAuthUser(admin: AdminClient, id: string): Promise<AuthUserSummary | null> {
   const { data, error } = await admin.auth.admin.getUserById(id);
   if (error) throw new Error(`auth user ${id} lookup failed: ${error.message}`);
   const user = data?.user;
@@ -262,8 +263,18 @@ export async function ensureOwnerUser(admin: AdminClient, email: string, fullNam
   return user;
 }
 
-/** A one-time set-password link for a brand-new user (Supabase recovery link → /update-password). */
-export async function createSetPasswordUrl(admin: AdminClient, email: string): Promise<string> {
+/**
+ * Where the set-password page sends the owner next. `/onboarding` alone redirects an account
+ * that already has an org to the dashboard, so the wizard is opened explicitly (`step=resume`
+ * → the first unfinished step).
+ */
+export const DEFAULT_SET_PASSWORD_NEXT = "/onboarding?step=resume";
+
+/**
+ * A one-time set-password link for a brand-new user (Supabase recovery link → /update-password),
+ * landing on `next` (a same-origin path, e.g. a setup follow-up's wizard step) afterwards.
+ */
+export async function createSetPasswordUrl(admin: AdminClient, email: string, next: string = DEFAULT_SET_PASSWORD_NEXT): Promise<string> {
   const base = appUrl();
   const { data, error } = await admin.auth.admin.generateLink({
     type: "recovery",
@@ -276,7 +287,7 @@ export async function createSetPasswordUrl(admin: AdminClient, email: string): P
   }
   // token_hash flow (not the action_link): the SPA's Supabase client uses PKCE, so the page
   // verifies the hash itself with verifyOtp({ type: "recovery" }) — see UpdatePasswordPage.
-  const params = new URLSearchParams({ token_hash: hashed, type: "recovery", next: "/onboarding" });
+  const params = new URLSearchParams({ token_hash: hashed, type: "recovery", next });
   return `${base}/update-password?${params.toString()}`;
 }
 

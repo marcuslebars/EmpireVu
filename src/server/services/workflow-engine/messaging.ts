@@ -210,6 +210,13 @@ export interface DeliverMessageInput {
   fromName?: string | null;
   replyTo?: string | null;
   workflowRunId?: string | null;
+  /**
+   * SMS sender. "company" (default): the company's own Twilio number (catcher first), else
+   * TWILIO_FROM_NUMBER. "platform": always TWILIO_FROM_NUMBER — for platform messages to the
+   * owner (CrankLeads setup reminders), so a STOP reply to them can never block the company's
+   * own number from texting the owner its lead alerts.
+   */
+  smsFrom?: "company" | "platform";
 }
 
 export interface DeliverMessageResult {
@@ -265,7 +272,7 @@ export async function deliverMessage(input: DeliverMessageInput): Promise<Delive
   let providerRef: string | null = null;
   try {
     if (channel === "sms") {
-      const from = await resolveCompanySmsFrom(context, companyId);
+      const from = input.smsFrom === "platform" ? null : await resolveCompanySmsFrom(context, companyId);
       providerRef = (await sendSms(from ? { to: input.to, body, from } : { to: input.to, body })).sid;
     } else {
       providerRef = (

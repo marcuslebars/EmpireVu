@@ -64,3 +64,14 @@ describe("everything else still redirects", () => {
     expect(isPublicPath("/settings/privacy")).toBe(false);
   });
 });
+
+describe("post-sign-in deep link (setup reminders → wizard step)", () => {
+  it("remembers a same-origin path once and rejects off-site ones", async () => {
+    const { rememberPostAuthPath, takePostAuthPath } = await import("@/lib/public-routes");
+    rememberPostAuthPath("/onboarding?step=phone&org=org-1");
+    expect(takePostAuthPath()).toBe("/onboarding?step=phone&org=org-1");
+    expect(takePostAuthPath()).toBeNull();
+    rememberPostAuthPath("//evil.example/x");
+    expect(takePostAuthPath()).toBeNull();
+  });
+});
