@@ -2908,6 +2908,118 @@ export interface Database {
         };
         Relationships: [];
       };
+      support_requests: {
+        Row: {
+          context: Json;
+          created_at: string;
+          id: string;
+          organization_id: string;
+          profile_id: string | null;
+          question: string;
+          reason: string;
+          requester_email: string | null;
+          session_id: string | null;
+          status: string;
+          transcript: Json;
+        };
+        Insert: {
+          context?: Json;
+          created_at?: string;
+          id?: string;
+          organization_id: string;
+          profile_id?: string | null;
+          question: string;
+          reason?: string;
+          requester_email?: string | null;
+          session_id?: string | null;
+          status?: string;
+          transcript?: Json;
+        };
+        Update: {
+          context?: Json;
+          created_at?: string;
+          id?: string;
+          organization_id?: string;
+          profile_id?: string | null;
+          question?: string;
+          reason?: string;
+          requester_email?: string | null;
+          session_id?: string | null;
+          status?: string;
+          transcript?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "support_requests_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "support_requests_profile_id_fkey";
+            columns: ["profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      help_chat_events: {
+        Row: {
+          created_at: string;
+          event_type: string;
+          id: string;
+          metadata: Json;
+          organization_id: string;
+          profile_id: string | null;
+          session_id: string | null;
+          support_request_id: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          event_type: string;
+          id?: string;
+          metadata?: Json;
+          organization_id: string;
+          profile_id?: string | null;
+          session_id?: string | null;
+          support_request_id?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          event_type?: string;
+          id?: string;
+          metadata?: Json;
+          organization_id?: string;
+          profile_id?: string | null;
+          session_id?: string | null;
+          support_request_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "help_chat_events_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "help_chat_events_profile_id_fkey";
+            columns: ["profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "help_chat_events_support_request_id_fkey";
+            columns: ["support_request_id"];
+            isOneToOne: false;
+            referencedRelation: "support_requests";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: {
       revenue_attribution_v: {

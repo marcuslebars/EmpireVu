@@ -8,6 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ForwardingTestPanel } from "@/components/onboarding/ForwardingTestPanel";
 import { PhoneModeStep } from "@/components/onboarding/PhoneModeStep";
+import { HelpButton } from "@/components/help/HelpPanel";
 import { useOrg } from "@/lib/org-context";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "@/components/ui/sonner";
@@ -619,9 +620,12 @@ export default function OnboardingWizard() {
             <h1 className="text-2xl font-bold tracking-tight text-foreground">Set up EmpireVu</h1>
             <p className="text-sm text-muted-foreground mt-0.5">A working Marina number + website leads in about 20 minutes.</p>
           </div>
-          {allComplete && (
-            <button className={primaryBtn} onClick={() => navigate("/")}>Go to dashboard <ArrowRight className="w-4 h-4" /></button>
-          )}
+          <div className="flex items-center gap-2">
+            <HelpButton />
+            {allComplete && (
+              <button className={primaryBtn} onClick={() => navigate("/")}>Go to dashboard <ArrowRight className="w-4 h-4" /></button>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-6">

@@ -23,6 +23,7 @@ import { useOrganizations, useCompanies, useDashboardActivity, useCreateOrganiza
 import { useAuth } from "@/lib/auth-context";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { QuickCallDialog } from "@/components/voice/QuickCallDialog";
+import { HelpButton } from "@/components/help/HelpPanel";
 
 const companyColors = [
   "hsl(215 100% 55%)",
@@ -591,6 +592,7 @@ export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
       <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
         <QuickCallButton />
         <QuickAddMenu />
+        <HelpButton />
         <NotificationsMenu />
         <UserMenu />
       </div>
