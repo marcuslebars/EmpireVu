@@ -127,7 +127,12 @@ export async function updateCustomerAccount(ctx: TenantServiceContext, accountId
 }
 
 /** Link a contact to an account (or unlink with null). */
-export async function setContactAccount(ctx: TenantServiceContext, contactId: string, accountId: string | null): Promise<void> {
+export async function setContactAccount(
+  ctx: TenantServiceContext,
+  contactId: string,
+  accountId: string | null,
+  opts: { fromAccountId?: string } = {},
+): Promise<void> {
   await assertContactInOrganization(ctx, contactId);
   if (accountId) {
     const { data } = await ctx.supabase
@@ -138,10 +143,13 @@ export async function setContactAccount(ctx: TenantServiceContext, contactId: st
       .maybeSingle();
     if (!data) throw new InvoiceValidationError("Business account not found.");
   }
-  const { error } = await ctx.supabase
+  let q = ctx.supabase
     .from("contacts")
     .update({ customer_account_id: accountId })
     .eq("organization_id", ctx.organizationId)
     .eq("id", contactId);
+  // Unlinking from a specific account only clears THAT link.
+  if (!accountId && opts.fromAccountId) q = q.eq("customer_account_id", opts.fromAccountId);
+  const { error } = await q;
   if (error) throw error;
 }

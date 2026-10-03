@@ -34,9 +34,26 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   return invoiceRoute(context.params.organizationId, async (ctx) => {
     const body = invoiceCreateSchema.parse(await request.json().catch(() => ({})));
+    // Rebuilt field by field: under the SPA's non-strict tsconfig zod infers every key
+    // as optional, which wouldn't satisfy the service's required fields.
     const invoice = await createInvoice(ctx, {
-      ...body,
-      lines: body.lines.map((l) => ({ label: l.label, description: l.description ?? null, quantity: l.quantity, unitPriceCents: l.unitPriceCents })),
+      companyId: body.companyId as string,
+      contactId: body.contactId,
+      customerAccountId: body.customerAccountId,
+      title: body.title,
+      lines: body.lines.map((l) => ({
+        label: l.label as string,
+        description: l.description ?? null,
+        quantity: l.quantity as number,
+        unitPriceCents: l.unitPriceCents as number,
+      })),
+      taxRateBps: body.taxRateBps,
+      creditCents: body.creditCents,
+      dueDate: body.dueDate,
+      paymentTermsDays: body.paymentTermsDays,
+      notes: body.notes,
+      internalNotes: body.internalNotes,
+      billToAddress: body.billToAddress,
     });
     return NextResponse.json({ data: invoice }, { status: 201 });
   });

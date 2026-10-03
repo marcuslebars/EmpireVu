@@ -16,7 +16,7 @@ const bodySchema = z.object({ contactId: z.string().uuid(), linked: z.boolean().
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   return invoiceRoute(context.params.organizationId, async (ctx) => {
     const { contactId, linked } = bodySchema.parse(await request.json().catch(() => ({})));
-    await setContactAccount(ctx, contactId, linked ? context.params.accountId : null);
+    await setContactAccount(ctx, contactId, linked ? context.params.accountId : null, { fromAccountId: context.params.accountId });
     return NextResponse.json({ data: { contactId, customerAccountId: linked ? context.params.accountId : null } });
   });
 }

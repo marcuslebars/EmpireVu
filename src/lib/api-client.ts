@@ -512,6 +512,8 @@ export interface ContactDetailResponse {
   contact: {
     company: CompanySummary | null;
     createdAt: string;
+    /** The business account this contact bills to, if any. */
+    customerAccountId: string | null;
     email: string | null;
     id: string;
     metadata: Record<string, unknown>;

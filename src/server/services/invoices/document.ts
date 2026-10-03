@@ -86,7 +86,7 @@ function readLines(raw: unknown): InvoiceLine[] {
 
 export function brandOfCompany(company: CompanyForInvoice | null): InvoiceBrand {
   return {
-    name: str(company?.brand_from_name) ?? str(company?.name) ?? "Invoice",
+    name: str(company?.brand_from_name) ?? str(company?.name) ?? "",
     logoUrl: str(company?.brand_logo_url),
     primaryColor: str(company?.brand_primary_color),
     accentColor: str(company?.brand_accent_color),

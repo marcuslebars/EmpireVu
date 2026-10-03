@@ -236,6 +236,8 @@ export interface ContactDetailResponse {
   contact: {
     company: CompanySummary | null;
     createdAt: string;
+    /** The business account this contact bills to (contacts.customer_account_id). */
+    customerAccountId: string | null;
     email: string | null;
     id: string;
     metadata: Record<string, Json>;
@@ -1966,6 +1968,7 @@ export async function getCRMContactDetailView(
     contact: {
       company: toCompanySummary(companiesMap.get(contact.company_id)),
       createdAt: contact.created_at,
+      customerAccountId: contact.customer_account_id ?? null,
       email: contact.email,
       id: contact.id,
       metadata: toJsonRecord(contact.metadata),

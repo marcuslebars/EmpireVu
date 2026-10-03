@@ -24,6 +24,6 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   return invoiceRoute(context.params.organizationId, async (ctx) => {
     const body = customerAccountSchema.parse(await request.json().catch(() => ({})));
-    return NextResponse.json({ data: await createCustomerAccount(ctx, body) }, { status: 201 });
+    return NextResponse.json({ data: await createCustomerAccount(ctx, { ...body, name: body.name as string }) }, { status: 201 });
   });
 }

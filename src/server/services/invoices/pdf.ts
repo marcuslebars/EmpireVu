@@ -46,9 +46,9 @@ export function pdfSafe(text: string | null | undefined): string {
     .replace(/[“”]/g, '"')
     .replace(/[–—]/g, "-")
     .replace(/…/g, "...")
-    .replace(/ /g, " ")
+    .replace(/\u00A0/g, " ")
     .replace(/\t/g, " ")
-    .replace(/[^\n\x20-\x7E¡-ÿ]/g, "?");
+    .replace(/[^\n\x20-\x7E\u00A1-\u00FF]/gu, "?");
 }
 
 class Layout {
@@ -234,7 +234,7 @@ function paymentSection(l: Layout, payment: InvoicePaymentOptions, doc: { public
   const blocks: Array<[string, string]> = [];
   if (payment.card || payment.bankDebit) {
     const how = [payment.card ? "card, Apple Pay or Google Pay" : null, payment.bankDebit ? "bank debit" : null].filter(Boolean).join(" or ");
-    blocks.push(["Pay online", `${how}: ${doc.publicUrl}`]);
+    blocks.push(["Pay online", `By ${how}: ${doc.publicUrl}`]);
   }
   if (payment.etransfer) {
     blocks.push([

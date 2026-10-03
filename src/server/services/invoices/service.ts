@@ -172,7 +172,9 @@ export async function createInvoice(ctx: TenantServiceContext, input: InvoiceWri
   const settings = parseInvoiceSettings(company.invoice_settings);
 
   const contactId = input.contactId ?? null;
-  const accountId = input.customerAccountId ?? (await accountOfContact(ctx, contactId));
+  // Explicit null = "bill the person, not their business"; undefined = use the contact's account.
+  const accountId =
+    input.customerAccountId !== undefined ? input.customerAccountId : await accountOfContact(ctx, contactId);
   if (!contactId && !accountId) {
     throw new InvoiceValidationError("Choose who the invoice is for — a contact or a business account.");
   }
@@ -250,12 +252,15 @@ export async function updateInvoice(ctx: TenantServiceContext, invoiceId: string
     input.taxRateBps ?? existing.tax_rate_bps,
     input.creditCents ?? existing.credit_cents,
   );
+  // Keep the current address only while the customer is unchanged; a new customer
+  // brings their own address (unless one is typed in for this invoice).
+  const sameCustomer = contactId === existing.contact_id && accountId === existing.customer_account_id;
   const currentBillTo = readBillTo(existing.bill_to);
   const billTo = await resolveBillTo(
     ctx.supabase,
     ctx.organizationId,
     { contactId, customerAccountId: accountId },
-    input.billToAddress !== undefined ? input.billToAddress : currentBillTo.address,
+    input.billToAddress !== undefined ? input.billToAddress : sameCustomer ? currentBillTo.address : null,
   );
 
   // A sent invoice's due date follows its terms if only the terms changed.

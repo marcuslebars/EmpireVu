@@ -22,7 +22,12 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
     const body = invoiceUpdateSchema.parse(await request.json().catch(() => ({})));
     const invoice = await updateInvoice(ctx, context.params.invoiceId, {
       ...body,
-      lines: body.lines?.map((l) => ({ label: l.label, description: l.description ?? null, quantity: l.quantity, unitPriceCents: l.unitPriceCents })),
+      lines: body.lines?.map((l) => ({
+        label: l.label as string,
+        description: l.description ?? null,
+        quantity: l.quantity as number,
+        unitPriceCents: l.unitPriceCents as number,
+      })),
     });
     return NextResponse.json({ data: invoice });
   });
