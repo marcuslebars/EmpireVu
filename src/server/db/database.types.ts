@@ -3020,6 +3020,51 @@ export interface Database {
           },
         ];
       };
+      operator_health_reports: {
+        Row: {
+          all_clear: boolean;
+          created_at: string;
+          error: string | null;
+          guarantee_at_risk: number;
+          id: string;
+          item_count: number;
+          report_date: string;
+          sent_at: string | null;
+          status: string;
+          subject: string | null;
+          summary: Json;
+          updated_at: string;
+        };
+        Insert: {
+          all_clear?: boolean;
+          created_at?: string;
+          error?: string | null;
+          guarantee_at_risk?: number;
+          id?: string;
+          item_count?: number;
+          report_date: string;
+          sent_at?: string | null;
+          status?: string;
+          subject?: string | null;
+          summary?: Json;
+          updated_at?: string;
+        };
+        Update: {
+          all_clear?: boolean;
+          created_at?: string;
+          error?: string | null;
+          guarantee_at_risk?: number;
+          id?: string;
+          item_count?: number;
+          report_date?: string;
+          sent_at?: string | null;
+          status?: string;
+          subject?: string | null;
+          summary?: Json;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       revenue_attribution_v: {

@@ -1,0 +1,80 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderOperatorHealthEmail > golden: full report (text + html) 1`] = `
+"CrankLeads health — Mon, Oct 5, 2026
+8 things need you · 3 critical · 2 guarantee at risk.
+
+== Provisioning failures (1) ==
+1. [CRITICAL] Harbour Electric (Catch)
+   What: Paid but the account was NOT created — provisioning failed (3 attempts): auth user create failed: email rate limit
+   How long: 5h since payment
+   Do: Fix the cause, then re-run: npm run job:crankleads-provision -- --session cs_test_abc123
+   Stripe customer: https://dashboard.stripe.com/customers/cus_fail
+
+== Call forwarding broken (1) ==
+1. [CRITICAL] Lakeside Roofing (Catch)
+   What: Missed calls to their business line are NOT reaching (705) 555-0000 — the last test call was not forwarded. It worked before.
+   How long: failing for 26h
+   Do: Call the owner: re-dial **004*7055550000# from the business phone, then press "Test my forwarding".
+   Owner's forwarding step: https://app.empirevu.test/onboarding?step=phone&org=org-fwd
+   Stripe customer: https://dashboard.stripe.com/customers/cus_fwd
+
+== Setup stalled (2) ==
+1. [CRITICAL] Late Start Cleaning (Catch)
+   What: Not live after 7 business days — setup 1/5 done, next: Add your prices. GUARANTEE AT RISK: 2 business days past the 5-business-day live deadline. The owner turned off the automatic reminders.
+   How long: 7 business days since provisioning
+   Do: Call Jordan Lee (+16475550199, jordan@latestart.test) and walk them through "Add your prices".
+   Owner's next-step link (send it to them): https://app.empirevu.test/onboarding?step=services&org=org-late
+
+2. [HIGH] Northside Plumbing (Close)
+   What: Not live after 5 business days — setup 2/6 done, next: Turn on call forwarding. GUARANTEE AT RISK: the 5-business-day live deadline is today.
+   How long: 5 business days since provisioning
+   Do: Call Pat Owner (+14165550101, pat@northside.test) and walk them through "Turn on call forwarding".
+   Owner's next-step link (send it to them): https://app.empirevu.test/onboarding?step=phone&org=org-setup
+   Stripe customer: https://dashboard.stripe.com/customers/cus_setup
+
+== Job queues (1) ==
+1. [HIGH] Inbound webhooks (calls, texts, Jobber)
+   What: 2 jobs dead-lettered in the last 24h.
+   How long: last 24h
+   Do: Check the worker (npm run worker:workflow-events) logs, then: select id, last_error from inbound_webhook_jobs where status in ('failed') order by updated_at desc limit 20;
+
+== Payment problems (1) ==
+1. [HIGH] Pine Ridge HVAC (Front Desk)
+   What: Payment failed — subscription past due; paid features turn off Fri, Oct 9.
+   How long: past due for 3 days
+   Do: Open the failed invoice in Stripe and ask the owner to update their card (Settings → Billing).
+   Stripe customer: https://dashboard.stripe.com/customers/cus_pay
+   Stripe subscription: https://dashboard.stripe.com/subscriptions/sub_pay
+
+== Open support requests (1) ==
+1. [MEDIUM] Maple Landscaping (Close)
+   What: Unanswered support request: "How do I change the text that goes out after a missed call?"
+   How long: open for 30h
+   Do: Reply to help@maple.test, then close it: update support_requests set status = 'closed' where id = 'sr-1';
+
+== Silent accounts (1) ==
+1. [LOW] Quiet Pools (Catch)
+   What: No new leads, missed calls or AI calls in 14 days (live since Sat, Sep 5). Forwarding or the website form may have broken — or they are drifting away.
+   How long: 14+ days quiet
+   Do: Check their forwarding test and website form, then check in with the owner (churn risk).
+   Stripe customer: https://dashboard.stripe.com/customers/cus_quiet
+
+--
+Sent daily after 07:30 America/Toronto only when something needs a human (plus a short all-clear on Mondays).
+Preview any time: npm run job:operator-health -- --dry-run
+Ops: https://app.empirevu.test/internal/ops"
+`;
+
+exports[`renderOperatorHealthEmail > golden: full report (text + html) 2`] = `"<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#101828;max-width:680px;line-height:1.45"><h1 style="font-size:18px;margin:0 0 4px 0">CrankLeads health — Mon, Oct 5, 2026</h1><p style="margin:0 0 16px 0;font-weight:600">8 things need you · 3 critical · 2 guarantee at risk.</p><h2 style="font-size:15px;margin:18px 0 8px 0;border-bottom:1px solid #eaecf0;padding-bottom:4px">Provisioning failures (1)</h2><ol style="padding-left:20px;margin:0"><li style="margin:0 0 14px 0"><div><span style="display:inline-block;padding:1px 6px;border-radius:4px;background:#b42318;color:#fff;font-size:11px;font-weight:700">CRITICAL</span> <strong>Harbour Electric (Catch)</strong></div><div style="margin-top:4px">Paid but the account was NOT created — provisioning failed (3 attempts): auth user create failed: email rate limit</div><div style="color:#475467;font-size:13px">How long: 5h since payment</div><div style="margin-top:4px"><strong>Do:</strong> <span style="font-family:ui-monospace,Menlo,monospace;font-size:13px">Fix the cause, then re-run: npm run job:crankleads-provision -- --session cs_test_abc123</span></div><div style="margin-top:4px;font-size:13px"><a href="https://dashboard.stripe.com/customers/cus_fail" style="color:#175cd3">Stripe customer</a></div></li></ol><h2 style="font-size:15px;margin:18px 0 8px 0;border-bottom:1px solid #eaecf0;padding-bottom:4px">Call forwarding broken (1)</h2><ol style="padding-left:20px;margin:0"><li style="margin:0 0 14px 0"><div><span style="display:inline-block;padding:1px 6px;border-radius:4px;background:#b42318;color:#fff;font-size:11px;font-weight:700">CRITICAL</span> <strong>Lakeside Roofing (Catch)</strong></div><div style="margin-top:4px">Missed calls to their business line are NOT reaching (705) 555-0000 — the last test call was not forwarded. It worked before.</div><div style="color:#475467;font-size:13px">How long: failing for 26h</div><div style="margin-top:4px"><strong>Do:</strong> <span style="font-family:ui-monospace,Menlo,monospace;font-size:13px">Call the owner: re-dial **004*7055550000# from the business phone, then press &quot;Test my forwarding&quot;.</span></div><div style="margin-top:4px;font-size:13px"><a href="https://app.empirevu.test/onboarding?step=phone&amp;org=org-fwd" style="color:#175cd3">Owner&#39;s forwarding step</a> · <a href="https://dashboard.stripe.com/customers/cus_fwd" style="color:#175cd3">Stripe customer</a></div></li></ol><h2 style="font-size:15px;margin:18px 0 8px 0;border-bottom:1px solid #eaecf0;padding-bottom:4px">Setup stalled (2)</h2><ol style="padding-left:20px;margin:0"><li style="margin:0 0 14px 0"><div><span style="display:inline-block;padding:1px 6px;border-radius:4px;background:#b42318;color:#fff;font-size:11px;font-weight:700">CRITICAL</span> <strong>Late Start Cleaning (Catch)</strong></div><div style="margin-top:4px">Not live after 7 business days — setup 1/5 done, next: Add your prices. GUARANTEE AT RISK: 2 business days past the 5-business-day live deadline. The owner turned off the automatic reminders.</div><div style="color:#475467;font-size:13px">How long: 7 business days since provisioning</div><div style="margin-top:4px"><strong>Do:</strong> <span style="font-family:ui-monospace,Menlo,monospace;font-size:13px">Call Jordan Lee (+16475550199, jordan@latestart.test) and walk them through &quot;Add your prices&quot;.</span></div><div style="margin-top:4px;font-size:13px"><a href="https://app.empirevu.test/onboarding?step=services&amp;org=org-late" style="color:#175cd3">Owner&#39;s next-step link (send it to them)</a></div></li><li style="margin:0 0 14px 0"><div><span style="display:inline-block;padding:1px 6px;border-radius:4px;background:#b54708;color:#fff;font-size:11px;font-weight:700">HIGH</span> <strong>Northside Plumbing (Close)</strong></div><div style="margin-top:4px">Not live after 5 business days — setup 2/6 done, next: Turn on call forwarding. GUARANTEE AT RISK: the 5-business-day live deadline is today.</div><div style="color:#475467;font-size:13px">How long: 5 business days since provisioning</div><div style="margin-top:4px"><strong>Do:</strong> <span style="font-family:ui-monospace,Menlo,monospace;font-size:13px">Call Pat Owner (+14165550101, pat@northside.test) and walk them through &quot;Turn on call forwarding&quot;.</span></div><div style="margin-top:4px;font-size:13px"><a href="https://app.empirevu.test/onboarding?step=phone&amp;org=org-setup" style="color:#175cd3">Owner&#39;s next-step link (send it to them)</a> · <a href="https://dashboard.stripe.com/customers/cus_setup" style="color:#175cd3">Stripe customer</a></div></li></ol><h2 style="font-size:15px;margin:18px 0 8px 0;border-bottom:1px solid #eaecf0;padding-bottom:4px">Job queues (1)</h2><ol style="padding-left:20px;margin:0"><li style="margin:0 0 14px 0"><div><span style="display:inline-block;padding:1px 6px;border-radius:4px;background:#b54708;color:#fff;font-size:11px;font-weight:700">HIGH</span> <strong>Inbound webhooks (calls, texts, Jobber)</strong></div><div style="margin-top:4px">2 jobs dead-lettered in the last 24h.</div><div style="color:#475467;font-size:13px">How long: last 24h</div><div style="margin-top:4px"><strong>Do:</strong> <span style="font-family:ui-monospace,Menlo,monospace;font-size:13px">Check the worker (npm run worker:workflow-events) logs, then: select id, last_error from inbound_webhook_jobs where status in (&#39;failed&#39;) order by updated_at desc limit 20;</span></div></li></ol><h2 style="font-size:15px;margin:18px 0 8px 0;border-bottom:1px solid #eaecf0;padding-bottom:4px">Payment problems (1)</h2><ol style="padding-left:20px;margin:0"><li style="margin:0 0 14px 0"><div><span style="display:inline-block;padding:1px 6px;border-radius:4px;background:#b54708;color:#fff;font-size:11px;font-weight:700">HIGH</span> <strong>Pine Ridge HVAC (Front Desk)</strong></div><div style="margin-top:4px">Payment failed — subscription past due; paid features turn off Fri, Oct 9.</div><div style="color:#475467;font-size:13px">How long: past due for 3 days</div><div style="margin-top:4px"><strong>Do:</strong> <span style="font-family:ui-monospace,Menlo,monospace;font-size:13px">Open the failed invoice in Stripe and ask the owner to update their card (Settings → Billing).</span></div><div style="margin-top:4px;font-size:13px"><a href="https://dashboard.stripe.com/customers/cus_pay" style="color:#175cd3">Stripe customer</a> · <a href="https://dashboard.stripe.com/subscriptions/sub_pay" style="color:#175cd3">Stripe subscription</a></div></li></ol><h2 style="font-size:15px;margin:18px 0 8px 0;border-bottom:1px solid #eaecf0;padding-bottom:4px">Open support requests (1)</h2><ol style="padding-left:20px;margin:0"><li style="margin:0 0 14px 0"><div><span style="display:inline-block;padding:1px 6px;border-radius:4px;background:#175cd3;color:#fff;font-size:11px;font-weight:700">MEDIUM</span> <strong>Maple Landscaping (Close)</strong></div><div style="margin-top:4px">Unanswered support request: &quot;How do I change the text that goes out after a missed call?&quot;</div><div style="color:#475467;font-size:13px">How long: open for 30h</div><div style="margin-top:4px"><strong>Do:</strong> <span style="font-family:ui-monospace,Menlo,monospace;font-size:13px">Reply to help@maple.test, then close it: update support_requests set status = &#39;closed&#39; where id = &#39;sr-1&#39;;</span></div></li></ol><h2 style="font-size:15px;margin:18px 0 8px 0;border-bottom:1px solid #eaecf0;padding-bottom:4px">Silent accounts (1)</h2><ol style="padding-left:20px;margin:0"><li style="margin:0 0 14px 0"><div><span style="display:inline-block;padding:1px 6px;border-radius:4px;background:#475467;color:#fff;font-size:11px;font-weight:700">LOW</span> <strong>Quiet Pools (Catch)</strong></div><div style="margin-top:4px">No new leads, missed calls or AI calls in 14 days (live since Sat, Sep 5). Forwarding or the website form may have broken — or they are drifting away.</div><div style="color:#475467;font-size:13px">How long: 14+ days quiet</div><div style="margin-top:4px"><strong>Do:</strong> <span style="font-family:ui-monospace,Menlo,monospace;font-size:13px">Check their forwarding test and website form, then check in with the owner (churn risk).</span></div><div style="margin-top:4px;font-size:13px"><a href="https://dashboard.stripe.com/customers/cus_quiet" style="color:#175cd3">Stripe customer</a></div></li></ol><p style="color:#667085;font-size:12px;border-top:1px solid #eaecf0;padding-top:10px;margin-top:20px">Sent daily after 07:30 America/Toronto only when something needs a human (plus a short all-clear on Mondays).<br>Preview any time: npm run job:operator-health -- --dry-run<br>Ops: https://app.empirevu.test/internal/ops</p></div>"`;
+
+exports[`renderOperatorHealthEmail > golden: weekly all clear 1`] = `
+"CrankLeads health — Mon, Oct 5, 2026
+
+All clear — nothing needs you today.
+Checked: setup progress (5-business-day guarantee), call forwarding, payments, provisioning, silent accounts, support requests, job queues.
+
+Sent daily after 07:30 America/Toronto only when something needs a human (plus a short all-clear on Mondays).
+Preview any time: npm run job:operator-health -- --dry-run
+Ops: https://app.empirevu.test/internal/ops"
+`;

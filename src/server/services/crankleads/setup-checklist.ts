@@ -2,7 +2,7 @@
  * CrankLeads setup checklist — "what does this buyer still have to do before the system
  * actually works?" One function, three callers: the setup follow-up job (reminders + live
  * detection), the dashboard "Setup: 3 of 5 done" card (GET /api/organizations/{orgId}/setup-checklist,
- * normal RLS auth), and (later) the operator daily health email.
+ * normal RLS auth), and the daily operator health email (services/operator-health/load.ts).
  *
  *   computeSetupChecklist(input)   — PURE: tier + facts → ordered required steps, done/not,
  *                                    deep link per step, isLive, nextStep.
