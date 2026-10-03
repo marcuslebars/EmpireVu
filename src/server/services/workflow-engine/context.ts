@@ -222,6 +222,27 @@ async function addQuoteAndCallFields(
   if (!quoteId && callId) quoteId = await quoteMadeOnCall(context, callId);
 
   fields.quote_id = quoteId;
+  // invoice.* events: which invoice, so {{ invoice.* }} and conditions can read it live.
+  const invoiceId = readIdField(metadata.invoiceId) ?? readIdField(metadata.invoice_id);
+  fields.invoice_id = invoiceId;
+  fields.invoice_status = null;
+  fields.invoice_balance_cents = null;
+  if (invoiceId) {
+    try {
+      const { data: inv } = await context.supabase
+        .from("invoices")
+        .select("status, balance_due_cents")
+        .eq("organization_id", context.organizationId)
+        .eq("id", invoiceId)
+        .maybeSingle();
+      if (inv) {
+        fields.invoice_status = inv.status;
+        fields.invoice_balance_cents = inv.balance_due_cents;
+      }
+    } catch (err) {
+      console.error("[workflow-context] invoice fields unavailable:", err instanceof Error ? err.message : err);
+    }
+  }
   fields.quote_status = null;
   fields.quote_deposit_paid = null;
   fields.quote_booked = null;
@@ -388,9 +409,11 @@ export async function buildMessageTemplateData(
     (typeof company?.timezone === "string" && company.timezone) || process.env.BUSINESS_TIMEZONE?.trim() || "America/Toronto";
 
   const quoteId = readIdField(eventContext.fields.quote_id);
+  const invoiceId = readIdField(eventContext.fields.invoice_id);
   const callId = readIdField(eventContext.fields.call_id);
-  const [quote, call] = await Promise.all([
+  const [quote, invoice, call] = await Promise.all([
     quoteId ? loadQuoteForTemplate(context, quoteId, { company, timeZone }) : Promise.resolve(null),
+    invoiceId ? loadInvoiceForTemplate(context, invoiceId, company) : Promise.resolve(null),
     callId
       ? loadCallForTemplate(context.supabase, context.organizationId, callId, {
           agentName: await agentNameFor(context, companyId),
@@ -414,6 +437,7 @@ export async function buildMessageTemplateData(
       : null,
     booking: booking ? withWindowLabels(booking, company, timeZone) : null,
     quote,
+    invoice,
     call: call as Record<string, unknown> | null,
     fields: eventContext.fields as Record<string, unknown>,
   };
@@ -490,6 +514,43 @@ async function loadQuoteForTemplate(
     booked_when: bookedWhen,
     paid_via: paidVia,
   };
+}
+
+/**
+ * `{{ invoice.* }}`: the invoice row plus what a text needs —
+ *   invoice.number, invoice.total / invoice.balance ("$1,234.56"), invoice.due ("October 30, 2026"),
+ *   invoice.public_url (the hosted pay page, on the brand's domain).
+ */
+async function loadInvoiceForTemplate(
+  context: TenantServiceContext,
+  invoiceId: string,
+  company: Record<string, unknown> | null,
+): Promise<Record<string, unknown> | null> {
+  const { data } = await context.supabase
+    .from("invoices")
+    .select("*")
+    .eq("organization_id", context.organizationId)
+    .eq("id", invoiceId)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    ...data,
+    number: data.invoice_number ?? null,
+    total: formatDollars(data.total_cents),
+    balance: formatDollars(data.balance_due_cents),
+    due: calendarDateLabel(data.due_date),
+    // Same origin rule as the quote link (invoices/common.ts invoicePublicUrl) — inlined to
+    // keep the workflow engine free of an import cycle through the invoice services.
+    public_url: `${quotePublicBaseUrlFor(company)}/i/${data.public_token}`,
+  };
+}
+
+/** "October 30, 2026" from a YYYY-MM-DD calendar date (no time-zone shift). */
+function calendarDateLabel(ymd: string | null): string | null {
+  if (!ymd) return null;
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!y || !m || !d) return ymd;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-CA", { timeZone: "UTC", year: "numeric", month: "long", day: "numeric" });
 }
 
 /** booking.window ("morning") and booking.when ("Tuesday, September 29th in the morning"). */

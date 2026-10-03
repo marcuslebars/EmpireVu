@@ -17,13 +17,15 @@ export interface MessageTemplateData {
   company: Record<string, unknown> | null;
   booking: Record<string, unknown> | null;
   quote: Record<string, unknown> | null;
+  /** The invoice behind an invoice.* event: number, total, balance, due, public_url. */
+  invoice?: Record<string, unknown> | null;
   /** The Retell call behind a call.* event: summary, numbers, duration, owner_summary. */
   call?: Record<string, unknown> | null;
   /** Flat event fields — the fallback for bare tokens. */
   fields: Record<string, unknown>;
 }
 
-const ROOTS = new Set(["contact", "company", "booking", "quote", "call"]);
+const ROOTS = new Set(["contact", "company", "booking", "quote", "invoice", "call"]);
 // {{ path }} or {{ path | filter }} — path has no '|' or '}'.
 const TOKEN = /\{\{\s*([^}|]+?)\s*(?:\|\s*([a-zA-Z]+)\s*)?\}\}/g;
 
@@ -35,7 +37,7 @@ function resolvePath(path: string, data: MessageTemplateData): unknown {
   const parts = path.split(".");
   const root = parts[0];
   if (ROOTS.has(root)) {
-    let current: unknown = data[root as "contact" | "company" | "booking" | "quote" | "call"];
+    let current: unknown = data[root as "contact" | "company" | "booking" | "quote" | "invoice" | "call"];
     for (const segment of parts.slice(1)) {
       if (current == null || typeof current !== "object") return null;
       current = (current as Record<string, unknown>)[segment];

@@ -16,20 +16,35 @@
  * runs (a slow night plus the next night's start) cannot double-send or
  * double-expire.
  *
- * Inert unless STRIPE_QUOTES_ENABLED=1 — the cron service can be created and
- * scheduled before the feature is switched on, and will simply no-op.
+ * The quote sweeps are inert when STRIPE_QUOTES_ENABLED=0.
+ *
+ * 3. INVOICES  overdue invoices: fire invoice.overdue once, and send the brand's
+ *    reminder emails (1 / 7 / 14 days late by default). Runs whatever the quote
+ *    setting — invoices are their own feature.
  */
+import { sweepInvoiceReminders } from "@/server/services/invoices/reminders";
 import { getQuotesConfig } from "@/server/services/quotes/config";
 import { sweepExpiredQuotes, sweepExpiryReminders } from "@/server/services/quotes/expiry";
 
 async function main(): Promise<number> {
-  if (!getQuotesConfig().enabled) {
-    console.log("[quote-maintenance] STRIPE_QUOTES_ENABLED is not set — nothing to do.");
-    return 0;
-  }
-
   const now = new Date();
   let failures = 0;
+
+  try {
+    const inv = await sweepInvoiceReminders(now);
+    console.log(
+      `[quote-maintenance] invoices: scanned=${inv.scanned} overdue=${inv.flaggedOverdue.length} ` +
+        `reminded=${inv.reminded.length} failed=${inv.failed.length}`,
+    );
+  } catch (err) {
+    failures += 1;
+    console.error("[quote-maintenance] invoice sweep failed:", err instanceof Error ? err.message : err);
+  }
+
+  if (!getQuotesConfig().enabled) {
+    console.log("[quote-maintenance] STRIPE_QUOTES_ENABLED=0 — skipping the quote sweeps.");
+    return failures > 0 ? 1 : 0;
+  }
 
   // Each sweep is guarded separately: a reminder failure must not stop expiry
   // from running. Letting a stale quote stay approvable is the worse outcome.
