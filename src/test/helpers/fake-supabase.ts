@@ -3,7 +3,9 @@
  * surface the monthly scorecard uses (select / eq / in / gte / lt / lte / not-is-null / is /
  * order / range / limit / maybeSingle / single / insert / update / upsert / delete), unique
  * constraints (→ error code 23505), and records every query's filters so tests can assert
- * tenancy (every read filtered by organization_id + company_id).
+ * tenancy (every read filtered by organization_id + company_id). Also: JSON-path filter
+ * columns (`payload->data->object->>customer`), upsert `ignoreDuplicates` (upsert returns the
+ * written row), and `failNext(table, op)` to inject one error.
  */
 
 type Row = Record<string, unknown>;
@@ -20,6 +22,20 @@ export interface FakeDb {
   client: never;
   /** unique keys per table, e.g. { monthly_scorecard_sends: [["company_id","month"]] } */
   unique: Record<string, string[][]>;
+  /** Make the next `op` on `table` return this error (once). */
+  failNext(table: string, op: RecordedQuery["op"], error?: { message: string; code?: string }): void;
+}
+
+/** Read a column, following PostgREST JSON paths: `a->b->>c` (text) / `a->b` (json). */
+function readColumn(row: Row, column: string): unknown {
+  if (!column.includes("->")) return row[column];
+  const parts = column.split(/->>?/);
+  let value: unknown = row[parts[0]];
+  for (const key of parts.slice(1)) {
+    value = value && typeof value === "object" ? (value as Row)[key] : undefined;
+  }
+  if (value === undefined || value === null) return null;
+  return column.includes("->>") && typeof value !== "string" ? String(value) : value;
 }
 
 let idCounter = 0;
@@ -28,6 +44,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
   const tables: Record<string, Row[]> = {};
   for (const [name, rows] of Object.entries(seed)) tables[name] = rows.map((row) => ({ ...row }));
   const queries: RecordedQuery[] = [];
+  const failures: Array<{ table: string; op: RecordedQuery["op"]; error: { message: string; code?: string } }> = [];
 
   function rowsOf(table: string): Row[] {
     if (!tables[table]) tables[table] = [];
@@ -46,6 +63,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
     const preds: Array<(row: Row) => boolean> = [];
     let payload: Row | Row[] | null = null;
     let upsertConflict: string[] = [];
+    let upsertIgnoreDuplicates = false;
     let rangeFrom = 0;
     let rangeTo = Number.POSITIVE_INFINITY;
     let wantRows = true;
@@ -62,6 +80,8 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
     }
 
     function execute(): { data: unknown; error: unknown; count?: number } {
+      const failure = failures.findIndex((f) => f.table === table && f.op === recorded.op);
+      if (failure >= 0) return { data: null, error: failures.splice(failure, 1)[0].error };
       switch (recorded.op) {
         case "insert": {
           const list = Array.isArray(payload) ? payload : [payload ?? {}];
@@ -76,9 +96,13 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
         case "upsert": {
           const row = payload as Row;
           const existing = rowsOf(table).find((r) => upsertConflict.every((col) => r[col] === row[col]));
-          if (existing) Object.assign(existing, row);
-          else rowsOf(table).push({ id: `id-${++idCounter}`, ...row });
-          return { data: null, error: null };
+          if (existing) {
+            if (!upsertIgnoreDuplicates) Object.assign(existing, row);
+            return { data: [{ ...existing }], error: null };
+          }
+          const created = { id: `id-${++idCounter}`, ...row };
+          rowsOf(table).push(created);
+          return { data: [{ ...created }], error: null };
         }
         case "update": {
           const hit = matches();
@@ -103,7 +127,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
         if (recorded.op !== "select") wantRows = true;
         return api;
       },
-      eq: (column: string, value: unknown) => filter("eq", column, value, (row) => row[column] === value),
+      eq: (column: string, value: unknown) => filter("eq", column, value, (row) => readColumn(row, column) === value),
       neq: (column: string, value: unknown) => filter("neq", column, value, (row) => row[column] !== value),
       in: (column: string, values: unknown[]) => filter("in", column, values, (row) => values.includes(row[column])),
       gte: (column: string, value: unknown) => filter("gte", column, value, (row) => row[column] != null && cmp(row[column], value) >= 0),
@@ -131,10 +155,11 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
         wantRows = false;
         return api;
       },
-      upsert: (row: Row, options?: { onConflict?: string }) => {
+      upsert: (row: Row, options?: { onConflict?: string; ignoreDuplicates?: boolean }) => {
         recorded.op = "upsert";
         payload = row;
-        upsertConflict = (options?.onConflict ?? "id").split(",");
+        upsertConflict = (options?.onConflict ?? "id").split(",").map((c) => c.trim());
+        upsertIgnoreDuplicates = options?.ignoreDuplicates ?? false;
         return api;
       },
       delete: () => {
@@ -164,5 +189,13 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
     rpc: () => Promise.resolve({ data: [], error: null }),
   };
 
-  return { tables, queries, unique, client: client as never };
+  return {
+    tables,
+    queries,
+    unique,
+    client: client as never,
+    failNext(table, op, error = { message: `injected ${op} failure on ${table}` }) {
+      failures.push({ table, op, error });
+    },
+  };
 }

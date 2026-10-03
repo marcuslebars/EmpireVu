@@ -4,9 +4,10 @@ import { Bot, Check, Copy, Loader2, PhoneForwarded, PhoneMissed } from "lucide-r
 
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
-import { useDashboardActivity } from "@/lib/api-hooks";
+import { useBilling, useDashboardActivity } from "@/lib/api-hooks";
 import { getMissedCallCatcher, provisionMissedCallCatcher } from "@/lib/api-client";
 import type { ForwardingInstructions } from "@/lib/carrier-forwarding";
+import { availablePhoneModes } from "@/lib/phone-modes";
 
 /**
  * Onboarding Phone step: choose how calls are handled.
@@ -40,7 +41,15 @@ function initialMode(stepData: Record<string, unknown>): PhoneMode | null {
 }
 
 export function PhoneModeStep({ orgId, companyId, stepData, onDone, aiStep }: PhoneModeStepProps) {
-  const [mode, setMode] = useState<PhoneMode | null>(() => initialMode(stepData));
+  const [chosen, setMode] = useState<PhoneMode | null>(() => initialMode(stepData));
+  const { data: billing } = useBilling(orgId);
+  // Optimistic while billing loads (the server is the real boundary).
+  const modes = availablePhoneModes({
+    crankleadsTier: billing?.organization?.crankleads_tier ?? null,
+    aiReceptionistAllowed: billing?.gating?.marina_reception ?? true,
+  });
+  const catcherOnly = !modes.includes("ai_receptionist");
+  const mode: PhoneMode | null = catcherOnly ? "missed_call_catcher" : chosen;
 
   const choice = (value: PhoneMode, title: string, blurb: string, Icon: typeof Bot) => (
     <button
@@ -61,8 +70,14 @@ export function PhoneModeStep({ orgId, companyId, stepData, onDone, aiStep }: Ph
 
   return (
     <div className="space-y-5">
+      {catcherOnly ? (
+        <p className="text-sm text-muted-foreground max-w-2xl">
+          Your plan includes the missed-call catcher. The AI receptionist comes with Front Desk — upgrade any time in
+          Settings → Billing.
+        </p>
+      ) : null}
       <div className="flex flex-col sm:flex-row gap-3 max-w-2xl">
-        {choice("ai_receptionist", "AI receptionist answers", "Marina picks up every call, books and quotes.", Bot)}
+        {catcherOnly ? null : choice("ai_receptionist", "AI receptionist answers", "Marina picks up every call, books and quotes.", Bot)}
         {choice(
           "missed_call_catcher",
           "Missed-call catcher (no AI)",

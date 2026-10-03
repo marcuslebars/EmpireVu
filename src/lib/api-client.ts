@@ -943,6 +943,8 @@ export interface BillingState {
     subscription_status: string;
     stripe_customer_id: string | null;
     trial_ends_at: string | null;
+    /** CrankLeads offer bought (catch | close | front_desk), null otherwise. */
+    crankleads_tier?: string | null;
   };
   subscription: {
     current_period_end: string | null;

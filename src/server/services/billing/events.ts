@@ -3,11 +3,19 @@ import type Stripe from "stripe";
 import type { Inserts, Tables, Updates } from "@/server/db/database.types";
 import { fromJson, toJson } from "@/server/db/json";
 import { isBillingPlan, type SubscriptionStatus } from "@/server/services/billing/config";
+import { billingRetryDelaySeconds, DeferBillingEventError } from "@/server/services/billing/defer";
 import { planForStripePriceId } from "@/server/services/billing/env";
 import {
   completeBillingEventJob,
   failBillingEventJob,
+  retryBillingEventJob,
 } from "@/server/services/billing/jobs";
+import { crankleadsTierForPriceId } from "@/server/services/crankleads/config";
+import {
+  crankleadsPurchasePendingFor,
+  handleCrankleadsCheckoutPaid,
+  isCrankleadsObject,
+} from "@/server/services/crankleads/provision";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -20,11 +28,20 @@ type StripeEventObject = Record<string, any>;
 /** Event types whose state transitions this processor applies. */
 const HANDLED_EVENT_TYPES = new Set<string>([
   "checkout.session.completed",
+  // Only acted on for CrankLeads purchases (delayed payment methods); a no-op otherwise.
+  "checkout.session.async_payment_succeeded",
   "invoice.paid",
   "invoice.payment_failed",
+  "customer.subscription.created",
   "customer.subscription.updated",
   "customer.subscription.deleted",
 ]);
+
+/** Options the worker passes through to the per-event handlers. */
+export interface ApplyBillingEventOptions {
+  /** This is the job's last automatic attempt (attempt_count >= max_attempts). */
+  finalAttempt?: boolean;
+}
 
 /**
  * A handled event referenced a Stripe customer we can't map to an organization.
@@ -202,6 +219,14 @@ async function requireOrg(
   const customerId = customerIdOf(object);
   const org = await resolveOrgByCustomer(supabase, customerId);
   if (!org) {
+    // A CrankLeads purchase whose org is still being provisioned (the subscription/invoice
+    // events can be processed before checkout.session.completed finishes): retry later
+    // instead of dead-lettering.
+    if (await crankleadsPurchasePendingFor(supabase, object)) {
+      throw new DeferBillingEventError(
+        `Stripe customer ${customerId ?? "(none)"} on ${eventType} belongs to a CrankLeads purchase still being provisioned.`,
+      );
+    }
     throw new UnresolvedCustomerError(customerId, eventType);
   }
   return org;
@@ -282,14 +307,21 @@ async function handlePaymentFailed(
 async function handleSubscriptionUpdated(
   supabase: AdminSupabaseClient,
   object: StripeEventObject,
+  eventType = "customer.subscription.updated",
 ): Promise<string> {
-  const org = await requireOrg(supabase, object, "customer.subscription.updated");
+  const org = await requireOrg(supabase, object, eventType);
 
   const priceId = object.items?.data?.[0]?.price?.id ?? null;
   const plan = planForStripePriceId(priceId) ?? org.plan;
   const status = mapStripeStatus(String(object.status ?? ""));
 
-  await updateOrganization(supabase, org.id, { plan, subscription_status: status });
+  const patch: Updates<"organizations"> = { plan, subscription_status: status };
+  // A CrankLeads tier change (e.g. Catch → Close in the portal) keeps the recorded tier in step.
+  const tier = crankleadsTierForPriceId(priceId);
+  if (tier) {
+    patch.crankleads_tier = tier;
+  }
+  await updateOrganization(supabase, org.id, patch);
 
   if (typeof object.id === "string") {
     await upsertSubscription(supabase, {
@@ -327,13 +359,50 @@ async function handleSubscriptionDeleted(
 }
 
 /**
+ * customer.subscription.created: the same transition as .updated when the org is known
+ * (or is a CrankLeads purchase still being provisioned — deferred). For an unknown,
+ * non-CrankLeads customer it stays the no-op it was before this event was handled.
+ */
+async function handleSubscriptionCreated(
+  supabase: AdminSupabaseClient,
+  object: StripeEventObject,
+): Promise<string | null> {
+  const org = await resolveOrgByCustomer(supabase, customerIdOf(object));
+  if (!org && !(await crankleadsPurchasePendingFor(supabase, object))) {
+    return null;
+  }
+  return handleSubscriptionUpdated(supabase, object, "customer.subscription.created");
+}
+
+/**
+ * A CrankLeads Checkout Session was paid: provision the owner login + org + company first
+ * (exactly once — crankleads/provision.ts), then apply the normal checkout transition to
+ * the new org. Null while the session is not paid yet.
+ */
+async function handleCrankleadsCheckout(
+  supabase: AdminSupabaseClient,
+  object: StripeEventObject,
+  options: ApplyBillingEventOptions,
+): Promise<string | null> {
+  const organizationId = await handleCrankleadsCheckoutPaid(supabase, object, {
+    finalAttempt: options.finalAttempt ?? false,
+  });
+  if (!organizationId) {
+    return null;
+  }
+  return handleCheckoutCompleted(supabase, object);
+}
+
+/**
  * Apply the state transition for one ledger event. Returns the resolved org id
  * (null for unhandled event types, which are acknowledged as a no-op). Throws
- * UnresolvedCustomerError when a handled event can't be mapped to an org.
+ * UnresolvedCustomerError when a handled event can't be mapped to an org, and
+ * DeferBillingEventError when it can't be mapped YET (CrankLeads provisioning).
  */
 export async function applyBillingEvent(
   supabase: AdminSupabaseClient,
   ledger: Tables<"billing_events">,
+  options: ApplyBillingEventOptions = {},
 ): Promise<{ organizationId: string | null }> {
   if (!HANDLED_EVENT_TYPES.has(ledger.type)) {
     return { organizationId: ledger.organization_id };
@@ -344,7 +413,17 @@ export async function applyBillingEvent(
 
   switch (ledger.type) {
     case "checkout.session.completed":
+      if (isCrankleadsObject(object)) {
+        return { organizationId: await handleCrankleadsCheckout(supabase, object, options) };
+      }
       return { organizationId: await handleCheckoutCompleted(supabase, object) };
+    case "checkout.session.async_payment_succeeded":
+      if (isCrankleadsObject(object)) {
+        return { organizationId: await handleCrankleadsCheckout(supabase, object, options) };
+      }
+      return { organizationId: ledger.organization_id };
+    case "customer.subscription.created":
+      return { organizationId: await handleSubscriptionCreated(supabase, object) };
     case "invoice.paid":
       return { organizationId: await handleInvoicePaid(supabase, object) };
     case "invoice.payment_failed":
@@ -406,11 +485,22 @@ export async function processBillingEventJob(
       return;
     }
 
-    const { organizationId } = await applyBillingEvent(supabase, ledger);
+    const finalAttempt = job.attempt_count >= job.max_attempts;
+    const { organizationId } = await applyBillingEvent(supabase, ledger, { finalAttempt });
     await markBillingEventProcessed(supabase, ledger.id, organizationId);
     await completeBillingEventJob(supabase, job.id);
   } catch (err) {
     const reason = err instanceof Error ? err.message : "Billing event processing failed.";
+    if (err instanceof DeferBillingEventError && job.attempt_count < job.max_attempts) {
+      // Not an error yet: re-queue with bounded backoff (attempts stay counted).
+      const delay = billingRetryDelaySeconds(job.attempt_count);
+      console.warn(
+        `[billing/processor] event ${ledger.stripe_event_id} (${ledger.type}) deferred ` +
+          `(attempt ${job.attempt_count}/${job.max_attempts}, retry in ${delay}s): ${reason}`,
+      );
+      await retryBillingEventJob(supabase, job.id, reason, delay);
+      return;
+    }
     if (err instanceof UnresolvedCustomerError) {
       console.error(
         `[billing/processor] UNRESOLVED customer for event ${ledger.stripe_event_id} (${ledger.type}); ` +
