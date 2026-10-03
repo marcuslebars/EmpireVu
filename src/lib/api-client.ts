@@ -43,7 +43,7 @@ export async function apiAuthHeaders(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(resolveApiUrl(path), {
     ...init,
     headers: {
@@ -512,6 +512,8 @@ export interface ContactDetailResponse {
   contact: {
     company: CompanySummary | null;
     createdAt: string;
+    /** The business account this contact bills to, if any. */
+    customerAccountId: string | null;
     email: string | null;
     id: string;
     metadata: Record<string, unknown>;

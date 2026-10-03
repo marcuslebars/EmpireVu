@@ -17,6 +17,13 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 
+import {
+  handleInvoiceAsyncPayment,
+  handleInvoiceChargeRefunded,
+  handleInvoiceCheckoutCompleted,
+  handleInvoicePaymentIntentFailed,
+  type WebhookOutcome,
+} from "@/server/services/invoices/public";
 import { handleDepositCheckoutCompleted } from "@/server/services/quotes/checkout";
 import { getQuotesConfig } from "@/server/services/quotes/config";
 import { getPlatformStripe } from "@/server/services/quotes/company-stripe";
@@ -75,8 +82,13 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
 
       case "checkout.session.completed": {
-        if (!getQuotesConfig().enabled) break;
         const session = event.data.object as Stripe.Checkout.Session;
+        // Invoice payments (card: paid now; bank debit: processing → pending row).
+        if (session.metadata?.invoice_id) {
+          logInvoice(event, accountId, await handleInvoiceCheckoutCompleted(session, event.id, accountId));
+          break;
+        }
+        if (!getQuotesConfig().enabled) break;
         if (!session.metadata?.quote_id) break;
 
         const result = await handleDepositCheckoutCompleted(session, event.id, accountId);
@@ -84,6 +96,34 @@ export async function POST(request: Request): Promise<NextResponse> {
           `[connect/webhook] ${event.id} account=${accountId} quote=${result.quoteId} ` +
             `outcome=${result.outcome}${result.reason ? ` reason=${result.reason}` : ""}`,
         );
+        break;
+      }
+
+      // A Canadian pre-authorized debit cleared (or bounced) days after checkout.
+      // The Connect endpoint must be subscribed to these two events in Stripe.
+      case "checkout.session.async_payment_succeeded":
+      case "checkout.session.async_payment_failed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (!session.metadata?.invoice_id) break;
+        const result = event.type === "checkout.session.async_payment_succeeded" ? "succeeded" : "failed";
+        logInvoice(event, accountId, await handleInvoiceAsyncPayment(session, event.id, accountId, result));
+        break;
+      }
+
+      // A refund issued in the brand's Stripe dashboard against an invoice payment.
+      case "charge.refunded": {
+        const charge = event.data.object as Stripe.Charge;
+        logInvoice(event, accountId, await handleInvoiceChargeRefunded(charge, event.id, accountId));
+        break;
+      }
+
+      // A bank debit whose PaymentIntent failed or was cancelled (e.g. microdeposit
+      // verification never completed) — frees the balance to be paid again.
+      case "payment_intent.payment_failed":
+      case "payment_intent.canceled": {
+        const intent = event.data.object as Stripe.PaymentIntent;
+        if (!intent.metadata?.invoice_id) break;
+        logInvoice(event, accountId, await handleInvoicePaymentIntentFailed(intent, event.id, accountId));
         break;
       }
 
@@ -101,4 +141,11 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
     return NextResponse.json({ error: "Could not handle the event." }, { status: 500 });
   }
+}
+
+function logInvoice(event: Stripe.Event, accountId: string, result: WebhookOutcome): void {
+  console.log(
+    `[connect/webhook] ${event.id} (${event.type}) account=${accountId} invoice=${result.invoiceId} ` +
+      `outcome=${result.outcome}${result.reason ? ` reason=${result.reason}` : ""}`,
+  );
 }

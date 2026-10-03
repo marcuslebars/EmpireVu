@@ -155,6 +155,9 @@ export interface Database {
       };
       companies: {
         Row: {
+          tax_registration_number: string | null;
+          business_address: string | null;
+          invoice_settings: Json;
           brand_accent_color: string | null;
           brand_from_name: string | null;
           brand_logo_url: string | null;
@@ -197,6 +200,9 @@ export interface Database {
           monthly_scorecard: Json | null;
         };
         Insert: {
+          tax_registration_number?: string | null;
+          business_address?: string | null;
+          invoice_settings?: Json;
           brand_accent_color?: string | null;
           brand_from_name?: string | null;
           brand_logo_url?: string | null;
@@ -239,6 +245,9 @@ export interface Database {
           monthly_scorecard?: Json | null;
         };
         Update: {
+          tax_registration_number?: string | null;
+          business_address?: string | null;
+          invoice_settings?: Json;
           brand_accent_color?: string | null;
           brand_from_name?: string | null;
           brand_logo_url?: string | null;
@@ -468,6 +477,7 @@ export interface Database {
       };
       contacts: {
         Row: {
+          customer_account_id: string | null;
           company_id: string;
           created_at: string;
           email: string | null;
@@ -491,6 +501,7 @@ export interface Database {
           updated_at: string;
         };
         Insert: {
+          customer_account_id?: string | null;
           company_id: string;
           created_at?: string;
           email?: string | null;
@@ -510,6 +521,7 @@ export interface Database {
           updated_at?: string;
         };
         Update: {
+          customer_account_id?: string | null;
           company_id?: string;
           created_at?: string;
           email?: string | null;
@@ -3065,6 +3077,288 @@ export interface Database {
         };
         Relationships: [];
       };
+      customer_accounts: {
+        Row: {
+          id: string;
+          organization_id: string;
+          name: string;
+          billing_email: string | null;
+          billing_phone: string | null;
+          billing_address: string | null;
+          tax_number: string | null;
+          payment_terms_days: number | null;
+          notes: string | null;
+          archived_at: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          name: string;
+          billing_email?: string | null;
+          billing_phone?: string | null;
+          billing_address?: string | null;
+          tax_number?: string | null;
+          payment_terms_days?: number | null;
+          notes?: string | null;
+          archived_at?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          name?: string;
+          billing_email?: string | null;
+          billing_phone?: string | null;
+          billing_address?: string | null;
+          tax_number?: string | null;
+          payment_terms_days?: number | null;
+          notes?: string | null;
+          archived_at?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      invoices: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          contact_id: string | null;
+          customer_account_id: string | null;
+          quote_id: string | null;
+          booking_id: string | null;
+          invoice_number: string | null;
+          public_token: string;
+          status: string;
+          currency: string;
+          title: string | null;
+          line_items: Json;
+          subtotal_cents: number;
+          tax_rate_bps: number;
+          tax_cents: number;
+          total_cents: number;
+          credit_cents: number;
+          amount_paid_cents: number;
+          pending_payment_cents: number;
+          balance_due_cents: number;
+          issue_date: string | null;
+          due_date: string | null;
+          payment_terms_days: number;
+          bill_to: Json;
+          notes: string | null;
+          internal_notes: string | null;
+          sent_at: string | null;
+          first_viewed_at: string | null;
+          paid_at: string | null;
+          paid_notified_at: string | null;
+          voided_at: string | null;
+          void_reason: string | null;
+          last_reminder_at: string | null;
+          reminder_count: number;
+          stripe_checkout_session_id: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          contact_id?: string | null;
+          customer_account_id?: string | null;
+          quote_id?: string | null;
+          booking_id?: string | null;
+          invoice_number?: string | null;
+          public_token: string;
+          status?: string;
+          currency?: string;
+          title?: string | null;
+          line_items?: Json;
+          subtotal_cents?: number;
+          tax_rate_bps?: number;
+          tax_cents?: number;
+          total_cents?: number;
+          credit_cents?: number;
+          amount_paid_cents?: number;
+          pending_payment_cents?: number;
+          balance_due_cents?: number;
+          issue_date?: string | null;
+          due_date?: string | null;
+          payment_terms_days?: number;
+          bill_to?: Json;
+          notes?: string | null;
+          internal_notes?: string | null;
+          sent_at?: string | null;
+          first_viewed_at?: string | null;
+          paid_at?: string | null;
+          paid_notified_at?: string | null;
+          voided_at?: string | null;
+          void_reason?: string | null;
+          last_reminder_at?: string | null;
+          reminder_count?: number;
+          stripe_checkout_session_id?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          contact_id?: string | null;
+          customer_account_id?: string | null;
+          quote_id?: string | null;
+          booking_id?: string | null;
+          invoice_number?: string | null;
+          public_token?: string;
+          status?: string;
+          currency?: string;
+          title?: string | null;
+          line_items?: Json;
+          subtotal_cents?: number;
+          tax_rate_bps?: number;
+          tax_cents?: number;
+          total_cents?: number;
+          credit_cents?: number;
+          amount_paid_cents?: number;
+          pending_payment_cents?: number;
+          balance_due_cents?: number;
+          issue_date?: string | null;
+          due_date?: string | null;
+          payment_terms_days?: number;
+          bill_to?: Json;
+          notes?: string | null;
+          internal_notes?: string | null;
+          sent_at?: string | null;
+          first_viewed_at?: string | null;
+          paid_at?: string | null;
+          paid_notified_at?: string | null;
+          voided_at?: string | null;
+          void_reason?: string | null;
+          last_reminder_at?: string | null;
+          reminder_count?: number;
+          stripe_checkout_session_id?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      invoice_payments: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          invoice_id: string;
+          amount_cents: number;
+          method: string;
+          status: string;
+          reference: string | null;
+          received_at: string;
+          notes: string | null;
+          stripe_checkout_session_id: string | null;
+          stripe_payment_intent_id: string | null;
+          failure_reason: string | null;
+          recorded_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          invoice_id: string;
+          amount_cents: number;
+          method: string;
+          status?: string;
+          reference?: string | null;
+          received_at?: string;
+          notes?: string | null;
+          stripe_checkout_session_id?: string | null;
+          stripe_payment_intent_id?: string | null;
+          failure_reason?: string | null;
+          recorded_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          invoice_id?: string;
+          amount_cents?: number;
+          method?: string;
+          status?: string;
+          reference?: string | null;
+          received_at?: string;
+          notes?: string | null;
+          stripe_checkout_session_id?: string | null;
+          stripe_payment_intent_id?: string | null;
+          failure_reason?: string | null;
+          recorded_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      invoice_events: {
+        Row: {
+          id: string;
+          organization_id: string;
+          invoice_id: string;
+          event_type: string;
+          actor_profile_id: string | null;
+          metadata: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          invoice_id: string;
+          event_type: string;
+          actor_profile_id?: string | null;
+          metadata?: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          invoice_id?: string;
+          event_type?: string;
+          actor_profile_id?: string | null;
+          metadata?: Json;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      invoice_number_counters: {
+        Row: {
+          company_id: string;
+          organization_id: string;
+          year: number;
+          last_number: number;
+        };
+        Insert: {
+          company_id: string;
+          organization_id: string;
+          year: number;
+          last_number?: number;
+        };
+        Update: {
+          company_id?: string;
+          organization_id?: string;
+          year?: number;
+          last_number?: number;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       revenue_attribution_v: {
@@ -3304,6 +3598,18 @@ export interface Database {
           p_organization_id: string;
         };
         Returns: string;
+      };
+      next_invoice_number: {
+        Args: {
+          p_company_id: string;
+        };
+        Returns: string;
+      };
+      refresh_invoice_balance: {
+        Args: {
+          p_invoice_id: string;
+        };
+        Returns: Database["public"]["Tables"]["invoices"]["Row"][];
       };
       record_billing_event: {
         Args: {

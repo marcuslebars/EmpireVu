@@ -15,6 +15,7 @@ import DeleteAccountPage from "@/screens/DeleteAccountPage";
 import PrivacyPolicyPage from "@/screens/PrivacyPolicyPage";
 import PublicBookingPage from "@/screens/PublicBookingPage";
 import PublicQuotePage from "@/screens/PublicQuotePage";
+import PublicInvoicePage from "@/screens/PublicInvoicePage";
 import PublicLeadFormPage from "@/screens/PublicLeadFormPage";
 import AcceptInvitePage from "@/screens/AcceptInvitePage";
 import CrankleadsWelcomePage from "@/screens/CrankleadsWelcomePage";
@@ -30,6 +31,8 @@ import CalendarPage from "./screens/CalendarPage";
 import TasksPage from "./screens/TasksPage";
 import CRMPage from "./screens/CRMPage";
 import QuotesPage from "./screens/QuotesPage";
+import InvoicesPage from "./screens/InvoicesPage";
+import CustomerAccountsPage from "./screens/CustomerAccountsPage";
 import ContactDetailPage from "./screens/ContactDetailPage";
 import InboxPage from "./screens/InboxPage";
 import AutomationsPage from "./screens/AutomationsPage";
@@ -312,6 +315,8 @@ function AppRoutes() {
       <Route path="/book/:companyId" element={<PublicBookingPage />} />
       {/* Customer-facing quote. Public + unauthenticated: the token is the credential. */}
       <Route path="/q/:token" element={<PublicQuotePage />} />
+      {/* Customer-facing invoice + pay page. Public + unauthenticated: the token is the credential. */}
+      <Route path="/i/:token" element={<PublicInvoicePage />} />
       {/* Hosted website lead form (and the /embed/v1.js iframe). Public: the publishable form key is the credential. */}
       <Route path="/f/:formKey" element={<PublicLeadFormPage />} />
       {/* Team invitation. Public: the token is the credential; the page prompts sign-in if needed. */}
@@ -340,6 +345,22 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <QuotesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/invoices"
+          element={
+            <ProtectedRoute>
+              <InvoicesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/accounts"
+          element={
+            <ProtectedRoute>
+              <CustomerAccountsPage />
             </ProtectedRoute>
           }
         />

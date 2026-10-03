@@ -547,6 +547,10 @@ const triggerLabel: Record<string, string> = {
   "quote.approved": "Quote approved",
   "quote.expiring": "Quote expiring",
   "quote.deposit_paid": "Deposit paid",
+  "invoice.sent": "Invoice sent",
+  "invoice.paid": "Invoice paid",
+  "invoice.overdue": "Invoice overdue",
+  "invoice.payment_failed": "Invoice payment failed",
   "schedule.daily": "Every day (scheduled)",
 };
 
@@ -973,6 +977,10 @@ const WORKFLOW_TRIGGERS = [
   { value: "quote.approved", label: "Quote approved" },
   { value: "quote.expiring", label: "Quote expiring" },
   { value: "quote.deposit_paid", label: "Deposit paid" },
+  { value: "invoice.sent", label: "Invoice sent" },
+  { value: "invoice.paid", label: "Invoice paid" },
+  { value: "invoice.overdue", label: "Invoice overdue" },
+  { value: "invoice.payment_failed", label: "Invoice payment failed" },
   { value: "schedule.daily", label: "Every day (scheduled)" },
 ];
 
@@ -996,6 +1004,10 @@ const TRIGGER_ENTITY: Record<string, "contact" | "booking" | "task"> = {
   "quote.approved": "contact",
   "quote.expiring": "contact",
   "quote.deposit_paid": "contact",
+  "invoice.sent": "contact",
+  "invoice.paid": "contact",
+  "invoice.overdue": "contact",
+  "invoice.payment_failed": "contact",
   "schedule.daily": "contact",
 };
 

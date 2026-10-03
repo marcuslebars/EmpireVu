@@ -11,6 +11,7 @@
  * plain "not enabled" notice rather than an error.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import {
   ApiError,
@@ -23,11 +24,17 @@ import {
   type QuoteWritePayload,
 } from "@/lib/api-client";
 import { useOrgId } from "@/lib/org-context";
+import { toast } from "@/components/ui/sonner";
+import { useCreateInvoiceFromQuote } from "@/lib/invoice-hooks";
+import { existingInvoiceIdFrom } from "@/lib/invoices-api";
 
 const money = (cents: number, currency = "CAD") =>
   new Intl.NumberFormat("en-CA", { style: "currency", currency }).format(cents / 100);
 
 /** A worked starting point: required storage lines, one optional, one Care line. */
+/** Quote statuses that can be turned into an invoice. */
+const INVOICEABLE_STATUSES = ["approved", "deposit_paid", "completed", "sent", "viewed"];
+
 const TEMPLATE: QuoteWritePayload = {
   title: "Winter storage 2026/27",
   introMessage: "",
@@ -58,6 +65,28 @@ export default function QuotesPage() {
    * payment the fix is a refund.
    */
   const [view, setView] = useState<"all" | "review">("all");
+  const navigate = useNavigate();
+  const convertToInvoice = useCreateInvoiceFromQuote(orgId);
+  const [invoicingId, setInvoicingId] = useState<string | null>(null);
+
+  async function createInvoice(q: QuoteSummary) {
+    setInvoicingId(q.id);
+    try {
+      const invoice = await convertToInvoice.mutateAsync(q.id);
+      toast.success("Draft invoice created");
+      navigate(`/invoices?open=${invoice.id}`);
+    } catch (err) {
+      const existingId = existingInvoiceIdFrom(err);
+      if (existingId) {
+        toast.info("Already invoiced — opening it");
+        navigate(`/invoices?open=${existingId}`);
+      } else {
+        toast.error(err instanceof Error ? err.message : "Couldn't create the invoice.");
+      }
+    } finally {
+      setInvoicingId(null);
+    }
+  }
 
   const load = useCallback(async () => {
     if (!orgId) return;
@@ -272,6 +301,16 @@ export default function QuotesPage() {
                     <a className="underline" href={`/q/${q.public_token}`} target="_blank" rel="noreferrer">
                       Customer view
                     </a>
+                  )}
+                  {INVOICEABLE_STATUSES.includes(q.status) && (
+                    <button
+                      type="button"
+                      className="underline disabled:opacity-50"
+                      disabled={invoicingId !== null}
+                      onClick={() => void createInvoice(q)}
+                    >
+                      {invoicingId === q.id ? "Creating invoice…" : "Create invoice"}
+                    </button>
                   )}
                   {!["cancelled", "deposit_paid", "completed"].includes(q.status) && (
                     <button

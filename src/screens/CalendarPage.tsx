@@ -29,6 +29,7 @@ import {
   ChevronRight as ChevronRightIcon,
   Loader2,
   MessageSquare,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
@@ -48,6 +49,8 @@ import { startOfWeek, endOfWeek, addWeeks, subWeeks, format, parseISO, addDays, 
 import type { BookingCalendarRow, BookingDetailResponse } from "@/lib/api-client";
 import { toast } from "@/components/ui/sonner";
 import { Modal } from "@/components/ui/Modal";
+import { useCreateInvoiceFromBooking } from "@/lib/invoice-hooks";
+import { existingInvoiceIdFrom } from "@/lib/invoices-api";
 
 /* ── Company palette ── */
 const companyColors: Record<string, { bg: string; border: string; text: string; dot: string }> = {
@@ -172,6 +175,22 @@ function BookingDetailBody({
   const [isRescheduling, setIsRescheduling] = useState(false);
   const [newWhen, setNewWhen] = useState("");
   const [newDuration, setNewDuration] = useState(60);
+  const createInvoice = useCreateInvoiceFromBooking(organizationId);
+  const handleCreateInvoice = async (bookingId: string) => {
+    try {
+      const invoice = await createInvoice.mutateAsync(bookingId);
+      toast.success("Draft invoice created");
+      navigate(`/invoices?open=${invoice.id}`);
+    } catch (err) {
+      const existingId = existingInvoiceIdFrom(err);
+      if (existingId) {
+        toast.info("Already invoiced — opening it");
+        navigate(`/invoices?open=${existingId}`);
+      } else {
+        toast.error(err instanceof Error ? err.message : "Couldn't create the invoice.");
+      }
+    }
+  };
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -409,6 +428,16 @@ function BookingDetailBody({
             >
               {statusPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
               Mark Completed
+            </button>
+          )}
+          {detailData.booking.status !== "cancelled" && (
+            <button
+              onClick={() => void handleCreateInvoice(detailData.booking.id)}
+              disabled={createInvoice.isPending}
+              className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-secondary text-foreground hover:bg-surface-3 transition-all disabled:opacity-50"
+            >
+              {createInvoice.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+              Create invoice
             </button>
           )}
           <button

@@ -30,6 +30,14 @@ export interface SendEmailInput {
   fromName?: string;
   /** Per-message reply-to, so a customer replying reaches the brand. */
   replyTo?: string;
+  /** Files to attach (e.g. the invoice PDF). `content` is base64. */
+  attachments?: EmailAttachment[];
+}
+
+export interface EmailAttachment {
+  filename: string;
+  /** Base64-encoded file bytes. */
+  content: string;
 }
 
 export interface OutboundEmailConfig {
@@ -89,6 +97,9 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         ...(input.html ? { html: input.html } : {}),
         ...(input.replyTo || config.replyTo
           ? { reply_to: input.replyTo || config.replyTo }
+          : {}),
+        ...(input.attachments?.length
+          ? { attachments: input.attachments.map((a) => ({ filename: a.filename, content: a.content })) }
           : {}),
       }),
     });

@@ -39,7 +39,7 @@ export interface RenderedEmail {
   replyTo: string | null;
 }
 
-const DEFAULT_PRIMARY = "#1f2937";
+export const DEFAULT_PRIMARY = "#1f2937";
 
 /** Escape for HTML text/attribute context. Brand and customer text both flow in here. */
 export function esc(value: string | null | undefined): string {
@@ -56,7 +56,7 @@ export function money(cents: number, currency = "CAD"): string {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency }).format(cents / 100);
 }
 
-function longDate(iso: string | null): string | null {
+export function longDate(iso: string | null): string | null {
   if (!iso) return null;
   return new Date(iso).toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" });
 }
@@ -76,7 +76,7 @@ export function seasonalCapacityLine(now: Date): string | null {
 }
 
 /** Shared shell: brand header, body, brand footer. No platform marks anywhere. */
-function shell(brand: EmailBrand, bodyHtml: string): string {
+export function shell(brand: EmailBrand, bodyHtml: string): string {
   const primary = brand.primaryColor || DEFAULT_PRIMARY;
   const header = brand.logoUrl
     ? `<img src="${esc(brand.logoUrl)}" alt="${esc(brand.name)}" height="40" style="height:40px;width:auto;border:0;display:block" />`
@@ -109,14 +109,14 @@ function shell(brand: EmailBrand, bodyHtml: string): string {
 </body></html>`;
 }
 
-function button(url: string, label: string, primary: string): string {
+export function button(url: string, label: string, primary: string): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0">
 <tr><td style="border-radius:8px;background:${esc(primary)}">
 <a href="${esc(url)}" style="display:inline-block;padding:15px 28px;font-size:17px;font-weight:700;color:#ffffff;text-decoration:none">${esc(label)}</a>
 </td></tr></table>`;
 }
 
-function footerText(brand: EmailBrand): string {
+export function footerText(brand: EmailBrand): string {
   return [brand.name, brand.replyPhone, brand.replyEmail].filter(Boolean).join("\n");
 }
 

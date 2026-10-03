@@ -16,6 +16,7 @@ import { BookingsPanel, CreateBookingDialog } from "@/components/contact/Booking
 import { TasksPanel, CreateTaskDialog } from "@/components/contact/TasksPanel";
 import { QuotesPanel } from "@/components/contact/QuotesPanel";
 import { AiDraftPanel } from "@/components/contact/AiDraftPanel";
+import { AccountLinkControl } from "@/components/invoices/AccountLinkControl";
 
 // ─── Internal notes (small tab body — kept co-located) ────────────────────────
 
@@ -81,6 +82,13 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
   return (
     <div className="max-w-[1200px] mx-auto space-y-5">
       <Header orgId={orgId} detail={detail} onEdit={() => ctl.setEditOpen(true)} onTakeAction={() => ctl.setTaskOpen(true)} />
+
+      <AccountLinkControl
+        orgId={orgId}
+        contactId={contact.id}
+        contactName={contact.name}
+        customerAccountId={contact.customerAccountId ?? null}
+      />
 
       {/* Tabs */}
       <div className="opacity-0 animate-fade-in" style={{ animationDelay: "80ms" }}>
