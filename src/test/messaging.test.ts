@@ -19,6 +19,7 @@ import {
   STOP_FOOTER,
   type ConsentContact,
 } from "@/server/services/workflow-engine/messaging";
+import { createFakeDb } from "./helpers/fake-supabase";
 
 const NOW = Date.parse("2026-09-15T12:00:00Z");
 const daysAgo = (n: number) => new Date(NOW - n * 24 * 60 * 60 * 1000).toISOString();
@@ -101,19 +102,59 @@ describe("checkConsent", () => {
 });
 
 describe("resolveOwnerContacts", () => {
+  // org-1 = a tenant (not the house org); org-a1 = the house org (LEAD_INTAKE_ORG_SLUG default
+  // a1-group); org-int = an internal-plan org.
+  function db(memberships: Array<{ profile_id: string; role: string }> = []) {
+    return createFakeDb({
+      organizations: [
+        { id: "org-1", plan: "operate", slug: "maple-plumbing" },
+        { id: "org-a1", plan: "front_desk", slug: "a1-group" },
+        { id: "org-int", plan: "internal", slug: "crankleads-house" },
+      ],
+      organization_memberships: memberships.flatMap((m) => [
+        { organization_id: "org-1", ...m },
+        { organization_id: "org-a1", ...m },
+      ]),
+      profiles: [
+        { id: "p-owner", email: "owner@maple.test" },
+        { id: "p-admin", email: "admin@maple.test" },
+        { id: "p-member", email: "member@maple.test" },
+      ],
+    });
+  }
+  const ctx = (fake: ReturnType<typeof db>, organizationId: string) =>
+    ({ organizationId, actorProfileId: null, supabase: fake.client }) as never;
+
   it("prefers the company's owner fields", async () => {
     const { context } = fakeContext();
     const owner = await resolveOwnerContacts(context, { owner_email: "co@brand.test", owner_phone_e164: "+17055551212" });
     expect(owner).toEqual({ email: "co@brand.test", phone: "+17055551212" });
   });
-  it("falls back to OWNER_EMAIL, then the org owner profile", async () => {
-    vi.stubEnv("OWNER_EMAIL", "env-owner@org.test");
-    const { context } = fakeContext();
-    expect((await resolveOwnerContacts(context, null)).email).toBe("env-owner@org.test");
 
-    vi.unstubAllEnvs();
-    const fresh = fakeContext({ ownerEmail: "profile-owner@org.test" });
-    expect((await resolveOwnerContacts(fresh.context, null)).email).toBe("profile-owner@org.test");
+  it("never routes a TENANT org's owner mail to the platform OWNER_EMAIL", async () => {
+    vi.stubEnv("OWNER_EMAIL", "platform@crankleads.test");
+    const fake = db([{ profile_id: "p-admin", role: "admin" }, { profile_id: "p-owner", role: "owner" }, { profile_id: "p-member", role: "member" }]);
+    expect((await resolveOwnerContacts(ctx(fake, "org-1"), null)).email).toBe("owner@maple.test"); // owner before admin
+    const adminOnly = db([{ profile_id: "p-admin", role: "admin" }, { profile_id: "p-member", role: "member" }]);
+    expect((await resolveOwnerContacts(ctx(adminOnly, "org-1"), null)).email).toBe("admin@maple.test");
+    const nobody = db([{ profile_id: "p-member", role: "member" }]);
+    expect((await resolveOwnerContacts(ctx(nobody, "org-1"), null)).email).toBeNull();
+  });
+
+  it("keeps the house org (A1 / internal plan) on OWNER_EMAIL first, as before", async () => {
+    vi.stubEnv("OWNER_EMAIL", "env-owner@a1.test");
+    const fake = db([{ profile_id: "p-owner", role: "owner" }]);
+    expect((await resolveOwnerContacts(ctx(fake, "org-a1"), null)).email).toBe("env-owner@a1.test");
+    expect((await resolveOwnerContacts(ctx(fake, "org-int"), null)).email).toBe("env-owner@a1.test");
+    // Without OWNER_EMAIL the house org falls back to its owner profile.
+    vi.stubEnv("OWNER_EMAIL", "");
+    expect((await resolveOwnerContacts(ctx(fake, "org-a1"), null)).email).toBe("owner@maple.test");
+  });
+
+  it("skips OWNER_EMAIL entirely when the caller disallows the platform fallback", async () => {
+    vi.stubEnv("OWNER_EMAIL", "env-owner@a1.test");
+    const fake = db([{ profile_id: "p-owner", role: "owner" }]);
+    expect((await resolveOwnerContacts(ctx(fake, "org-a1"), null, { allowPlatformFallback: false })).email).toBe("owner@maple.test");
   });
 });
 

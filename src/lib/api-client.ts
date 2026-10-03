@@ -211,6 +211,102 @@ export function fetchAttribution(
   );
 }
 
+// ─── Monthly results scorecard ─────────────────────────────────────────────────
+// Mirrors src/server/services/monthly-scorecard/scorecard.ts (MonthlyScorecard / ScorecardView).
+
+export type ScorecardLeadSource = "web_form" | "phone_ai" | "missed_call" | "text" | "referral" | "other";
+
+export interface ScorecardMetrics {
+  leads: { total: number; bySource: Record<ScorecardLeadSource, number> };
+  missedCalls: { caught: number; textedBack: number };
+  messages: { sent: number; automated: number; sms: number; email: number };
+  automationsRun: number;
+  firstResponse: { medianSeconds: number | null; responded: number; within5Min: number };
+  quotes: {
+    sent: number;
+    approved: number;
+    approvedCents: number;
+    depositsCollected: number;
+    depositCents: number;
+    sentThenApproved: number;
+    currency: string;
+  };
+  jobsBooked: number;
+  jobsCompleted: number;
+  reviewsRequested: number;
+  receptionist: { callsHandled: number; minutes: number };
+  attributedRevenue: { approvedCents: number; paidCents: number };
+  recipeStatus: Record<string, string>;
+}
+
+export interface ScorecardMetricDelta {
+  current: number;
+  previous: number;
+  change: number;
+  pct: number | null;
+}
+
+export interface ScorecardSuggestion {
+  id: string;
+  title: string;
+  detail: string;
+  recipeSlug: string | null;
+}
+
+export interface MonthlyScorecard {
+  companyId: string;
+  companyName: string;
+  month: string;
+  monthLabel: string;
+  monthLabelLong: string;
+  timeZone: string;
+  range: { from: string; to: string };
+  partial: boolean;
+  firstMonth: boolean;
+  hasActivity: boolean;
+  metrics: ScorecardMetrics;
+  previous: ScorecardMetrics | null;
+  deltas: {
+    leads: ScorecardMetricDelta;
+    missedCallsCaught: ScorecardMetricDelta;
+    messagesSent: ScorecardMetricDelta;
+    jobsBooked: ScorecardMetricDelta;
+    quotesSent: ScorecardMetricDelta;
+    quotesApproved: ScorecardMetricDelta;
+    depositCents: ScorecardMetricDelta;
+    attributedPaidCents: ScorecardMetricDelta;
+    reviewsRequested: ScorecardMetricDelta;
+    callsHandled: ScorecardMetricDelta;
+    medianResponseSeconds: ScorecardMetricDelta | null;
+  } | null;
+  suggestions: ScorecardSuggestion[];
+  operatorNote: string | null;
+  lastSend: { status: string; emailStatus: string | null; sentAt: string | null; sendCount: number } | null;
+}
+
+export interface MonthlyScorecardView {
+  companyId: string;
+  companyName: string;
+  timeZone: string;
+  settings: { enabled: boolean };
+  /** [this month so far, last month]. */
+  months: MonthlyScorecard[];
+}
+
+export function fetchMonthlyScorecard(orgId: string, companyId: string): Promise<MonthlyScorecardView> {
+  return apiFetch(buildUrl(`/api/organizations/${orgId}/ui/monthly-scorecard`, { companyId }));
+}
+
+export function updateMonthlyScorecard(
+  orgId: string,
+  input: { companyId: string; month?: string; operatorNote?: string | null; enabled?: boolean },
+): Promise<{ operatorNote?: string | null; settings?: { enabled: boolean } }> {
+  return apiFetch(`/api/organizations/${orgId}/ui/monthly-scorecard`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
 // ─── Owner daily digest ────────────────────────────────────────────────────────
 
 export type DigestChannel = "email" | "sms";

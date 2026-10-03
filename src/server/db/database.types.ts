@@ -193,6 +193,7 @@ export interface Database {
           hours: Json | null;
           service_area: string | null;
           digest: Json | null;
+          monthly_scorecard: Json | null;
         };
         Insert: {
           brand_accent_color?: string | null;
@@ -233,6 +234,7 @@ export interface Database {
           hours?: Json | null;
           service_area?: string | null;
           digest?: Json | null;
+          monthly_scorecard?: Json | null;
         };
         Update: {
           brand_accent_color?: string | null;
@@ -273,6 +275,7 @@ export interface Database {
           hours?: Json | null;
           service_area?: string | null;
           digest?: Json | null;
+          monthly_scorecard?: Json | null;
         };
         Relationships: [];
       };
@@ -341,6 +344,124 @@ export interface Database {
           created_at?: string;
         };
         Relationships: [];
+      };
+      monthly_scorecard_notes: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          id: string;
+          month: string;
+          note: string;
+          organization_id: string;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          id?: string;
+          month: string;
+          note: string;
+          organization_id: string;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          id?: string;
+          month?: string;
+          note?: string;
+          organization_id?: string;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "monthly_scorecard_notes_company_id_organization_id_fkey";
+            columns: ["company_id", "organization_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id", "organization_id"];
+          },
+          {
+            foreignKeyName: "monthly_scorecard_notes_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "monthly_scorecard_notes_updated_by_fkey";
+            columns: ["updated_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      monthly_scorecard_sends: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          detail: Json;
+          email_status: string | null;
+          id: string;
+          month: string;
+          organization_id: string;
+          recipient: string | null;
+          send_count: number;
+          sent_at: string | null;
+          status: string;
+          subject: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          detail?: Json;
+          email_status?: string | null;
+          id?: string;
+          month: string;
+          organization_id: string;
+          recipient?: string | null;
+          send_count?: number;
+          sent_at?: string | null;
+          status?: string;
+          subject?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          detail?: Json;
+          email_status?: string | null;
+          id?: string;
+          month?: string;
+          organization_id?: string;
+          recipient?: string | null;
+          send_count?: number;
+          sent_at?: string | null;
+          status?: string;
+          subject?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "monthly_scorecard_sends_company_id_organization_id_fkey";
+            columns: ["company_id", "organization_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id", "organization_id"];
+          },
+          {
+            foreignKeyName: "monthly_scorecard_sends_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       contacts: {
         Row: {

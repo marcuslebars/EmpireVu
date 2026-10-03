@@ -32,6 +32,7 @@ import ContactDetailPage from "./screens/ContactDetailPage";
 import InboxPage from "./screens/InboxPage";
 import AutomationsPage from "./screens/AutomationsPage";
 import ReportsAttributionPage from "./screens/ReportsAttributionPage";
+import ReportsMonthlyPage from "./screens/ReportsMonthlyPage";
 import SettingsPage from "./screens/SettingsPage";
 import NotFound from "./screens/NotFound";
 import { Loader2, AlertTriangle, Bug, ChevronDown, ChevronRight } from "lucide-react";
@@ -383,6 +384,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <ReportsAttributionPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reports/monthly"
+          element={
+            <ProtectedRoute>
+              <ReportsMonthlyPage />
             </ProtectedRoute>
           }
         />

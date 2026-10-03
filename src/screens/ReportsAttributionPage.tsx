@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { Download, Sparkles, Phone, Zap, FileText, TrendingUp } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Download, Sparkles, Phone, Zap, FileText, TrendingUp, CalendarCheck } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -141,6 +142,13 @@ export default function ReportsAttributionPage() {
             Revenue attributed to EmpireVu · {rangeLabel}
           </p>
         </div>
+        <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" asChild>
+          <Link to="/reports/monthly">
+            <CalendarCheck className="w-4 h-4 mr-2" />
+            Monthly results
+          </Link>
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -150,6 +158,7 @@ export default function ReportsAttributionPage() {
           <Download className="w-4 h-4 mr-2" />
           Export CSV
         </Button>
+        </div>
       </div>
 
       {isError && <ErrorBanner message="Failed to load attribution report." onRetry={() => refetch()} />}
