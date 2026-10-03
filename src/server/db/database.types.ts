@@ -175,6 +175,7 @@ export interface Database {
           owner_email: string | null;
           owner_phone_e164: string | null;
           quote_deposit_flat_cents: number | null;
+          quote_public_base_url: string | null;
           quote_terms_text: string | null;
           slug: string;
           stage: Database["public"]["Enums"]["company_stage"];
@@ -216,6 +217,7 @@ export interface Database {
           owner_email?: string | null;
           owner_phone_e164?: string | null;
           quote_deposit_flat_cents?: number | null;
+          quote_public_base_url?: string | null;
           quote_terms_text?: string | null;
           slug: string;
           stage?: Database["public"]["Enums"]["company_stage"];
@@ -257,6 +259,7 @@ export interface Database {
           owner_email?: string | null;
           owner_phone_e164?: string | null;
           quote_deposit_flat_cents?: number | null;
+          quote_public_base_url?: string | null;
           quote_terms_text?: string | null;
           slug?: string;
           stage?: Database["public"]["Enums"]["company_stage"];

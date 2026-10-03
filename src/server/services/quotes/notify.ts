@@ -18,7 +18,7 @@
  */
 import { sendEmail } from "@/server/outbound/email";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { getQuotesConfig } from "./config";
+import { quotePublicBaseUrlFor } from "./config";
 import {
   renderDepositReceipt,
   renderExpiryReminder,
@@ -77,8 +77,9 @@ function brandOf(company: Db | null): EmailBrand {
   };
 }
 
-function quoteUrl(token: string): string {
-  return `${getQuotesConfig().publicBaseUrl}/q/${token}`;
+/** The customer link, on the quote's own brand domain when the company has one. */
+function quoteUrl(token: string, company: Db | null): string {
+  return `${quotePublicBaseUrlFor(company)}/q/${token}`;
 }
 
 async function deliver(quote: Db, to: string, mail: RenderedEmail): Promise<void> {
@@ -162,7 +163,7 @@ export async function sendQuoteEmail(quoteId: string): Promise<EmailOutcome> {
     ({ quote, company, recipient }) =>
       renderQuoteSent({
         brand: brandOf(company),
-        quoteUrl: quoteUrl(quote.public_token),
+        quoteUrl: quoteUrl(quote.public_token, company),
         quoteNumber: quote.quote_number,
         title: quote.title,
         customerName: recipient?.firstName ?? null,
@@ -192,7 +193,7 @@ export async function sendDepositReceiptEmail(quoteId: string): Promise<EmailOut
 
       return renderDepositReceipt({
         brand: brandOf(company),
-        quoteUrl: quoteUrl(quote.public_token),
+        quoteUrl: quoteUrl(quote.public_token, company),
         quoteNumber: quote.quote_number,
         title: quote.title,
         customerName: recipient?.firstName ?? null,
@@ -217,7 +218,7 @@ export async function sendQuoteReplacedEmail(
     ({ quote, company, recipient }) =>
       renderQuoteReplaced({
         brand: brandOf(company),
-        quoteUrl: quoteUrl(quote.public_token),
+        quoteUrl: quoteUrl(quote.public_token, company),
         quoteNumber: quote.quote_number,
         title: quote.title,
         customerName: recipient?.firstName ?? null,
@@ -235,7 +236,7 @@ export async function sendExpiryReminderEmail(quoteId: string, now = new Date())
     ({ quote, company, recipient }) =>
       renderExpiryReminder({
         brand: brandOf(company),
-        quoteUrl: quoteUrl(quote.public_token),
+        quoteUrl: quoteUrl(quote.public_token, company),
         quoteNumber: quote.quote_number,
         title: quote.title,
         customerName: recipient?.firstName ?? null,

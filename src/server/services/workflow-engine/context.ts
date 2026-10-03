@@ -8,7 +8,7 @@ import {
   parseBookingPolicy,
   spokenWindowLabel,
 } from "@/server/services/booking-windows";
-import { getQuotesConfig } from "@/server/services/quotes/config";
+import { quotePublicBaseUrlFor } from "@/server/services/quotes/config";
 import { loadCallForTemplate, ownerClockTime, prettyPhone } from "@/server/services/retell/call-summary";
 import { boatFromSnapshot, DEFAULT_AGENT_NAME, formatDollars } from "@/server/services/retell/caller-lookup";
 
@@ -482,7 +482,7 @@ async function loadQuoteForTemplate(
   return {
     ...q,
     number: q.quote_number ?? null,
-    public_url: q.public_token ? `${getQuotesConfig().publicBaseUrl}/q/${q.public_token}` : null,
+    public_url: q.public_token ? `${quotePublicBaseUrlFor(opts.company)}/q/${q.public_token}` : null,
     subtotal: formatDollars(cents("subtotal_cents")),
     total: formatDollars(cents("total_cents")),
     deposit: formatDollars(cents("approved_deposit_cents") || cents("deposit_cents")),

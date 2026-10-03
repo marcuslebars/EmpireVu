@@ -23,6 +23,7 @@ import { createDepositCheckoutSession, DepositCheckoutError } from "@/server/ser
 import { CompanyStripeError } from "@/server/services/quotes/company-stripe";
 import { getQuotesConfig } from "@/server/services/quotes/config";
 import { approveQuote, QuoteApprovalError } from "@/server/services/quotes/public-service";
+import { quotePublicBaseUrlForCompanyId } from "@/server/services/quotes/public-url";
 
 export const dynamic = "force-dynamic";
 
@@ -84,7 +85,9 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
         userAgent: request.headers.get("user-agent"),
       });
 
-      const checkout = await createDepositCheckoutSession(token, { baseUrl: cfg.publicBaseUrl });
+      // Stripe returns the customer to the brand domain they're paying on.
+      const baseUrl = await quotePublicBaseUrlForCompanyId(quote.company_id);
+      const checkout = await createDepositCheckoutSession(token, { baseUrl });
 
       return NextResponse.json({
         data: {
