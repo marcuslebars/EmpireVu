@@ -30,6 +30,13 @@ async function main(): Promise<number> {
   const now = new Date();
   let failures = 0;
 
+  if (getQuotesConfig().enabled) {
+    failures += await runQuoteSweeps(now);
+  } else {
+    console.log("[quote-maintenance] STRIPE_QUOTES_ENABLED=0 — skipping the quote sweeps.");
+  }
+
+  // Invoices last: a long reminder run (a PDF per email) must not delay quote expiry.
   try {
     const inv = await sweepInvoiceReminders(now);
     console.log(
@@ -41,10 +48,11 @@ async function main(): Promise<number> {
     console.error("[quote-maintenance] invoice sweep failed:", err instanceof Error ? err.message : err);
   }
 
-  if (!getQuotesConfig().enabled) {
-    console.log("[quote-maintenance] STRIPE_QUOTES_ENABLED=0 — skipping the quote sweeps.");
-    return failures > 0 ? 1 : 0;
-  }
+  return failures > 0 ? 1 : 0;
+}
+
+async function runQuoteSweeps(now: Date): Promise<number> {
+  let failures = 0;
 
   // Each sweep is guarded separately: a reminder failure must not stop expiry
   // from running. Letting a stale quote stay approvable is the worse outcome.

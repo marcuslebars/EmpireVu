@@ -111,12 +111,13 @@ export function isOpenStatus(status: string): boolean {
 
 /** Overdue = open, has a balance, and the due date is before today. */
 export function isOverdue(
-  invoice: { status: string; due_date: string | null; balance_due_cents: number },
+  invoice: { status: string; due_date: string | null; balance_due_cents: number; pending_payment_cents?: number },
   today: string,
 ): boolean {
+  // Money that's clearing (a bank debit) for the whole balance isn't late — just slow.
   return (
     isOpenStatus(invoice.status) &&
-    invoice.balance_due_cents > 0 &&
+    invoice.balance_due_cents - (invoice.pending_payment_cents ?? 0) > 0 &&
     invoice.due_date !== null &&
     daysBetween(invoice.due_date, today) > 0
   );

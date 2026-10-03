@@ -17,7 +17,7 @@
  */
 import type Stripe from "stripe";
 
-import { getPlatformStripe, onAccount, requireChargeableCompany } from "@/server/services/quotes/company-stripe";
+import { getCompanyStripeConfig, getPlatformStripe, onAccount, requireChargeableCompany } from "@/server/services/quotes/company-stripe";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import {
   emitInvoiceTrigger,
@@ -192,17 +192,30 @@ export async function createInvoiceCheckout(token: string, method: OnlineMethod)
   // Reuse an open session for the same method + amount (a double-tap, or a customer
   // who backed out and came back). Any other open session is expired first, so an
   // abandoned tab can never be paid on top of a newer one.
-  if (invoice.stripe_checkout_session_id) {
+  const previousSessionId = invoice.stripe_checkout_session_id;
+  if (previousSessionId) {
+    let existing: Stripe.Checkout.Session | null = null;
     try {
-      const existing = await stripe.checkout.sessions.retrieve(invoice.stripe_checkout_session_id, undefined, acct);
-      if (existing.status === "open") {
-        if (existing.url && existing.amount_total === amount && existing.metadata?.method === method) {
-          return { url: existing.url };
-        }
-        await stripe.checkout.sessions.expire(existing.id, undefined, acct);
-      }
+      existing = await stripe.checkout.sessions.retrieve(previousSessionId, undefined, acct);
     } catch (err) {
-      console.error(`[invoices] could not reuse session ${invoice.stripe_checkout_session_id}:`, err instanceof Error ? err.message : err);
+      console.error(`[invoices] could not read session ${previousSessionId}:`, err instanceof Error ? err.message : err);
+    }
+    if (existing?.status === "open") {
+      if (existing.url && existing.amount_total === amount && existing.metadata?.method === method) {
+        return { url: existing.url };
+      }
+      await stripe.checkout.sessions.expire(existing.id, undefined, acct);
+    } else if (existing?.status === "complete") {
+      // The customer already paid (or authorized a debit) and the webhook hasn't
+      // landed yet. Record it now rather than letting them start a second payment.
+      const pi = intentId(existing);
+      const { data: known } = pi
+        ? await db.from("invoice_payments").select("id").eq("stripe_payment_intent_id", pi).maybeSingle()
+        : { data: null };
+      if (!known) {
+        await handleInvoiceCheckoutCompleted(existing, "inline-reconcile", brand.accountId);
+        throw new InvoiceCheckoutError("Your payment is already being processed — refresh this page in a moment.", "nothing_owing");
+      }
     }
   }
 
@@ -220,7 +233,8 @@ export async function createInvoiceCheckout(token: string, method: OnlineMethod)
         ? {
             payment_method_options: {
               acss_debit: {
-                currency: "cad",
+                // No `currency` here: Stripe only accepts it in setup mode; the
+                // currency comes from the line item.
                 mandate_options: {
                   payment_schedule: "sporadic",
                   transaction_type: isBusiness ? "business" : "personal",
@@ -245,7 +259,8 @@ export async function createInvoiceCheckout(token: string, method: OnlineMethod)
       ],
       payment_intent_data: {
         description: `Invoice ${invoice.invoice_number ?? invoice.id}`,
-        ...(brand.statementDescriptorSuffix ? { statement_descriptor_suffix: brand.statementDescriptorSuffix } : {}),
+        // The descriptor suffix is a card concept; bank debits use the account's own.
+        ...(method === "card" && brand.statementDescriptorSuffix ? { statement_descriptor_suffix: brand.statementDescriptorSuffix } : {}),
         metadata: meta,
       },
       metadata: meta,
@@ -253,10 +268,15 @@ export async function createInvoiceCheckout(token: string, method: OnlineMethod)
       success_url: `${pageUrl}?paid=1`,
       cancel_url: pageUrl,
     },
-    // Keyed to what is being paid: a retry returns the same session, but a new
-    // balance (after a partial payment) or another method gets its own.
-    { ...acct, idempotencyKey: `invoice-pay-${invoice.id}-${method}-${amount}-${invoice.amount_paid_cents}` },
+    // Keyed to what is being paid AND to the attempt (the session it replaces): a
+    // double-tap returns the same session, but switching method, retrying after a
+    // bounced debit, or paying again after a refund always gets a fresh one —
+    // never a replayed expired/completed session.
+    { ...acct, idempotencyKey: `invoice-pay-${invoice.id}-${method}-${amount}-${invoice.amount_paid_cents}-${previousSessionId ?? "first"}` },
   );
+  if (session.status !== "open" || !session.url) {
+    throw new InvoiceCheckoutError("Couldn't start the payment — please try again.", "not_payable");
+  }
 
   await db.from("invoices").update({ stripe_checkout_session_id: session.id }).eq("id", invoice.id);
   await recordInvoiceEvent(db, {
@@ -339,7 +359,11 @@ export async function handleInvoiceCheckoutCompleted(session: Stripe.Checkout.Se
     .select("id")
     .maybeSingle();
   if (error) throw error;
-  if (!inserted) return { outcome: "noop", invoiceId: invoice.id, reason: "payment already recorded" };
+  if (!inserted) {
+    // A retry after a partial failure: make sure the balance reflects the row.
+    await refreshInvoiceBalance(db, invoice.id);
+    return { outcome: "noop", invoiceId: invoice.id, reason: "payment already recorded" };
+  }
 
   await refreshInvoiceBalance(db, invoice.id);
   await recordInvoiceEvent(db, {
@@ -396,7 +420,10 @@ export async function handleInvoiceAsyncPayment(
     if (error) throw error;
     paymentId = created?.id ?? null;
   } else {
-    if (existing.status !== "pending") return { outcome: "noop", invoiceId: invoice.id, reason: `payment already ${existing.status}` };
+    if (existing.status !== "pending") {
+      await refreshInvoiceBalance(db, invoice.id);
+      return { outcome: "noop", invoiceId: invoice.id, reason: `payment already ${existing.status}` };
+    }
     const { data: moved } = await db
       .from("invoice_payments")
       .update({
@@ -407,7 +434,10 @@ export async function handleInvoiceAsyncPayment(
       .eq("status", "pending")
       .select("id")
       .maybeSingle();
-    if (!moved) return { outcome: "noop", invoiceId: invoice.id, reason: "already moved concurrently" };
+    if (!moved) {
+      await refreshInvoiceBalance(db, invoice.id);
+      return { outcome: "noop", invoiceId: invoice.id, reason: "already moved concurrently" };
+    }
   }
 
   await refreshInvoiceBalance(db, invoice.id);
@@ -450,7 +480,6 @@ export async function handleInvoiceChargeRefunded(charge: Stripe.Charge, eventId
   const full = charge.amount_refunded >= payment.amount_cents;
   if (full && payment.status !== "refunded") {
     await db.from("invoice_payments").update({ status: "refunded" }).eq("id", payment.id);
-    await db.from("invoices").update({ paid_notified_at: null }).eq("id", payment.invoice_id);
     await refreshInvoiceBalance(db, payment.invoice_id);
   }
   await recordInvoiceEvent(db, {
@@ -460,4 +489,69 @@ export async function handleInvoiceChargeRefunded(charge: Stripe.Charge, eventId
     metadata: { eventId, refundedCents: charge.amount_refunded, paymentCents: payment.amount_cents },
   });
   return { outcome: "applied", invoiceId: payment.invoice_id };
+}
+
+/**
+ * payment_intent.payment_failed / payment_intent.canceled — a bank debit that never
+ * completed (e.g. microdeposit verification abandoned, so Stripe cancels the
+ * PaymentIntent without a Checkout async-failed event). Moves a PENDING invoice
+ * payment to failed so the balance is payable again. Anything already settled is
+ * left alone.
+ */
+export async function handleInvoicePaymentIntentFailed(intent: Stripe.PaymentIntent, eventId: string, accountId: string): Promise<WebhookOutcome> {
+  const db = admin();
+  const { data: payment } = await db.from("invoice_payments").select("*").eq("stripe_payment_intent_id", intent.id).maybeSingle();
+  if (!payment) return { outcome: "noop", invoiceId: null, reason: "not an invoice payment" };
+  const found = await invoiceForEvent(db, payment.invoice_id, accountId);
+  if ("noop" in found) return found.noop;
+  if (payment.status !== "pending") return { outcome: "noop", invoiceId: payment.invoice_id, reason: `payment already ${payment.status}` };
+
+  const reason = intent.last_payment_error?.message ?? (intent.status === "canceled" ? "The bank debit was cancelled before it completed." : "The bank debit failed.");
+  const { data: moved } = await db
+    .from("invoice_payments")
+    .update({ status: "failed", failure_reason: reason })
+    .eq("id", payment.id)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
+  await refreshInvoiceBalance(db, payment.invoice_id);
+  if (!moved) return { outcome: "noop", invoiceId: payment.invoice_id, reason: "already moved concurrently" };
+
+  await recordInvoiceEvent(db, { organizationId: payment.organization_id, invoiceId: payment.invoice_id, eventType: "payment_failed", metadata: { eventId, reason } });
+  const invoice = found.invoice;
+  await emitInvoiceTrigger(db, {
+    organizationId: invoice.organization_id,
+    companyId: invoice.company_id,
+    contactId: invoice.contact_id,
+    invoiceId: invoice.id,
+    quoteId: invoice.quote_id,
+    eventType: "invoice.payment_failed",
+    metadata: { amountCents: payment.amount_cents },
+  });
+  return { outcome: "applied", invoiceId: payment.invoice_id };
+}
+
+/**
+ * Expire the invoice's open Checkout session, if any — called when staff change
+ * what's owed (edit, record a payment, void), so a tab the customer left open
+ * can't be paid for the old amount. Best-effort and never throws: the staff action
+ * has already happened, and the pay page re-validates the amount on every attempt.
+ */
+export async function expireOpenInvoiceCheckout(invoiceId: string): Promise<void> {
+  try {
+    const db = admin();
+    const { data: invoice } = await db
+      .from("invoices")
+      .select("company_id, stripe_checkout_session_id")
+      .eq("id", invoiceId)
+      .maybeSingle();
+    if (!invoice?.stripe_checkout_session_id) return;
+    const brand = await getCompanyStripeConfig(invoice.company_id);
+    const stripe = getPlatformStripe();
+    const acct = onAccount(brand);
+    const session = await stripe.checkout.sessions.retrieve(invoice.stripe_checkout_session_id, undefined, acct);
+    if (session.status === "open") await stripe.checkout.sessions.expire(session.id, undefined, acct);
+  } catch (err) {
+    console.error(`[invoices] could not expire checkout for ${invoiceId}:`, err instanceof Error ? err.message : err);
+  }
 }

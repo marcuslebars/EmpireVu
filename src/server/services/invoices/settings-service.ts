@@ -49,7 +49,11 @@ export async function updateCompanyInvoiceSettings(
 
   let nextSettings: Record<string, unknown> | undefined;
   if (input.settings) {
-    const parsed = invoiceSettingsSchema.parse(input.settings);
+    // Validate only the keys the caller sent: the schema turns a missing text field
+    // into null, which must not wipe a saved value on a partial update.
+    const shape = invoiceSettingsSchema.shape;
+    const sent = Object.keys(input.settings).filter((k): k is keyof typeof shape => k in shape);
+    const parsed = invoiceSettingsSchema.pick(Object.fromEntries(sent.map((k) => [k, true])) as never).parse(input.settings) as Record<string, unknown>;
     const current =
       company.invoice_settings && typeof company.invoice_settings === "object" && !Array.isArray(company.invoice_settings)
         ? (company.invoice_settings as Record<string, unknown>)

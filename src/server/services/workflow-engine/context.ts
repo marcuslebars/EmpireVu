@@ -533,8 +533,16 @@ async function loadInvoiceForTemplate(
     .eq("id", invoiceId)
     .maybeSingle();
   if (!data) return null;
+  // Whitelisted — never internal_notes or Stripe ids in a customer-facing template.
   return {
-    ...data,
+    id: data.id,
+    status: data.status,
+    title: data.title,
+    currency: data.currency,
+    issue_date: data.issue_date,
+    due_date: data.due_date,
+    total_cents: data.total_cents,
+    balance_due_cents: data.balance_due_cents,
     number: data.invoice_number ?? null,
     total: formatDollars(data.total_cents),
     balance: formatDollars(data.balance_due_cents),

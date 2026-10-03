@@ -214,7 +214,14 @@ export async function refreshInvoiceBalance(db: Db, invoiceId: string): Promise<
   if (error) throw error;
   const row = (Array.isArray(data) ? data[0] : data) as InvoiceRow | undefined;
   if (!row) throw new Error(`Invoice ${invoiceId} not found.`);
-  if (row.status === "paid") await onInvoicePaid(db, row);
+  if (row.status === "paid") {
+    await onInvoicePaid(db, row);
+  } else if (row.paid_notified_at) {
+    // No longer paid (a refund, a bounced debit, a removed payment): re-arm the
+    // once-only "paid" effects for when it really is paid again.
+    await db.from("invoices").update({ paid_notified_at: null }).eq("id", row.id).eq("organization_id", row.organization_id).neq("status", "paid");
+    return { ...row, paid_notified_at: null };
+  }
   return row;
 }
 

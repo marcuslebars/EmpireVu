@@ -48,6 +48,7 @@ import {
   type InvoiceLineInput,
 } from "./math";
 import { sendInvoiceEmail, sendInvoiceSms, sendPaymentReceiptEmail, type DeliveryOutcome } from "./notify";
+import { expireOpenInvoiceCheckout } from "./public";
 import { formatInvoiceNumber, parseInvoiceSettings, type InvoicePaymentMethod } from "./settings";
 
 export interface InvoiceWriteInput {
@@ -289,6 +290,8 @@ export async function updateInvoice(ctx: TenantServiceContext, invoiceId: string
     .single();
   if (error) throw error;
 
+  // The customer may have the pay page open on the old amount.
+  await expireOpenInvoiceCheckout(invoiceId);
   await recordInvoiceEvent(ctx.supabase, {
     organizationId: ctx.organizationId,
     invoiceId,
@@ -534,6 +537,7 @@ export async function voidInvoice(ctx: TenantServiceContext, invoiceId: string, 
     .select("*")
     .single();
   if (error) throw error;
+  await expireOpenInvoiceCheckout(invoiceId);
   await recordInvoiceEvent(ctx.supabase, {
     organizationId: ctx.organizationId,
     invoiceId,
@@ -604,6 +608,7 @@ export async function recordPayment(
   if (error) throw error;
 
   const updated = await refreshInvoiceBalance(ctx.supabase, invoiceId);
+  await expireOpenInvoiceCheckout(invoiceId);
   await recordInvoiceEvent(ctx.supabase, {
     organizationId: ctx.organizationId,
     invoiceId,
@@ -634,19 +639,13 @@ export async function removePayment(ctx: TenantServiceContext, invoiceId: string
   if (payment.stripe_payment_intent_id) {
     throw new InvoiceConflictError("Online payments can't be removed — refund it in Stripe and it will update here.");
   }
+  if (payment.status !== "succeeded") throw new InvoiceConflictError("This payment has already been removed.");
   const { error: delErr } = await ctx.supabase
     .from("invoice_payments")
     .update({ status: "failed", failure_reason: "Removed — recorded by mistake" })
     .eq("organization_id", ctx.organizationId)
     .eq("id", paymentId);
   if (delErr) throw delErr;
-
-  // Undo the "paid" notification guard so a later real payment re-notifies.
-  await ctx.supabase
-    .from("invoices")
-    .update({ paid_notified_at: null })
-    .eq("organization_id", ctx.organizationId)
-    .eq("id", invoiceId);
 
   const updated = await refreshInvoiceBalance(ctx.supabase, invoiceId);
   await recordInvoiceEvent(ctx.supabase, {

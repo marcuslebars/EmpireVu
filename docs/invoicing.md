@@ -16,7 +16,10 @@ Canadian pre-authorized debit, Interac e-Transfer, cheque or cash.
    - `charge.refunded`
 
    (`checkout.session.completed` and `account.updated` are already subscribed.)
-   Without the two async events, bank debits stay "clearing" forever.
+      - `payment_intent.payment_failed`
+   - `payment_intent.canceled`
+
+   Without the async and payment-intent events, a bank debit can stay "clearing" forever.
 3. **Bank debit (PAD)** — per brand: turn on *ACSS Debit* in that brand's Stripe
    dashboard (Settings → Payment methods), then switch on "Bank debit" in
    EmpireVu → Settings → Invoices.

@@ -76,6 +76,12 @@ describe("dates, overdue and aging", () => {
     expect(isOverdue({ ...base, due_date: null }, "2026-12-01")).toBe(false);
   });
 
+  it("isn't overdue while the whole balance is clearing (a bank debit in flight)", () => {
+    const base = { status: "sent", due_date: "2026-10-01", balance_due_cents: 500 };
+    expect(isOverdue({ ...base, pending_payment_cents: 500 }, "2026-12-01")).toBe(false);
+    expect(isOverdue({ ...base, pending_payment_cents: 100 }, "2026-12-01")).toBe(true);
+  });
+
   it("buckets aging the standard way", () => {
     expect(agingBucket("2026-10-10", "2026-10-10")).toBe("current");
     expect(agingBucket("2026-10-10", "2026-10-11")).toBe("1_30");

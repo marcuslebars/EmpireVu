@@ -21,6 +21,7 @@ import {
   handleInvoiceAsyncPayment,
   handleInvoiceChargeRefunded,
   handleInvoiceCheckoutCompleted,
+  handleInvoicePaymentIntentFailed,
   type WebhookOutcome,
 } from "@/server/services/invoices/public";
 import { handleDepositCheckoutCompleted } from "@/server/services/quotes/checkout";
@@ -113,6 +114,16 @@ export async function POST(request: Request): Promise<NextResponse> {
       case "charge.refunded": {
         const charge = event.data.object as Stripe.Charge;
         logInvoice(event, accountId, await handleInvoiceChargeRefunded(charge, event.id, accountId));
+        break;
+      }
+
+      // A bank debit whose PaymentIntent failed or was cancelled (e.g. microdeposit
+      // verification never completed) — frees the balance to be paid again.
+      case "payment_intent.payment_failed":
+      case "payment_intent.canceled": {
+        const intent = event.data.object as Stripe.PaymentIntent;
+        if (!intent.metadata?.invoice_id) break;
+        logInvoice(event, accountId, await handleInvoicePaymentIntentFailed(intent, event.id, accountId));
         break;
       }
 
