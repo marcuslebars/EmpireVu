@@ -268,9 +268,17 @@ describe("setup stalled rule", () => {
     expect(item?.problem).toContain("2 business days past the 5-business-day live deadline");
   });
 
-  it("does not flag before 5 business days (weekend does not count)", () => {
+  it("gives an early warning at 3–4 business days (medium, not yet at risk)", () => {
     // Tuesday Sep 29 → Fri(3) … Mon Oct 5 = 4 business days.
-    expect(setupItem(setupFact({ provisionedAt: "2026-09-29T14:00:00.000Z" }), CTX)).toBeNull();
+    const item = setupItem(setupFact({ provisionedAt: "2026-09-29T14:00:00.000Z" }), CTX);
+    expect(item?.severity).toBe("medium");
+    expect(item?.guaranteeAtRisk).toBe(false);
+    expect(item?.problem).toContain("Early warning: the 5-business-day live deadline is in 1 business day");
+  });
+
+  it("does not flag before 3 business days (weekend does not count)", () => {
+    // Thursday Oct 1 → Fri(1), Mon Oct 5(2) = 2 business days.
+    expect(setupItem(setupFact({ provisionedAt: "2026-10-01T14:00:00.000Z" }), CTX)).toBeNull();
   });
 
   it("skips cancelled subscriptions and accounts whose checklist is already live", () => {

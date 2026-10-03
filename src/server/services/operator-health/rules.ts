@@ -11,9 +11,9 @@
  *   forwarding    Active catcher number whose last forwarding test was 'not_forwarded' / 'failed'
  *                 AND it used to work (a passed test or a real forwarded call on record) or the
  *                 account is live. Never-verified numbers are a setup problem, not this.
- *   setup         Provisioned ≥ 5 business days ago (company-local Mon–Fri), not live, not
- *                 cancelled. All of these are past the 5-business-day live guarantee
- *                 ("guarantee at risk"): due today at day 5, missed after.
+ *   setup         Provisioned ≥ 3 business days ago (company-local Mon–Fri), not live, not
+ *                 cancelled. Day 3–4: early warning (medium). Day 5: "guarantee at risk",
+ *                 deadline today (high). After day 5: missed (critical).
  *   queues        Per durable queue: jobs dead-lettered in the last 24h, or a ready job left
  *                 unclaimed for ≥ 30 min (worker down / wedged).
  *   payments      Organization subscription_status 'past_due' (Stripe 'unpaid' maps there too —
@@ -32,7 +32,8 @@ import { addBusinessDays, localClock, type LocalClock } from "@/server/services/
 // ── Thresholds ───────────────────────────────────────────────────────────────
 
 /** Flag a not-live CrankLeads setup this many business days after provisioning. */
-export const SETUP_STALL_BUSINESS_DAYS = 5;
+/** Warn early (day 3) so there's time to help before the day-5 live guarantee. */
+export const SETUP_STALL_BUSINESS_DAYS = 3;
 /** The "live within 5 business days" promise. */
 export const LIVE_GUARANTEE_BUSINESS_DAYS = 5;
 /** A paid purchase still in 'paid' / 'provisioning' this long is stuck. */
@@ -344,7 +345,7 @@ export function setupItem(fact: SetupFact, facts: Pick<OperatorHealthFacts, "now
   const pastGuarantee = elapsed - LIVE_GUARANTEE_BUSINESS_DAYS;
   const guaranteeAtRisk = elapsed >= LIVE_GUARANTEE_BUSINESS_DAYS;
   const guaranteeNote = !guaranteeAtRisk
-    ? ""
+    ? `Early warning: the 5-business-day live deadline is in ${plural(LIVE_GUARANTEE_BUSINESS_DAYS - elapsed, "business day")}`
     : pastGuarantee === 0
       ? "GUARANTEE AT RISK: the 5-business-day live deadline is today"
       : `GUARANTEE AT RISK: ${plural(pastGuarantee, "business day")} past the 5-business-day live deadline`;
@@ -360,7 +361,7 @@ export function setupItem(fact: SetupFact, facts: Pick<OperatorHealthFacts, "now
     .join(" ");
   const next = fact.checklist?.nextStepTitle;
   return {
-    severity: pastGuarantee > 0 ? "critical" : "high",
+    severity: pastGuarantee > 0 ? "critical" : guaranteeAtRisk ? "high" : "medium",
     account: fact.businessName,
     tierLabel: tierLabel(fact.tier),
     problem,
