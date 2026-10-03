@@ -59,6 +59,27 @@ describe("CrankLeads welcome page", () => {
     );
   });
 
+  it("wears CrankLeads branding (logo, tab title, tab icon) and restores the app's on leave", async () => {
+    document.title = "EmpireVu";
+    const icon = document.createElement("link");
+    icon.rel = "icon";
+    icon.type = "image/svg+xml";
+    icon.href = "/empirevu-favicon.svg";
+    document.head.appendChild(icon);
+
+    const { unmount } = renderPage();
+    const logo = await screen.findByTestId("crankleads-logo");
+    expect(logo).toHaveAttribute("src", "/brand/crankleads-logo.svg");
+    expect(logo).toHaveAttribute("alt", "CrankLeads");
+    expect(document.title).toBe("Welcome — CrankLeads");
+    expect(icon.getAttribute("href")).toBe("/brand/crankleads-favicon.svg");
+
+    unmount();
+    expect(document.title).toBe("EmpireVu");
+    expect(icon.getAttribute("href")).toBe("/empirevu-favicon.svg");
+    icon.remove();
+  });
+
   it("tells the buyer the payment is safe when provisioning failed", async () => {
     statuses = ["failed"];
     renderPage();
