@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AlertCircle, CheckCircle2, Loader2, Mail } from "lucide-react";
 
-import { Logo } from "@/components/brand/Logo";
+import { useDocumentFavicon } from "@/lib/use-document-favicon";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import {
   APP_NAME,
@@ -24,6 +24,9 @@ const POLL_MS = 3000;
 /** Stop polling after ~6 minutes and show the "taking longer" message. */
 const MAX_POLLS = 120;
 const RESEND_COOLDOWN_MS = 30_000;
+/** Self-hosted copies of the crankleads.com artwork (public/brand/). */
+const CRANKLEADS_LOGO_URL = "/brand/crankleads-logo.svg";
+const CRANKLEADS_FAVICON_URL = "/brand/crankleads-favicon.svg";
 
 type View =
   | { kind: "loading" }
@@ -48,7 +51,10 @@ export default function CrankleadsWelcomePage() {
     return () => clearTimeout(timer);
   }, [cooldownUntil]);
 
-  useDocumentTitle(`Welcome — ${APP_NAME}`);
+  // The buyer just paid for CrankLeads on crankleads.com: this page carries CrankLeads'
+  // logo, tab title and icon. The app they log into afterwards stays EmpireVu.
+  useDocumentTitle(`Welcome — ${PURCHASED_OFFER_NAME}`);
+  useDocumentFavicon(CRANKLEADS_FAVICON_URL);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -101,7 +107,14 @@ export default function CrankleadsWelcomePage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-[480px]">
         <div className="flex items-center justify-center mb-8">
-          <Logo className="h-8" />
+          <img
+            src={CRANKLEADS_LOGO_URL}
+            alt={PURCHASED_OFFER_NAME}
+            width={673}
+            height={128}
+            className="h-9 w-auto"
+            data-testid="crankleads-logo"
+          />
         </div>
         <div className="bg-card border border-border rounded-xl p-6 shadow-xl shadow-black/10">
           {view.kind === "missing" ? (

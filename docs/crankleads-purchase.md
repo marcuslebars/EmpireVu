@@ -295,3 +295,17 @@ descriptor**. To make those say CrankLeads too, either set Stripe → Settings �
 Public details (affects EmpireVu customers as well) or sell CrankLeads from its own Stripe
 account.
 
+
+## Welcome page branding
+
+`/welcome/crankleads` shows the CrankLeads logo, tab title ("Welcome — CrankLeads") and tab
+icon (`public/brand/crankleads-logo.svg`, `public/brand/crankleads-favicon.svg` — copies of the
+crankleads.com artwork). The icon/title swap is undone when the buyer leaves the page, so the
+app they log into stays EmpireVu.
+
+## "I didn't get the welcome email"
+
+The billing worker logs `welcome email accepted for purchase <id> → m***@… (resend id …)` once
+Resend accepts it (a rejection logs `WELCOME EMAIL FAILED` and stores `welcome_email_error`).
+Look the id up in Resend → Emails to see delivered / bounced / suppressed. The buyer can also
+press **Resend the email** on the welcome page, or use "Forgot password" on sign-in.

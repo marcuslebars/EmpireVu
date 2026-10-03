@@ -36,6 +36,7 @@ import {
   findPurchaseById,
   findPurchaseBySession,
   markPurchaseFailed,
+  maskEmail,
   PENDING_PURCHASE_STATUSES,
   updatePurchase,
   findPurchaseByCustomer,
@@ -406,8 +407,9 @@ async function welcomeFacts(ctx: TenantServiceContext, purchase: CrankleadsPurch
   };
 }
 
-async function sendRendered(deps: ProvisionDeps, to: string, email: RenderedEmail): Promise<void> {
-  await deps.sendEmail({ to, subject: email.subject, body: email.body, html: email.html, fromName: email.fromName });
+async function sendRendered(deps: ProvisionDeps, to: string, email: RenderedEmail): Promise<string | null> {
+  const result = await deps.sendEmail({ to, subject: email.subject, body: email.body, html: email.html, fromName: email.fromName });
+  return result?.id ?? null;
 }
 
 /** Render + send the buyer's welcome email (fresh set-password link for a new user). */
@@ -430,7 +432,13 @@ async function sendWelcome(
     appUrl: appUrl(),
     ...facts,
   });
-  await sendRendered(deps, purchase.owner_email, email);
+  const messageId = await sendRendered(deps, purchase.owner_email, email);
+  // Resend accepted it. If the buyer says it never arrived, look this id up in Resend → Emails
+  // (delivered / bounced / suppressed) — the address itself is masked here.
+  console.log(
+    `[crankleads/provision] welcome email accepted for purchase ${purchase.id} → ${maskEmail(purchase.owner_email)} ` +
+      `(resend id ${messageId ?? "unknown"}, ${setPasswordUrl ? "set-password link" : "existing user: log-in link"})`,
+  );
 }
 
 function operatorEmailAddress(): string | null {
