@@ -20,3 +20,11 @@ export function getDraftsModel(): string {
 export function getWorkflowsModel(): string {
   return process.env.AI_MODEL_WORKFLOWS?.trim() || DEFAULT_MODEL;
 }
+
+/**
+ * The in-app Help assistant (docs/help-assistant.md). Short, grounded answers over the help
+ * articles — a smaller model is a good fit; if you move it, set AI_PRICE_* to match.
+ */
+export function getHelpModel(): string {
+  return process.env.AI_MODEL_HELP?.trim() || DEFAULT_MODEL;
+}
