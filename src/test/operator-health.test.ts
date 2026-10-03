@@ -14,6 +14,7 @@ import {
   businessDaysElapsed,
   decideDelivery,
   forwardingItem,
+  testCallFailureItem,
   isReportDue,
   paymentItem,
   provisioningItem,
@@ -90,6 +91,7 @@ function forwardingFact(over: Partial<ForwardingFact> = {}): ForwardingFact {
     lastResult: "not_forwarded",
     lastTestAt: ago(2 * HOUR),
     failingSince: ago(26 * HOUR),
+    lastTestError: null,
     everWorked: true,
     accountLive: true,
     subscriptionStatus: "active",
@@ -317,11 +319,16 @@ describe("forwarding broken rule", () => {
 
   it("ignores inconclusive / passing results and cancelled accounts", () => {
     expect(forwardingItem(forwardingFact({ lastResult: "answered" }), CTX)).toBeNull();
+    expect(forwardingItem(forwardingFact({ lastResult: "busy" }), CTX)).toBeNull();
     expect(forwardingItem(forwardingFact({ lastResult: "passed" }), CTX)).toBeNull();
     expect(forwardingItem(forwardingFact({ subscriptionStatus: "canceled" }), CTX)).toBeNull();
   });
 
-  it("failingSince = first failure after the most recent pass ('answered' skipped)", () => {
+  it("a 'failed' test (our side) is NEVER reported as customer forwarding broken", () => {
+    expect(forwardingItem(forwardingFact({ lastResult: "failed" }), CTX)).toBeNull();
+  });
+
+  it("failingSince = first not_forwarded after the most recent pass ('answered' / 'failed' skipped)", () => {
     const t = (status: string, started_at: string) => ({ voice_number_id: "vn", status, started_at });
     expect(
       failingSinceFrom([
@@ -332,6 +339,34 @@ describe("forwarding broken rule", () => {
       ]),
     ).toBe("2026-09-03T00:00:00Z");
     expect(failingSinceFrom([t("passed", "2026-09-05T00:00:00Z")])).toBeNull();
+    expect(failingSinceFrom([t("passed", "2026-09-01T00:00:00Z"), t("failed", "2026-09-02T00:00:00Z")])).toBeNull();
+  });
+});
+
+describe("forwarding test-call failure rule (infrastructure)", () => {
+  it("reports a 'failed' last test as OUR problem (medium), with the Twilio error, for any non-cancelled account", () => {
+    const item = testCallFailureItem(
+      forwardingFact({ lastResult: "failed", lastTestError: "The 'To' number is not valid.", everWorked: false, accountLive: false }),
+      CTX,
+    );
+    expect(item?.severity).toBe("medium");
+    expect(item?.problem).toContain("(705) 555-0000");
+    expect(item?.problem).toContain("The 'To' number is not valid.");
+    expect(item?.problem).toContain("not the customer's forwarding");
+    expect(item?.action).toContain("Twilio console");
+    expect(item?.howLong).toBe("last attempt 2h ago");
+  });
+
+  it("ignores not_forwarded / inconclusive results and cancelled accounts", () => {
+    expect(testCallFailureItem(forwardingFact(), CTX)).toBeNull();
+    expect(testCallFailureItem(forwardingFact({ lastResult: "busy" }), CTX)).toBeNull();
+    expect(testCallFailureItem(forwardingFact({ lastResult: "failed", subscriptionStatus: "canceled" }), CTX)).toBeNull();
+  });
+
+  it("lands in its own section, not 'Call forwarding broken'", () => {
+    const report = buildOperatorHealthReport(emptyFacts({ forwarding: [forwardingFact({ lastResult: "failed" })] }));
+    expect(report.sections.map((s) => s.key)).toEqual(["test_calls"]);
+    expect(report.sections[0].title).toBe("Forwarding test calls failing (our side)");
   });
 });
 
@@ -694,6 +729,20 @@ describe("loadOperatorHealthFacts (fake DB) → report", () => {
       "Couldn't check support requests: support request scan failed: statement timeout",
     );
     expect(report.sections.some((s) => s.key === "support")).toBe(false);
+  });
+
+  it("a 'failed' (our side) number loads with its Twilio error and is reported under test calls, not forwarding broken", async () => {
+    const tables = seed();
+    tables.voice_numbers.push({ id: "vn-f", organization_id: "org-a", company_id: "co-a", phone_e164: "+17055550003", provider: "twilio", mode: "missed_call_catcher", active: true, forwarding_verified_at: ago(9 * DAY), forwarding_last_test_result: "failed", forwarding_last_test_at: ago(3 * HOUR) });
+    tables.forwarding_tests.push(
+      { voice_number_id: "vn-f", status: "passed", started_at: ago(9 * DAY) },
+      { voice_number_id: "vn-f", status: "failed", started_at: ago(3 * HOUR), error_message: "No final call status from Twilio." },
+    );
+    const facts = await loadOperatorHealthFacts(createFakeDb(tables).client, INPUT);
+    expect(facts.forwarding.find((f) => f.voiceNumberId === "vn-f")).toMatchObject({ lastResult: "failed", lastTestError: "No final call status from Twilio.", failingSince: null });
+    const report = buildOperatorHealthReport(facts);
+    expect(report.sections.find((s) => s.key === "forwarding")?.items.map((i) => i.account)).toEqual(["Live & Quiet"]);
+    expect(report.sections.find((s) => s.key === "test_calls")?.items).toHaveLength(1);
   });
 
   it("a passive forwarded call counts as 'worked before'", async () => {

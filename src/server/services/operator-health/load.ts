@@ -21,6 +21,7 @@ import {
   PAYMENT_PROBLEM_STATUSES,
   PROVISIONING_LOOKBACK_DAYS,
   QUEUE_FAILED_WINDOW_HOURS,
+  REPORTED_FORWARDING_RESULTS,
   SETUP_STALL_BUSINESS_DAYS,
   SILENT_DAYS,
   STUCK_PROVISIONING_STATUSES,
@@ -179,9 +180,13 @@ type CatcherRow = Pick<
   Tables<"voice_numbers">,
   "id" | "organization_id" | "company_id" | "phone_e164" | "forwarding_last_test_result" | "forwarding_last_test_at"
 >;
-type TestRow = Pick<Tables<"forwarding_tests">, "voice_number_id" | "status" | "started_at">;
+type TestRow = Pick<Tables<"forwarding_tests">, "voice_number_id" | "status" | "started_at"> &
+  Partial<Pick<Tables<"forwarding_tests">, "error_message">>;
 
-/** First failed test after the most recent pass ('answered' is inconclusive and skipped). */
+/**
+ * First not_forwarded test after the most recent pass ('answered' / 'busy' are inconclusive
+ * and 'failed' is our side — all skipped).
+ */
 export function failingSinceFrom(tests: TestRow[]): string | null {
   const newestFirst = [...tests].sort((a, b) => b.started_at.localeCompare(a.started_at));
   let since: string | null = null;
@@ -199,7 +204,7 @@ export async function loadForwardingFacts(admin: AdminClient, input: LoadFactsIn
     .eq("provider", "twilio")
     .eq("mode", "missed_call_catcher")
     .eq("active", true)
-    .in("forwarding_last_test_result", [...BROKEN_FORWARDING_RESULTS])
+    .in("forwarding_last_test_result", [...REPORTED_FORWARDING_RESULTS])
     .limit(SCAN_LIMIT);
   fail("catcher number scan failed", error);
   const numbers = (data ?? []) as CatcherRow[];
@@ -210,7 +215,7 @@ export async function loadForwardingFacts(admin: AdminClient, input: LoadFactsIn
 
   const { data: testData, error: testError } = await admin
     .from("forwarding_tests")
-    .select("voice_number_id, status, started_at")
+    .select("voice_number_id, status, started_at, error_message")
     .in("voice_number_id", numbers.map((n) => n.id))
     .neq("status", "calling")
     .order("started_at", { ascending: false })
@@ -260,6 +265,7 @@ export async function loadForwardingFacts(admin: AdminClient, input: LoadFactsIn
       lastResult: vn.forwarding_last_test_result ?? "",
       lastTestAt: vn.forwarding_last_test_at,
       failingSince: failingSinceFrom(mine),
+      lastTestError: [...mine].sort((a, b) => b.started_at.localeCompare(a.started_at)).find((t) => t.status === "failed")?.error_message ?? null,
       everWorked,
       accountLive: liveOrgs.has(vn.organization_id),
       subscriptionStatus: org?.subscription_status ?? "none",

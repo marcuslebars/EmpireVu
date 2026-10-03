@@ -8,9 +8,14 @@
  *
  *   provisioning  CrankLeads purchase paid but no account: status 'failed' (last 30 days), or
  *                 stuck in 'paid' / 'provisioning' for ≥ 60 min (the 15-min sweep didn't fix it).
- *   forwarding    Active catcher number whose last forwarding test was 'not_forwarded' / 'failed'
- *                 AND it used to work (a passed test or a real forwarded call on record) or the
- *                 account is live. Never-verified numbers are a setup problem, not this.
+ *   forwarding    Active catcher number whose last forwarding test was 'not_forwarded' (the
+ *                 customer's forwarding is broken) AND it used to work (a passed test or a real
+ *                 forwarded call on record) or the account is live. Never-verified numbers are a
+ *                 setup problem, not this. 'answered' / 'busy' are inconclusive → ignored.
+ *   test_calls    Active catcher number whose last forwarding test was 'failed' — OUR side
+ *                 (Twilio refused the call, or no final status came back): an infrastructure
+ *                 problem, never reported as "customer forwarding broken" (and it doesn't clear
+ *                 the number's verification).
  *   setup         Provisioned ≥ 3 business days ago (company-local Mon–Fri), not live, not
  *                 cancelled. Day 3–4: early warning (medium). Day 5: "guarantee at risk",
  *                 deadline today (high). After day 5: missed (critical).
@@ -53,7 +58,12 @@ export const QUEUE_FAILED_WINDOW_HOURS = 24;
 /** Items shown per section before "+N more". */
 export const MAX_ITEMS_PER_SECTION = 8;
 
-export const BROKEN_FORWARDING_RESULTS: readonly string[] = ["not_forwarded", "failed"];
+/** Last-test results that mean the CUSTOMER's forwarding is broken. */
+export const BROKEN_FORWARDING_RESULTS: readonly string[] = ["not_forwarded"];
+/** Last-test results that mean OUR test call couldn't run (Twilio / config). */
+export const FAILED_TEST_CALL_RESULTS: readonly string[] = ["failed"];
+/** Everything the loader scans voice_numbers for. */
+export const REPORTED_FORWARDING_RESULTS: readonly string[] = [...BROKEN_FORWARDING_RESULTS, ...FAILED_TEST_CALL_RESULTS];
 export const PAYMENT_PROBLEM_STATUSES: readonly string[] = ["past_due"];
 export const PAYING_STATUSES: readonly string[] = ["active", "trialing"];
 export const STUCK_PROVISIONING_STATUSES: readonly string[] = ["paid", "provisioning"];
@@ -104,8 +114,10 @@ export interface ForwardingFact extends AccountFact {
   catcherNumber: string;
   lastResult: string;
   lastTestAt: string | null;
-  /** First failed test after the last pass (null → use lastTestAt). */
+  /** First not_forwarded test after the last pass (null → use lastTestAt). */
   failingSince: string | null;
+  /** error_message of the most recent 'failed' test (our side), when there is one. */
+  lastTestError: string | null;
   /** A passed forwarding test or a real forwarded missed call is on record for this number. */
   everWorked: boolean;
   /** The org's CrankLeads purchase has live_at set. */
@@ -221,7 +233,16 @@ export interface HealthItem {
   guaranteeAtRisk: boolean;
 }
 
-export type SectionKey = "provisioning" | "forwarding" | "setup" | "queues" | "payments" | "support" | "silent" | "checks";
+export type SectionKey =
+  | "provisioning"
+  | "forwarding"
+  | "setup"
+  | "queues"
+  | "test_calls"
+  | "payments"
+  | "support"
+  | "silent"
+  | "checks";
 
 export const SECTION_ORDER: readonly SectionKey[] = [
   "checks",
@@ -229,6 +250,7 @@ export const SECTION_ORDER: readonly SectionKey[] = [
   "forwarding",
   "setup",
   "queues",
+  "test_calls",
   "payments",
   "support",
   "silent",
@@ -240,6 +262,7 @@ export const SECTION_TITLES: Record<SectionKey, string> = {
   forwarding: "Call forwarding broken",
   setup: "Setup stalled",
   queues: "Job queues",
+  test_calls: "Forwarding test calls failing (our side)",
   payments: "Payment problems",
   support: "Open support requests",
   silent: "Silent accounts",
@@ -382,12 +405,11 @@ export function forwardingItem(fact: ForwardingFact, facts: Pick<OperatorHealthF
   // Something that used to work stopped. A number that never worked is a setup problem.
   if (!fact.everWorked && !fact.accountLive) return null;
   const since = fact.failingSince ?? fact.lastTestAt;
-  const what = fact.lastResult === "failed" ? "the last test call could not be placed" : "the last test call was not forwarded";
   return {
     severity: fact.accountLive ? "critical" : "high",
     account: fact.businessName,
     tierLabel: tierLabel(fact.tier),
-    problem: `Missed calls to their business line are NOT reaching ${prettyPhone(fact.catcherNumber)} — ${what}. It worked before.`,
+    problem: `Missed calls to their business line are NOT reaching ${prettyPhone(fact.catcherNumber)} — the last test call was not forwarded. It worked before.`,
     howLong: since ? `failing for ${formatDuration(age(facts.nowMs, since))}` : "unknown",
     ageMs: age(facts.nowMs, since),
     action: fact.activateCode
@@ -397,6 +419,33 @@ export function forwardingItem(fact: ForwardingFact, facts: Pick<OperatorHealthF
       ...(fact.fixLink ? [{ label: "Owner's forwarding step", url: fact.fixLink }] : []),
       ...stripeLink(facts.stripeDashboardBase, "customers", fact.stripeCustomerId, "Stripe customer"),
     ],
+    guaranteeAtRisk: false,
+  };
+}
+
+/**
+ * Our forwarding test call for this number could not run ('failed': Twilio refused it, or no
+ * final status within the stale window). An infrastructure / config problem — NOT evidence
+ * the customer's forwarding broke (their verification is left as it was), so it is reported
+ * apart from "Call forwarding broken", for every non-cancelled account.
+ */
+export function testCallFailureItem(fact: ForwardingFact, facts: Pick<OperatorHealthFacts, "nowMs">): HealthItem | null {
+  if (!FAILED_TEST_CALL_RESULTS.includes(fact.lastResult)) return null;
+  if (fact.subscriptionStatus === "canceled") return null;
+  const error = fact.lastTestError?.trim();
+  return {
+    severity: "medium",
+    account: fact.businessName,
+    tierLabel: tierLabel(fact.tier),
+    problem:
+      `Our forwarding test call for ${prettyPhone(fact.catcherNumber)} could not be completed${error ? ` (${error})` : ""}. ` +
+      "This is on our side (Twilio / config), not the customer's forwarding — their verification is unchanged.",
+    howLong: fact.lastTestAt ? `last attempt ${formatDuration(age(facts.nowMs, fact.lastTestAt))} ago` : "unknown",
+    ageMs: age(facts.nowMs, fact.lastTestAt),
+    action:
+      "Check the Twilio console (Monitor → Errors) and the TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / APP_BASE_URL settings on web + worker; " +
+      "if the business number itself is invalid, fix it in their company settings. Then re-run \"Test my forwarding\".",
+    links: [],
     guaranteeAtRisk: false,
   };
 }
@@ -553,6 +602,7 @@ export function buildOperatorHealthReport(facts: OperatorHealthFacts, options: B
     forwarding: compact(facts.forwarding.map((f) => forwardingItem(f, facts))),
     setup: compact(facts.setup.map((f) => setupItem(f, facts))),
     queues: compact(facts.queues.map((f) => queueItem(f, facts))),
+    test_calls: compact(facts.forwarding.map((f) => testCallFailureItem(f, facts))),
     payments: compact(facts.payments.map((f) => paymentItem(f, facts))),
     support: compact(facts.support.map((f) => supportItem(f, facts))),
     silent: compact(facts.silent.map((f) => silentItem(f, facts))),
