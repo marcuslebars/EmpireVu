@@ -17,6 +17,7 @@ import { decideAutoQuote, type AutoQuoteDecision } from "./auto-quote-eligibilit
 import { loadCatalog } from "./catalog-repo";
 import { getJobberConfig } from "@/server/services/jobber/config";
 import { getQuotesConfig } from "./config";
+import { quoteLinkForCompanyId } from "./public-url";
 import { createQuote, sendQuote, type QuoteRow } from "./service";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -196,7 +197,7 @@ export async function maybeAutoQuoteLead(
       created: true,
       decision,
       quote: sent,
-      quoteUrl: `${getQuotesConfig().publicBaseUrl}/q/${sent.public_token}`,
+      quoteUrl: await quoteLinkForCompanyId(sent.company_id, sent.public_token, serviceCtx.supabase),
     };
   } catch (err) {
     // A lead that fails to auto-quote is still a captured lead. It reaches a

@@ -33,7 +33,7 @@ import {
   type OpenWindow,
 } from "@/server/services/booking-windows";
 import { getBusinessTimezone } from "@/server/services/ai";
-import { getQuotesConfig } from "@/server/services/quotes/config";
+import { quoteLinkForCompanyId } from "@/server/services/quotes/public-url";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { deliverMessage, type ConsentContact } from "@/server/services/workflow-engine/messaging";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
@@ -111,7 +111,8 @@ export interface BookingDeps {
   recordQuoteEvent(tenant: BookingTenant, quoteId: string, eventType: string, metadata: Record<string, unknown>): Promise<void>;
   /** Marina told the caller the owner will text the link — make sure the owner knows. Optional; best-effort. */
   reportLinkFailure?(tenant: BookingTenant, failure: { quoteId: string; contactId: string | null; why: string }): Promise<void>;
-  quoteUrl(token: string): string;
+  /** The customer link — on the tenant company's own quote domain when it has one. */
+  quoteUrl(token: string, tenant?: BookingTenant): string | Promise<string>;
   now(): Date;
 }
 
@@ -364,7 +365,7 @@ export async function runDepositLink(
     const booking = await deps.nextBookingForQuote(tenant, quote.id);
     const holds = booking ? labelForBooking(booking, tenant).replace(/(\d+)(st|nd|rd|th)\b/, "$1") : "your date";
     const deposit = spokenDollars(quote.deposit_cents);
-    const url = deps.quoteUrl(quote.public_token);
+    const url = await deps.quoteUrl(quote.public_token, tenant);
     const firstName = contact?.first_name?.trim() || "there";
     const offInvoice = quote.deposit_flat_cents != null ? " (it comes off your final invoice)" : "";
     const body =
@@ -627,8 +628,8 @@ export const defaultBookingDeps: BookingDeps = {
     });
   },
 
-  quoteUrl(token) {
-    return `${getQuotesConfig().publicBaseUrl}/q/${token}`;
+  async quoteUrl(token, tenant) {
+    return quoteLinkForCompanyId(tenant?.companyId, token, admin());
   },
 
   now() {

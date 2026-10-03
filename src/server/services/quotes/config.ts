@@ -65,6 +65,19 @@ export function normalizeBaseUrl(raw: string): string {
   return `${scheme}://${trimmed}`;
 }
 
+/**
+ * The quote-link origin for ONE company: its own `quote_public_base_url` when set
+ * (e.g. https://quotes.a1marinecare.ca), else the platform-wide publicBaseUrl.
+ *
+ * Several brands share one EmpireVu deployment, so a single env origin would put
+ * every brand's customer links on one brand's domain. Tolerates a company row from
+ * before the column existed (undefined → the platform default).
+ */
+export function quotePublicBaseUrlFor(company: { quote_public_base_url?: unknown } | null | undefined): string {
+  const own = typeof company?.quote_public_base_url === "string" ? company.quote_public_base_url.trim() : "";
+  return own ? normalizeBaseUrl(own) : getQuotesConfig().publicBaseUrl;
+}
+
 function intEnv(name: string, fallback: number): number {
   const n = Number(process.env[name]);
   return Number.isFinite(n) && n >= 0 ? Math.round(n) : fallback;
