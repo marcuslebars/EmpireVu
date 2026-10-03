@@ -29,6 +29,7 @@
     "job:import-a1-care": "tsx src/server/jobs/import-a1-care.ts",
     "job:seed-demo": "tsx src/server/jobs/seed-demo-org.ts",
     "job:crankleads-provision": "tsx src/server/jobs/crankleads-provision.ts",
+    "job:operator-health": "tsx src/server/jobs/operator-health.ts",
     "stripe:setup-crankleads": "node scripts/stripe/setup-crankleads.mjs"
   },
   "dependencies": {

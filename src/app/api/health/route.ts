@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { QUEUE_TABLES } from "@/server/services/queue-health";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
@@ -22,16 +23,12 @@ export const dynamic = "force-dynamic";
 
 const TIMEOUT_MS = 5_000;
 
-// The DB-backed queues, each with the same shape (status='pending' = queued) and a
+// The DB-backed queues (described once in services/queue-health.ts, shared with the daily
+// operator health email), each with the same shape (status='pending' = queued) and a
 // "last claimed" timestamp column — `locked_at` for the older queues, `claimed_at` for
 // the inbound-webhook queue. Reads go through the library's default (loosely-typed)
 // SupabaseClient so the claim column can be chosen by name; they are aggregate-only.
-const WORKER_TABLES = {
-  workflow_events: { table: "workflow_event_jobs", claimedColumn: "locked_at" },
-  billing_events: { table: "billing_event_jobs", claimedColumn: "locked_at" },
-  jobber_sync: { table: "jobber_sync_jobs", claimedColumn: "locked_at" },
-  inbound_webhooks: { table: "inbound_webhook_jobs", claimedColumn: "claimed_at" },
-} as const;
+const WORKER_TABLES = QUEUE_TABLES;
 
 type WorkerKey = keyof typeof WORKER_TABLES;
 

@@ -3,6 +3,7 @@ import { createActivityEvent } from "@/server/services/activity-events";
 import { sendDailyDigests } from "@/server/services/push/digest";
 import { processOwnerDigests } from "@/server/services/owner-digest";
 import { processSetupFollowups, SETUP_FOLLOWUP_INTERVAL_MS } from "@/server/services/crankleads/setup-followups";
+import { OPERATOR_HEALTH_INTERVAL_MS, processOperatorHealth } from "@/server/services/operator-health/service";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { processForwardingRetests } from "@/server/services/twilio/forwarding-test";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
@@ -303,6 +304,8 @@ export async function scanContactStale(admin: Admin, nowMs: number = Date.now())
 
 /** Last setup follow-up pass in this worker process (the pass itself is idempotent across workers). */
 let lastSetupFollowupRunMs = 0;
+/** Last operator-health look in this worker process (the daily send is claimed per day in the DB). */
+let lastOperatorHealthRunMs = 0;
 
 /** One scheduler pass — called ~once/minute by the worker. */
 export async function runScheduler(
@@ -337,6 +340,15 @@ export async function runScheduler(
     lastSetupFollowupRunMs = nowMs;
     await processSetupFollowups(admin, nowMs).catch((error) =>
       console.error("[scheduler] setup follow-ups failed", error instanceof Error ? error.message : error),
+    );
+  }
+  // Daily operator health email (docs/operator-health.md) — at/after 07:30 BUSINESS_TIMEZONE,
+  // once per day (claimed in operator_health_reports before sending), throttled like the
+  // follow-ups and self-guarded.
+  if (nowMs - lastOperatorHealthRunMs >= OPERATOR_HEALTH_INTERVAL_MS) {
+    lastOperatorHealthRunMs = nowMs;
+    await processOperatorHealth(admin, nowMs).catch((error) =>
+      console.error("[scheduler] operator health failed", error instanceof Error ? error.message : error),
     );
   }
   return { ticksMaterialized, ticksProcessed, entitiesEmitted };
