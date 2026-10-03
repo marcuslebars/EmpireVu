@@ -94,23 +94,23 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
   {
     id: "test-forwarding",
     title: "Test that missed calls are caught",
-    summary: "How to check your forwarding works, and what to do if it doesn't.",
-    keywords: ["test", "testing", "check", "not working", "never got a text", "didn't get text", "no text back", "didn't receive", "forwarding not working", "test call", "troubleshoot", "problem"],
+    summary: "One button checks your call forwarding for you — and we keep re-checking it.",
+    keywords: ["test", "testing", "check", "verify", "verified", "not working", "never got a text", "didn't get text", "no text back", "didn't receive", "forwarding not working", "test call", "test my forwarding", "troubleshoot", "problem", "live"],
     sections: [
       {
         heading: "Run the test",
         body:
-          "Right under the forwarding codes in the Phone step there's a \"Test it\" box:\n1. From a DIFFERENT phone (not the business line), call your business number.\n2. Don't answer — let it ring out, or decline it.\n3. The call forwards to your EmpireVu number: the caller hears your greeting and can leave a voicemail.\n4. Within seconds the calling phone gets a text from you, and the call shows up in EmpireVu.\nThe box changes to \"Caught a missed call — you're live\" when it works.",
+          "In the Phone step, under the forwarding codes, press \"Test my forwarding\":\n1. We call your business line from your EmpireVu number.\n2. Don't answer it — let it ring out or decline it.\n3. If forwarding is on, the call comes back to your EmpireVu number and the test passes.\nIt takes about a minute. You'll see the result on screen and get a text: \"Missed-call text-back is live\" when it works, or what to fix when it doesn't. The test call never creates a lead or texts anyone.",
       },
       {
-        heading: "Why there's no \"call me\" button",
+        heading: "We keep checking",
         body:
-          "The test has to be a real call to your business line from another phone, so your carrier's forwarding is actually used. A call from us straight to your EmpireVu number would skip your carrier and prove nothing.",
+          "Once it works, we quietly re-test about once a week on a weekday afternoon, so if your carrier or plan changes and forwarding stops, you'll get a text telling you how to fix it. A real missed call that comes through also counts as a pass.",
       },
       {
         heading: "If it didn't work",
         body:
-          "- Your phone rang forever and nothing came through: forwarding isn't on. Dial the code again, or ask your carrier to turn on conditional call forwarding.\n- You called from the business phone itself: try again from a different phone.\n- The call reached the greeting but no text arrived: the text-back automation may be off. Check Automations for \"Missed-call text-back\".\n- Still stuck? Use Contact support in this Help panel.",
+          "- \"Someone answered\": the test call was picked up. Press Test again and let it ring out.\n- \"Not forwarded\": your phone rang out or went to your carrier's voicemail. Dial the code again from the business phone (usually `**004*NUMBER#`), or ask your carrier to turn on conditional call forwarding, then test again.\n- The test can't run: add the phone number customers call you on (Business step or Settings → Company). Tests only run 8am–9pm your time, and you can run a few per day.\n- You can also test by hand: from a different phone, call your business number and don't answer. The calling phone should get a text from you within seconds.\n- Still stuck? Use Contact support in this Help panel.",
       },
     ],
   },
