@@ -267,3 +267,12 @@ Migration `20261003120000_crankleads_purchase.sql` (rollback
 - `crankleads_purchases` — staging + state machine. **Tenancy exception:** it is written before
   any organization exists, so `organization_id` is nullable (filled by provisioning). RLS is on
   with **no policies** and no grants to `anon`/`authenticated`: service role only.
+
+## Stripe Managed Payments
+
+The live account has **Managed Payments** (Stripe as merchant of record) on by default. It
+only supports digital products, rejects `automatic_tax`, and takes over invoicing and receipts.
+CrankLeads includes a done-for-you setup service and EmpireVu runs its own billing, so every
+CrankLeads Checkout Session sends `managed_payments: { enabled: false }`. To collect HST, turn on
+Stripe Tax in the Dashboard (register Ontario/Canada, set product tax codes) and set
+`STRIPE_AUTOMATIC_TAX=true` on [web].
