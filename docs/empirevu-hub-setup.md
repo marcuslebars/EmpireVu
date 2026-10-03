@@ -30,7 +30,7 @@ Everything below goes on the **web** service (`railway.json`) unless stated.
 
 One NEW service is required: **quote-maintenance**, a nightly cron
 (`railway.quote-maintenance.json`, `0 13 * * *` UTC = 9am ET). It sends expiry
-reminders and expires stale quotes. It needs `SUPABASE_SERVICE_ROLE_KEY`,
+reminders and expires stale quotes. It needs `SUPABASE_SECRET_KEY`,
 `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`, `QUOTE_PUBLIC_BASE_URL` and
 `STRIPE_QUOTES_ENABLED` — but no Stripe keys, since it never charges anything.
 Create it whenever you like: while `STRIPE_QUOTES_ENABLED` is unset it logs and
@@ -71,7 +71,7 @@ feature is inert.
 
 `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (the **platform** account —
 EmpireVu billing orgs for their subscriptions; nothing in the quotes path reads
-them), `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`,
+them), `SUPABASE_SECRET_KEY`, `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`,
 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
 
 ### Optional tuning — defaults are correct

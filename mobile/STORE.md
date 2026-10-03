@@ -64,7 +64,7 @@ reply, three quotes (draft / viewed / approved with the deposit paid) and a mont
 automation history. Re-running updates the same rows; `--reset` clears them first.
 
 The password is never a CLI argument — the script reads `DEMO_PASSWORD` or prompts for it
-without echoing. It needs `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`, which
+without echoing. It needs `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SECRET_KEY` (or legacy `SUPABASE_SERVICE_ROLE_KEY`), which
 it will read from `.env` if they are not already in the environment.
 
 Then put that email and password into **Play Console → App content → App access** and

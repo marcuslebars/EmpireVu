@@ -7,7 +7,7 @@
  *
  * SANCTIONED EXCEPTION (service role) — jobs. Cross-tenant, operator-only, aggregate; no
  * request input. Delegates to services/operator-health/service.ts.
- * Needs NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, APP_BASE_URL (links); for --send
+ * Needs NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY), APP_BASE_URL (links); for --send
  * also RESEND_API_KEY, OUTBOUND_FROM_EMAIL and OWNER_EMAIL.
  *
  * PowerShell (note the `--` before the flags):

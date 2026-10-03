@@ -38,7 +38,7 @@ Legend: ✅ required · ➕ recommended · ○ optional · — not needed.
 | `BILLING_PAST_DUE_GRACE_DAYS` (def 7) | ○ | — | — | — |
 | `BILLING_EVENT_WORKER_ID` / `_BATCH_SIZE` / `_POLL_MS` / `_STALE_AFTER_SECONDS` | — | ○ | — | — |
 | `NEXT_PUBLIC_SUPABASE_URL` | ✅ | ✅ | ✅ | ✅ |
-| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | ✅ | ✅ | ✅ |
+| `SUPABASE_SECRET_KEY` | ✅ | ✅ | ✅ | ✅ |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or `_PUBLISHABLE_KEY`) | ✅ | — | — | — |
 | `APP_BASE_URL` | ✅ | — | — | — |
 
