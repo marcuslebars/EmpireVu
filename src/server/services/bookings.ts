@@ -20,6 +20,8 @@ export const createBookingInputSchema = z.object({
   scheduledFor: z.union([z.string().datetime(), z.date()]),
   status: z.enum(["pending", "confirmed", "completed", "cancelled"]).optional(),
   title: z.string().min(1).max(200),
+  /** The company booking-policy window this lands in ("morning" / "afternoon"), when it books by window. */
+  windowKey: z.string().max(32).nullable().optional(),
 });
 
 export type CreateBookingInput = z.infer<typeof createBookingInputSchema>;
@@ -103,6 +105,7 @@ export async function createBooking(
     scheduled_for: toIsoDate(input.scheduledFor),
     title: input.title,
     ...(input.status ? { status: input.status } : {}),
+    ...(input.windowKey ? { window_key: input.windowKey } : {}),
   } satisfies Inserts<"bookings">;
 
   const data = await insertRow(context, "bookings", payload);
