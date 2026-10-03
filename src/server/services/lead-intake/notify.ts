@@ -1,7 +1,5 @@
 /** Lead notification email via Resend. Never throws — the caller treats it as best-effort. */
 
-import { getPlatformBrand } from "@/server/platform-brand";
-
 import type { LeadLineItem } from "./envelope";
 
 export interface ReturningInfo {
@@ -64,9 +62,7 @@ function buildText(lead: NotifyLead): string {
 export async function sendLeadNotification(lead: NotifyLead): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY;
   const to = process.env.LEAD_NOTIFY_EMAIL ?? process.env.OWNER_EMAIL;
-  // The default display name follows the platform brand (owner-facing mail); the address is
-  // A1's historical verified sender. Production sets LEAD_FROM_EMAIL explicitly.
-  const from = process.env.LEAD_FROM_EMAIL ?? `${getPlatformBrand().emailFromName} Leads <leads@a1marinecare.ca>`;
+  const from = process.env.LEAD_FROM_EMAIL ?? "EmpireVu Leads <leads@a1marinecare.ca>";
 
   if (!apiKey || !to) {
     console.warn("[intake] RESEND_API_KEY or LEAD_NOTIFY_EMAIL not set — skipping notification email");

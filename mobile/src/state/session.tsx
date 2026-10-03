@@ -9,7 +9,6 @@ import { authenticate, biometricInfo, clearBiometricOffer, disableBiometrics, ge
 import { noteSignedOut, restoreSession, supabase } from "@m/lib/supabase";
 import { useDevice } from "@m/state/device";
 import { clearStoredScope } from "@m/state/scope";
-import { brand } from "@m/lib/brand";
 
 /**
  * `reconnecting`: a session is stored on the device but its expired access token couldn't be
@@ -179,7 +178,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   });
 
   const unlock = useCallback(async () => {
-    const passed = await authenticate(`Unlock your ${brand.name} workspace`);
+    const passed = await authenticate("Unlock your EmpireVu workspace");
     if (passed) setStatus("signedIn");
     return passed;
   }, []);

@@ -6,7 +6,6 @@ import { toast } from "@/components/ui/sonner";
 import { useOrg } from "@/lib/org-context";
 import { useCompanies, useUpsertVoiceProfile, useVoiceProfiles } from "@/lib/api-hooks";
 import { UpgradeNudge, useCanUseFeature } from "@/components/billing/UpgradeNudge";
-import { platformBrand } from "@/lib/platform-brand";
 
 /** A ready-to-use outbound prompt. The owner can edit it, or start from scratch. */
 const STARTER_PROMPT = `# Identity
@@ -341,7 +340,7 @@ export function VoiceSettings() {
             />
             <p className="text-xs text-muted-foreground mt-1">
               Variables like <code className="font-mono">{"{{customer_name}}"}</code> are filled in
-              per call. {platformBrand.name} is the source of truth — this text is injected into the call.
+              per call. EmpireVu is the source of truth — this text is injected into the call.
             </p>
 
             {showPreview && (

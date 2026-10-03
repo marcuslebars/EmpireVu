@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { CheckCircle2, Loader2, Phone } from "lucide-react";
-import { platformBrand } from "@/lib/platform-brand";
 import { useDocumentTitle } from "@/lib/use-document-title";
 
 import TurnstileWidget from "@/components/TurnstileWidget";
@@ -17,7 +16,7 @@ import { fetchPublicFormConfig, submitPublicForm, type PublicFormConfig } from "
  */
 
 /** Platform credit in the footer. Single constant — branding is centralized later. */
-const POWERED_BY_NAME = platformBrand.name;
+const POWERED_BY_NAME = "EmpireVu";
 
 const OTHER = "__other__";
 const RESIZE_MESSAGE = "evform:resize";

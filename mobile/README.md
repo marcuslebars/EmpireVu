@@ -31,10 +31,6 @@ npm run dev                 # browser preview on :5174 (native plugins fall back
 npm run typecheck && npm test
 ```
 
-Product name shown in the app comes from `src/lib/brand.ts` (CrankLeads by default; optional
-`VITE_PLATFORM_*` overrides in `.env` — see [docs/branding.md](../docs/branding.md)). The
-bundle id `com.empirevu.app` and the native home-screen name are store-bound and unchanged.
-
 Run on a device: `npm run sync`, then `npm run open:android` (Android Studio) or
 `npm run open:ios` (Xcode, macOS only).
 

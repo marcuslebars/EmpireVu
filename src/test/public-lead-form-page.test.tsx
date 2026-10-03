@@ -8,9 +8,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import PublicLeadFormPage from "@/screens/PublicLeadFormPage";
-import { platformBrand } from "@/lib/platform-brand";
-
-const POWERED_BY_NAME = platformBrand.name;
+const POWERED_BY_NAME = "EmpireVu";
 
 const KEY = `evpk_${"c".repeat(48)}`;
 const config = {
@@ -51,7 +49,7 @@ describe("PublicLeadFormPage", () => {
     expect(await screen.findByText("Kirk Snow Removal")).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Driveway clearing" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Other" })).toBeInTheDocument();
-    expect(POWERED_BY_NAME).toBe("CrankLeads");
+    expect(POWERED_BY_NAME).toBe("EmpireVu");
     expect(screen.getByText(`Powered by ${POWERED_BY_NAME}`)).toBeInTheDocument();
   });
 

@@ -43,15 +43,15 @@ describe("greeting name in message templates", () => {
   });
 });
 
-describe("monthly scorecard uses the central platform brand", () => {
+describe("monthly scorecard platform name", () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it("defaults to CrankLeads", () => {
+  it("defaults to EmpireVu", () => {
     vi.stubEnv("PLATFORM_BRAND_NAME", "");
-    expect(scorecardPlatformBrandName()).toBe("CrankLeads");
+    expect(scorecardPlatformBrandName()).toBe("EmpireVu");
   });
 
-  it("follows PLATFORM_BRAND_NAME like every other owner-facing surface", () => {
+  it("can be overridden with PLATFORM_BRAND_NAME", () => {
     vi.stubEnv("PLATFORM_BRAND_NAME", "Acme Pro");
     expect(scorecardPlatformBrandName()).toBe("Acme Pro");
   });

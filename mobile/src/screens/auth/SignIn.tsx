@@ -2,29 +2,18 @@ import { AppleLogo, CaretRight, DeviceMobile, EnvelopeSimple, Fingerprint, Googl
 import { useEffect, useRef, useState } from "react";
 
 import type { AuthRoute } from "@m/App";
+import logoUrl from "@m/assets/empirevu-logo.png";
 import { signInWithPassword, signInWithProvider } from "@m/lib/auth";
-import { brand } from "@m/lib/brand";
 import { biometricInfo, getBiometricProfile, type BiometricInfo, type BiometricProfile } from "@m/lib/biometrics";
 import { firstName } from "@m/lib/format";
 import { platform } from "@m/lib/native";
 import { useSession } from "@m/state/session";
 import { Btn, ErrorBanner, Field, TextInput } from "@m/ui/kit";
 
-/**
- * Text wordmark from the brand config — "Crank" in the brand accent + "Leads" in the
- * foreground, Inter extra-bold (matches the web app's components/brand/Wordmark).
- */
 export function Logo({ height = 30 }: { height?: number }) {
   return (
     <div style={{ display: "flex", justifyContent: "center", padding: "18px 0 4px" }}>
-      <span
-        role="img"
-        aria-label={brand.name}
-        style={{ fontSize: height, lineHeight: 1, fontWeight: 800, letterSpacing: "-0.02em", userSelect: "none" }}
-      >
-        <span style={{ color: `hsl(${brand.accentHsl})` }}>{brand.wordmark.accent}</span>
-        {brand.wordmark.rest && <span style={{ color: "var(--fg)" }}>{brand.wordmark.rest}</span>}
-      </span>
+      <img src={logoUrl} alt="EmpireVu" style={{ height, width: "auto" }} draggable={false} />
     </div>
   );
 }

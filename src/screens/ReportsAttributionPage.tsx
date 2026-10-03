@@ -18,7 +18,6 @@ import { useOrg } from "@/lib/org-context";
 import { useAttribution } from "@/lib/api-hooks";
 import { formatCents, formatDate, formatSeconds } from "@/lib/format";
 import type { AttributionRow } from "@/lib/api-client";
-import { platformBrand } from "@/lib/platform-brand";
 
 const SOURCE_COLORS = [
   "hsl(var(--primary))",
@@ -138,9 +137,9 @@ export default function ReportsAttributionPage() {
       {/* Header */}
       <div className="flex items-center justify-between gap-4 opacity-0 animate-fade-in">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Captured by {platformBrand.name}</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Captured by EmpireVu</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Revenue attributed to {platformBrand.name} · {rangeLabel}
+            Revenue attributed to EmpireVu · {rangeLabel}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -154,7 +153,7 @@ export default function ReportsAttributionPage() {
           variant="outline"
           size="sm"
           disabled={rows.length === 0}
-          onClick={() => downloadCsv(`${platformBrand.shortName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-attribution-${range?.from.slice(0, 10) ?? "report"}.csv`, rowsToCsv(rows))}
+          onClick={() => downloadCsv(`empirevu-attribution-${range?.from.slice(0, 10) ?? "report"}.csv`, rowsToCsv(rows))}
         >
           <Download className="w-4 h-4 mr-2" />
           Export CSV
@@ -293,7 +292,7 @@ export default function ReportsAttributionPage() {
 
       <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
         <Sparkles className="w-3 h-3 text-primary" />
-        "Collected" counts deposits paid through {platformBrand.name}'s Stripe checkout. See docs/attribution.md for how each column is defined.
+        "Collected" counts deposits paid through EmpireVu's Stripe checkout. See docs/attribution.md for how each column is defined.
       </p>
     </div>
   );

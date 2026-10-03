@@ -2,7 +2,6 @@ import { BiometricAuth, BiometryType } from "@aparajita/capacitor-biometric-auth
 import { Preferences } from "@capacitor/preferences";
 
 import { isNative } from "@m/lib/native";
-import { brand } from "@m/lib/brand";
 
 /**
  * Biometric sign-in. The session itself is held in the Keychain / Keystore (supabase.ts);
@@ -76,7 +75,7 @@ export async function authenticate(reason: string): Promise<boolean> {
       cancelTitle: "Use password",
       iosFallbackTitle: "Use password",
       allowDeviceCredential: false,
-      androidTitle: `Sign in to ${brand.name}`,
+      androidTitle: "Sign in to EmpireVu",
       androidSubtitle: reason,
       androidConfirmationRequired: false,
     });

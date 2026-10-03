@@ -21,7 +21,6 @@ import { useSession } from "@m/state/session";
 import { Screen } from "@m/ui/Screen";
 import { Btn, NavRow } from "@m/ui/kit";
 import { useToast } from "@m/ui/toast";
-import { brand } from "@m/lib/brand";
 
 export function More() {
   const nav = useNav();
@@ -76,7 +75,7 @@ export function More() {
         Sign out
       </Btn>
       <p className="fine" style={{ textAlign: "center" }}>
-        {session.context.data?.profile?.email ?? session.user?.email} · {brand.name} 1.0.0
+        {session.context.data?.profile?.email ?? session.user?.email} · EmpireVu 1.0.0
       </p>
     </Screen>
   );

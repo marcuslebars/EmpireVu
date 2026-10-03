@@ -3,7 +3,6 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
 import { Loader2 } from "lucide-react";
-import { platformBrand } from "@/lib/platform-brand";
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -19,7 +18,7 @@ export function ProtectedRoute({ children, requireOrg = true }: ProtectedRoutePr
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4">
         <Loader2 className="h-10 w-10 animate-spin text-primary" />
-        <p className="text-muted-foreground">Loading {platformBrand.name}...</p>
+        <p className="text-muted-foreground">Loading EmpireVu...</p>
       </div>
     );
   }
