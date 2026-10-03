@@ -384,7 +384,7 @@ export function InvoiceDetailSheet({
             {invoice.quote_id && (
               <button
                 type="button"
-                onClick={() => navigate("/quotes")}
+                onClick={() => navigate(`/quotes?open=${invoice.quote_id}`)}
                 className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border border-border bg-background text-muted-foreground hover:text-foreground"
               >
                 <FileText className="w-3 h-3" /> From quote

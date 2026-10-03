@@ -8,7 +8,7 @@ import {
   type TenantServiceContext,
 } from "@/server/services/shared";
 import { getQuotesConfig } from "./config";
-import { assertTransition, type QuoteStatus } from "./lifecycle";
+import { assertTransition, QuoteTransitionError, type QuoteStatus } from "./lifecycle";
 import { sendQuoteEmail, sendQuoteReplacedEmail, type EmailOutcome } from "./notify";
 import { priceQuoteForCompany, type QuotePricing, type QuotePricingInput } from "./pricing";
 
@@ -235,8 +235,8 @@ export async function updateQuote(
 
   const { data, error } = await ctx.supabase.from("quotes")
     .update({
-      company_id: input.companyId ?? null,
-      contact_id: input.contactId ?? null,
+      company_id: input.companyId ?? existing.company_id,
+      contact_id: input.contactId ?? existing.contact_id,
       title: input.title ?? existing.title,
       intro_message: input.introMessage ?? existing.intro_message,
       ...pricedColumns(pricing),
@@ -346,9 +346,34 @@ export async function sendQuote(
   // the API answered 500, which invites a second Send or the belief that a live
   // quote does not exist. The outcome rides on the return value instead, so the
   // caller can say "sent, but not emailed, because…".
-  const email = await sendQuoteEmail(quote.id);
+  // A revision of a quote the customer already saw says so ("we've updated your
+  // quote"), with the reason the old one was replaced.
+  let email: EmailOutcome;
+  if (quote.supersedes) {
+    const { data: previous } = await ctx.supabase
+      .from("quotes")
+      .select("cancel_reason")
+      .eq("id", quote.supersedes)
+      .eq("organization_id", ctx.organizationId)
+      .maybeSingle();
+    const reason = previous?.cancel_reason && previous.cancel_reason !== "Replaced by a revised quote" ? previous.cancel_reason : null;
+    email = await sendQuoteReplacedEmail(quote.id, reason);
+  } else {
+    email = await sendQuoteEmail(quote.id);
+  }
 
   return { quote, email };
+}
+
+/**
+ * The lifecycle table allows deposit_paid → cancelled (that's the refund path), but
+ * staff voiding or revising a quote that has taken money would strand the deposit.
+ * Those go through a refund first.
+ */
+function assertNoMoneyTaken(quote: QuoteRow & { deposit_paid_at?: string | null }): void {
+  if (quote.status === "deposit_paid" || quote.status === "completed" || quote.deposit_paid_at) {
+    throw new QuoteTransitionError(quote.status as QuoteStatus, "cancelled");
+  }
 }
 
 export async function getQuote(ctx: TenantServiceContext, quoteId: string): Promise<QuoteRow | null> {
@@ -422,6 +447,7 @@ export async function reissueQuote(
   }
   // deposit_paid/completed quotes have money against them — reissue is not the
   // tool for those; a refund is (Phase 4).
+  assertNoMoneyTaken(existing);
   assertTransition(existing.status as QuoteStatus, "cancelled");
 
   const snap = (existing.input_snapshot ?? {}) as Partial<CreateQuoteInput>;
@@ -468,9 +494,9 @@ export async function reissueQuote(
   });
   await recordEvent(ctx, successor.id, "reissued", { supersedes: cancelled.id });
 
-  // Best-effort: both rows are already committed and correct. A mail failure
-  // must not leave the reissue half-done — it is recorded as an event instead.
-  await sendQuoteReplacedEmail(successor.id, opts.reason ?? null);
+  // No email here: the successor is an unnumbered DRAFT the owner is about to edit.
+  // The "we've updated your quote" email goes out when it is SENT (see sendQuote),
+  // so the customer is never pointed at a quote that isn't ready.
 
   return { cancelled, successor: { ...successor, supersedes: cancelled.id } as QuoteRow };
 }
@@ -491,6 +517,7 @@ export async function cancelQuote(
   }
   // deposit_paid/completed quotes have money against them — voiding is not the
   // tool for those; a refund is (Phase 4).
+  assertNoMoneyTaken(existing);
   assertTransition(existing.status as QuoteStatus, "cancelled");
 
   const now = new Date().toISOString();
