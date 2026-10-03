@@ -100,7 +100,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "Run the test",
         body:
-          "In the Phone step, under the forwarding codes, press \"Test my forwarding\":\n1. We call your business line from your EmpireVu number.\n2. Don't answer it — let it ring out or decline it.\n3. If forwarding is on, the call comes back to your EmpireVu number and the test passes.\nIt takes about a minute. You'll see the result on screen and get a text: \"Missed-call text-back is live\" when it works, or what to fix when it doesn't. The test call never creates a lead or texts anyone.",
+          "In the Phone step, under the forwarding codes, press \"Test my forwarding\":\n1. We call your business line from your EmpireVu number.\n2. Don't answer or decline it — just let it ring out.\n3. If forwarding is on, the call comes back to your EmpireVu number and the test passes.\nIt takes about a minute. You'll see the result on screen and get a text: \"Missed-call text-back is live\" when it works, or what to fix when it doesn't. The test call never creates a lead or texts anyone.",
       },
       {
         heading: "We keep checking",
@@ -110,7 +110,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "If it didn't work",
         body:
-          "- \"Someone answered\": the test call was picked up. Press Test again and let it ring out.\n- \"Not forwarded\": your phone rang out or went to your carrier's voicemail. Dial the code again from the business phone (usually `**004*NUMBER#`), or ask your carrier to turn on conditional call forwarding, then test again.\n- The test can't run: add the phone number customers call you on (Business step or Settings → Company). Tests only run 8am–9pm your time, and you can run a few per day.\n- You can also test by hand: from a different phone, call your business number and don't answer. The calling phone should get a text from you within seconds.\n- Still stuck? Use Contact support in this Help panel.",
+          "- \"Someone answered\": the test call was picked up. Press Test again and let it ring out.\n- \"Line busy\": your line was in use or the call was declined, so we couldn't check. Test again when the line is free and let it ring.\n- \"Not forwarded\": your phone rang out or went to your carrier's voicemail. Dial the code again from the business phone (usually `**004*NUMBER#`), or ask your carrier to turn on conditional call forwarding, then test again.\n- The test can't run: add the phone number customers call you on (Business step or Settings → Company). Tests only run 8am–9pm your time, and you can run a few per day.\n- You can also test by hand: from a different phone, call your business number and don't answer. The calling phone should get a text from you within seconds. This also covers the few carriers that show your business number as the caller on forwarded calls — the automatic test can say \"Not forwarded\" for them even when forwarding works, and a real missed call coming through marks it as working.\n- Still stuck? Use Contact support in this Help panel.",
       },
     ],
   },
