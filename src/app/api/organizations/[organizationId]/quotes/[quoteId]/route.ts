@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { handleRoute } from "@/server/api/route";
 import { requireOrganizationContext } from "@/server/organizations/context";
-import { getQuotesConfig } from "@/server/services/quotes/config";
+import { getQuotesConfig, quotePublicBaseUrlFor } from "@/server/services/quotes/config";
 import { getQuote, updateQuote } from "@/server/services/quotes/service";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
@@ -22,6 +22,8 @@ const serviceSchema = z.object({
   distanceKm: z.number().positive().max(2000).optional(),
   optional: z.boolean().optional(),
   selected: z.boolean().optional(),
+  // Modifier choices (tier, boat type…) keyed by group.
+  modifiers: z.record(z.string().max(40), z.string().max(40)).optional(),
 });
 
 const customLineSchema = z.object({
@@ -65,7 +67,11 @@ export async function GET(_request: Request, context: RouteContext): Promise<Nex
       context.params.quoteId,
     );
     if (!quote) return NextResponse.json({ error: "Quote not found." }, { status: 404 });
-    return NextResponse.json({ data: quote });
+    // The customer's link, on the brand's own quote domain.
+    const { data: company } = quote.company_id
+      ? await supabase.from("companies").select("quote_public_base_url").eq("organization_id", org.organizationId).eq("id", quote.company_id).maybeSingle()
+      : { data: null };
+    return NextResponse.json({ data: { ...quote, public_url: `${quotePublicBaseUrlFor(company)}/q/${quote.public_token}` } });
   });
 }
 
@@ -94,6 +100,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
           distanceKm: s.distanceKm,
           optional: s.optional,
           selected: s.selected,
+          modifiers: s.modifiers,
         })),
         customLines: parsed.customLines.map((l) => ({
           label: l.label,

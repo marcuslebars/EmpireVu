@@ -44,6 +44,8 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
             maxQuantity: item.maxQuantity ?? null,
             maxMeasure: item.maxMeasure ?? null,
             surchargeEligible: item.surchargeEligible,
+            // Choices that scale the price (tier, boat type) — the builder shows a select per group.
+            modifierGroups: item.modifierGroups ?? [],
           })),
           bundles: Object.values(catalog.bundles),
           surcharges: Object.values(catalog.surcharges),

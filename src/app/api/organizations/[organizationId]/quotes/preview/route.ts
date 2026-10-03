@@ -31,6 +31,7 @@ const previewSchema = z
           distanceKm: z.number().positive().max(2000).optional(),
           optional: z.boolean().optional(),
           selected: z.boolean().optional(),
+          modifiers: z.record(z.string().max(40), z.string().max(40)).optional(),
         }),
       )
       .max(20)
@@ -73,6 +74,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
           distanceKm: s.distanceKm,
           optional: s.optional,
           selected: s.selected,
+          modifiers: s.modifiers,
         })),
         customLines: input.customLines.map((l) => ({
           label: l.label,

@@ -90,7 +90,7 @@ function initialTerms(invoice: Invoice | undefined): TermsChoice {
 
 // ─── Contact picker ──────────────────────────────────────────────────────────
 
-function ContactSearch({
+export function ContactSearch({
   orgId,
   value,
   label,
