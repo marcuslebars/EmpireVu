@@ -93,6 +93,8 @@ export function buildForwardingInstructions(catcherNumber: string, ringSeconds =
       "These codes work on most mobile carriers, but plans differ — if a code is rejected, call your carrier and ask " +
       `for "conditional call forwarding" (no answer / busy / unreachable) to ${pretty}. Never forward ALL calls ` +
       "(unconditional) — then the phone would never ring for you.",
+    // Manual alternative to the automatic "Test my forwarding" call (which needs nothing
+    // from the owner but not answering) — docs/missed-call-catcher.md.
     testSteps: [
       "From a DIFFERENT phone (not the business line), call your business number.",
       "Don't answer — let it ring out (or decline it).",

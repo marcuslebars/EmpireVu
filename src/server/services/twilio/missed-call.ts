@@ -17,6 +17,11 @@ import { handleLeadIntake } from "@/server/services/lead-intake/intake";
 import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
 import { toE164 } from "@/server/services/retell/payload";
 import type { TenantServiceContext } from "@/server/services/shared";
+import {
+  isTestCallerId,
+  recordForwardedLegIfTest,
+  recordPassiveForwardingProof,
+} from "@/server/services/twilio/forwarding-test";
 import { textBackWindowMinutes, transcriptionEnabled } from "@/server/services/twilio/voice-config";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import { deliverMessage, resolveOwnerContacts } from "@/server/services/workflow-engine/messaging";
@@ -301,7 +306,10 @@ export async function textBackAutomationActive(admin: AdminClient, organizationI
 }
 
 export interface HandleMissedCallResult {
-  status: "emitted" | "suppressed" | "anonymous" | "duplicate";
+  /** forwarding_test: the forwarded leg of a forwarding test (test marked passed; no lead,
+   *  no text-back). test_caller: a call from our own test caller ID outside any test window
+   *  (never a customer — dropped). */
+  status: "emitted" | "suppressed" | "anonymous" | "duplicate" | "forwarding_test" | "test_caller";
   contactId: string | null;
   leadId: string | null;
 }
@@ -333,6 +341,32 @@ export async function handleMissedCall(payload: unknown, now: number = Date.now(
       `No active missed-call catcher number for ${fields.to}. Add a voice_numbers row (provider='twilio', mode='missed_call_catcher').`,
     );
   }
+
+  // (1b) Forwarding verification (docs/missed-call-catcher.md → Forwarding verification):
+  //      the forwarded leg of OUR test call is not a customer — mark the test passed and stop
+  //      (no missed_calls row, no lead, no text-back). If the lookup itself fails, a call from
+  //      our own test caller ID retries; anything else is handled as a normal missed call
+  //      (never drop a lead because the test table was unreachable).
+  let forwardingTestLeg = false;
+  try {
+    forwardingTestLeg = await recordForwardedLegIfTest(
+      admin,
+      tenant,
+      { callSid: fields.callSid, from: fields.from, to: fields.to, forwardedFrom: fields.forwardedFrom },
+      now,
+    );
+  } catch (err) {
+    if (isTestCallerId(fields.from, tenant.phoneE164)) throw err;
+    console.error("[missed-call] forwarding-test lookup failed (handling as a missed call):", err instanceof Error ? err.message : err);
+  }
+  if (forwardingTestLeg) return { status: "forwarding_test", contactId: null, leadId: null };
+  if (isTestCallerId(fields.from, tenant.phoneE164)) {
+    console.warn(`[missed-call] call ${fields.callSid} is from our own test caller ID outside any test — ignored.`);
+    return { status: "test_caller", contactId: null, leadId: null };
+  }
+  // Passive proof: a real call the carrier forwarded from the business line shows forwarding
+  // works (sets voice_numbers.forwarding_verified_at). Best-effort.
+  await recordPassiveForwardingProof(admin, tenant, fields.forwardedFrom, now);
 
   const fromE164 = toE164(fields.from);
   const anonymous = isAnonymousCaller(fields.from);

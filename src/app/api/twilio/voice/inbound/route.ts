@@ -6,6 +6,7 @@ import {
   VOICE_JOB_PROVIDER,
   type CatcherTenant,
 } from "@/server/services/twilio/missed-call";
+import { findInFlightTestForLeg, isTestCallerId } from "@/server/services/twilio/forwarding-test";
 import { verifyTwilioSignature } from "@/server/services/twilio/signature";
 import {
   callbackBaseUrl,
@@ -17,6 +18,7 @@ import {
 } from "@/server/services/twilio/voice-config";
 import {
   buildCatcherGreetingTwiml,
+  buildForwardingTestLegTwiml,
   emptyTwiml,
   twimlResponse,
   voicemailMaxSeconds,
@@ -36,8 +38,12 @@ export const dynamic = "force-dynamic";
  *   3) resolve the tenant by the CALLED number (voice_numbers, provider='twilio',
  *      mode='missed_call_catcher') only to say the company's name: unknown number → empty
  *      <Response/> (the job stays stored for ops); a lookup error → generic greeting;
- *   4) answer with TwiML: greeting + <Record> voicemail (recording/transcription callbacks
- *      go to /api/twilio/voice/recording).
+ *   4) the forwarded leg of a FORWARDING TEST (From = our test caller ID / the business line,
+ *      or ForwardedFrom = the business line, while that company's test is in flight) → a bare
+ *      <Hangup/>: no greeting, no voicemail; the worker marks the test passed and creates no
+ *      lead / text-back (docs/missed-call-catcher.md → Forwarding verification);
+ *   5) otherwise answer with TwiML: greeting + <Record> voicemail (recording/transcription
+ *      callbacks go to /api/twilio/voice/recording).
  * The lead, call.missed and text-back happen in the worker (handleMissedCall).
  */
 export async function POST(request: Request): Promise<Response> {
@@ -77,6 +83,22 @@ export async function POST(request: Request): Promise<Response> {
   if (tenant === null) {
     console.warn(`[twilio-voice] call to unknown catcher number ${params.To ?? "?"} (stored; no tenant).`);
     return twimlResponse(emptyTwiml());
+  }
+
+  if (tenant) {
+    try {
+      const testLeg =
+        isTestCallerId(params.From ?? null, tenant.phoneE164) ||
+        (await findInFlightTestForLeg(admin, tenant, {
+          from: params.From ?? null,
+          to: params.To ?? params.Called ?? null,
+          forwardedFrom: params.ForwardedFrom ?? null,
+        })) !== null;
+      if (testLeg) return twimlResponse(buildForwardingTestLegTwiml());
+    } catch (err) {
+      // Can't tell — treat it as a real missed call (the worker re-checks before any text).
+      console.error("[twilio-voice] forwarding-test check failed:", err instanceof Error ? err.message : err);
+    }
   }
 
   const base = callbackBaseUrl(request);

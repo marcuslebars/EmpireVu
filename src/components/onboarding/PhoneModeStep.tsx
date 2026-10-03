@@ -8,6 +8,7 @@ import { useBilling, useDashboardActivity } from "@/lib/api-hooks";
 import { getMissedCallCatcher, provisionMissedCallCatcher } from "@/lib/api-client";
 import type { ForwardingInstructions } from "@/lib/carrier-forwarding";
 import { availablePhoneModes } from "@/lib/phone-modes";
+import { ForwardingTestPanel } from "@/components/onboarding/ForwardingTestPanel";
 
 /**
  * Onboarding Phone step: choose how calls are handled.
@@ -165,6 +166,9 @@ function CatcherSetup({ orgId, companyId, onDone }: { orgId: string; companyId: 
       </button>
 
       {instructions ? <ForwardingCard instructions={instructions} /> : null}
+      {instructions && number ? (
+        <ForwardingTestPanel orgId={orgId} companyId={companyId} instructions={instructions} onVerified={onDone} />
+      ) : null}
       {instructions ? <CatcherTestCheck orgId={orgId} instructions={instructions} onDone={onDone} /> : null}
     </div>
   );
@@ -244,21 +248,23 @@ function CatcherTestCheck({
 
   return (
     <div className="bg-card border border-border rounded-lg p-4 space-y-2">
-      <p className="text-sm font-semibold text-foreground">Test it</p>
-      <ol className="list-decimal pl-5 space-y-1 text-xs text-muted-foreground">
-        {instructions.testSteps.map((s) => (
-          <li key={s}>{s}</li>
-        ))}
-      </ol>
-      {caught ? (
-        <p className="text-sm text-emerald-400 flex items-center gap-1.5">
-          <Check className="w-4 h-4" /> Caught a missed call — you're live.
-        </p>
-      ) : (
-        <p className="text-sm text-muted-foreground flex items-center gap-1.5">
-          <Loader2 className="w-4 h-4 animate-spin" /> Waiting for your test call…
-        </p>
-      )}
+      <details>
+        <summary className="text-sm font-semibold text-foreground cursor-pointer">Prefer to test it yourself from another phone?</summary>
+        <ol className="list-decimal pl-5 space-y-1 text-xs text-muted-foreground mt-2">
+          {instructions.testSteps.map((s) => (
+            <li key={s}>{s}</li>
+          ))}
+        </ol>
+        {caught ? (
+          <p className="text-sm text-emerald-400 flex items-center gap-1.5 mt-2">
+            <Check className="w-4 h-4" /> Caught a missed call — you're live.
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-2">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Waiting for your test call…
+          </p>
+        )}
+      </details>
       <button className="text-xs font-medium text-muted-foreground hover:text-foreground" onClick={onDone}>
         Mark done / skip →
       </button>

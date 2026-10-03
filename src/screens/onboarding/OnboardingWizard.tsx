@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Building2, ClipboardList, Phone, CreditCard, Globe, PhoneCall, Users, Zap,
   Check, Loader2, ArrowRight, Upload, Sparkles, ExternalLink, X,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { ForwardingTestPanel } from "@/components/onboarding/ForwardingTestPanel";
 import { PhoneModeStep } from "@/components/onboarding/PhoneModeStep";
 import { useOrg } from "@/lib/org-context";
 import { toast } from "@/components/ui/sonner";
@@ -545,6 +546,9 @@ export default function OnboardingWizard() {
   const { data: progress, isLoading } = useOnboardingProgress(organizationId);
   const upsertStep = useUpsertOnboardingStep(organizationId);
   const [active, setActive] = useState<StepKey | null>(null);
+  // Deep link (e.g. the forwarding-test SMS links to /onboarding?step=phone).
+  const [searchParams] = useSearchParams();
+  const requestedStep = searchParams.get("step");
 
   const company = progress?.company ?? null;
   const statusByStep = useMemo(() => {
@@ -561,10 +565,15 @@ export default function OnboardingWizard() {
   // Resume at the server-computed next step (first incomplete), else first incomplete locally.
   useEffect(() => {
     if (active !== null || !progress) return;
+    const linked = STEPS.find((s) => s.key === requestedStep);
+    if (linked) {
+      setActive(linked.key);
+      return;
+    }
     const hint = STEPS.find((s) => s.key === progress.nextStep);
     const firstIncomplete = STEPS.find((s) => statusByStep.get(s.key) !== "complete");
     setActive((hint ?? firstIncomplete ?? STEPS[STEPS.length - 1]).key);
-  }, [progress, active, statusByStep]);
+  }, [progress, active, statusByStep, requestedStep]);
 
   const allComplete = STEPS.every((s) => statusByStep.get(s.key) === "complete");
 
@@ -649,6 +658,13 @@ export default function OnboardingWizard() {
               <PaymentsStep {...stepProps} />
             ) : active === "website" ? (
               <WebsiteFormStep orgId={stepProps.orgId} companyId={stepProps.companyId} onDone={stepProps.onDone} advanced={<WebsiteStep {...stepProps} />} />
+            ) : active === "test_call" && dataByStep.get("phone")?.mode === "missed_call_catcher" ? (
+              // Missed-call catcher: the test call IS the forwarding test (it completes this
+              // step server-side when it passes — docs/missed-call-catcher.md).
+              <div className="space-y-4 max-w-2xl">
+                <ForwardingTestPanel orgId={stepProps.orgId} companyId={stepProps.companyId} onVerified={stepProps.onDone} />
+                <button className="text-xs font-medium text-muted-foreground hover:text-foreground" onClick={stepProps.onDone}>Mark done / skip →</button>
+              </div>
             ) : active === "test_call" ? (
               <TestCallStep {...stepProps} phoneNumber={(dataByStep.get("phone")?.phoneNumber as string) ?? null} />
             ) : active === "team" ? (

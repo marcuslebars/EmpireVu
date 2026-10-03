@@ -89,3 +89,22 @@ export function buildVoicemailDoneTwiml(voice?: string): string {
 export function twimlResponse(xml: string, status = 200): Response {
   return new Response(xml, { status, headers: { "Content-Type": "text/xml" } });
 }
+
+// ── Forwarding test (docs/missed-call-catcher.md → Forwarding verification) ──────────
+
+/**
+ * The forwarded test leg arriving on the catcher number: it has done its job (it proved
+ * forwarding works), so end it at once — no greeting, no voicemail, no text-back.
+ */
+export function buildForwardingTestLegTwiml(): string {
+  return `${XML_HEADER}<Response><Hangup/></Response>`;
+}
+
+/** What the test call says if someone (or a voicemail) picks up the business line. Neutral. */
+export const FORWARDING_TEST_ANSWERED_TEXT =
+  "This is an automatic test of your missed-call forwarding. Please don't answer it next time, just let it ring. Goodbye.";
+
+export function buildForwardingTestAnsweredTwiml(voice?: string): string {
+  const v = escapeXml(voice?.trim() || DEFAULT_SAY_VOICE);
+  return `${XML_HEADER}<Response><Say voice="${v}">${escapeXml(FORWARDING_TEST_ANSWERED_TEXT)}</Say><Hangup/></Response>`;
+}
