@@ -116,6 +116,49 @@ export function crankleadsAutomaticTax(): boolean {
   return process.env.STRIPE_AUTOMATIC_TAX?.trim().toLowerCase() === "true";
 }
 
+// ── Checkout branding ─────────────────────────────────────────────────────────
+
+/**
+ * Per-session Stripe Checkout branding, so a CrankLeads buyer sees CrankLeads (not the
+ * Stripe account's own EmpireVu name/logo) at the top of the payment page. The account's
+ * legal business name still appears in Stripe's terms text, receipts and the card
+ * statement descriptor — Stripe does not allow overriding those per session.
+ * The images are hosted by crankleads.com (public/brand/ in that repo).
+ */
+export interface CrankleadsCheckoutBranding {
+  displayName: string;
+  logoUrl: string;
+  backgroundColor: string;
+  buttonColor: string;
+}
+
+const DEFAULT_CHECKOUT_DISPLAY_NAME = CRANKLEADS_OFFER_NAME;
+const DEFAULT_CHECKOUT_LOGO_URL = "https://crankleads.com/brand/crankleads-logo.png";
+/** CrankLeads site background + accent (crankleads.com theme). */
+const DEFAULT_CHECKOUT_BACKGROUND = "#0c0f13";
+const DEFAULT_CHECKOUT_BUTTON = "#a6ee2b";
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+function hexOr(name: string, fallback: string): string {
+  const value = envValue(name);
+  return value && HEX_COLOR.test(value) ? value : fallback;
+}
+
+function httpsUrlOr(name: string, fallback: string): string {
+  const value = envValue(name);
+  return value && value.startsWith("https://") ? value : fallback;
+}
+
+export function crankleadsCheckoutBranding(): CrankleadsCheckoutBranding {
+  return {
+    displayName: envValue("CRANKLEADS_CHECKOUT_DISPLAY_NAME") ?? DEFAULT_CHECKOUT_DISPLAY_NAME,
+    logoUrl: httpsUrlOr("CRANKLEADS_CHECKOUT_LOGO_URL", DEFAULT_CHECKOUT_LOGO_URL),
+    backgroundColor: hexOr("CRANKLEADS_CHECKOUT_BACKGROUND_COLOR", DEFAULT_CHECKOUT_BACKGROUND),
+    buttonColor: hexOr("CRANKLEADS_CHECKOUT_BUTTON_COLOR", DEFAULT_CHECKOUT_BUTTON),
+  };
+}
+
 // ── Business type → industry pack ─────────────────────────────────────────────
 
 /** The business types offered on the crankleads.com form. */

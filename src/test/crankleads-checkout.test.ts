@@ -139,6 +139,14 @@ describe("POST /api/public/crankleads/checkout", () => {
       billing_address_collection: "required",
       automatic_tax: { enabled: false },
       managed_payments: { enabled: false },
+      branding_settings: {
+        display_name: "CrankLeads",
+        logo: { type: "url", url: "https://crankleads.com/brand/crankleads-logo.png" },
+        background_color: "#0c0f13",
+        button_color: "#a6ee2b",
+        font_family: "inter",
+        border_style: "rounded",
+      },
       allow_promotion_codes: false,
       metadata,
       subscription_data: { metadata },
@@ -146,6 +154,31 @@ describe("POST /api/public/crankleads/checkout", () => {
       cancel_url: "https://crankleads.com/#pricing",
     });
     expect(options).toEqual({ idempotencyKey: `crankleads-checkout-${row.id}` });
+  });
+
+  it("brands the payment page as CrankLeads, overridable by env (bad values fall back)", async () => {
+    vi.stubEnv("CRANKLEADS_CHECKOUT_DISPLAY_NAME", "CrankLeads Ontario");
+    vi.stubEnv("CRANKLEADS_CHECKOUT_LOGO_URL", "https://cdn.example/cl.png");
+    vi.stubEnv("CRANKLEADS_CHECKOUT_BACKGROUND_COLOR", "#ffffff");
+    vi.stubEnv("CRANKLEADS_CHECKOUT_BUTTON_COLOR", "lime"); // not a hex colour → default
+    await POST(post(validBody));
+    expect(sessionsCreate.mock.calls[0][0].branding_settings).toEqual({
+      display_name: "CrankLeads Ontario",
+      logo: { type: "url", url: "https://cdn.example/cl.png" },
+      background_color: "#ffffff",
+      button_color: "#a6ee2b",
+      font_family: "inter",
+      border_style: "rounded",
+    });
+
+    // A non-https logo URL is never sent to Stripe.
+    vi.stubEnv("CRANKLEADS_CHECKOUT_LOGO_URL", "http://insecure.example/cl.png");
+    sessionsCreate.mockClear();
+    await POST(post(validBody));
+    expect(sessionsCreate.mock.calls[0][0].branding_settings.logo).toEqual({
+      type: "url",
+      url: "https://crankleads.com/brand/crankleads-logo.png",
+    });
   });
 
   it("applies the founding coupon (and no promotion codes) only when asked AND configured", async () => {

@@ -18,6 +18,7 @@ import {
   CRANKLEADS_TIERS,
   crankleadsAutomaticTax,
   crankleadsCancelUrl,
+  crankleadsCheckoutBranding,
   crankleadsFoundingCouponId,
   crankleadsMonthlyPriceId,
   crankleadsSetupPriceId,
@@ -134,6 +135,7 @@ export function buildCrankleadsSessionParams(
   };
 
   const base = getAppBaseUrl().replace(/\/+$/, "");
+  const brand = crankleadsCheckoutBranding();
 
   // Subscription mode with BOTH prices: the recurring monthly price becomes the
   // subscription; the one-time setup price rides on the first invoice only (Stripe
@@ -151,6 +153,16 @@ export function buildCrankleadsSessionParams(
     billing_address_collection: "required",
     automatic_tax: { enabled: crankleadsAutomaticTax() },
     managed_payments: { enabled: false },
+    // The buyer bought CrankLeads: brand the payment page as CrankLeads, not the account's
+    // EmpireVu default (Stripe allows a logo OR an icon, not both — the wordmark logo).
+    branding_settings: {
+      display_name: brand.displayName,
+      logo: { type: "url", url: brand.logoUrl },
+      background_color: brand.backgroundColor,
+      button_color: brand.buttonColor,
+      font_family: "inter",
+      border_style: "rounded",
+    },
     // Only our server-side founding coupon can discount a CrankLeads checkout — no
     // promotion-code box (any active promo code in the account would otherwise apply).
     ...(coupon ? { discounts: [{ coupon }] } : { allow_promotion_codes: false }),
