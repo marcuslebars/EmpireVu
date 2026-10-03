@@ -2116,6 +2116,8 @@ export interface QuoteWritePayload {
     distanceKm?: number;
     optional?: boolean;
     selected?: boolean;
+    /** Modifier choices (tier, boat type…) keyed by group. */
+    modifiers?: Record<string, string>;
   }[];
   customLines?: {
     label: string;

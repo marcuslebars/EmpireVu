@@ -22,6 +22,8 @@ const serviceSchema = z.object({
   distanceKm: z.number().positive().max(2000).optional(),
   optional: z.boolean().optional(),
   selected: z.boolean().optional(),
+  // Modifier choices (tier, boat type…) keyed by group.
+  modifiers: z.record(z.string().max(40), z.string().max(40)).optional(),
 });
 
 const customLineSchema = z.object({
@@ -94,6 +96,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
           distanceKm: s.distanceKm,
           optional: s.optional,
           selected: s.selected,
+          modifiers: s.modifiers,
         })),
         customLines: parsed.customLines.map((l) => ({
           label: l.label,

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { handleRoute } from "@/server/api/route";
 import { requireOrganizationContext } from "@/server/organizations/context";
-import { getQuotesConfig } from "@/server/services/quotes/config";
+import { getQuotesConfig, quotePublicBaseUrlFor } from "@/server/services/quotes/config";
 import { createQuote, listQuotes, REVIEWABLE_STATUSES } from "@/server/services/quotes/service";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
@@ -25,6 +25,8 @@ const serviceSchema = z.object({
   // Customer-toggleable on the hosted page; off unless explicitly selected.
   optional: z.boolean().optional(),
   selected: z.boolean().optional(),
+  // Modifier choices (tier, boat type…) keyed by group.
+  modifiers: z.record(z.string().max(40), z.string().max(40)).optional(),
 });
 
 /** Hand-priced Care lines. amountCents is trusted from an authenticated org member. */
@@ -85,6 +87,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
           distanceKm: s.distanceKm,
           optional: s.optional,
           selected: s.selected,
+          modifiers: s.modifiers,
         })),
         customLines: parsed.customLines.map((l) => ({
           label: l.label,
@@ -129,6 +132,32 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
         statuses: review ? REVIEWABLE_STATUSES : undefined,
       },
     );
-    return NextResponse.json({ data: quotes });
+    // Who each quote is for, and whether it's been invoiced — the list shows both.
+    const ctx = { organizationId: org.organizationId, actorProfileId: org.user.id, supabase };
+    const contactIds = [...new Set(quotes.map((q) => q.contact_id).filter((v): v is string => Boolean(v)))];
+    const quoteIds = quotes.map((q) => q.id);
+    const [{ data: contacts }, { data: invoices }] = await Promise.all([
+      contactIds.length
+        ? ctx.supabase.from("contacts").select("id, first_name, last_name, email, phone").eq("organization_id", ctx.organizationId).in("id", contactIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; first_name: string; last_name: string | null; email: string | null; phone: string | null }> }),
+      quoteIds.length
+        ? ctx.supabase.from("invoices").select("id, quote_id, status").eq("organization_id", ctx.organizationId).in("quote_id", quoteIds).neq("status", "void")
+        : Promise.resolve({ data: [] as Array<{ id: string; quote_id: string | null; status: string }> }),
+    ]);
+    const companyIds = [...new Set(quotes.map((q) => q.company_id).filter((v): v is string => Boolean(v)))];
+    const { data: companies } = companyIds.length
+      ? await ctx.supabase.from("companies").select("id, quote_public_base_url").eq("organization_id", ctx.organizationId).in("id", companyIds)
+      : { data: [] as Array<{ id: string; quote_public_base_url: string | null }> };
+    const originByCompany = new Map((companies ?? []).map((c) => [c.id, quotePublicBaseUrlFor(c)]));
+    const byContact = new Map((contacts ?? []).map((c) => [c.id, c]));
+    const byQuote = new Map((invoices ?? []).map((i) => [i.quote_id, i]));
+    const data = quotes.map((q) => {
+      const c = q.contact_id ? byContact.get(q.contact_id) : undefined;
+      const name = c ? [c.first_name, c.last_name].filter((p) => p && p !== "Lead").join(" ").trim() || c.email || c.phone : null;
+      const inv = byQuote.get(q.id);
+      const origin = (q.company_id && originByCompany.get(q.company_id)) || quotePublicBaseUrlFor(null);
+      return { ...q, public_url: `${origin}/q/${q.public_token}`, contact_name: name ?? null, contact_email: c?.email ?? null, invoice_id: inv?.id ?? null, invoice_status: inv?.status ?? null };
+    });
+    return NextResponse.json({ data });
   });
 }
