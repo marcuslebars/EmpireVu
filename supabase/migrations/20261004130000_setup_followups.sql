@@ -10,7 +10,9 @@
 -- Depends on voice_numbers.forwarding_verified_at, added by 20261004120000 (feat/forwarding-verify,
 -- applied BEFORE this file). This migration does NOT create it.
 --
--- Additive only. Rollback: supabase/rollback/20261004130000_setup_followups.down.sql.
+-- Additive only (+ a one-time data backfill: purchases provisioned before this migration are
+-- exempt from follow-ups — see setup_followups_exempt_at). Rollback:
+-- supabase/rollback/20261004130000_setup_followups.down.sql.
 
 -- ── crankleads_purchases: live stamp + reminder opt-out ─────────────────────
 -- live_at: when the setup checklist first reported every required step done (set once by the
@@ -23,6 +25,25 @@ alter table public.crankleads_purchases
   add column if not exists live_at timestamptz,
   add column if not exists setup_reminders_stopped_at timestamptz,
   add column if not exists setup_reminders_stop_token text;
+
+-- setup_followups_exempt_at: purchases that were ALREADY provisioned when this migration ran.
+--   They predate the follow-ups, so they get no reminders and no late "you're live" message
+--   (the job still stamps live_at silently). Backfilled once, below — only in the run that
+--   ADDS the column, so re-running this file never exempts a buyer who arrived after deploy.
+--   Kept separate from setup_reminders_stopped_at, which means "the owner opted out".
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'crankleads_purchases' and column_name = 'setup_followups_exempt_at'
+  ) then
+    alter table public.crankleads_purchases add column setup_followups_exempt_at timestamptz;
+    update public.crankleads_purchases
+      set setup_followups_exempt_at = timezone('utc', now())
+      where status = 'provisioned' and provisioned_at is not null;
+  end if;
+end
+$$;
 
 create unique index if not exists crankleads_purchases_stop_token_idx
   on public.crankleads_purchases (setup_reminders_stop_token)

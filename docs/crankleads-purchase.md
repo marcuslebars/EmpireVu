@@ -329,7 +329,7 @@ Required steps per tier, in wizard order (judged from **real state**, never from
 |---|---|---|---|---|---|
 | `services` — Add your prices | ≥ 1 catalog item has a price | ✓ | ✓ | ✓ | ✓ |
 | `phone` — missed-call / AI number | an active `missed_call_catcher` (or, AI path, `ai_receptionist`) `voice_numbers` row | ✓ | ✓ | ✓ | ✓ |
-| `forwarding` — Turn on call forwarding | the active catcher number's **`voice_numbers.forwarding_verified_at` is not null** (set by feat/forwarding-verify when a forwarded call actually arrives) | ✓ | ✓ | – | ✓ |
+| `forwarding` — Turn on call forwarding | the active catcher number's **`voice_numbers.forwarding_verified_at` is not null** (set by feat/forwarding-verify when a test's forwarded leg arrives, a real forwarded missed call arrives, or — at deploy — backfilled for catcher numbers that already caught calls; cleared only by a `not_forwarded` test) | ✓ | ✓ | – | ✓ |
 | `test_call` — Make a test call | a `retell_calls` row for the company | – | – | ✓ | – |
 | `payments` — Connect payments | `companies.stripe_charges_enabled` | – | ✓ | ✓ | ✓ |
 | `website` — Add your website form | an active `public_form_keys` (or `intake_keys`) row has `last_used_at` (a test or real lead came through) | ✓ | ✓ | ✓ | ✓ |
@@ -367,6 +367,14 @@ no new Railway service. For each `provisioned` purchase that isn't live (≤ 90 
   (`email_status` / `sms_status`) and not retried.
 - **Stops** immediately when live, when `organizations.subscription_status = 'canceled'`, when
   the owner clicks the email's "stop these reminders" link, and after day 10 / 30 days.
+- **Existing buyers are never spammed on deploy:** the migration stamps
+  `crankleads_purchases.setup_followups_exempt_at` on every purchase that was already
+  `provisioned` when it ran (only in the run that adds the column — re-running it exempts no
+  one new). Exempt purchases get **no reminders and no "you're live" message**; the pass still
+  stamps `live_at` silently when their checklist reports live. Kept separate from
+  `setup_reminders_stopped_at` (that one means "the owner opted out" — operator health shows it).
+  To opt an old buyer back in: `update crankleads_purchases set setup_followups_exempt_at = null
+  where id = '…';`.
 
 ### Messages
 
@@ -383,9 +391,14 @@ unfinished steps and links straight to the next one, e.g. SMS:
   then straight back to the step.
 - **Owner never signed in** (new user, no `last_sign_in_at`): the email also carries a fresh
   one-time set-password link (`createSetPasswordUrl(admin, email, next)` — same token_hash
-  approach as the welcome email) whose `next` is the step. SMS never carries a login token.
+  approach as the welcome email) whose `next` is the step. That link signs in **as the buyer**,
+  so an email carrying it is sent **only to `crankleads_purchases.owner_email`** (the checkout
+  email the account was created for) — never to the resolved owner contact (which can be a
+  different company email, an org admin, or the platform `OWNER_EMAIL` for house orgs). SMS
+  never carries a login token (it has the plain deep link) and still goes to the resolved
+  owner phone.
 - Owner address: `companies.owner_email` / `owner_phone_e164` (`resolveOwnerContacts`), falling
-  back to the purchase's email / phone. Sent through `deliverMessage` (message_log + usage
+  back to the purchase's email / phone (except the set-password email above → buyer only). Sent through `deliverMessage` (message_log + usage
   metering); SMS goes **from `TWILIO_FROM_NUMBER`** (`smsFrom: "platform"`), so a STOP reply
   only stops platform texts — never the company's own catcher number's lead alerts.
 - Opt-out: SMS "Reply STOP" (Twilio carrier-level opt-out); email footer link
@@ -406,7 +419,9 @@ Migration `20261004130000_setup_followups.sql` (rollback
 `20261004120000` (feat/forwarding-verify, which adds `voice_numbers.forwarding_verified_at`):
 
 - `crankleads_purchases.live_at`, `setup_reminders_stopped_at`, `setup_reminders_stop_token`
-  (+ unique partial index on the token, partial index on not-live provisioned purchases).
+  (+ unique partial index on the token, partial index on not-live provisioned purchases), and
+  `setup_followups_exempt_at` — **backfilled** to `now()` for purchases already provisioned when
+  the migration runs (see "Existing buyers" above).
 - `crankleads_setup_followups` — send log / idempotency guard (org + company tenancy, RLS on,
   members select, writes service-role only).
 

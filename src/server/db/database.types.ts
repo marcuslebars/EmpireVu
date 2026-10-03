@@ -2615,6 +2615,7 @@ export interface Database {
           provision_attempts: number;
           provisioned_at: string | null;
           provisioning_started_at: string | null;
+          setup_followups_exempt_at: string | null;
           setup_reminders_stop_token: string | null;
           setup_reminders_stopped_at: string | null;
           status: string;
@@ -2648,6 +2649,7 @@ export interface Database {
           provision_attempts?: number;
           provisioned_at?: string | null;
           provisioning_started_at?: string | null;
+          setup_followups_exempt_at?: string | null;
           setup_reminders_stop_token?: string | null;
           setup_reminders_stopped_at?: string | null;
           status?: string;
@@ -2681,6 +2683,7 @@ export interface Database {
           provision_attempts?: number;
           provisioned_at?: string | null;
           provisioning_started_at?: string | null;
+          setup_followups_exempt_at?: string | null;
           setup_reminders_stop_token?: string | null;
           setup_reminders_stopped_at?: string | null;
           status?: string;

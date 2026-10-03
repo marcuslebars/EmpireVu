@@ -341,9 +341,15 @@ async function sendReminder(
   if (!claimed) return { purchaseId: purchase.id, action: "skipped", stage, reason: "already_claimed" };
 
   const base = appUrl();
-  const to = await ownerAddress(ctx, company, purchase);
+  const resolved = await ownerAddress(ctx, company, purchase);
   const token = await ensureStopToken(admin, purchase, deps);
-  const setPasswordUrl = to.email ? await setPasswordLinkIfNeeded(admin, purchase, purchase.owner_email, next.path, deps) : null;
+  // A set-password (recovery) link signs in AS the buyer, so an email carrying one goes ONLY to
+  // the buyer's own checkout email (purchase.owner_email) — never to whatever address
+  // resolveOwnerContacts picked (company owner_email, an org admin, or the platform
+  // OWNER_EMAIL for house orgs). The SMS never carries the link (it has the plain deep link).
+  const buyerEmail = purchase.owner_email?.trim() || null;
+  const setPasswordUrl = buyerEmail ? await setPasswordLinkIfNeeded(admin, purchase, buyerEmail, next.path, deps) : null;
+  const to: OwnerAddress = setPasswordUrl ? { email: buyerEmail, phone: resolved.phone } : resolved;
   const input: ReminderMessageInput = {
     stage,
     ownerName: purchase.owner_name,
@@ -433,6 +439,10 @@ async function processPurchase(
   const facts = await loadSetupFacts(ctx, companyId);
   const checklist = computeSetupChecklist({ organizationId, companyId, tier, facts, appBaseUrl: appUrl() });
   const stopped = Boolean(purchase.setup_reminders_stopped_at);
+  // Provisioned before follow-ups shipped (backfilled by 20261004130000): never chased, never
+  // sent a late "you're live" — live_at is still stamped silently.
+  const exempt = Boolean(purchase.setup_followups_exempt_at);
+  const quietReason = exempt ? "followups_exempt" : stopped ? "reminders_stopped" : null;
   const outcomes: FollowupOutcome[] = [];
 
   // ── Live ──
@@ -453,14 +463,14 @@ async function processPurchase(
     }
   }
   if (liveAtMs !== null) {
-    if (stopped) return [...outcomes, { purchaseId: purchase.id, action: "skipped", reason: "reminders_stopped" }];
+    if (quietReason) return [...outcomes, { purchaseId: purchase.id, action: "skipped", reason: quietReason }];
     const sends = await loadSends(admin, purchase, organizationId);
     outcomes.push(await sendLive(admin, ctx, purchase, company, checklist, liveAtMs, timeZone, nowMs, sends, deps));
     return outcomes;
   }
 
   // ── Not live: reminders ──
-  if (stopped) return [{ purchaseId: purchase.id, action: "skipped", reason: "reminders_stopped" }];
+  if (quietReason) return [{ purchaseId: purchase.id, action: "skipped", reason: quietReason }];
   const sends = await loadSends(admin, purchase, organizationId);
   const decision = selectReminderStage({
     provisionedAtMs: Date.parse(purchase.provisioned_at),

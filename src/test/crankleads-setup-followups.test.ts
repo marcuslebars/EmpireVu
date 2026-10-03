@@ -367,6 +367,7 @@ function purchaseRow(overrides: Row = {}): Row {
     live_at: null,
     setup_reminders_stopped_at: null,
     setup_reminders_stop_token: null,
+    setup_followups_exempt_at: null,
     ...overrides,
   };
 }
@@ -432,6 +433,29 @@ describe("setup follow-up pass", () => {
     expect(sms.body).toContain("5 steps left to get Jane's Roofing live: add prices to your 2 services (+4 more).");
     expect(db.tables.crankleads_purchases[0].setup_reminders_stop_token).toBe(TOKEN);
     expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("the set-password email goes ONLY to the buyer's checkout email, never to a different resolved owner email", async () => {
+    setup(baseTables({ companies: [companyRow({ owner_email: "office@roofco.example", owner_phone_e164: "+17055550199" })] }));
+    await run("2026-10-05T13:30:00Z");
+    const emails = delivered("email");
+    expect(emails).toHaveLength(1);
+    expect(emails[0].to).toBe("jane@roofco.example");
+    expect(emails[0].body).toContain("update-password?token_hash=h");
+    expect(emails.some((m) => m.to === "office@roofco.example")).toBe(false);
+    expect(createSetPasswordUrl).toHaveBeenCalledWith(db.client, "jane@roofco.example", `/onboarding?step=services&org=${ORG}`);
+    // SMS still goes to the resolved owner phone, and never carries a login token.
+    const [sms] = delivered("sms");
+    expect(sms.to).toBe("+17055550199");
+    expect(sms.body).not.toContain("token_hash");
+  });
+
+  it("without a set-password link (owner signed in) the reminder goes to the resolved owner email", async () => {
+    setup(baseTables({ companies: [companyRow({ owner_email: "office@roofco.example" })] }));
+    signedIn = true;
+    await run("2026-10-05T13:30:00Z");
+    expect(delivered("email")[0].to).toBe("office@roofco.example");
+    expect(delivered("email")[0].body).not.toContain("update-password");
   });
 
   it("owner who already signed in gets no set-password link", async () => {
@@ -516,6 +540,22 @@ describe("setup follow-up pass", () => {
     await run("2026-10-07T14:00:00Z");
     expect(db.tables.crankleads_purchases[0].live_at).toBeTruthy();
     expect(deliver).not.toHaveBeenCalled();
+  });
+
+  it("buyers provisioned before the migration (exempt) get no reminders and no late 'you're live' — live_at still stamped", async () => {
+    setup(baseTables(), purchaseRow({ setup_followups_exempt_at: "2026-10-04T12:00:00Z" }));
+    expect(await run("2026-10-07T14:00:00Z")).toEqual([{ purchaseId: PURCHASE, action: "skipped", reason: "followups_exempt" }]);
+    expect(deliver).not.toHaveBeenCalled();
+    expect(sends()).toHaveLength(0);
+    setup(liveTables(), purchaseRow({ setup_followups_exempt_at: "2026-10-04T12:00:00Z" }));
+    const outcomes = await run("2026-10-07T14:00:00Z");
+    expect(outcomes).toEqual([
+      { purchaseId: PURCHASE, action: "live_marked" },
+      { purchaseId: PURCHASE, action: "skipped", reason: "followups_exempt" },
+    ]);
+    expect(db.tables.crankleads_purchases[0].live_at).toBe("2026-10-07T14:00:00.000Z");
+    expect(deliver).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it("a failed send is recorded and never retried as a duplicate", async () => {
