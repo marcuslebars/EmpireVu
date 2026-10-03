@@ -3,6 +3,7 @@ import { createActivityEvent } from "@/server/services/activity-events";
 import { sendDailyDigests } from "@/server/services/push/digest";
 import { processOwnerDigests } from "@/server/services/owner-digest";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { processForwardingRetests } from "@/server/services/twilio/forwarding-test";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import { resumeWorkflowRun, runWorkflowNow } from "@/server/services/workflow-engine/processor";
@@ -319,6 +320,12 @@ export async function runScheduler(
   // (company, local_date). Distinct from the push digest above (different channel/audience).
   await processOwnerDigests(admin, nowMs).catch((error) =>
     console.error("[scheduler] owner digest failed", error instanceof Error ? error.message : error),
+  );
+  // Missed-call catcher forwarding verification (docs/missed-call-catcher.md): finish stale
+  // tests, then re-test catcher numbers on their schedule (weekdays 10–16 company time).
+  // Self-guarded; never breaks the scheduler pass.
+  await processForwardingRetests(admin, nowMs).catch((error) =>
+    console.error("[scheduler] forwarding retests failed", error instanceof Error ? error.message : error),
   );
   return { ticksMaterialized, ticksProcessed, entitiesEmitted };
 }

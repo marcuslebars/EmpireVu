@@ -2,7 +2,7 @@
  * A tiny in-memory stand-in for the Supabase query builder, for service tests that would
  * otherwise hand-chain `.eq().eq().maybeSingle()` per call shape. Supports the subset the
  * missed-call catcher uses: select / insert / upsert (onConflict + ignoreDuplicates) /
- * update, filters eq / neq / gte / is, order, limit, maybeSingle / single, and
+ * update, filters eq / neq / gte / lte / is, order, limit, maybeSingle / single, and
  * `metadata_json->>key` JSON-path equality. Every operation is logged in `ops` so tests
  * can assert ordering (e.g. durable write before processing).
  */
@@ -94,6 +94,10 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
       },
       gte: (column: string, value: unknown) => {
         filters.push((row) => String(readPath(row, column) ?? "") >= String(value));
+        return builder;
+      },
+      lte: (column: string, value: unknown) => {
+        filters.push((row) => String(readPath(row, column) ?? "") <= String(value));
         return builder;
       },
       is: (column: string, value: unknown) => {

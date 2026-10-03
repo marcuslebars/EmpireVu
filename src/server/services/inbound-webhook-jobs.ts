@@ -8,6 +8,7 @@ import type { Inserts, Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import { handleJobberWebhook } from "@/server/services/jobber/webhook";
 import { ingestRetellCall } from "@/server/services/retell/lead-adapter";
+import { FORWARDING_TEST_JOB_PROVIDER, handleForwardingTestJob } from "@/server/services/twilio/forwarding-test";
 import { handleInboundSms } from "@/server/services/twilio/inbound-sms";
 import {
   handleMissedCall,
@@ -150,6 +151,10 @@ export async function dispatchInboundWebhookJob(job: InboundWebhookJob): Promise
       return;
     case VOICEMAIL_JOB_PROVIDER:
       await handleVoicemail(job.payload);
+      return;
+    case FORWARDING_TEST_JOB_PROVIDER:
+      // Forwarding verification: test-call status / AMD callbacks + the delayed finalize.
+      await handleForwardingTestJob(job.payload);
       return;
     default:
       throw new Error(`Unknown inbound webhook provider: ${job.provider}`);

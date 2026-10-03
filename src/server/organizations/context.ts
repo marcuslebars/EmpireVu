@@ -10,6 +10,14 @@ export class AuthorizationError extends Error {}
 export class ValidationError extends Error {}
 /** A metered allowance for the month is exhausted (Task 6). Maps to HTTP 402 in handleRoute. */
 export class UsageCapExceeded extends Error {}
+/** A per-tenant rate limit tripped. Maps to HTTP 429 (+ Retry-After) in handleRoute. */
+export class TooManyRequestsError extends Error {
+  readonly retryAfterSeconds: number;
+  constructor(message: string, retryAfterSeconds: number) {
+    super(message);
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
 
 export interface OrganizationContext {
   membership: Tables<"organization_memberships">;

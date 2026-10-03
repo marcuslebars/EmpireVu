@@ -5,6 +5,7 @@ import { ZodError } from "zod";
 import {
   AuthenticationError,
   AuthorizationError,
+  TooManyRequestsError,
   UsageCapExceeded,
   ValidationError,
 } from "@/server/organizations/context";
@@ -17,8 +18,10 @@ export async function handleRoute(
   } catch (error) {
     const status = getStatusCode(error);
     const message = error instanceof Error ? error.message : "Unexpected server error.";
+    const headers =
+      error instanceof TooManyRequestsError ? { "Retry-After": String(Math.max(1, Math.ceil(error.retryAfterSeconds))) } : undefined;
 
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message }, { status, headers });
   }
 }
 
@@ -101,6 +104,10 @@ function getStatusCode(error: unknown): number {
 
   if (error instanceof UsageCapExceeded) {
     return 402;
+  }
+
+  if (error instanceof TooManyRequestsError) {
+    return 429;
   }
 
   if (error instanceof ValidationError || error instanceof ZodError) {

@@ -17,6 +17,12 @@ import { handleLeadIntake } from "@/server/services/lead-intake/intake";
 import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
 import { toE164 } from "@/server/services/retell/payload";
 import type { TenantServiceContext } from "@/server/services/shared";
+import {
+  FORWARDING_TEST_LEG_KEY,
+  isTestCallerId,
+  recordFlaggedForwardedLeg,
+  recordPassiveForwardingProof,
+} from "@/server/services/twilio/forwarding-test";
 import { textBackWindowMinutes, transcriptionEnabled } from "@/server/services/twilio/voice-config";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import { deliverMessage, resolveOwnerContacts } from "@/server/services/workflow-engine/messaging";
@@ -301,7 +307,10 @@ export async function textBackAutomationActive(admin: AdminClient, organizationI
 }
 
 export interface HandleMissedCallResult {
-  status: "emitted" | "suppressed" | "anonymous" | "duplicate";
+  /** forwarding_test: the voice webhook flagged this call as the forwarded leg of a
+   *  forwarding test (test marked passed; no lead, no text-back). test_caller: a call from
+   *  our own test caller ID that wasn't flagged (never a customer — dropped). */
+  status: "emitted" | "suppressed" | "anonymous" | "duplicate" | "forwarding_test" | "test_caller";
   contactId: string | null;
   leadId: string | null;
 }
@@ -333,6 +342,31 @@ export async function handleMissedCall(payload: unknown, now: number = Date.now(
       `No active missed-call catcher number for ${fields.to}. Add a voice_numbers row (provider='twilio', mode='missed_call_catcher').`,
     );
   }
+
+  // (1b) Forwarding verification (docs/missed-call-catcher.md → Forwarding verification):
+  //      the voice webhook ALONE decides whether a call is the forwarded leg of our test call
+  //      (From == the test's caller ID — a number we own — inside the window) and stamps the
+  //      test id into this durable payload. Flagged → mark the test passed and stop (no
+  //      missed_calls row, no lead, no text-back); a failure here retries the job (it is our
+  //      own call — no customer is waiting). NO re-matching: a call without the flag is
+  //      always a normal missed call, whatever its From / ForwardedFrom say.
+  const flaggedTestId = readField(payload, FORWARDING_TEST_LEG_KEY);
+  if (flaggedTestId) {
+    const passed = await recordFlaggedForwardedLeg(
+      admin,
+      tenant,
+      { testId: flaggedTestId, callSid: fields.callSid, forwardedFrom: fields.forwardedFrom },
+      now,
+    );
+    if (passed) return { status: "forwarding_test", contactId: null, leadId: null };
+  }
+  if (isTestCallerId(fields.from, tenant.phoneE164)) {
+    console.warn(`[missed-call] call ${fields.callSid} is from our own test caller ID outside any test — ignored.`);
+    return { status: "test_caller", contactId: null, leadId: null };
+  }
+  // Passive proof: a real call the carrier forwarded from the business line shows forwarding
+  // works (sets voice_numbers.forwarding_verified_at). Best-effort.
+  await recordPassiveForwardingProof(admin, tenant, fields.forwardedFrom, now);
 
   const fromE164 = toE164(fields.from);
   const anonymous = isAnonymousCaller(fields.from);

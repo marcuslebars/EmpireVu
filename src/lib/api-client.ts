@@ -2306,3 +2306,43 @@ export function provisionMissedCallCatcher(
 ): Promise<MissedCallCatcherProvisionResult> {
   return apiFetch(`/api/organizations/${orgId}/missed-call-catcher`, { method: "POST", body: JSON.stringify(input) });
 }
+
+// ── Forwarding verification (docs/missed-call-catcher.md → Forwarding verification) ──
+export type ForwardingTestStatus = "calling" | "passed" | "answered" | "busy" | "not_forwarded" | "failed";
+
+export interface ForwardingTestView {
+  id: string;
+  status: ForwardingTestStatus;
+  trigger: "owner" | "scheduled";
+  startedAt: string;
+  completedAt: string | null;
+  callerId: string;
+  callerIdPretty: string;
+  businessLinePretty: string;
+  answeredBy: string | null;
+  errorMessage: string | null;
+}
+
+export interface ForwardingVerificationStatus {
+  hasCatcher: boolean;
+  verifiedAt: string | null;
+  lastTestAt: string | null;
+  lastTestResult: string | null;
+  businessLinePretty: string | null;
+  callerIdPretty: string | null;
+  blockedReason: string | null;
+  latestTest: ForwardingTestView | null;
+}
+
+export function getForwardingVerification(orgId: string, companyId: string): Promise<ForwardingVerificationStatus> {
+  return apiFetch(
+    `/api/organizations/${orgId}/missed-call-catcher/forwarding-test?companyId=${encodeURIComponent(companyId)}`,
+  );
+}
+
+export function startForwardingTest(orgId: string, companyId: string): Promise<ForwardingTestView> {
+  return apiFetch(`/api/organizations/${orgId}/missed-call-catcher/forwarding-test`, {
+    method: "POST",
+    body: JSON.stringify({ companyId }),
+  });
+}
