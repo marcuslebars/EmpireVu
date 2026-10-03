@@ -55,7 +55,7 @@ Refs must match `^STRIPE_MERCHANT_[A-Z0-9_]{1,60}$`, enforced in **both** the DB
 
 Company settings are admin-editable, so the ref is attacker-influenced input.
 Without the allowlist, `readMerchantEnv` is an arbitrary environment reader — a
-crafted row naming `SUPABASE_SERVICE_ROLE_KEY` or the platform
+crafted row naming `SUPABASE_SECRET_KEY` or the platform
 `STRIPE_SECRET_KEY` would be honoured. Tests assert both of those names are
 refused.
 

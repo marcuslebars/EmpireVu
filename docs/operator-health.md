@@ -72,7 +72,7 @@ npm run job:operator-health -- --send             # email it to OWNER_EMAIL righ
 ```
 
 `--send` does not claim the day, so the scheduled 07:30 report still goes out. Needs
-`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_BASE_URL`; `--send` also needs
+`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `APP_BASE_URL`; `--send` also needs
 Resend + `OWNER_EMAIL`.
 
 ## Data

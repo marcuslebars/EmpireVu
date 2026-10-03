@@ -64,6 +64,9 @@ describe("GET /api/health", () => {
     expect(body.ok).toBe(true);
     expect(body.db).toBe("ok");
     expect(body.version).toBe("abc123");
+    // Reports which kind of admin key is configured, never the value.
+    expect(["secret", "legacy", null]).toContain(body.admin_key);
+    expect(JSON.stringify(body)).not.toMatch(/sb_secret_|eyJ/);
     expect(body.workers.workflow_events).toEqual({
       last_claimed_at: "2026-09-01T10:00:00.000Z",
       queued: 2,

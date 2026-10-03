@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { QUEUE_TABLES } from "@/server/services/queue-health";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
+import { supabaseSecretKeySource } from "@/server/supabase/env";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
 /**
@@ -110,5 +111,10 @@ export async function GET(): Promise<NextResponse> {
     workers = null;
   }
 
-  return NextResponse.json({ ok: true, db: "ok", workers, version }, { status: 200 });
+  // Which kind of admin key is configured — never the value. "secret" = the new sb_secret_ key,
+  // "legacy" = the old service_role JWT (switch-over). `workers` non-null proves the key works.
+  const source = supabaseSecretKeySource();
+  const adminKey = source === "SUPABASE_SECRET_KEY" ? "secret" : source === "SUPABASE_SERVICE_ROLE_KEY" ? "legacy" : null;
+
+  return NextResponse.json({ ok: true, db: "ok", workers, admin_key: adminKey, version }, { status: 200 });
 }

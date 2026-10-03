@@ -53,11 +53,11 @@ existing workflow worker already relies on).
       optional now.)
 - [ ] **Billing worker** — new service, config file **`railway.billing-worker.json`**
       (`npm run worker:billing-events`): `NEXT_PUBLIC_SUPABASE_URL` +
-      `SUPABASE_SERVICE_ROLE_KEY` + `STRIPE_PRICE_*` (+ optional `BILLING_EVENT_WORKER_*`).
+      `SUPABASE_SECRET_KEY` + `STRIPE_PRICE_*` (+ optional `BILLING_EVENT_WORKER_*`).
       **No `STRIPE_SECRET_KEY`** — it never constructs a Stripe client.
 - [ ] **Reconcile cron** — new service, config file **`railway.billing-reconcile.json`**
       (`npm run job:billing-reconcile`, nightly): `STRIPE_SECRET_KEY` + `STRIPE_PRICE_*`
-      + `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`. Confirm the cron
+      + `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SECRET_KEY`. Confirm the cron
       schedule (`0 8 * * *`) in service settings.
 - [ ] The existing **workflow worker** (`railway.worker.json`) is **unchanged** and
       needs **no** billing env — do not add Stripe vars to it.
@@ -105,7 +105,7 @@ Traced from the code, not assumed. Legend: ✅ required · ➕ recommended · �
 | `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`, `OWNER_EMAIL`, `TWILIO_*` | ✅ | ✅ (CrankLeads provisioning) | — | ✅ |
 | `BILLING_EVENT_WORKER_ID` / `_BATCH_SIZE` / `_POLL_MS` / `_STALE_AFTER_SECONDS` | — | ○ | — | — |
 | `NEXT_PUBLIC_SUPABASE_URL` | ✅ | ✅ | ✅ | ✅ |
-| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | ✅ | ✅ | ✅ |
+| `SUPABASE_SECRET_KEY` | ✅ | ✅ | ✅ | ✅ |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or `_PUBLISHABLE_KEY`) | ✅ | — | — | — |
 | `APP_BASE_URL` | ✅ | ✅ (CrankLeads emails) | — | — |
 
