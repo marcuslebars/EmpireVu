@@ -174,7 +174,7 @@ async function ensureFoundingCoupon(stripe, founding, setupProductIds, opts, log
   }
   await stripe.coupons.create({
     id,
-    name: `CrankLeads founding client (${founding.percent}% off setup)`,
+    name: `CrankLeads founding ${founding.percent}% off setup`, // Stripe caps coupon names at 40 chars
     percent_off: founding.percent,
     duration: "once",
     max_redemptions: founding.max,
