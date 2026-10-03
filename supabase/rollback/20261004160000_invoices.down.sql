@@ -1,4 +1,4 @@
--- Rollback for 20261004120000_invoices.sql. Destroys all invoice data.
+-- Rollback for 20261004160000_invoices.sql. Destroys all invoice data.
 drop function if exists public.refresh_invoice_balance(uuid);
 drop function if exists public.next_invoice_number(uuid);
 drop table if exists public.invoice_number_counters;

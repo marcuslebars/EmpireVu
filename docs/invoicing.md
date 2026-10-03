@@ -6,8 +6,8 @@ Canadian pre-authorized debit, Interac e-Transfer, cheque or cash.
 
 ## Setup (once)
 
-1. **Apply the migration** `supabase/migrations/20261004120000_invoices.sql` in the
-   Supabase SQL editor (rollback: `supabase/rollback/20261004120000_invoices.down.sql`).
+1. **Apply the migration** `supabase/migrations/20261004160000_invoices.sql` in the
+   Supabase SQL editor (rollback: `supabase/rollback/20261004160000_invoices.down.sql`).
 2. **Stripe Connect webhook** — the existing Connect endpoint
    (`/api/webhooks/stripe/connect`, "listen to events on connected accounts") must also
    be subscribed to:
