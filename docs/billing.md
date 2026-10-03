@@ -26,7 +26,8 @@ creates the webhook endpoint for you.
 - [ ] Create a **Webhook endpoint** → URL `https://<your-app-host>/api/webhooks/stripe`.
       Subscribe at least to: `checkout.session.completed`, `invoice.paid`,
       `invoice.payment_failed`, `customer.subscription.updated`,
-      `customer.subscription.deleted`.
+      `customer.subscription.deleted` — and, for CrankLeads purchases,
+      `checkout.session.async_payment_succeeded` + `customer.subscription.created`.
 - [ ] Copy the endpoint's **Signing secret** (`whsec_...`).
 - [ ] Copy your **Secret key** (`sk_test_...`) and **Publishable key** (`pk_test_...`).
 
@@ -67,6 +68,26 @@ existing workflow worker already relies on).
 
 ---
 
+## CrankLeads purchases
+
+Businesses that buy CrankLeads on crankleads.com go through a public Checkout
+(`POST /api/public/crankleads/checkout`) and are **provisioned automatically by this
+billing worker** on `checkout.session.completed` — see
+[crankleads-purchase.md](crankleads-purchase.md). In short:
+
+- Tier → plan: `catch` / `close` → `operate`, `front_desk` → `front_desk`
+  (`src/server/services/crankleads/config.ts`). The CrankLeads monthly prices
+  (`STRIPE_PRICE_CL_*`) are recognised by `planForStripePriceId`, so
+  `customer.subscription.updated` maps them to the right plan (and keeps
+  `organizations.crankleads_tier` in step).
+- Newly handled events: `checkout.session.async_payment_succeeded` (CrankLeads only) and
+  `customer.subscription.created` (same as `.updated` for a known org; still a no-op for an
+  unknown non-CrankLeads customer). **Add both to the webhook endpoint.**
+- Unknown customer + a CrankLeads purchase still being provisioned → the job is re-queued with
+  backoff (`retryBillingEventJob`, bounded by `max_attempts`) instead of dead-lettering.
+- The billing worker therefore now also needs `APP_BASE_URL`, `RESEND_API_KEY`,
+  `OUTBOUND_FROM_EMAIL`, `OWNER_EMAIL`, `TWILIO_*` (recipe activation only) and `STRIPE_PRICE_CL_*`.
+
 ## Environment variables (per service)
 
 Traced from the code, not assumed. Legend: ✅ required · ➕ recommended · ○ optional · — not needed.
@@ -79,11 +100,14 @@ Traced from the code, not assumed. Legend: ✅ required · ➕ recommended · �
 | `STRIPE_PRICE_LAUNCH` / `_OPERATE` / `_FRONT_DESK` | ✅ | ✅ | ➕ | — |
 | `STRIPE_SETUP_FEE_*` | ○ | — | — | — |
 | `BILLING_PAST_DUE_GRACE_DAYS` (def 7) | ○ | — | — | — |
+| `STRIPE_PRICE_CL_CATCH` / `_CLOSE` / `_FRONT_DESK` | ✅ (CrankLeads) | ✅ (CrankLeads) | ➕ | — |
+| `STRIPE_SETUP_FEE_CL_*`, `STRIPE_COUPON_CL_FOUNDING`, `CRANKLEADS_SITE_ORIGINS`, `CRANKLEADS_CANCEL_URL`, `STRIPE_AUTOMATIC_TAX` | ✅/○ (CrankLeads) | — | — | — |
+| `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`, `OWNER_EMAIL`, `TWILIO_*` | ✅ | ✅ (CrankLeads provisioning) | — | ✅ |
 | `BILLING_EVENT_WORKER_ID` / `_BATCH_SIZE` / `_POLL_MS` / `_STALE_AFTER_SECONDS` | — | ○ | — | — |
 | `NEXT_PUBLIC_SUPABASE_URL` | ✅ | ✅ | ✅ | ✅ |
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | ✅ | ✅ | ✅ |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or `_PUBLISHABLE_KEY`) | ✅ | — | — | — |
-| `APP_BASE_URL` | ✅ | — | — | — |
+| `APP_BASE_URL` | ✅ | ✅ (CrankLeads emails) | — | — |
 
 Why the non-obvious cells:
 - **`STRIPE_SECRET_KEY` is NOT on the billing worker.** The worker

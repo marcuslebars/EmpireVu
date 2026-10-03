@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { handleRoute, parseJsonBody } from "@/server/api/route";
-import { requireOrganizationContext } from "@/server/organizations/context";
+import { AuthorizationError, requireOrganizationContext } from "@/server/organizations/context";
+import { orgCan } from "@/server/services/billing/gating";
 import { getOnboardingProgress, recordOnboardingEvent, upsertOnboardingStep } from "@/server/services/onboarding";
 import { provisionPhoneForCompany } from "@/server/services/onboarding-provision";
 import { createRetellClient, getRetellApiKey } from "@/server/services/retell/provision";
@@ -44,6 +45,15 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     const organization = await requireOrganizationContext(supabase, context.params.organizationId);
     const ctx = { actorProfileId: organization.user.id, organizationId: organization.organizationId, supabase };
     const body = await parseJsonBody(request, provisionBodySchema);
+
+    // The AI receptionist is a Front Desk feature (marina_reception). An `operate` org —
+    // CrankLeads Catch / Close — gets the missed-call catcher instead (its own route).
+    // House (`internal`) orgs always pass.
+    if (!(await orgCan(supabase, organization.organizationId, "marina_reception"))) {
+      throw new AuthorizationError(
+        "The AI receptionist isn't included in your plan. Use the missed-call catcher, or upgrade to Front Desk.",
+      );
+    }
 
     await recordOnboardingEvent(ctx, { companyId: body.companyId, step: "phone", event: "start" });
     try {

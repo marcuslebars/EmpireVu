@@ -5,6 +5,8 @@ A brand-new tenant can receive **web leads** and **Marina calls** with **no env 
 ## New tenant — onboarding checklist
 
 > Installing a trades client (CrankLeads)? Start from an **industry pack** — see the 30-minute checklist in [industry-packs.md](industry-packs.md). The steps below cover the lower-level wiring.
+>
+> A client who **buys CrankLeads on crankleads.com** is provisioned automatically on payment (login, org, company, pack, form key) — see [crankleads-purchase.md](crankleads-purchase.md). They finish prices, phone and the website snippet themselves in `/onboarding`.
 
 0. **Web leads (non-technical owner — the default):** onboarding → *Website leads* (or Settings → Integrations → **Website lead form**) → *Create your form*. Give the owner the hosted link and the one-line embed snippet; press *Send a test lead*. No server, no secret. See [website-forms.md](website-forms.md).
 1. **Web leads (developer, server-to-server):** Settings → **Integrations** → *Create key* (optionally pin a company). Copy the full key **once** (only its hash is stored). Put it in the tenant site's **server** env and post leads with:

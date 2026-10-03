@@ -27,7 +27,9 @@
     "job:monthly-scorecard": "tsx src/server/jobs/monthly-scorecard.ts",
     "job:seed-a1-recipes": "tsx src/server/jobs/seed-a1-recipes.ts",
     "job:import-a1-care": "tsx src/server/jobs/import-a1-care.ts",
-    "job:seed-demo": "tsx src/server/jobs/seed-demo-org.ts"
+    "job:seed-demo": "tsx src/server/jobs/seed-demo-org.ts",
+    "job:crankleads-provision": "tsx src/server/jobs/crankleads-provision.ts",
+    "stripe:setup-crankleads": "node scripts/stripe/setup-crankleads.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",

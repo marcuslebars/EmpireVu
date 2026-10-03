@@ -39,6 +39,8 @@ interface AuthContextValue {
   verifyOtp: (phone: string, token: string) => Promise<{ error: string | null }>;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
   updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
+  /** Exchange a `token_hash` recovery link (admin-generated, e.g. the CrankLeads welcome email) for a session. */
+  verifyRecoveryLink: (tokenHash: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   isLoading: boolean;
 }
@@ -427,6 +429,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const verifyRecoveryLink = useCallback(async (tokenHash: string): Promise<{ error: string | null }> => {
+    try {
+      if (!supabase) {
+        return { error: "Authentication is not configured." };
+      }
+      // The browser client uses PKCE, so a server-generated link carries the hashed token
+      // and the page verifies it here (Supabase "token_hash" flow) to start the session.
+      const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" });
+      if (error) {
+        console.error("[AuthContext] Recovery link verification error:", error.message);
+        return { error: error.message };
+      }
+      return { error: null };
+    } catch (err) {
+      console.error("[AuthContext] Recovery link verification exception:", err);
+      return { error: err instanceof Error ? err.message : "Link verification failed" };
+    }
+  }, []);
+
   const signOut = useCallback(async () => {
     console.log("[AuthContext] Signing out");
     if (supabase) {
@@ -447,9 +468,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     verifyOtp,
     resetPassword,
     updatePassword,
+    verifyRecoveryLink,
     signOut,
     isLoading: status === "loading",
-  }), [status, user, session, signIn, signInWithOAuth, signInWithPhone, verifyOtp, resetPassword, updatePassword, signOut]);
+  }), [status, user, session, signIn, signInWithOAuth, signInWithPhone, verifyOtp, resetPassword, updatePassword, verifyRecoveryLink, signOut]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

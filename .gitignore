@@ -34,3 +34,6 @@ supabase/.temp/
 *.njsproj
 *.sln
 *.sw?
+
+# Per-worktree scratch (temp files for local tooling)
+.tmp/

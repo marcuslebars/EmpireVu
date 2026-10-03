@@ -15,6 +15,10 @@ const PUBLIC_PATHS: RegExp[] = [
   /^\/book\//, // public booking
   /^\/f\//, // hosted website lead form (also the /embed/v1.js iframe)
   /^\/invite\//, // team invitation, which prompts sign-in itself when needed
+  /^\/welcome\/crankleads\/?$/, // CrankLeads purchase landing — the buyer has no session yet
+  // Set-password / recovery links (incl. the CrankLeads welcome email). The page verifies
+  // the link's token itself and sends a visitor without one to sign-in.
+  /^\/update-password\/?$/,
   // Store-review pages: Google Play and the App Store open these signed out and reject
   // the listing if they land on a sign-in form. Exact matches — nothing under them.
   /^\/privacy\/?$/,
@@ -23,4 +27,10 @@ const PUBLIC_PATHS: RegExp[] = [
 
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((re) => re.test(pathname));
+}
+
+/** Only same-origin absolute paths ("/onboarding"), never "//host" or a full URL. */
+export function safeNextPath(value: string | null): string | null {
+  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return null;
+  return value;
 }

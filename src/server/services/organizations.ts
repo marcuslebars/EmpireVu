@@ -1,9 +1,11 @@
 import { z } from "zod";
 
-import type { Tables } from "@/server/db/database.types";
+import type { Inserts, Tables } from "@/server/db/database.types";
 import { slugify } from "@/server/db/helpers";
 import { ValidationError } from "@/server/organizations/context";
+import type { PurchasablePlan } from "@/server/services/billing/config";
 import { newOrgTrialFields } from "@/server/services/billing/env";
+import type { CrankleadsTier } from "@/server/services/crankleads/config";
 import type { createSupabaseServerClient } from "@/server/supabase/server";
 
 type AppSupabaseClient = ReturnType<typeof createSupabaseServerClient>;
@@ -15,11 +17,25 @@ export const createOrganizationInputSchema = z.object({
 
 export type CreateOrganizationInput = z.infer<typeof createOrganizationInputSchema>;
 
+/**
+ * Billing fields for an org that is created ALREADY PAID (a CrankLeads purchase provisioned
+ * by the billing worker) instead of on the self-serve trial. Server-only: never accept these
+ * from a request body.
+ */
+export interface PaidOrganizationBilling {
+  plan: PurchasablePlan;
+  subscriptionStatus: "active";
+  stripeCustomerId: string;
+  billingEmail: string | null;
+  crankleadsTier: CrankleadsTier | null;
+}
+
 export async function createOrganization(
   supabase: AppSupabaseClient,
   userId: string,
   profileId: string,
   input: CreateOrganizationInput,
+  paid?: PaidOrganizationBilling,
 ): Promise<Tables<"organizations">> {
   const organizationSlug = input.slug ? slugify(input.slug) : slugify(input.name);
 
@@ -40,17 +56,32 @@ export async function createOrganization(
   // A brand-new self-serve org starts on a time-boxed trial — NOT the `internal`
   // house default (billing-exempt), which would hand every signup the whole
   // product free. Gating enforces the trial's expiry from trial_ends_at.
+  // A paid org (CrankLeads purchase) skips the trial: it starts active on the bought plan,
+  // already linked to its Stripe customer.
   const trial = newOrgTrialFields(new Date());
+  const billing: Inserts<"organizations"> = paid
+    ? {
+        created_by: userId,
+        name: input.name,
+        slug: organizationSlug,
+        plan: paid.plan,
+        subscription_status: paid.subscriptionStatus,
+        trial_ends_at: null,
+        stripe_customer_id: paid.stripeCustomerId,
+        billing_email: paid.billingEmail,
+        crankleads_tier: paid.crankleadsTier,
+      }
+    : {
+        created_by: userId,
+        name: input.name,
+        slug: organizationSlug,
+        plan: trial.plan,
+        subscription_status: trial.subscription_status,
+        trial_ends_at: trial.trial_ends_at,
+      };
   const { data: organization, error: organizationError } = await supabase
     .from("organizations")
-    .insert({
-      created_by: userId,
-      name: input.name,
-      slug: organizationSlug,
-      plan: trial.plan,
-      subscription_status: trial.subscription_status,
-      trial_ends_at: trial.trial_ends_at,
-    })
+    .insert(billing)
     .select("*")
     .single();
 

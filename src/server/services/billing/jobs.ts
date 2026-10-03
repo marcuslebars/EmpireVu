@@ -81,3 +81,31 @@ export async function failBillingEventJob(
     throw error;
   }
 }
+
+/**
+ * Put a claimed job back in the queue to run again after `delaySeconds` (a deferred event —
+ * see billing/defer.ts). attempt_count is NOT reset, so retries stay bounded by
+ * max_attempts: the claim RPC never picks up a job whose attempts are spent.
+ */
+export async function retryBillingEventJob(
+  supabase: AdminSupabaseClient,
+  billingEventJobId: string,
+  reason: string,
+  delaySeconds: number,
+): Promise<void> {
+  const { error } = await supabase
+    .from("billing_event_jobs")
+    .update({
+      available_at: new Date(Date.now() + delaySeconds * 1000).toISOString(),
+      completed_at: null,
+      last_error: reason,
+      locked_at: null,
+      locked_by: null,
+      status: "pending",
+    })
+    .eq("id", billingEventJobId);
+
+  if (error) {
+    throw error;
+  }
+}

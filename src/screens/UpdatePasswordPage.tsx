@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,17 +8,23 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, AlertCircle, CheckCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { Logo } from "@/components/brand/Logo";
+import { safeNextPath } from "@/lib/public-routes";
 
 export default function UpdatePasswordPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { updatePassword, status } = useAuth();
+  const { updatePassword, verifyRecoveryLink, status } = useAuth();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const verifiedHash = useRef<string | null>(null);
+  // Where to go after setting the password (e.g. /onboarding from the CrankLeads welcome
+  // email). Same-origin paths only.
+  const nextPath = safeNextPath(searchParams.get("next"));
 
   useEffect(() => {
     const errorParam = searchParams.get("error");
@@ -35,8 +41,22 @@ export default function UpdatePasswordPage() {
 
     if (!code && (!tokenHash || type !== "recovery")) {
       setTokenError("Invalid password reset link. Please use the link from your email.");
+      return;
     }
-  }, [searchParams]);
+
+    // token_hash links (server-generated recovery links) are verified here to start the
+    // session; `code` links are exchanged by the Supabase client on load.
+    if (tokenHash && type === "recovery" && verifiedHash.current !== tokenHash) {
+      verifiedHash.current = tokenHash;
+      setVerifying(true);
+      void verifyRecoveryLink(tokenHash).then((result) => {
+        setVerifying(false);
+        if (result.error) {
+          setTokenError("This link has expired or was already used. Request a new one below.");
+        }
+      });
+    }
+  }, [searchParams, verifyRecoveryLink]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -133,9 +153,15 @@ export default function UpdatePasswordPage() {
                 </div>
               </div>
 
-              <Button className="w-full mt-8 h-11" onClick={() => navigate("/signin")}>
-                Sign in with new password
-              </Button>
+              {nextPath ? (
+                <Button className="w-full mt-8 h-11" onClick={() => navigate(nextPath)}>
+                  Continue setup
+                </Button>
+              ) : (
+                <Button className="w-full mt-8 h-11" onClick={() => navigate("/signin")}>
+                  Sign in with new password
+                </Button>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -196,7 +222,7 @@ export default function UpdatePasswordPage() {
                 />
               </div>
 
-              <Button type="submit" className="w-full h-11 text-base font-medium" disabled={isLoading}>
+              <Button type="submit" className="w-full h-11 text-base font-medium" disabled={isLoading || verifying}>
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -213,3 +239,4 @@ export default function UpdatePasswordPage() {
     </div>
   );
 }
+
