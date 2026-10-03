@@ -2,7 +2,14 @@ import { randomBytes } from "node:crypto";
 
 import type { Json } from "@/server/db/database.types";
 import { createActivityEvent } from "@/server/services/activity-events";
+import { getBusinessTimezone } from "@/server/services/ai";
 import { createBooking } from "@/server/services/bookings";
+import {
+  isValidDateString,
+  parseBookingPolicy,
+  zonedInstant,
+  type BookingPolicy,
+} from "@/server/services/booking-windows";
 import { createContact } from "@/server/services/contacts";
 import type { TenantServiceContext } from "@/server/services/shared";
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,10 +62,37 @@ function splitName(name?: string): { firstName: string; lastName: string | null 
   return { firstName: parts[0], lastName: parts.length > 1 ? parts.slice(1).join(" ") : null };
 }
 
-function parsePreferredDate(date?: string, time?: string): string | null {
-  if (!date) return null;
-  const d = new Date(time ? `${date}T${time}` : date);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+export interface PlannedLeadBooking {
+  scheduledFor: string;
+  windowKey: string | null;
+  durationMinutes?: number;
+}
+
+/**
+ * PURE — where a web-form booking lands on the calendar.
+ *
+ * The form sends a LOCAL date + time ("2026-10-13", "13:00"). It used to be parsed as
+ * `new Date("2026-10-13T13:00")`, which a UTC server reads as 13:00 UTC — 9am in
+ * Toronto, in no window — so every web booking showed up in the wrong half-day and the
+ * real slot looked free. Now the time is read in the company's zone and, for a company
+ * that books by window, snapped to the window it falls in (the latest window starting
+ * at or before the time; an earlier time takes the first window), matching how
+ * Marina's own and imported bookings are stored.
+ */
+export function planLeadBooking(
+  date: string | undefined,
+  time: string | undefined,
+  policy: BookingPolicy | null,
+  timeZone: string,
+): PlannedLeadBooking | null {
+  if (!date || !isValidDateString(date)) return null;
+  const hhmm = time && /^\d{1,2}:\d{2}$/.test(time.trim()) ? time.trim().padStart(5, "0") : null;
+  if (policy && policy.windows.length) {
+    const windows = [...policy.windows].sort((a, b) => a.start.localeCompare(b.start));
+    const w = (hhmm && [...windows].reverse().find((x) => x.start <= hhmm)) || windows[0];
+    return { scheduledFor: zonedInstant(date, w.start, timeZone).toISOString(), windowKey: w.key, durationMinutes: w.durationMinutes };
+  }
+  return { scheduledFor: zonedInstant(date, hhmm ?? "09:00", timeZone).toISOString(), windowKey: null };
 }
 
 /** Resolve the target org + company SERVER-SIDE. The payload cannot influence this. */
@@ -422,19 +456,40 @@ async function parseIntoRecords(
   });
 
   if (envelope.formType === "booking") {
-    const when = parsePreferredDate(envelope.meta?.preferredDate, envelope.meta?.preferredTime);
-    if (when) {
-      await createBooking(
-        ctx,
-        {
-          companyId,
-          contactId,
-          title: `Lead booking — ${envelope.source}`,
-          description: envelope.message ?? null,
-          scheduledFor: when,
-        },
-        { dispatchWorkflow: false },
-      );
+    const { data: company } = await ctx.supabase
+      .from("companies")
+      .select("timezone, booking_policy")
+      .eq("id", companyId)
+      .maybeSingle();
+    const timeZone = (company as { timezone?: string | null } | null)?.timezone || getBusinessTimezone();
+    const policy = parseBookingPolicy((company as { booking_policy?: unknown } | null)?.booking_policy ?? null);
+    const planned = planLeadBooking(envelope.meta?.preferredDate, envelope.meta?.preferredTime, policy, timeZone);
+    if (planned) {
+      // A double-submitted form (or one already on the calendar) must not take a second slot.
+      const { data: existing } = await ctx.supabase
+        .from("bookings")
+        .select("id")
+        .eq("organization_id", ctx.organizationId)
+        .eq("company_id", companyId)
+        .eq("contact_id", contactId)
+        .eq("scheduled_for", planned.scheduledFor)
+        .neq("status", "cancelled")
+        .limit(1);
+      if (!((existing ?? []) as unknown[]).length) {
+        await createBooking(
+          ctx,
+          {
+            companyId,
+            contactId,
+            title: `Lead booking — ${envelope.source}`,
+            description: envelope.message ?? null,
+            scheduledFor: planned.scheduledFor,
+            windowKey: planned.windowKey,
+            ...(planned.durationMinutes ? { durationMinutes: planned.durationMinutes } : {}),
+          },
+          { dispatchWorkflow: false },
+        );
+      }
     }
   }
 

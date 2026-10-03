@@ -290,6 +290,7 @@ async function main(): Promise<number> {
     quotesManual: 0,
     bookingsCreated: 0,
     bookingsSkipped: 0,
+    bookingsAdopted: 0,
   };
   const mismatches: string[] = [];
   const updates: string[] = [];
@@ -325,6 +326,37 @@ async function main(): Promise<number> {
     }
     const quoteId = b.a1QuoteId ? quoteIdByA1.get(b.a1QuoteId) ?? null : null;
     const window = b.windowKey ? policy.windows.find((w) => w.key === b.windowKey) : null;
+
+    // The Care site's lead feed may already have put this same booking on the calendar
+    // (same customer, same slot). Adopt that row instead of taking the slot twice.
+    if (contactId && !contactId.startsWith("new:")) {
+      const { data: feedCopy } = await db
+        .from("bookings")
+        .select("id")
+        .eq("company_id", company.id)
+        .eq("contact_id", contactId)
+        .eq("scheduled_for", b.scheduledFor)
+        .neq("status", "cancelled")
+        .limit(1)
+        .maybeSingle();
+      if (feedCopy) {
+        if (APPLY) {
+          const { error } = await db
+            .from("bookings")
+            .update({
+              source: IMPORT_SOURCE,
+              source_call_id: b.sourceRef,
+              window_key: b.windowKey,
+              ...(quoteId && !quoteId.startsWith("new:") ? { quote_id: quoteId } : {}),
+            })
+            .eq("id", feedCopy.id);
+          if (error) throw error;
+        }
+        report.bookingsAdopted += 1;
+        continue;
+      }
+    }
+
     if (APPLY) {
       const { error } = await db.from("bookings").insert({
         organization_id: company.organization_id,
@@ -349,7 +381,7 @@ async function main(): Promise<number> {
   log(
     `contacts +${report.contactsCreated} · quotes +${report.quotesCreated} (already there ${report.quotesSkipped}, ` +
       `brought up to date ${report.quotesUpdated}, no price to carry ${report.quotesManual}) · ` +
-      `bookings +${report.bookingsCreated} (already there ${report.bookingsSkipped}).`,
+      `bookings +${report.bookingsCreated} (already there ${report.bookingsSkipped}, taken over from the lead feed ${report.bookingsAdopted}).`,
   );
   for (const m of mismatches) log(`price differs: ${m}`);
   for (const u of updates) log(`brought up to date: ${u}`);
