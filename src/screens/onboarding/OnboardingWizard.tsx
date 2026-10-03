@@ -35,7 +35,6 @@ import {
   type CatalogItemInput,
   type CreatedIntakeKey,
 } from "@/lib/api-client";
-import { platformBrand } from "@/lib/platform-brand";
 import { WebsiteFormStep } from "@/components/website-forms/WebsiteFormsPanel";
 import { IndustryPackPicker } from "@/components/onboarding/IndustryPackPicker";
 import { useIndustryPacks, usePackRecipes } from "@/lib/industry-pack-hooks";
@@ -356,7 +355,7 @@ function WebsiteStep({ orgId, companyId, onDone }: StepProps) {
 
   return (
     <div className="space-y-4 max-w-xl">
-      <p className="text-sm text-muted-foreground">Wire your website form to {platformBrand.name}. Issue a key, drop it into your form's server, then send a test lead to see it land.</p>
+      <p className="text-sm text-muted-foreground">Wire your website form to EmpireVu. Issue a key, drop it into your form's server, then send a test lead to see it land.</p>
       {!key ? (
         <button className={primaryBtn} disabled={!companyId || issuing} onClick={() => void issue()}>
           {issuing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />} Issue an intake key
@@ -527,7 +526,7 @@ function OrgGate({ onCreated }: { onCreated: (id: string) => void }) {
     <div className="min-h-screen flex items-center justify-center bg-background p-6">
       <div className="w-full max-w-md bg-card border border-border rounded-xl p-6 space-y-4">
         <div>
-          <h1 className="text-xl font-bold text-foreground">Welcome to {platformBrand.name}</h1>
+          <h1 className="text-xl font-bold text-foreground">Welcome to EmpireVu</h1>
           <p className="text-sm text-muted-foreground mt-1">First, name your organization — the account your team shares.</p>
         </div>
         <input className={input} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., A1 Group" autoFocus onKeyDown={(e) => { if (e.key === "Enter") void create(); }} />
@@ -599,7 +598,7 @@ export default function OnboardingWizard() {
       <div className="max-w-5xl mx-auto p-6">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Set up {platformBrand.name}</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">Set up EmpireVu</h1>
             <p className="text-sm text-muted-foreground mt-0.5">A working Marina number + website leads in about 20 minutes.</p>
           </div>
           {allComplete && (

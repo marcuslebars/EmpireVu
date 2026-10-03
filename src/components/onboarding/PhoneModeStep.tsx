@@ -12,7 +12,7 @@ import type { ForwardingInstructions } from "@/lib/carrier-forwarding";
  * Onboarding Phone step: choose how calls are handled.
  *   • "AI receptionist answers" — the existing Retell/Marina flow (rendered via `aiStep`).
  *   • "Missed-call catcher (no AI)" — the business keeps its number and forwards unanswered
- *     calls to a CrankLeads number that texts the caller back (docs/missed-call-catcher.md).
+ *     calls to an EmpireVu number that texts the caller back (docs/missed-call-catcher.md).
  * Kept out of OnboardingWizard.tsx so the wizard only swaps one render.
  */
 
@@ -113,7 +113,7 @@ function CatcherSetup({ orgId, companyId, onDone }: { orgId: string; companyId: 
   return (
     <div className="space-y-4 max-w-2xl">
       <p className="text-sm text-muted-foreground">
-        You keep your business number. When you can't pick up, your carrier forwards the call to a CrankLeads number: the
+        You keep your business number. When you can't pick up, your carrier forwards the call to your EmpireVu number: the
         caller hears a short greeting in your name, can leave a voicemail, and gets a text from you right away.
       </p>
 

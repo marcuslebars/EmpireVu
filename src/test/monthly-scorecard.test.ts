@@ -307,9 +307,9 @@ describe("settings and branding", () => {
     expect(parseScorecardSettings([])).toEqual({ enabled: true });
   });
 
-  it("reads the platform brand from ONE env var with a CrankLeads default", () => {
+  it("reads the platform name from ONE env var with an EmpireVu default", () => {
     vi.stubEnv("PLATFORM_BRAND_NAME", "");
-    expect(scorecardPlatformBrandName()).toBe("CrankLeads");
+    expect(scorecardPlatformBrandName()).toBe("EmpireVu");
     vi.stubEnv("PLATFORM_BRAND_NAME", "  Acme Leads ");
     expect(scorecardPlatformBrandName()).toBe("Acme Leads");
   });

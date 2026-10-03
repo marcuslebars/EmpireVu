@@ -19,7 +19,6 @@ import { ScopeProvider } from "@m/state/scope";
 import { SessionProvider, useSession } from "@m/state/session";
 import { Btn, ErrorBanner } from "@m/ui/kit";
 import { ToastProvider } from "@m/ui/toast";
-import { brand } from "@m/lib/brand";
 
 export function App() {
   return (
@@ -116,7 +115,7 @@ function Gate() {
   if (session.context.isLoadingError || (session.context.isError && !session.context.data)) {
     return (
       <AuthFrame>
-        <div className="h2">Can't reach {brand.name}</div>
+        <div className="h2">Can't reach EmpireVu</div>
         <ErrorBanner error={session.context.error} onRetry={() => void session.context.refetch()} />
         <Btn variant="secondary" size="md" block onClick={() => void session.signOut()}>
           Sign out
@@ -166,9 +165,9 @@ function Reconnecting() {
 
   return (
     <>
-      <div className="h2">{online ? `Can't reach ${brand.name}` : "You're offline"}</div>
+      <div className="h2">{online ? "Can't reach EmpireVu" : "You're offline"}</div>
       <p className="muted-p">
-        You're still signed in. {brand.name} will reconnect on its own as soon as it can reach the server — no need to sign in again.
+        You're still signed in. EmpireVu will reconnect on its own as soon as it can reach the server — no need to sign in again.
       </p>
       <Btn variant="secondary" size="md" block loading={trying} onClick={() => void retry()}>
         Try again

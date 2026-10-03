@@ -54,7 +54,7 @@ describe("receptionist health", () => {
     const r = await receptionistHealth(input());
     expect(r.warnings).toEqual([]);
     expect(r.ok).toBe(true);
-    expect(r.checks.find((c) => c.name.endsWith("tools"))?.detail).toBe("4 tools → CrankLeads");
+    expect(r.checks.find((c) => c.name.endsWith("tools"))?.detail).toBe("4 tools → EmpireVu");
   });
 
   it("names every tool still pointing at the Care site (before cutover)", async () => {
@@ -75,8 +75,8 @@ describe("receptionist health", () => {
     expect(r.ok).toBe(false);
     expect(r.warnings).toEqual([
       "+17059961010 returning callers: inbound webhook is https://a1marinecare.ca/api/retell/inbound — returning callers won't be recognised",
-      "+17059961010 post-call webhook: goes to https://a1marinecare.ca/api/retell/webhook — CrankLeads only sees calls if that forwards them",
-      "+17059961010 tools: quote_shrink_wrap → a1marinecare.ca — not CrankLeads",
+      "+17059961010 post-call webhook: goes to https://a1marinecare.ca/api/retell/webhook — EmpireVu only sees calls if that forwards them",
+      "+17059961010 tools: quote_shrink_wrap → a1marinecare.ca — not EmpireVu",
     ]);
   });
 

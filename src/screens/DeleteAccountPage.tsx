@@ -6,17 +6,14 @@
  * someone who can no longer sign in still has to be able to find this.
  */
 
-import { platformBrand } from "@/lib/platform-brand";
-
-const CONTACT_EMAIL = platformBrand.supportEmail;
-const PRODUCT = platformBrand.name;
+const CONTACT_EMAIL = "hello@empirevu.com";
 
 export default function DeleteAccountPage() {
   return (
     <main className="min-h-screen bg-background px-5 py-10">
       <article className="mx-auto flex w-full max-w-2xl flex-col gap-8">
         <header className="flex flex-col gap-2">
-          <h1 className="text-2xl font-bold text-foreground">Delete your {PRODUCT} account</h1>
+          <h1 className="text-2xl font-bold text-foreground">Delete your EmpireVu account</h1>
           <p className="text-sm text-muted-foreground">
             You can do this yourself in the app, or ask us to do it for you.
           </p>
@@ -25,7 +22,7 @@ export default function DeleteAccountPage() {
         <section className="flex flex-col gap-3 rounded-xl border border-border bg-secondary p-5">
           <h2 className="text-lg font-semibold text-foreground">In the app</h2>
           <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm leading-relaxed text-muted-foreground">
-            <li>Open the {PRODUCT} app and sign in.</li>
+            <li>Open the EmpireVu app and sign in.</li>
             <li>
               Go to <span className="text-foreground">More → Settings</span>.
             </li>
@@ -45,10 +42,10 @@ export default function DeleteAccountPage() {
           <h2 className="text-lg font-semibold text-foreground">By email</h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
             Write to{" "}
-            <a className="text-primary underline" href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(`Delete my ${PRODUCT} account`)}`}>
+            <a className="text-primary underline" href={`mailto:${CONTACT_EMAIL}?subject=Delete my EmpireVu account`}>
               {CONTACT_EMAIL}
             </a>{" "}
-            from the address on your account, with the subject "Delete my {PRODUCT} account". We will
+            from the address on your account, with the subject "Delete my EmpireVu account". We will
             confirm before anything is removed, and complete it within 30 days.
           </p>
         </section>

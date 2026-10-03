@@ -10,7 +10,6 @@ import { useNav, type Route, type TabId } from "@m/state/nav";
 import { useScope } from "@m/state/scope";
 import { onBeforeSignOut } from "@m/state/session";
 import { useToast } from "@m/ui/toast";
-import { brand } from "@m/lib/brand";
 
 /**
  * Push notifications. The device token is upserted per install (by token, not by user —
@@ -211,7 +210,7 @@ export function usePushRegistration() {
 
     // FCM messages from the server target the "default" channel on Android 8+.
     if (platform === "android") {
-      void PushNotifications.createChannel({ id: "default", name: brand.name, description: "Leads, payments and schedule alerts", importance: 4, visibility: 1, vibration: true }).catch(() => undefined);
+      void PushNotifications.createChannel({ id: "default", name: "EmpireVu", description: "Leads, payments and schedule alerts", importance: 4, visibility: 1, vibration: true }).catch(() => undefined);
     }
 
     void refreshRegistration();

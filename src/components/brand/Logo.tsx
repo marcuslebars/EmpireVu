@@ -1,42 +1,38 @@
 import { cn } from "@/lib/utils";
-import { platformBrand } from "@/lib/platform-brand";
-import { Wordmark, WordmarkMark } from "@/components/brand/Wordmark";
 
 /**
- * Platform brand lockup (CrankLeads by default — see src/lib/platform-brand-core.ts).
+ * EmpireVu brand lockup.
  *
- * Renders the text wordmark unless VITE_PLATFORM_BRAND_LOGO_URL points at an image
- * wordmark, in which case that image is used (it must read on the app's dark surfaces).
- * Callers size it by height, e.g. `className="h-8"`.
+ * `public/empirevu-logo.png` is the dark-theme wordmark; it reads cleanly on the
+ * app's dark surfaces. If a light-background lockup is ever needed (invoices,
+ * PDFs), use a dark variant of the wordmark rather than this file.
  */
+
+const LOGO_SRC = "/empirevu-logo.png";
+
+/** Full wordmark. Set the height; width follows the ~3.5:1 aspect. */
 export function Logo({ className }: { className?: string }) {
-  if (platformBrand.logoUrl) {
-    return (
-      <img
-        src={platformBrand.logoUrl}
-        alt={platformBrand.name}
-        className={cn("h-5 w-auto select-none", className)}
-        draggable={false}
-      />
-    );
-  }
-  return <Wordmark className={className} />;
+  return (
+    <img
+      src={LOGO_SRC}
+      alt="EmpireVu"
+      className={cn("h-5 w-auto select-none", className)}
+      draggable={false}
+    />
+  );
 }
 
 /**
- * Square brand mark for tight spots (the collapsed sidebar). With an image logo
- * configured the favicon is used as the mark; otherwise a lettered accent tile.
+ * Square brand mark for tight spots (the collapsed sidebar) — the EmpireVu
+ * emblem, rendered white on the app's dark surfaces.
  */
 export function LogoMark({ className }: { className?: string }) {
-  if (platformBrand.logoUrl) {
-    return (
-      <img
-        src={platformBrand.faviconUrl}
-        alt={platformBrand.name}
-        className={cn("select-none shrink-0 object-contain", className)}
-        draggable={false}
-      />
-    );
-  }
-  return <WordmarkMark className={className} />;
+  return (
+    <img
+      src="/empirevu-favicon.svg"
+      alt="EmpireVu"
+      className={cn("select-none shrink-0 object-contain", className)}
+      draggable={false}
+    />
+  );
 }

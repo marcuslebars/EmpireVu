@@ -2,7 +2,6 @@ import { Component, useEffect, type ReactNode, type ErrorInfo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AlertTriangle, RefreshCw, LogOut } from "lucide-react";
-import { platformBrand } from "@/lib/platform-brand";
 
 interface Props {
   children: ReactNode;
@@ -113,7 +112,7 @@ function ErrorFallbackScreen({
               <AlertTriangle className="w-6 h-6 text-destructive" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-foreground mb-1">{platformBrand.name} failed to load</h1>
+              <h1 className="text-xl font-semibold text-foreground mb-1">EmpireVu failed to load</h1>
               <p className="text-sm text-muted-foreground">{userMessage}</p>
             </div>
             {error && (

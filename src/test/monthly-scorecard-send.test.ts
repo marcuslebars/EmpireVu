@@ -111,7 +111,7 @@ describe("runMonthlyScorecards — scheduled run on Nov 2", () => {
     expect(sendEmail).toHaveBeenCalledTimes(1);
     const mail = sendEmail.mock.calls[0][0] as { to: string; subject: string; fromName: string; body: string; html: string };
     expect(mail.to).toBe("owner@maple.test");
-    expect(mail.fromName).toBe("CrankLeads");
+    expect(mail.fromName).toBe("EmpireVu");
     expect(mail.subject).toBe("Your October results: 1 lead caught, 0 jobs booked");
     expect(mail.html).toContain("Maple &amp; Sons Plumbing");
     expect(mail.body).toContain("https://app.test/reports/monthly");

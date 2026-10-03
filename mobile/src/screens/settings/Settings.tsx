@@ -20,7 +20,6 @@ import { Screen } from "@m/ui/Screen";
 import { Btn, CheckBox, ErrorBanner, Field, NavRow, Section, Switch, TextInput } from "@m/ui/kit";
 import { Sheet } from "@m/ui/sheet";
 import { useToast } from "@m/ui/toast";
-import { brand } from "@m/lib/brand";
 
 export function Settings() {
   const nav = useNav();
@@ -53,7 +52,7 @@ export function Settings() {
               icon={Fingerprint}
               tone="pri"
               label={`Unlock with ${bio.info.label}`}
-              sub={bio.enabled ? `Required when ${brand.name} opens` : `Skip the password when ${brand.name} opens`}
+              sub={bio.enabled ? "Required when EmpireVu opens" : "Skip the password when EmpireVu opens"}
               trailing={
                 <Switch
                   on={bio.enabled}
@@ -69,7 +68,7 @@ export function Settings() {
               }
             />
           ) : null}
-          <NavRow icon={Trash} tone="dest" label={<span style={{ color: "var(--dest-l)" }}>Delete account</span>} sub={`Permanently remove your ${brand.name} account`} onClick={() => setDeleting(true)} />
+          <NavRow icon={Trash} tone="dest" label={<span style={{ color: "var(--dest-l)" }}>Delete account</span>} sub="Permanently remove your EmpireVu account" onClick={() => setDeleting(true)} />
         </div>
       </Section>
 

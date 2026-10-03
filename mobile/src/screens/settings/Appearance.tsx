@@ -3,7 +3,6 @@ import type { DevicePrefs } from "@m/lib/native";
 import { Screen } from "@m/ui/Screen";
 import { Section, Segmented, Switch } from "@m/ui/kit";
 import { useToast } from "@m/ui/toast";
-import { brand } from "@m/lib/brand";
 
 const ROWS: Array<{ id: keyof DevicePrefs; label: string; sub: string }> = [
   { id: "compact", label: "Compact cards", sub: "More rows per screen" },
@@ -20,7 +19,7 @@ export function Appearance() {
     <Screen title="Appearance">
       <Section title="Theme">
         <Segmented options={["Dark", "Light", "System"] as const} value="Dark" onChange={(t) => t !== "Dark" && toast(`${t} theme isn't available yet`)} />
-        <p className="fine" style={{ fontSize: 11.5 }}>{brand.name} ships dark. Light is on the roadmap; System follows the device once it lands.</p>
+        <p className="fine" style={{ fontSize: 11.5 }}>EmpireVu ships dark. Light is on the roadmap; System follows the device once it lands.</p>
       </Section>
       <Section title="This phone">
         <div className="list">
