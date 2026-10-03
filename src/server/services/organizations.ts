@@ -28,6 +28,8 @@ export interface PaidOrganizationBilling {
   stripeCustomerId: string;
   billingEmail: string | null;
   crankleadsTier: CrankleadsTier | null;
+  /** Make it the owner's default org. False when grafting onto an EXISTING user. */
+  setAsDefaultOrganization: boolean;
 }
 
 export async function createOrganization(
@@ -113,13 +115,15 @@ export async function createOrganization(
 
   const orgId = organization.id;
 
-  const { error: profileError } = await supabase
-    .from("profiles")
-    .update({ default_organization_id: orgId })
-    .eq("id", profileId);
+  if (!paid || paid.setAsDefaultOrganization) {
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .update({ default_organization_id: orgId })
+      .eq("id", profileId);
 
-  if (profileError) {
-    console.error("Failed to set default organization:", profileError);
+    if (profileError) {
+      console.error("Failed to set default organization:", profileError);
+    }
   }
 
   return organization as Tables<"organizations">;

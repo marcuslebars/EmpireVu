@@ -97,6 +97,8 @@ export function buildCrankleadsSessionParams(
   purchase: Pick<CrankleadsPurchase, "id">,
   input: CrankleadsCheckoutInput,
   utm: Record<string, string>,
+  /** A coupon already verified usable (founding offer), or null. */
+  coupon: string | null,
 ): Stripe.Checkout.SessionCreateParams {
   const monthly = crankleadsMonthlyPriceId(input.tier);
   const setup = crankleadsSetupPriceId(input.tier);
@@ -118,7 +120,6 @@ export function buildCrankleadsSessionParams(
     utm: utmMetadata(utm),
   };
 
-  const coupon = input.founding ? crankleadsFoundingCouponId() : null;
   const base = getAppBaseUrl().replace(/\/+$/, "");
 
   // Subscription mode with BOTH prices: the recurring monthly price becomes the
@@ -136,7 +137,9 @@ export function buildCrankleadsSessionParams(
     currency: "cad",
     billing_address_collection: "required",
     automatic_tax: { enabled: crankleadsAutomaticTax() },
-    ...(coupon ? { discounts: [{ coupon }] } : { allow_promotion_codes: true }),
+    // Only our server-side founding coupon can discount a CrankLeads checkout — no
+    // promotion-code box (any active promo code in the account would otherwise apply).
+    ...(coupon ? { discounts: [{ coupon }] } : { allow_promotion_codes: false }),
     metadata,
     subscription_data: { metadata },
     success_url: `${base}/welcome/crankleads?session_id={CHECKOUT_SESSION_ID}`,
@@ -171,9 +174,23 @@ export async function createCrankleadsCheckout(
     utm,
   });
 
-  const session = await stripe.checkout.sessions.create(buildCrankleadsSessionParams(purchase, input, utm), {
-    idempotencyKey: `crankleads-checkout-${purchase.id}`,
-  });
+  const coupon = input.founding ? await usableFoundingCoupon(stripe) : null;
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await stripe.checkout.sessions.create(buildCrankleadsSessionParams(purchase, input, utm, coupon), {
+      idempotencyKey: `crankleads-checkout-${purchase.id}`,
+    });
+  } catch (err) {
+    if (!coupon) throw err;
+    // The founding coupon went invalid between the check and the create (e.g. the last
+    // redemption raced us): sell at full price rather than failing the checkout.
+    console.warn(
+      `[crankleads/checkout] session with founding coupon ${coupon} failed (${err instanceof Error ? err.message : err}); retrying without it`,
+    );
+    session = await stripe.checkout.sessions.create(buildCrankleadsSessionParams(purchase, input, utm, null), {
+      idempotencyKey: `crankleads-checkout-${purchase.id}-nodiscount`,
+    });
+  }
   if (!session.url) {
     throw new Error("Stripe did not return a Checkout URL.");
   }
@@ -189,6 +206,25 @@ export async function createCrankleadsCheckout(
   }
 
   return { url: session.url, sessionId: session.id, purchaseId: purchase.id };
+}
+
+/**
+ * The founding coupon id when it is configured AND still redeemable in Stripe (valid, not
+ * exhausted). Exhausted / deleted / unreachable → null: the checkout goes ahead at full price
+ * instead of failing (the `founding` flag comes from the public form, so it must never be able
+ * to break sales).
+ */
+export async function usableFoundingCoupon(stripe: Stripe): Promise<string | null> {
+  const id = crankleadsFoundingCouponId();
+  if (!id) return null;
+  try {
+    const coupon = await stripe.coupons.retrieve(id);
+    if (coupon.valid) return id;
+    console.warn(`[crankleads/checkout] founding coupon ${id} is no longer valid (exhausted or expired); full price`);
+  } catch (err) {
+    console.warn(`[crankleads/checkout] founding coupon ${id} lookup failed (${err instanceof Error ? err.message : err}); full price`);
+  }
+  return null;
 }
 
 export type PublicPurchaseStatus = "pending" | "provisioning" | "ready" | "failed";

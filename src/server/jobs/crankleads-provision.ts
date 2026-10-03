@@ -8,12 +8,30 @@
  *
  * PowerShell (note the `--` before the flags):
  *   npm run job:crankleads-provision -- --session cs_test_a1B2c3...
+ *   npm run job:crankleads-provision -- --stuck [--older-than-minutes 15]
+ *
+ * `--stuck` is the safety-net sweep, deployed as a Railway cron every 15 minutes
+ * (railway.crankleads-sweep.json). It needs STRIPE_SECRET_KEY.
  */
-import { parseProvisionJobArgs, runCrankleadsProvisionJob } from "@/server/services/crankleads/rerun";
+import {
+  parseProvisionJobArgs,
+  runCrankleadsProvisionJob,
+  runStuckPurchaseSweep,
+} from "@/server/services/crankleads/rerun";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 async function main(): Promise<number> {
   const args = parseProvisionJobArgs(process.argv.slice(2));
+  if (args.stuck) {
+    const items = await runStuckPurchaseSweep(createSupabaseAdminClient(), { olderThanMinutes: args.olderThanMinutes });
+    for (const item of items) {
+      console.log(
+        `[crankleads-sweep] ${item.outcome} purchase=${item.purchaseId} session=${item.sessionId ?? "-"} was=${item.status} — ${item.detail}`,
+      );
+    }
+    console.log(`[crankleads-sweep] checked ${items.length} stuck purchase(s)`);
+    return items.some((i) => i.outcome === "failed") ? 1 : 0;
+  }
   const result = await runCrankleadsProvisionJob(createSupabaseAdminClient(), args);
   console.log(
     `[crankleads-provision] ${result.outcome} session=${args.sessionId} org=${result.organizationId ?? "-"} — ${result.detail}`,

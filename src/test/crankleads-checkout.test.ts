@@ -22,8 +22,12 @@ vi.mock("@/server/services/rate-limit", () => ({
 }));
 
 const sessionsCreate = vi.fn();
+const couponsRetrieve = vi.fn();
 vi.mock("@/server/services/billing/stripe", () => ({
-  getStripeClient: () => ({ checkout: { sessions: { create: (...args: unknown[]) => sessionsCreate(...args) } } }),
+  getStripeClient: () => ({
+    checkout: { sessions: { create: (...args: unknown[]) => sessionsCreate(...args) } },
+    coupons: { retrieve: (...args: unknown[]) => couponsRetrieve(...args) },
+  }),
 }));
 
 const resendWelcomeEmail = vi.fn();
@@ -65,6 +69,7 @@ beforeEach(() => {
   enforceRateLimit.mockReset().mockResolvedValue(null);
   sessionsCreate.mockReset().mockResolvedValue({ id: SESSION, url: "https://checkout.stripe.com/c/pay/cs_test_x" });
   resendWelcomeEmail.mockReset();
+  couponsRetrieve.mockReset().mockResolvedValue({ id: "crankleads_founding_50", valid: true });
   vi.stubEnv("APP_BASE_URL", "https://app.empirevu.test/");
   vi.stubEnv("STRIPE_PRICE_CL_CATCH", "price_cl_catch_m");
   vi.stubEnv("STRIPE_SETUP_FEE_CL_CATCH", "price_cl_catch_s");
@@ -133,7 +138,7 @@ describe("POST /api/public/crankleads/checkout", () => {
       currency: "cad",
       billing_address_collection: "required",
       automatic_tax: { enabled: false },
-      allow_promotion_codes: true,
+      allow_promotion_codes: false,
       metadata,
       subscription_data: { metadata },
       success_url: "https://app.empirevu.test/welcome/crankleads?session_id={CHECKOUT_SESSION_ID}",
@@ -158,12 +163,35 @@ describe("POST /api/public/crankleads/checkout", () => {
     ]);
     expect(params.metadata.plan).toBe("front_desk");
 
-    // founding requested but no coupon configured → promotion codes instead.
+    // founding requested but no coupon configured → full price, still no promo-code box.
     vi.stubEnv("STRIPE_COUPON_CL_FOUNDING", "");
     sessionsCreate.mockClear();
     await POST(post({ ...validBody, founding: true }));
     expect(sessionsCreate.mock.calls[0][0].discounts).toBeUndefined();
-    expect(sessionsCreate.mock.calls[0][0].allow_promotion_codes).toBe(true);
+    expect(sessionsCreate.mock.calls[0][0].allow_promotion_codes).toBe(false);
+  });
+
+  it("an exhausted / missing founding coupon never breaks checkout — full price instead", async () => {
+    vi.stubEnv("STRIPE_COUPON_CL_FOUNDING", "crankleads_founding_50");
+    couponsRetrieve.mockResolvedValueOnce({ id: "crankleads_founding_50", valid: false });
+    const exhausted = await POST(post({ ...validBody, founding: true }));
+    expect(exhausted.status).toBe(200);
+    expect(sessionsCreate.mock.calls[0][0].discounts).toBeUndefined();
+
+    couponsRetrieve.mockRejectedValueOnce(Object.assign(new Error("No such coupon"), { code: "resource_missing" }));
+    sessionsCreate.mockClear();
+    expect((await POST(post({ ...validBody, founding: true }))).status).toBe(200);
+    expect(sessionsCreate.mock.calls[0][0].discounts).toBeUndefined();
+
+    // Valid at check time, rejected at create (last redemption raced us) → retried without it.
+    sessionsCreate.mockReset()
+      .mockRejectedValueOnce(new Error("Coupon crankleads_founding_50 has reached its max redemptions"))
+      .mockResolvedValueOnce({ id: SESSION, url: "https://checkout.stripe.com/c/pay/cs_test_y" });
+    const raced = await POST(post({ ...validBody, founding: true }));
+    expect(raced.status).toBe(200);
+    expect(sessionsCreate.mock.calls[0][0].discounts).toEqual([{ coupon: "crankleads_founding_50" }]);
+    expect(sessionsCreate.mock.calls[1][0].discounts).toBeUndefined();
+    expect(sessionsCreate.mock.calls[1][1].idempotencyKey).toMatch(/-nodiscount$/);
   });
 
   it("rejects invalid input with 400 and field errors — nothing staged, Stripe not called", async () => {
@@ -321,6 +349,10 @@ describe("POST /api/public/crankleads/checkout/[sessionId]/resend", () => {
     expect((await resend(SESSION)).status).toBe(409);
     resendWelcomeEmail.mockResolvedValueOnce("not_found");
     expect((await resend(SESSION)).status).toBe(404);
+    resendWelcomeEmail.mockResolvedValueOnce("use_forgot_password");
+    const forgot = await resend(SESSION);
+    expect(forgot.status).toBe(409);
+    expect((await forgot.json()).error).toMatch(/Forgot password/);
 
     enforceRateLimit.mockResolvedValueOnce(null).mockResolvedValueOnce(new Response("{}", { status: 429 }));
     expect((await resend(SESSION)).status).toBe(429);

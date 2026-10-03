@@ -28,7 +28,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Nex
 
     const { data: organization, error: orgError } = await supabase
       .from("organizations")
-      .select("id, name, plan, subscription_status, stripe_customer_id, trial_ends_at")
+      .select("id, name, plan, subscription_status, stripe_customer_id, trial_ends_at, crankleads_tier")
       .eq("id", context.params.organizationId)
       .single();
 

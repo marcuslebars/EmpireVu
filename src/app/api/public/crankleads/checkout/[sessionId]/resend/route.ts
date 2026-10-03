@@ -46,6 +46,12 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     if (outcome === "not_ready") {
       return NextResponse.json({ error: "Your system is still being set up — the email goes out as soon as it's ready." }, { status: 409, headers });
     }
+    if (outcome === "use_forgot_password") {
+      return NextResponse.json(
+        { error: "You've already set up your login. Use “Forgot password” on the sign-in page if you need a new one." },
+        { status: 409, headers },
+      );
+    }
     return NextResponse.json({ data: { sent: true } }, { status: 200, headers });
   } catch (err) {
     console.error("[crankleads/resend] failed:", err instanceof Error ? err.message : err);

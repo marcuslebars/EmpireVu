@@ -112,6 +112,13 @@ async function ensurePrice(stripe, { productId, tierKey, kind, amount }, opts, l
   const lookupKey = `crankleads_${tierKey}_${kind}`;
   const found = await stripe.prices.list({ lookup_keys: [lookupKey], active: true, limit: 1 });
   const existing = found.data[0];
+  const existingProduct = existing ? (typeof existing.product === "string" ? existing.product : existing.product?.id) : null;
+  if (existing && existingProduct !== productId) {
+    throw new UsageError(
+      `price ${lookupKey} (${existing.id}) belongs to product ${existingProduct}, not ${productId}. ` +
+        "Fix it in the Stripe dashboard (archive it or move its lookup key) and re-run.",
+    );
+  }
   if (existing && priceMatches(existing, amount, monthly)) {
     log(`price ${lookupKey}: exists (${existing.id})`);
     return existing.id;

@@ -4,12 +4,29 @@ import { z } from "zod";
 import { handleRoute, parseJsonBody } from "@/server/api/route";
 import { AuthorizationError, requireOrganizationContext } from "@/server/organizations/context";
 import { orgCan } from "@/server/services/billing/gating";
+import { isCatcherOnlyTier } from "@/lib/phone-modes";
 import { getOnboardingProgress, recordOnboardingEvent, upsertOnboardingStep } from "@/server/services/onboarding";
 import { provisionPhoneForCompany } from "@/server/services/onboarding-provision";
 import { createRetellClient, getRetellApiKey } from "@/server/services/retell/provision";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
 export const dynamic = "force-dynamic";
+
+/** A CrankLeads Catch/Close org without a marina_reception override. */
+async function isCatcherOnlyCrankleadsOrg(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  organizationId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("organizations")
+    .select("crankleads_tier")
+    .eq("id", organizationId)
+    .maybeSingle();
+  if (error) throw error;
+  const tier = (data as { crankleads_tier: string | null } | null)?.crankleads_tier ?? null;
+  if (!isCatcherOnlyTier(tier)) return false;
+  return !(await orgCan(supabase, organizationId, "marina_reception"));
+}
 
 interface RouteContext {
   params: { organizationId: string };
@@ -46,10 +63,11 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     const ctx = { actorProfileId: organization.user.id, organizationId: organization.organizationId, supabase };
     const body = await parseJsonBody(request, provisionBodySchema);
 
-    // The AI receptionist is a Front Desk feature (marina_reception). An `operate` org —
-    // CrankLeads Catch / Close — gets the missed-call catcher instead (its own route).
-    // House (`internal`) orgs always pass.
-    if (!(await orgCan(supabase, organization.organizationId, "marina_reception"))) {
+    // CrankLeads Catch / Close bought the missed-call catcher, not the AI receptionist
+    // (that's Front Desk). Only those orgs are gated here — every other org (self-serve
+    // trials, existing operate/launch orgs, house orgs) behaves exactly as before. A
+    // feature_flags override of marina_reception still lets the operator switch it on.
+    if (await isCatcherOnlyCrankleadsOrg(supabase, organization.organizationId)) {
       throw new AuthorizationError(
         "The AI receptionist isn't included in your plan. Use the missed-call catcher, or upgrade to Front Desk.",
       );

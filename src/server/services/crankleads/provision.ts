@@ -9,6 +9,8 @@
 // applyIndustryPack, createPublicFormKey, upsertOnboardingStep) with a context pinned to
 // THAT org id. Listed in docs/EMPIREVU_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
+import { randomBytes } from "node:crypto";
+
 import type { Inserts, Tables } from "@/server/db/database.types";
 import { slugify } from "@/server/db/helpers";
 import { sendEmail as defaultSendEmail, type SendEmailInput, type SendEmailResult } from "@/server/outbound/email";
@@ -178,23 +180,65 @@ async function findProfileIdByEmail(admin: AdminClient, email: string): Promise<
   return (data as { id: string } | null)?.id ?? null;
 }
 
-async function findAuthUserIdByEmail(admin: AdminClient, email: string): Promise<string | null> {
+interface AuthUserSummary {
+  id: string;
+  email_confirmed_at?: string | null;
+  last_sign_in_at?: string | null;
+}
+
+async function findAuthUserByEmail(admin: AdminClient, email: string): Promise<AuthUserSummary | null> {
   for (let page = 1; page <= 50; page += 1) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
     if (error) throw new Error(`auth user lookup failed: ${error.message}`);
-    const users: Array<{ id: string; email?: string | null }> = data.users;
+    const users: Array<AuthUserSummary & { email?: string | null }> = data.users;
     const match = users.find((u) => u.email?.toLowerCase() === email);
-    if (match) return match.id;
+    if (match) return match;
     if (users.length < 200) break;
   }
   return null;
+}
+
+async function getAuthUser(admin: AdminClient, id: string): Promise<AuthUserSummary | null> {
+  const { data, error } = await admin.auth.admin.getUserById(id);
+  if (error) throw new Error(`auth user ${id} lookup failed: ${error.message}`);
+  const user = data?.user;
+  return user ? { id: user.id, email_confirmed_at: user.email_confirmed_at ?? null, last_sign_in_at: user.last_sign_in_at ?? null } : null;
+}
+
+/**
+ * Someone registered this email but never confirmed it (a squatted signup). The PAYER gets
+ * the login: scramble the password, mark the email confirmed, and ban → unban to revoke the
+ * account's existing sessions (GoTrue logs a user out when it is banned); the payer then sets
+ * their own password from the welcome email.
+ */
+async function reclaimUnconfirmedUser(admin: AdminClient, id: string): Promise<void> {
+  const { error } = await admin.auth.admin.updateUserById(id, {
+    password: randomBytes(32).toString("hex"),
+    email_confirm: true,
+    ban_duration: "876000h",
+  });
+  if (error) throw new Error(`could not reclaim unconfirmed user ${id}: ${error.message}`);
+  const { error: unbanError } = await admin.auth.admin.updateUserById(id, { ban_duration: "none" });
+  if (unbanError) throw new Error(`could not unban reclaimed user ${id}: ${unbanError.message}`);
+  console.warn(`[crankleads/provision] reclaimed UNCONFIRMED auth user ${id} for the paying buyer (sessions revoked)`);
+}
+
+/** Existing + confirmed → attach (existing). Existing + unconfirmed → reclaim (treated as new). */
+async function resolveExistingUser(admin: AdminClient, user: AuthUserSummary): Promise<OwnerUser> {
+  if (user.email_confirmed_at) return { id: user.id, existing: true };
+  await reclaimUnconfirmedUser(admin, user.id);
+  return { id: user.id, existing: false };
 }
 
 /** Create the owner's login, or reuse the existing EmpireVu user with this email. */
 export async function ensureOwnerUser(admin: AdminClient, email: string, fullName: string): Promise<OwnerUser> {
   const normalized = email.trim().toLowerCase();
   const existingProfile = await findProfileIdByEmail(admin, normalized);
-  if (existingProfile) return { id: existingProfile, existing: true };
+  if (existingProfile) {
+    const authUser = await getAuthUser(admin, existingProfile);
+    if (!authUser) throw new Error(`profile ${existingProfile} has no auth user`);
+    return resolveExistingUser(admin, authUser);
+  }
 
   const created = await admin.auth.admin.createUser({
     email: normalized,
@@ -203,10 +247,10 @@ export async function ensureOwnerUser(admin: AdminClient, email: string, fullNam
   });
   let user: OwnerUser | null = created.data?.user ? { id: created.data.user.id, existing: false } : null;
   if (!user) {
-    // Already registered in auth (without a profile row yet) → it's an existing login.
-    const authId = await findAuthUserIdByEmail(admin, normalized);
-    if (!authId) throw new Error(`Could not create a login for ${normalized}: ${created.error?.message ?? "unknown error"}`);
-    user = { id: authId, existing: true };
+    // Already registered in auth (without a profile row yet).
+    const authUser = await findAuthUserByEmail(admin, normalized);
+    if (!authUser) throw new Error(`Could not create a login for ${normalized}: ${created.error?.message ?? "unknown error"}`);
+    user = await resolveExistingUser(admin, authUser);
   }
 
   // The on_auth_user_created trigger makes the profile; guarantee the FK target regardless.
@@ -274,6 +318,7 @@ async function ensureOrganization(
   purchase: CrankleadsPurchase,
   tier: CrankleadsTier,
   ownerId: string,
+  existingUser: boolean,
 ): Promise<Tables<"organizations">> {
   if (purchase.organization_id) {
     const org = await loadOrganization(admin, "id", purchase.organization_id);
@@ -293,6 +338,8 @@ async function ensureOrganization(
     stripeCustomerId: customerId,
     billingEmail: purchase.owner_email,
     crankleadsTier: tier,
+    // Never move an existing user's default org out from under them.
+    setAsDefaultOrganization: !existingUser,
   });
 }
 
@@ -470,7 +517,7 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
   }
 
   // 2) Organization (paid, on the tier's plan) + owner membership.
-  const org = await ensureOrganization(admin, purchase, tier, ownerId);
+  const org = await ensureOrganization(admin, purchase, tier, ownerId, existingUser);
   await ensureOwnerMembership(admin, org.id, ownerId);
   if (purchase.organization_id !== org.id) {
     await updatePurchase(admin, purchase.id, { organization_id: org.id });
@@ -566,19 +613,67 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
   return org.id;
 }
 
+/** Raised after the operator has been alerted (final attempt), so nobody alerts twice. */
+export class CrankleadsProvisioningFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CrankleadsProvisioningFailedError";
+  }
+}
+
+/** Stripe statuses that mean "the buyer owes nothing more" (incl. a 100%-off coupon) — provision. */
+export function isProvisionablePaymentStatus(status: unknown): boolean {
+  return status === "paid" || status === "no_payment_required";
+}
+
+interface FailureContext {
+  businessName: string;
+  tier: string | null;
+  ownerEmail: string;
+  sessionId: string | null;
+}
+
 /**
- * Provision a paid purchase exactly once. Claims it (optimistic, status-guarded), runs the
- * idempotent steps, and on failure records `failed` + the error. A non-final failure throws
- * DeferBillingEventError so the billing queue retries with backoff; a final failure alerts
- * the operator and rethrows (the job dead-letters; nothing is lost — re-run with
- * `npm run job:crankleads-provision -- --session cs_...`).
+ * The ONE failure policy for every CrankLeads provisioning entry point. Any error at all
+ * (DB, missing metadata, claim race, a step, even recording the failure):
+ *   • not the last attempt → DeferBillingEventError, so the billing queue retries it;
+ *   • last attempt → operator "ACTION NEEDED" alert (whatever state the purchase is in),
+ *     then CrankleadsProvisioningFailedError (the job dead-letters; the ledger row stays).
  */
-export async function provisionPurchase(
-  admin: AdminClient,
-  purchaseId: string,
+async function handleProvisioningFailure(
+  err: unknown,
   options: ProvisionOptions,
-): Promise<string> {
-  const deps: ProvisionDeps = { ...defaultDeps, ...options.deps };
+  deps: ProvisionDeps,
+  context: FailureContext,
+): Promise<never> {
+  if (err instanceof CrankleadsProvisioningFailedError) throw err;
+  const reason = errorMessage(err);
+  console.error(
+    `[crankleads/provision] PROVISIONING FAILED (session ${context.sessionId ?? "-"}, final=${options.finalAttempt}): ${reason}`,
+  );
+  if (!options.finalAttempt) {
+    if (err instanceof DeferBillingEventError) throw err;
+    throw new DeferBillingEventError(`CrankLeads provisioning failed (will retry): ${reason}`);
+  }
+  const operator = operatorEmailAddress();
+  if (operator) {
+    try {
+      await sendRendered(
+        deps,
+        operator,
+        renderOperatorFailureEmail({ ...context, tier: isCrankleadsTier(context.tier) ? context.tier : null, error: reason }),
+      );
+    } catch (mailErr) {
+      console.error(`[crankleads/provision] operator FAILURE alert could not be sent: ${errorMessage(mailErr)}`);
+    }
+  } else {
+    console.error("[crankleads/provision] OWNER_EMAIL is not set — no operator alert for a failed paid purchase!");
+  }
+  throw new CrankleadsProvisioningFailedError(reason);
+}
+
+/** Claim + run the steps. On a step failure records `failed` (best-effort) and rethrows. */
+async function provisionPurchaseUnguarded(admin: AdminClient, purchaseId: string, deps: ProvisionDeps): Promise<string> {
   const current = await findPurchaseById(admin, purchaseId);
   if (!current) throw new Error(`CrankLeads purchase ${purchaseId} not found.`);
   if (current.status === "provisioned" && current.organization_id) return current.organization_id;
@@ -596,59 +691,81 @@ export async function provisionPurchase(
   try {
     return await provisionClaimed(admin, claimed, deps);
   } catch (err) {
-    const reason = errorMessage(err);
-    console.error(
-      `[crankleads/provision] PROVISIONING FAILED for purchase ${purchaseId} ` +
-        `(session ${claimed.stripe_checkout_session_id ?? "-"}, attempt ${claimed.provision_attempts}, final=${options.finalAttempt}): ${reason}`,
-    );
-    await markPurchaseFailed(admin, purchaseId, reason);
-    if (!options.finalAttempt) {
-      throw new DeferBillingEventError(`CrankLeads provisioning failed (will retry): ${reason}`);
+    try {
+      await markPurchaseFailed(admin, purchaseId, errorMessage(err));
+    } catch (markErr) {
+      console.error(`[crankleads/provision] could not record failure on purchase ${purchaseId}: ${errorMessage(markErr)}`);
     }
-    const operator = operatorEmailAddress();
-    if (operator && isCrankleadsTier(claimed.tier)) {
-      try {
-        await sendRendered(
-          deps,
-          operator,
-          renderOperatorFailureEmail({
-            businessName: claimed.business_name,
-            tier: claimed.tier,
-            ownerEmail: claimed.owner_email,
-            sessionId: claimed.stripe_checkout_session_id,
-            error: reason,
-          }),
-        );
-      } catch (mailErr) {
-        console.error(`[crankleads/provision] operator FAILURE alert could not be sent: ${errorMessage(mailErr)}`);
-      }
-    }
-    throw err instanceof Error ? err : new Error(reason);
+    throw err;
+  }
+}
+
+async function failureContextForPurchase(admin: AdminClient, purchaseId: string): Promise<FailureContext> {
+  try {
+    const p = await findPurchaseById(admin, purchaseId);
+    if (p) return { businessName: p.business_name, tier: p.tier, ownerEmail: p.owner_email, sessionId: p.stripe_checkout_session_id };
+  } catch {
+    // fall through — the alert still goes out with what we know
+  }
+  return { businessName: `purchase ${purchaseId}`, tier: null, ownerEmail: "(unknown)", sessionId: null };
+}
+
+/**
+ * Provision a paid purchase exactly once (status-guarded claim + idempotent steps). Failures
+ * follow handleProvisioningFailure: retry while attempts remain, operator alert on the last.
+ * Re-run: `npm run job:crankleads-provision -- --session cs_...`.
+ */
+export async function provisionPurchase(
+  admin: AdminClient,
+  purchaseId: string,
+  options: ProvisionOptions,
+): Promise<string> {
+  const deps: ProvisionDeps = { ...defaultDeps, ...options.deps };
+  try {
+    return await provisionPurchaseUnguarded(admin, purchaseId, deps);
+  } catch (err) {
+    return handleProvisioningFailure(err, options, deps, await failureContextForPurchase(admin, purchaseId));
   }
 }
 
 /**
  * Billing-worker entry for a CrankLeads `checkout.session.completed` /
  * `checkout.session.async_payment_succeeded`. Returns the org id once provisioned, or null
- * when the session isn't paid yet (async payment methods — the *_succeeded event follows).
+ * when the session isn't settled yet (async payment methods — the *_succeeded event follows).
+ * EVERYTHING in here (resolving/rebuilding the purchase, marking it paid, provisioning) is
+ * covered by the same failure policy, so a paid purchase can never dead-letter silently.
  */
 export async function handleCrankleadsCheckoutPaid(
   admin: AdminClient,
   session: StripeObject,
   options: ProvisionOptions,
 ): Promise<string | null> {
-  if (session.payment_status !== "paid") {
+  const deps: ProvisionDeps = { ...defaultDeps, ...options.deps };
+  if (!isProvisionablePaymentStatus(session.payment_status)) {
     console.log(`[crankleads/provision] session ${idOf(session.id)} not paid yet (${String(session.payment_status)}); waiting`);
     return null;
   }
-  const staged = await resolvePurchaseForSession(admin, session);
-  const paid = await markPaid(admin, staged, session);
-  return provisionPurchase(admin, paid.id, options);
+  try {
+    const staged = await resolvePurchaseForSession(admin, session);
+    const paid = await markPaid(admin, staged, session);
+    return await provisionPurchaseUnguarded(admin, paid.id, deps);
+  } catch (err) {
+    const metadata = (session.metadata ?? {}) as Record<string, unknown>;
+    return handleProvisioningFailure(err, options, deps, {
+      businessName: typeof metadata.businessName === "string" ? metadata.businessName : "(unknown business)",
+      tier: typeof metadata.tier === "string" ? metadata.tier : null,
+      ownerEmail: String(session.customer_details?.email ?? session.customer_email ?? "(unknown)"),
+      sessionId: idOf(session.id),
+    });
+  }
 }
 
 // ── Welcome-page resend ───────────────────────────────────────────────────────
 
-export type ResendOutcome = "sent" | "not_ready" | "not_found";
+export type ResendOutcome = "sent" | "not_ready" | "not_found" | "use_forgot_password";
+
+/** Stop minting set-password links this long after provisioning. */
+const RESEND_LINK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Re-send the welcome email (with a fresh set-password link for a new user). */
 export async function resendWelcomeEmail(
@@ -661,6 +778,14 @@ export async function resendWelcomeEmail(
   if (!purchase) return "not_found";
   if (purchase.status !== "provisioned" || !purchase.organization_id || !purchase.company_id || !isCrankleadsTier(purchase.tier)) {
     return "not_ready";
+  }
+  // A set-password link is a login credential: once the owner has signed in, or a week after
+  // setup, stop minting them from this public endpoint — Forgot password still works.
+  if (!purchase.existing_user) {
+    const provisionedAt = purchase.provisioned_at ? Date.parse(purchase.provisioned_at) : Date.now();
+    if (Date.now() - provisionedAt > RESEND_LINK_MAX_AGE_MS) return "use_forgot_password";
+    const authUser = purchase.owner_profile_id ? await getAuthUser(admin, purchase.owner_profile_id) : null;
+    if (authUser?.last_sign_in_at) return "use_forgot_password";
   }
   const ctx: TenantServiceContext = {
     actorProfileId: purchase.owner_profile_id,

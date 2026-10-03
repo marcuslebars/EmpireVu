@@ -20,7 +20,6 @@ import { renderWelcomeEmail } from "@/server/services/crankleads/emails";
 import { parseProvisionJobArgs } from "@/server/services/crankleads/rerun";
 import { getPack } from "@/server/services/packs";
 import { getRecipe } from "@/server/services/workflow-engine/recipes";
-import { availablePhoneModes } from "@/lib/phone-modes";
 import { isPublicPath, safeNextPath } from "@/lib/public-routes";
 import {
   formatEnv,
@@ -108,13 +107,6 @@ describe("recipes per tier", () => {
   });
 });
 
-describe("phone step gating", () => {
-  it("offers only the missed-call catcher without marina_reception", () => {
-    expect(availablePhoneModes(false)).toEqual(["missed_call_catcher"]);
-    expect(availablePhoneModes(true)).toEqual(["ai_receptionist", "missed_call_catcher"]);
-  });
-});
-
 describe("welcome email", () => {
   const base = {
     ownerName: "Jane Roofer",
@@ -148,9 +140,10 @@ describe("welcome email", () => {
 
 describe("re-run job args", () => {
   it("parses --session in both spellings", () => {
-    expect(parseProvisionJobArgs(["--session", "cs_test_1"])).toEqual({ sessionId: "cs_test_1" });
-    expect(parseProvisionJobArgs(["--session=cs_test_2"])).toEqual({ sessionId: "cs_test_2" });
-    expect(parseProvisionJobArgs([])).toEqual({ sessionId: null });
+    expect(parseProvisionJobArgs(["--session", "cs_test_1"])).toMatchObject({ sessionId: "cs_test_1", stuck: false });
+    expect(parseProvisionJobArgs(["--session=cs_test_2"])).toMatchObject({ sessionId: "cs_test_2" });
+    expect(parseProvisionJobArgs([])).toEqual({ sessionId: null, stuck: false, olderThanMinutes: 15 });
+    expect(parseProvisionJobArgs(["--stuck", "--older-than-minutes", "30"])).toEqual({ sessionId: null, stuck: true, olderThanMinutes: 30 });
   });
 });
 
@@ -314,6 +307,13 @@ describe("stripe:setup-crankleads", () => {
     expect(stripe.prices.create).toHaveBeenCalledTimes(6);
     expect(stripe.products.create).toHaveBeenCalledTimes(6);
     expect(stripe.coupons.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a lookup key that points at a price on the WRONG product", async () => {
+    const { stripe, prices } = fakeStripe();
+    await setupCrankleads({ stripe, args: parseArgs(ARGS), keyIsLive: false, log: silent });
+    prices.find((p) => p.lookup_key === "crankleads_close_monthly")!.product = "prod_someone_else";
+    await expect(setupCrankleads({ stripe, args: parseArgs(ARGS), keyIsLive: false, log: silent })).rejects.toThrow(/belongs to product prod_someone_else/);
   });
 
   it("a changed amount needs --replace (prices are immutable), which moves the lookup key", async () => {

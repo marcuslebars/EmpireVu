@@ -44,7 +44,10 @@ export function PhoneModeStep({ orgId, companyId, stepData, onDone, aiStep }: Ph
   const [chosen, setMode] = useState<PhoneMode | null>(() => initialMode(stepData));
   const { data: billing } = useBilling(orgId);
   // Optimistic while billing loads (the server is the real boundary).
-  const modes = availablePhoneModes(billing?.gating?.marina_reception ?? true);
+  const modes = availablePhoneModes({
+    crankleadsTier: billing?.organization?.crankleads_tier ?? null,
+    aiReceptionistAllowed: billing?.gating?.marina_reception ?? true,
+  });
   const catcherOnly = !modes.includes("ai_receptionist");
   const mode: PhoneMode | null = catcherOnly ? "missed_call_catcher" : chosen;
 

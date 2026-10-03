@@ -1,16 +1,15 @@
 /**
- * Server-side phone-step gating: the AI-receptionist provisioning route refuses an org whose
- * plan lacks `marina_reception` (CrankLeads Catch / Close on `operate`) before touching
- * Retell or a phone number. Front Desk / house orgs proceed.
+ * Server-side phone-step gating with the REAL orgCan (billing/gating.ts) over an in-memory
+ * DB: only a CrankLeads Catch/Close org is refused the AI receptionist. A self-serve
+ * trial `operate` org, an existing operate org, Front Desk and house orgs proceed exactly as
+ * before; a marina_reception feature-flag override re-opens it for a Catch org.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const orgCan = vi.fn();
-vi.mock("@/server/services/billing/gating", () => ({
-  orgCan: (...args: unknown[]) => orgCan(...args),
-}));
+import { createFakeDb, type FakeDb } from "./helpers/fake-supabase";
 
-vi.mock("@/server/supabase/server", () => ({ createSupabaseServerClient: () => ({}) }));
+let db: FakeDb;
+vi.mock("@/server/supabase/server", () => ({ createSupabaseServerClient: () => db.client }));
 
 vi.mock("@/server/organizations/context", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/server/organizations/context")>();
@@ -33,8 +32,14 @@ vi.mock("@/server/services/onboarding", () => ({
 }));
 
 import { POST } from "@/app/api/organizations/[organizationId]/onboarding/phone/route";
+import { availablePhoneModes } from "@/lib/phone-modes";
 
 const COMPANY = "00000000-0000-4000-8000-000000000001";
+const future = new Date(Date.now() + 7 * 864e5).toISOString();
+
+function org(overrides: Record<string, unknown>) {
+  return { id: "org-1", name: "Org", plan: "operate", subscription_status: "active", trial_ends_at: null, crankleads_tier: null, ...overrides };
+}
 
 function call() {
   return POST(
@@ -48,7 +53,6 @@ function call() {
 }
 
 beforeEach(() => {
-  orgCan.mockReset();
   provisionPhoneForCompany.mockReset().mockResolvedValue({
     llmId: "llm",
     agentId: "agent",
@@ -59,20 +63,45 @@ beforeEach(() => {
   recordOnboardingEvent.mockReset();
 });
 
-describe("POST /onboarding/phone (AI receptionist)", () => {
-  it("403 for a plan without marina_reception (Catch / Close) — nothing provisioned", async () => {
-    orgCan.mockResolvedValue(false);
-    const res = await call();
-    expect(res.status).toBe(403);
-    expect((await res.json()).error).toMatch(/missed-call catcher/);
-    expect(orgCan).toHaveBeenCalledWith(expect.anything(), "org-1", "marina_reception");
+function seed(orgRow: Record<string, unknown>, flags: Record<string, unknown>[] = []) {
+  db = createFakeDb({ organizations: [orgRow], subscriptions: [], feature_flags: flags });
+}
+
+describe("POST /onboarding/phone (AI receptionist) — real orgCan", () => {
+  it("allows a self-serve trial operate org (no CrankLeads tier) — unchanged behaviour", async () => {
+    seed(org({ plan: "operate", subscription_status: "trialing", trial_ends_at: future }));
+    expect((await call()).status).toBe(200);
+    expect(provisionPhoneForCompany).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows existing launch/operate orgs and house orgs", async () => {
+    for (const row of [org({ plan: "launch" }), org({ plan: "operate" }), org({ plan: "internal", subscription_status: "none" })]) {
+      seed(row);
+      expect((await call()).status, String(row.plan)).toBe(200);
+    }
+  });
+
+  it("refuses a CrankLeads Catch or Close org (operate, no marina_reception) — nothing provisioned", async () => {
+    for (const tier of ["catch", "close"]) {
+      seed(org({ crankleads_tier: tier }));
+      const res = await call();
+      expect(res.status, tier).toBe(403);
+      expect((await res.json()).error).toMatch(/missed-call catcher/);
+    }
     expect(provisionPhoneForCompany).not.toHaveBeenCalled();
   });
 
-  it("proceeds for Front Desk / house orgs", async () => {
-    orgCan.mockResolvedValue(true);
-    const res = await call();
-    expect(res.status).toBe(200);
-    expect(provisionPhoneForCompany).toHaveBeenCalledTimes(1);
+  it("allows CrankLeads Front Desk, and a Catch org with a marina_reception override", async () => {
+    seed(org({ plan: "front_desk", crankleads_tier: "front_desk" }));
+    expect((await call()).status).toBe(200);
+    seed(org({ crankleads_tier: "catch" }), [{ organization_id: "org-1", feature: "marina_reception", enabled: true, limit_value: null }]);
+    expect((await call()).status).toBe(200);
+  });
+
+  it("the wizard UI follows the same rule", () => {
+    expect(availablePhoneModes({ crankleadsTier: null, aiReceptionistAllowed: false })).toEqual(["ai_receptionist", "missed_call_catcher"]);
+    expect(availablePhoneModes({ crankleadsTier: "catch", aiReceptionistAllowed: false })).toEqual(["missed_call_catcher"]);
+    expect(availablePhoneModes({ crankleadsTier: "close", aiReceptionistAllowed: true })).toEqual(["ai_receptionist", "missed_call_catcher"]);
+    expect(availablePhoneModes({ crankleadsTier: "front_desk", aiReceptionistAllowed: true })).toEqual(["ai_receptionist", "missed_call_catcher"]);
   });
 });

@@ -8,6 +8,10 @@ is only named where the buyer needs context (the welcome email and the welcome p
 
 The phone number is **not** bought at purchase time: the owner picks it in the setup wizard's
 Phone step (Catch / Close: missed-call catcher only; Front Desk: AI receptionist or catcher).
+That restriction applies **only** to orgs with `crankleads_tier` `catch`/`close` (and no
+`marina_reception` feature-flag override) — enforced in the UI and on
+`POST /api/organizations/{id}/onboarding/phone`. Every other org (self-serve trials, existing
+operate/launch orgs, house orgs) is unchanged.
 
 | Tier | EmpireVu plan | Stripe (CAD, set by the setup script) | Starter automations |
 |---|---|---|---|
@@ -53,9 +57,12 @@ claim older than 10 minutes is re-claimable).
 
 What provisioning does (`src/server/services/crankleads/provision.ts`), in order:
 
-1. **Login** — Supabase admin `createUser` (email confirmed). If the email already belongs to an
-   EmpireVu user, the new org is attached to them instead and they get a "log in" email (no
-   password link).
+1. **Login** — Supabase admin `createUser` (email confirmed). If the email already belongs to a
+   **confirmed** EmpireVu user (`email_confirmed_at` set), the new org is attached to them (their
+   default org is NOT changed) and they get a "log in" email (no password link). If it belongs
+   to an **unconfirmed** user (a squatted signup), the account is reclaimed for the payer:
+   password scrambled, email confirmed, banned → unbanned to revoke its sessions, and the payer
+   gets the set-password link.
 2. **Organization** — `createOrganization` (the signup service) with the tier's plan,
    `subscription_status = active`, the Stripe customer, `crankleads_tier`; owner membership.
 3. **Company** — `createCompany` (the wizard's Business-step service — installs the recipe
@@ -87,9 +94,21 @@ provisioning`, the job is re-queued with backoff (30 s, 60 s, 120 s, 240 s; boun
 forward (and re-queues any that already dead-lettered), so they resolve to the new org. Unknown
 non-CrankLeads customers still dead-letter exactly as before.
 
-**Failures.** A provisioning error marks the purchase `failed` with `last_error` and is retried
-automatically by the queue; on the last attempt the operator gets *"ACTION NEEDED: CrankLeads
-provisioning failed"* and the job dead-letters. The payment and the purchase row are never lost.
+**Failures.** ANY error in the CrankLeads branch (purchase lookup/rebuild, marking it paid, the
+claim, a provisioning step, even recording the failure) is retried by the queue while attempts
+remain (the purchase is marked `failed` with `last_error` when a step failed); on the last
+attempt the operator gets *"ACTION NEEDED: CrankLeads provisioning failed"* whatever state the
+purchase is in, and the job dead-letters. The payment and the purchase row are never lost.
+
+**Paid = `paid` or `no_payment_required`** (e.g. a 100%-off coupon); `unpaid` waits for
+`checkout.session.async_payment_succeeded`.
+
+**Safety-net sweep** (`npm run job:crankleads-provision -- --stuck`, Railway cron every 15 min —
+`railway.crankleads-sweep.json`): every purchase still `checkout_created / paid / provisioning`
+whose row hasn't changed for 15 minutes (`--older-than-minutes N`) and was created in the last
+26 h: `paid` / stuck `provisioning` → provisioned now; `checkout_created` → asks Stripe and
+provisions if the session is paid (a missed webhook), otherwise leaves it (abandoned/expired).
+Each is a final attempt, so a failure alerts the operator. Exit code 1 if anything failed.
 
 ## API
 
@@ -123,14 +142,18 @@ Request (JSON, ≤ 8 KB):
 | 503 | `{ "error": "Checkout is temporarily unavailable…" }` — the tier's Stripe prices aren't configured |
 | 502 | `{ "error": "Couldn't start checkout. Please try again." }` — Stripe error |
 
-CORS: `Access-Control-Allow-Origin` echoes an allow-listed origin only; no credentials. A
-request with **no** Origin (a server-side call) is allowed.
+CORS: `Access-Control-Allow-Origin` echoes an allow-listed origin only; no credentials. The
+site calls this straight from the browser (no server needed). A request with **no** Origin (a
+server-side call) is also allowed — the endpoint only ever opens a Checkout Session, so that is
+not an escalation; the rate limits apply either way.
 
 Checkout Session: `mode: subscription`, line items = tier monthly price + tier setup price
 (one-time prices ride on the first invoice only), `customer_email`, `client_reference_id` =
 purchase id, `currency: cad`, `billing_address_collection: required`, `automatic_tax` off unless
 `STRIPE_AUTOMATIC_TAX=true`, `discounts: [{coupon}]` when `founding` and
-`STRIPE_COUPON_CL_FOUNDING` is set (else `allow_promotion_codes: true`), `metadata` and
+`STRIPE_COUPON_CL_FOUNDING` is set **and still valid in Stripe** (an exhausted/expired/missing
+coupon — or a create that rejects it — falls back to full price instead of failing the sale),
+`allow_promotion_codes: false` (no other promo code can be applied), `metadata` and
 `subscription_data.metadata` = `{source: "crankleads", purchaseId, tier, plan, businessName,
 businessType, ownerName, ownerPhone, utm}` (utm JSON kept ≤ 500 chars),
 `success_url = APP_BASE_URL/welcome/crankleads?session_id={CHECKOUT_SESSION_ID}`,
@@ -156,7 +179,9 @@ if (res.ok) window.location.href = body.url; else showErrors(body.fields ?? body
 ### `POST /api/public/crankleads/checkout/{sessionId}/resend`
 
 Re-sends the welcome email (fresh set-password link) to the address that paid — never to an
-address in the request. 3 / hour per session, 10 / hour per IP. 409 until provisioned.
+address in the request. 3 / hour per session, 10 / hour per IP. 409 until provisioned, and 409
+"use Forgot password" once the owner has signed in or 7 days after setup (a set-password link
+is a credential; this public endpoint stops minting them).
 
 ## Setup checklist (Stripe TEST mode first)
 
@@ -183,6 +208,10 @@ address in the request. 3 / hour per session, 10 / hour per IP. 409 until provis
      `OWNER_EMAIL`, and `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` (only so
      the SMS starter automations install **active** — the worker never sends SMS).
    - **[reconcile]**: `STRIPE_PRICE_CL_*` (plan-drift check).
+   - **[crankleads-sweep]** — new Railway **cron** service, config file
+     `railway.crankleads-sweep.json` (`npm run job:crankleads-provision -- --stuck`, `*/15 * * * *`):
+     `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`, `APP_BASE_URL`,
+     `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`, `OWNER_EMAIL`, `TWILIO_*` (same values as web).
 4. **Stripe webhook** (Dashboard → Developers → Webhooks → the `/api/webhooks/stripe` endpoint):
    make sure it sends `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
    `invoice.paid`, `invoice.payment_failed`, `customer.subscription.created`,

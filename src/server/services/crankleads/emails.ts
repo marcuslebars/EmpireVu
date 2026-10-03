@@ -154,14 +154,14 @@ export function renderOperatorNewPurchaseEmail(input: OperatorEmailInput): Rende
 
 export interface OperatorFailureEmailInput {
   businessName: string;
-  tier: CrankleadsTier;
+  tier: CrankleadsTier | null;
   ownerEmail: string;
   sessionId: string | null;
   error: string;
 }
 
 export function renderOperatorFailureEmail(input: OperatorFailureEmailInput): RenderedEmail {
-  const subject = `ACTION NEEDED: ${CRANKLEADS_OFFER_NAME} provisioning failed — ${input.businessName} (${CRANKLEADS_TIER_LABELS[input.tier]})`;
+  const subject = `ACTION NEEDED: ${CRANKLEADS_OFFER_NAME} provisioning failed — ${input.businessName} (${input.tier ? CRANKLEADS_TIER_LABELS[input.tier] : "unknown tier"})`;
   const body = [
     "A paid CrankLeads purchase could not be set up automatically. The payment is safe and recorded",
     "(crankleads_purchases.status = 'failed'); nothing is lost.",
