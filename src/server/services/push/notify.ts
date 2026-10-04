@@ -116,3 +116,29 @@ export function notifyJobAssigned(
     "job assignment notify",
   );
 }
+
+/** A customer asked for work from their portal. Owners and admins. */
+export function notifyPortalRequest(
+  input: { organizationId: string; companyId: string; contactId: string; name: string; message: string },
+  options: NotifyOptions = {},
+): Promise<void> {
+  return withPush(
+    options,
+    async (admin, senders) => {
+      const recipients = await memberIds(admin, input.organizationId, ["owner", "admin"]);
+      const preview = input.message.trim();
+      await sendPushToOrganization(
+        admin,
+        input.organizationId,
+        {
+          title: `Work request from ${input.name}`,
+          body: preview.length > 120 ? `${preview.slice(0, 117)}…` : preview,
+          category: "leads",
+          data: { screen: "lead", recordId: input.contactId, organizationId: input.organizationId, companyId: input.companyId },
+        },
+        { recipientUserIds: recipients, senders },
+      );
+    },
+    "portal request notify",
+  );
+}

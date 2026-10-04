@@ -18,6 +18,7 @@ describe("routes a signed-out visitor must be able to reach", () => {
   it("keeps a customer on their quote", () => {
     expect(isPublicPath("/q/d1120ee3cce10b2fdf17e15e5353b043")).toBe(true);
     expect(isPublicPath("/i/d1120ee3cce10b2fdf17e15e5353b043")).toBe(true);
+    expect(isPublicPath("/p/0123456789abcdef0123456789abcdef01234567")).toBe(true);
   });
 
   it("keeps a customer on a public booking page", () => {
