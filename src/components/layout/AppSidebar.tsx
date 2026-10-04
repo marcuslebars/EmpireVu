@@ -35,7 +35,7 @@ const navItems = [
   { title: "Invoices", icon: Receipt, path: "/invoices" },
   { title: "Accounts", icon: Building2, path: "/accounts" },
   { title: "Automations", icon: Zap, path: "/automations" },
-  { title: "Reports", icon: BarChart3, path: "/reports/attribution" },
+  { title: "Reports", icon: BarChart3, path: "/reports" },
   { title: "Settings", icon: Settings, path: "/settings" },
 ];
 

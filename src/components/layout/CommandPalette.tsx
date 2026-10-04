@@ -37,7 +37,8 @@ const NAV_ITEMS = [
   { label: "Invoices", to: "/invoices", icon: FileText, keywords: "invoice bill payment overdue receivable" },
   { label: "Business accounts", to: "/accounts", icon: Users, keywords: "marina business account statement customer company" },
   { label: "Automations", to: "/automations", icon: Zap, keywords: "workflows rules" },
-  { label: "Reports", to: "/reports/attribution", icon: BarChart3, keywords: "attribution revenue captured report analytics" },
+  { label: "Reports", to: "/reports", icon: BarChart3, keywords: "reports revenue collected owed overdue jobs quotes win rate hours analytics" },
+  { label: "Captured by EmpireVu", to: "/reports/attribution", icon: BarChart3, keywords: "attribution revenue captured report analytics" },
   { label: "Monthly results", to: "/reports/monthly", icon: BarChart3, keywords: "scorecard monthly results leads jobs report" },
   { label: "Settings", to: "/settings", icon: SettingsIcon, keywords: "preferences organization" },
 ];
