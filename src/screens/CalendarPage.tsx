@@ -31,6 +31,7 @@ import {
   MessageSquare,
   FileText,
 } from "lucide-react";
+import { CalendarJobPanel } from "@/components/jobs/CalendarJobPanel";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
 import {
@@ -309,28 +310,8 @@ function BookingDetailBody({
           </div>
         )}
 
-        {/* Team */}
-        {detailData.booking && "assignedUserSummary" in detailData.booking && (detailData.booking as { assignedUserSummary?: { users: { initials: string; name: string }[] } }).assignedUserSummary && (
-          <div className="space-y-3">
-            <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <UserPlus className="w-3 h-3" />
-              Assigned Team
-            </h4>
-            <div className="space-y-2">
-              {((detailData.booking as { assignedUserSummary?: { users: { initials: string; name: string }[] } }).assignedUserSummary?.users ?? []).map((u, i) => (
-                <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-secondary/40 border border-border/50">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary">
-                      {u.initials}
-                    </div>
-                    <span className="text-xs font-medium text-foreground">{u.name}</span>
-                  </div>
-                  <span className="text-[10px] text-muted-foreground">Primary</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Crew + job sheet */}
+        <CalendarJobPanel orgId={organizationId} bookingId={detailData.booking.id} />
 
         {/* Linked Tasks */}
         {detailData.tasks.length > 0 && (

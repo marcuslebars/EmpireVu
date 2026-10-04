@@ -29,6 +29,8 @@ export const supportedWorkflowTriggerEventTypes = [
   "invoice.overdue",
   "invoice.payment_failed",
   "booking.upcoming",
+  // Crew tapped "On my way" on the job (once per job) — the customer heads-up text.
+  "booking.en_route",
   "booking.cancelled",
   "booking.no_show",
   "contact.stale",

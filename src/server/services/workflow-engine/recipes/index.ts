@@ -3,6 +3,7 @@ import {
   invoicePaidOwnerAlert,
   invoicePaidThankYou,
 } from "@/server/services/workflow-engine/recipes/invoices";
+import { crewOnTheWay } from "@/server/services/workflow-engine/recipes/crew";
 import { bookingReminder } from "@/server/services/workflow-engine/recipes/booking-reminder";
 import { missedCallTextBack } from "@/server/services/workflow-engine/recipes/missed-call-text-back";
 import { newLeadOwnerAlert } from "@/server/services/workflow-engine/recipes/new-lead-owner-alert";
@@ -48,6 +49,8 @@ export const ALL_RECIPES: readonly Recipe[] = [
   invoicePaidOwnerAlert,
   invoicePaidThankYou,
   invoiceOverdueOwnerAlert,
+  // Crew dispatch — see recipes/crew.ts.
+  crewOnTheWay,
 ];
 
 const RECIPES_BY_SLUG = new Map(ALL_RECIPES.map((recipe) => [recipe.slug, recipe]));

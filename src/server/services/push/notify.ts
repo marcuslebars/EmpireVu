@@ -90,3 +90,29 @@ export function notifyWorkflowFailed(
     "workflow failure notify",
   );
 }
+
+/** You were put on a job. Only the people just added. */
+export function notifyJobAssigned(
+  input: { organizationId: string; companyId: string | null; bookingId: string; title: string; body: string; recipientIds: string[] },
+  options: NotifyOptions = {},
+): Promise<void> {
+  if (input.recipientIds.length === 0) return Promise.resolve();
+  return withPush(
+    options,
+    async (admin, senders) => {
+      await sendPushToOrganization(
+        admin,
+        input.organizationId,
+        {
+          title: input.title,
+          body: input.body,
+          // Schedule changes share the "conflicts" (scheduling) channel and its opt-out.
+          category: "conflicts",
+          data: { screen: "booking", recordId: input.bookingId, organizationId: input.organizationId, companyId: input.companyId },
+        },
+        { recipientUserIds: input.recipientIds, senders },
+      );
+    },
+    "job assignment notify",
+  );
+}

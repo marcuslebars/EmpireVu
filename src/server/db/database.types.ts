@@ -60,6 +60,72 @@ export interface Database {
         };
         Relationships: [];
       };
+      booking_assignments: {
+        Row: {
+          id: string;
+          organization_id: string;
+          booking_id: string;
+          profile_id: string;
+          assigned_by: string | null;
+          notified_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          booking_id: string;
+          profile_id: string;
+          assigned_by?: string | null;
+          notified_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          booking_id?: string;
+          profile_id?: string;
+          assigned_by?: string | null;
+          notified_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      booking_checklist_items: {
+        Row: {
+          id: string;
+          organization_id: string;
+          booking_id: string;
+          label: string;
+          position: number;
+          done_at: string | null;
+          done_by: string | null;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          booking_id: string;
+          label: string;
+          position?: number;
+          done_at?: string | null;
+          done_by?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          booking_id?: string;
+          label?: string;
+          position?: number;
+          done_at?: string | null;
+          done_by?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       bookings: {
         Row: {
           company_id: string;
@@ -78,6 +144,11 @@ export interface Database {
           window_key: string | null;
           title: string;
           updated_at: string;
+          location: string | null;
+          en_route_at: string | null;
+          started_at: string | null;
+          completed_at: string | null;
+          completed_by: string | null;
         };
         Insert: {
           company_id: string;
@@ -96,6 +167,11 @@ export interface Database {
           window_key?: string | null;
           title: string;
           updated_at?: string;
+          location?: string | null;
+          en_route_at?: string | null;
+          started_at?: string | null;
+          completed_at?: string | null;
+          completed_by?: string | null;
         };
         Update: {
           company_id?: string;
@@ -113,6 +189,44 @@ export interface Database {
           source_call_id?: string | null;
           window_key?: string | null;
           title?: string;
+          updated_at?: string;
+          location?: string | null;
+          en_route_at?: string | null;
+          started_at?: string | null;
+          completed_at?: string | null;
+          completed_by?: string | null;
+        };
+        Relationships: [];
+      };
+      checklist_templates: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          name: string;
+          items: Json;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          name: string;
+          items?: Json;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          name?: string;
+          items?: Json;
+          created_by?: string | null;
+          created_at?: string;
           updated_at?: string;
         };
         Relationships: [];

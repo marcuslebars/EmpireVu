@@ -32,6 +32,7 @@ import TasksPage from "./screens/TasksPage";
 import CRMPage from "./screens/CRMPage";
 import QuotesPage from "./screens/QuotesPage";
 import InvoicesPage from "./screens/InvoicesPage";
+import JobsPage, { JobDetailPage } from "./screens/JobsPage";
 import CustomerAccountsPage from "./screens/CustomerAccountsPage";
 import ContactDetailPage from "./screens/ContactDetailPage";
 import InboxPage from "./screens/InboxPage";
@@ -345,6 +346,22 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <QuotesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/jobs"
+          element={
+            <ProtectedRoute>
+              <JobsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/jobs/:bookingId"
+          element={
+            <ProtectedRoute>
+              <JobDetailPage />
             </ProtectedRoute>
           }
         />
