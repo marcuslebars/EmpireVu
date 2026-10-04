@@ -1164,6 +1164,24 @@ function buildActivityEventTraceSummary(activityEvent: Tables<"activity_events">
         metadata,
         title: "Booking status changed",
       };
+    case "booking.en_route":
+      return {
+        detail: "The crew is on the way to the job.",
+        metadata,
+        title: "Crew on the way",
+      };
+    case "booking.started":
+      return {
+        detail: "The crew started work on the job.",
+        metadata,
+        title: "Job started",
+      };
+    case "booking.crew_changed":
+      return {
+        detail: "The crew on this job changed.",
+        metadata,
+        title: "Crew updated",
+      };
     case "booking.completed":
       return {
         detail: "The booking was completed and is eligible for workflow automation.",

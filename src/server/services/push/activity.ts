@@ -102,7 +102,7 @@ export function pushMessageForEvent(event: ActivityEvent, contactName: string | 
 
 /** Fire-and-forget from createActivityEvent. Never throws; a no-op without a push provider. */
 /** Events after which a booking's crew may now be double-booked. */
-const CONFLICT_EVENTS = new Set(["booking.created", "booking.rescheduled", "task.assignee_assigned"]);
+const CONFLICT_EVENTS = new Set(["booking.created", "booking.rescheduled", "booking.crew_changed", "task.assignee_assigned"]);
 
 async function checkConflictsFor(event: ActivityEvent): Promise<void> {
   if (!event.entity_id) return;

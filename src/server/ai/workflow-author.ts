@@ -147,6 +147,7 @@ Triggers:
 - "booking.created" — a job is booked
 - "booking.completed" — a job is finished
 - "booking.upcoming" — a booking is coming up soon (scheduler-driven; N hours before)
+- "booking.en_route" — the crew tapped "On my way" for the job
 - "booking.cancelled" — a booking is cancelled
 - "booking.no_show" — the customer didn't show
 - "call.missed" — an inbound call was missed or went to voicemail

@@ -32,19 +32,25 @@ export function overlaps(a: Pick<Booking, "scheduled_for" | "duration_minutes">,
 }
 
 async function crewFor(admin: Admin, organizationId: string, bookingIds: string[]): Promise<Map<string, Set<string>>> {
-  const { data } = await admin
-    .from("tasks")
-    .select("booking_id, assigned_to_profile_id")
-    .eq("organization_id", organizationId)
-    .in("booking_id", bookingIds)
-    .not("assigned_to_profile_id", "is", null);
+  // The crew: direct job assignments plus anyone assigned one of the job's tasks.
+  const [{ data: direct }, { data }] = await Promise.all([
+    admin.from("booking_assignments").select("booking_id, profile_id").eq("organization_id", organizationId).in("booking_id", bookingIds),
+    admin
+      .from("tasks")
+      .select("booking_id, assigned_to_profile_id")
+      .eq("organization_id", organizationId)
+      .in("booking_id", bookingIds)
+      .not("assigned_to_profile_id", "is", null),
+  ]);
   const crews = new Map<string, Set<string>>();
-  for (const row of data ?? []) {
-    if (!row.booking_id || !row.assigned_to_profile_id) continue;
-    const crew = crews.get(row.booking_id) ?? new Set<string>();
-    crew.add(row.assigned_to_profile_id);
-    crews.set(row.booking_id, crew);
-  }
+  const add = (bookingId: string | null, profileId: string | null) => {
+    if (!bookingId || !profileId) return;
+    const crew = crews.get(bookingId) ?? new Set<string>();
+    crew.add(profileId);
+    crews.set(bookingId, crew);
+  };
+  for (const row of direct ?? []) add(row.booking_id, row.profile_id);
+  for (const row of data ?? []) add(row.booking_id, row.assigned_to_profile_id);
   return crews;
 }
 

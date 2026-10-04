@@ -12,7 +12,7 @@ type Row = Record<string, unknown>;
 
 export interface FakeDbOp {
   table: string;
-  op: "select" | "insert" | "upsert" | "update";
+  op: "select" | "insert" | "upsert" | "update" | "delete";
   row?: Row;
 }
 
@@ -72,6 +72,12 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
     const run = (): { data: unknown; error: unknown } => {
       const failure = takeFailure(table, mode);
       if (failure) return { data: null, error: failure };
+      if (mode === "delete") {
+        const removed = tables[table].filter((row) => filters.every((f) => f(row)));
+        tables[table] = tables[table].filter((row) => !removed.includes(row));
+        ops.push({ table, op: "delete" });
+        return { data: removed, error: null };
+      }
       if (mode === "update") {
         const rows = tables[table].filter((row) => filters.every((f) => f(row)));
         for (const row of rows) Object.assign(row, patch);
@@ -102,6 +108,15 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
       },
       is: (column: string, value: unknown) => {
         filters.push((row) => (readPath(row, column) ?? null) === value);
+        return builder;
+      },
+      not: (column: string, operator: string, value: unknown) => {
+        if (operator !== "is") throw new Error(`fake-supabase: not(${operator}) unsupported`);
+        filters.push((row) => (readPath(row, column) ?? null) !== value);
+        return builder;
+      },
+      delete: () => {
+        mode = "delete";
         return builder;
       },
       in: (column: string, values: unknown[]) => {
