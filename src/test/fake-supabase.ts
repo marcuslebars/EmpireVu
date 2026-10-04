@@ -2,7 +2,7 @@
  * A tiny in-memory stand-in for the Supabase query builder, for service tests that would
  * otherwise hand-chain `.eq().eq().maybeSingle()` per call shape. Supports the subset the
  * missed-call catcher uses: select / insert / upsert (onConflict + ignoreDuplicates) /
- * update, filters eq / neq / gte / lte / is, order, limit, maybeSingle / single, and
+ * update, filters eq / neq / gt / lt / gte / lte / is / in, order, limit / range, maybeSingle / single, and
  * `metadata_json->>key` JSON-path equality. Every operation is logged in `ops` so tests
  * can assert ordering (e.g. durable write before processing).
  */
@@ -55,6 +55,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
     let patch: Row | null = null;
     let order: { column: string; ascending: boolean } | null = null;
     let limitN: number | null = null;
+    let offsetN = 0;
 
     const matching = () => {
       let rows = tables[table].filter((row) => filters.every((f) => f(row)));
@@ -66,7 +67,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
           return ascending ? av.localeCompare(bv) : bv.localeCompare(av);
         });
       }
-      return limitN === null ? rows : rows.slice(0, limitN);
+      return limitN === null ? rows.slice(offsetN) : rows.slice(offsetN, offsetN + limitN);
     };
 
     const run = (): { data: unknown; error: unknown } => {
@@ -137,6 +138,11 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
       },
       limit: (n: number) => {
         limitN = n;
+        return builder;
+      },
+      range: (start: number, end: number) => {
+        offsetN = start;
+        limitN = end - start + 1;
         return builder;
       },
       maybeSingle: () => {

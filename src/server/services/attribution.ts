@@ -131,7 +131,7 @@ export function deriveFirstTouch(inputs: FirstTouchInputs): FirstTouch {
 // ── Period boundaries (pure, DST-safe; same technique as workflow timing.ts) ────
 
 /** Offset (localWallClock − UTC) in ms for an instant, in an IANA zone. */
-function tzOffsetMs(utcMs: number, timeZone: string): number {
+export function tzOffsetMs(utcMs: number, timeZone: string): number {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     hourCycle: "h23",
