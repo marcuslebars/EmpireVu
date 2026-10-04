@@ -57,6 +57,8 @@ export interface QuoteServiceInput {
   optional?: boolean;
   /** Current selection. Required lines are always on; optional lines default OFF. */
   selected?: boolean;
+  /** Choices that scale the rate, keyed by modifier group: { tier: "deep", boatType: "cruiser" }. */
+  modifiers?: Record<string, string>;
 }
 
 /** A hand-priced line. Never catalog-computed, never bundle-eligible. */
@@ -142,6 +144,7 @@ function toCatalogLine(s: QuoteServiceInput): CatalogLineInput {
     serviceKey: s.serviceId,
     measure: s.lengthFt ?? s.distanceKm,
     quantity: s.quantity ?? s.engineCount,
+    ...(s.modifiers && Object.keys(s.modifiers).length > 0 ? { modifiers: s.modifiers } : {}),
   };
 }
 

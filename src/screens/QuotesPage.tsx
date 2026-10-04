@@ -1,336 +1,355 @@
 /**
- * Quotes — minimal admin create/edit surface for the Stripe-native quote flow.
+ * Quotes — staff list, detail panel and point-and-click builder.
+ * Deep links: /quotes?open={quoteId} opens that quote; /quotes?new=1 opens the builder.
  *
- * Deliberately correctness-first rather than polished: the quote body is edited as
- * JSON, because the shape (per-line optional flags, per_unit quantities, per_km
- * distances, hand-priced Care lines) is richer than a fixed set of inputs would
- * capture, and every field maps 1:1 to what the pricing engine and the hosted page
- * consume. A prettier picker can replace this without touching the API.
- *
- * The whole screen 404s while STRIPE_QUOTES_ENABLED is off, which renders as a
+ * The whole feature 404s while STRIPE_QUOTES_ENABLED is off, which renders as a
  * plain "not enabled" notice rather than an error.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { FileText, Plus, Receipt, Sparkles } from "lucide-react";
 
-import {
-  ApiError,
-  createQuote,
-  fetchQuotes,
-  sendQuote,
-  updateQuote,
-  voidQuote,
-  type QuoteSummary,
-  type QuoteWritePayload,
-} from "@/lib/api-client";
+import { QuoteBuilderDialog } from "@/components/quotes/QuoteBuilderDialog";
+import { QuoteDetailPanel } from "@/components/quotes/QuoteDetailPanel";
+import { QuoteStatusBadge } from "@/components/quotes/QuoteStatusBadge";
+import { QUOTE_FILTERS, asQuoteStatus, type QuoteFilter } from "@/components/quotes/quote-ui";
+import { EmptyState, ErrorBanner, SkeletonRow } from "@/components/ui/StateViews";
+import { ApiError } from "@/lib/api-client";
+import { formatDate } from "@/lib/format";
+import { formatCents } from "@/lib/invoices-api";
+import { useQuoteList } from "@/lib/quote-hooks";
+import type { QuoteListItem } from "@/lib/quotes-api";
 import { useOrgId } from "@/lib/org-context";
-import { toast } from "@/components/ui/sonner";
-import { useCreateInvoiceFromQuote } from "@/lib/invoice-hooks";
-import { existingInvoiceIdFrom } from "@/lib/invoices-api";
+import { cn } from "@/lib/utils";
 
-const money = (cents: number, currency = "CAD") =>
-  new Intl.NumberFormat("en-CA", { style: "currency", currency }).format(cents / 100);
-
-/** A worked starting point: required storage lines, one optional, one Care line. */
-/** Quote statuses that can be turned into an invoice. */
-const INVOICEABLE_STATUSES = ["approved", "deposit_paid", "completed", "sent", "viewed"];
-
-const TEMPLATE: QuoteWritePayload = {
-  title: "Winter storage 2026/27",
-  introMessage: "",
-  services: [
-    { serviceId: "outdoor_storage", lengthFt: 24 },
-    { serviceId: "shrink_wrap", lengthFt: 24 },
-    { serviceId: "winterization_outboard", engineType: "outboard", engineCount: 1 },
-    { serviceId: "battery_storage", quantity: 2, optional: true },
-  ],
-  customLines: [],
-  notes: "",
+const EMPTY_COPY: Record<QuoteFilter, { title: string; description: string }> = {
+  all: { title: "No quotes yet", description: "Build one from your price list and send the customer a link to approve and pay a deposit." },
+  draft: { title: "No drafts", description: "Quotes you start but haven't sent show up here." },
+  with_customer: { title: "Nothing waiting on customers", description: "Sent quotes the customer hasn't approved yet show up here." },
+  approved: { title: "No approved quotes", description: "Quotes the customer approved but hasn't paid a deposit on show up here." },
+  deposit_paid: { title: "No deposits yet", description: "Quotes with a paid deposit show up here, ready to schedule and invoice." },
+  completed: { title: "Nothing completed", description: "Finished jobs show up here." },
+  closed: { title: "Nothing closed", description: "Expired and voided quotes are kept here for your records." },
 };
+
+type BuilderState = { quoteId: string | null; contactName: string | null; returnTo: string | null } | null;
+
+function DateCell({ q }: { q: QuoteListItem }) {
+  const iso = q.sent_at ?? q.created_at;
+  return (
+    <span className="text-xs text-foreground/80 whitespace-nowrap">
+      {formatDate(iso, "MMM d, yyyy")}
+      <span className="block text-[10px] text-muted-foreground">{q.sent_at ? "Sent" : "Created"}</span>
+    </span>
+  );
+}
+
+function InvoicedChip({ q, onOpen }: { q: QuoteListItem; onOpen: (id: string) => void }) {
+  if (!q.invoice_id) return null;
+  const id = q.invoice_id;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(id);
+      }}
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border border-border bg-background text-muted-foreground hover:text-foreground"
+      aria-label={`Open invoice for ${q.quote_number ?? "this quote"}`}
+    >
+      <Receipt className="w-3 h-3" /> Invoiced
+    </button>
+  );
+}
 
 export default function QuotesPage() {
   const orgId = useOrgId();
-  const [quotes, setQuotes] = useState<QuoteSummary[]>([]);
-  const [draft, setDraft] = useState(() => JSON.stringify(TEMPLATE, null, 2));
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Distinct from `error`: the action SUCCEEDED, with something worth knowing.
-  const [notice, setNotice] = useState<string | null>(null);
-  const [disabled, setDisabled] = useState(false);
-  /**
-   * "review" = machine-written quotes still out with a customer and unpaid.
-   * That is the only window where a wrong auto-quote can be voided and reissued
-   * for free; after approval the customer has agreed to a number, and after
-   * payment the fix is a refund.
-   */
-  const [view, setView] = useState<"all" | "review">("all");
   const navigate = useNavigate();
-  const convertToInvoice = useCreateInvoiceFromQuote(orgId);
-  const [invoicingId, setInvoicingId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [filter, setFilter] = useState<QuoteFilter>("all");
+  /**
+   * Review mode = machine-written quotes still out with a customer and unpaid —
+   * the only window where a wrong auto-quote can be voided and reissued for free.
+   */
+  const [review, setReview] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [builder, setBuilder] = useState<BuilderState>(null);
 
-  async function createInvoice(q: QuoteSummary) {
-    setInvoicingId(q.id);
-    try {
-      const invoice = await convertToInvoice.mutateAsync(q.id);
-      toast.success("Draft invoice created");
-      navigate(`/invoices?open=${invoice.id}`);
-    } catch (err) {
-      const existingId = existingInvoiceIdFrom(err);
-      if (existingId) {
-        toast.info("Already invoiced — opening it");
-        navigate(`/invoices?open=${existingId}`);
-      } else {
-        toast.error(err instanceof Error ? err.message : "Couldn't create the invoice.");
-      }
-    } finally {
-      setInvoicingId(null);
-    }
-  }
+  const { data, isLoading, isError, error, refetch } = useQuoteList(orgId, review);
+  const disabled = isError && error instanceof ApiError && error.status === 404;
 
-  const load = useCallback(async () => {
-    if (!orgId) return;
-    try {
-      setQuotes(await fetchQuotes(orgId, { review: view === "review" }));
-      setDisabled(false);
-    } catch (err) {
-      // 404 = the feature flag is off, which is a state, not a failure.
-      if (err instanceof ApiError && err.status === 404) setDisabled(true);
-      else setError(err instanceof Error ? err.message : String(err));
-    }
-  }, [orgId, view]);
-
+  // Deep links: ?open={id} and ?new=1
   useEffect(() => {
-    void load();
-  }, [load]);
+    const openId = searchParams.get("open");
+    const isNew = searchParams.get("new");
+    if (!openId && !isNew) return;
+    if (openId) setSelectedId(openId);
+    if (isNew) setBuilder({ quoteId: null, contactName: null, returnTo: null });
+    const next = new URLSearchParams(searchParams);
+    next.delete("open");
+    next.delete("new");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
-  // Parse as the operator types so a malformed body is caught before any request.
-  const parsed = useMemo<{ value: QuoteWritePayload | null; error: string | null }>(() => {
-    try {
-      return { value: JSON.parse(draft) as QuoteWritePayload, error: null };
-    } catch (err) {
-      return { value: null, error: err instanceof Error ? err.message : "Invalid JSON" };
-    }
-  }, [draft]);
+  const counts = useMemo(() => {
+    const c = new Map<QuoteFilter, number>();
+    for (const f of QUOTE_FILTERS) c.set(f.value, f.statuses ? (data ?? []).filter((q) => f.statuses?.includes(asQuoteStatus(q.status))).length : (data ?? []).length);
+    return c;
+  }, [data]);
 
-  async function run(fn: () => Promise<unknown>) {
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      await fn();
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const quotes = useMemo(() => {
+    const all = data ?? [];
+    if (review) return all;
+    const statuses = QUOTE_FILTERS.find((f) => f.value === filter)?.statuses;
+    return statuses ? all.filter((q) => statuses.includes(asQuoteStatus(q.status))) : all;
+  }, [data, filter, review]);
 
-  function editQuote(q: QuoteSummary) {
-    setEditingId(q.id);
-    // input_snapshot is the exact pricing input, so editing round-trips faithfully
-    // instead of trying to reconstruct inputs from the priced line items.
-    const snap = (q.input_snapshot ?? {}) as Partial<QuoteWritePayload>;
-    setDraft(
-      JSON.stringify(
-        {
-          title: q.title ?? "",
-          introMessage: q.intro_message ?? "",
-          services: snap.services ?? [],
-          customLines: snap.customLines ?? [],
-          hullType: snap.hullType ?? undefined,
-          bundleId: snap.bundleId ?? undefined,
-          notes: q.notes ?? "",
-        },
-        null,
-        2,
-      ),
-    );
-  }
+  const closePanel = useCallback(() => setSelectedId(null), []);
+  const openInvoice = useCallback((id: string) => navigate(`/invoices?open=${id}`), [navigate]);
+  const openNew = () => setBuilder({ quoteId: null, contactName: null, returnTo: null });
+
+  const editFromPanel = useCallback(
+    (quoteId: string, contactName: string | null) => {
+      setBuilder({ quoteId, contactName, returnTo: quoteId });
+      setSelectedId(null);
+    },
+    [],
+  );
 
   if (disabled) {
     return (
-      <div className="p-6">
-        <h1 className="text-xl font-semibold">Quotes</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Quotes are not enabled for this organization. Set <code>STRIPE_QUOTES_ENABLED=1</code> to turn them on.
-        </p>
+      <div className="space-y-2">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Quotes</h1>
+        <div className="bg-card border border-border rounded-2xl">
+          <EmptyState
+            icon={FileText}
+            title="Quotes aren't enabled"
+            description="Quotes are not enabled for this organization yet. Set STRIPE_QUOTES_ENABLED=1 to turn them on."
+          />
+        </div>
       </div>
     );
   }
 
+  const empty = review
+    ? { title: "Nothing to review", description: "Every auto-quote has been approved, paid or voided." }
+    : EMPTY_COPY[filter];
+
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">Quotes</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {editingId ? "Editing an existing quote." : "Creating a new draft."} Optional lines are off unless
-          <code className="mx-1">selected: true</code>; the customer ticks them on the hosted page.
-        </p>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Quotes</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Price jobs from your price list and get them approved online</p>
+        </div>
+        <button
+          onClick={openNew}
+          className="self-start sm:self-auto flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-[hsl(var(--accent-blue))] text-white hover:bg-[hsl(var(--accent-blue))]/90 transition-all shadow-md shadow-blue-500/20 active:scale-[0.97]"
+        >
+          <Plus className="w-4 h-4" />
+          New quote
+        </button>
       </div>
 
-      {error && (
-        <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">{error}</div>
-      )}
-
-      {notice && (
-        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-          <span className="font-medium">Quote sent.</span> {notice} Use{" "}
-          <span className="font-medium">Customer view</span> below to copy the link.
-        </div>
-      )}
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="space-y-3">
-          <label className="block text-sm font-medium" htmlFor="quote-json">
-            Quote body
-          </label>
-          <textarea
-            id="quote-json"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            spellCheck={false}
-            rows={24}
-            className="w-full rounded border p-3 font-mono text-xs"
-          />
-          {parsed.error && <p className="text-sm text-red-700">JSON: {parsed.error}</p>}
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={busy || !parsed.value}
-              onClick={() => parsed.value && run(() => createQuote(orgId, parsed.value!))}
-              className="rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50"
-            >
-              Create draft
-            </button>
-            <button
-              type="button"
-              disabled={busy || !parsed.value || !editingId}
-              onClick={() => parsed.value && editingId && run(() => updateQuote(orgId, editingId, parsed.value!))}
-              className="rounded border px-3 py-2 text-sm disabled:opacity-50"
-            >
-              Save changes
-            </button>
-            <button
-              type="button"
-              disabled={busy || !editingId}
-              onClick={() =>
-                editingId &&
-                run(async () => {
-                  const { email } = await sendQuote(orgId, editingId);
-                  // The quote IS sent at this point. A failed email is worth
-                  // saying out loud — otherwise the operator assumes the customer
-                  // has it — but it is a notice, not an error.
-                  setNotice(email.delivered ? null : email.reason);
-                })
-              }
-              className="rounded border px-3 py-2 text-sm disabled:opacity-50"
-            >
-              Send
-            </button>
-            {editingId && (
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        {!review && (
+          <div className="flex items-center gap-1 bg-secondary rounded-lg p-0.5 overflow-x-auto max-w-full" role="tablist" aria-label="Filter quotes">
+            {QUOTE_FILTERS.map((f) => (
               <button
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  setEditingId(null);
-                  setDraft(JSON.stringify(TEMPLATE, null, 2));
-                }}
-                className="rounded px-3 py-2 text-sm underline"
+                key={f.value}
+                role="tab"
+                aria-selected={filter === f.value}
+                onClick={() => setFilter(f.value)}
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap",
+                  filter === f.value ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
               >
-                New draft
+                {f.label}
+                {data && f.value !== "all" && (counts.get(f.value) ?? 0) > 0 && (
+                  <span className="ml-1.5 text-[10px] font-bold text-muted-foreground tabular-nums">{counts.get(f.value)}</span>
+                )}
               </button>
-            )}
+            ))}
           </div>
-        </div>
+        )}
+        <button
+          type="button"
+          onClick={() => setReview((r) => !r)}
+          aria-pressed={review}
+          className={cn(
+            "sm:ml-auto self-start flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-colors",
+            review
+              ? "bg-[hsl(var(--warning))]/10 border-[hsl(var(--warning))]/30 text-[hsl(var(--warning))]"
+              : "bg-card border-border text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          Auto-quotes to review
+        </button>
+      </div>
 
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-medium">
-              {view === "review" ? "Auto-quotes awaiting the customer" : "Recent quotes"}
-            </h2>
-            <div className="flex gap-1 text-xs">
-              {(["all", "review"] as const).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setView(v)}
-                  className={`rounded px-2 py-1 ${
-                    view === v ? "bg-slate-900 text-white" : "border text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {v === "all" ? "All" : "Needs review"}
-                </button>
-              ))}
+      {review && (
+        <p className="text-xs text-muted-foreground -mt-3">
+          Machine-written quotes that are sent or viewed but not yet paid. Void or revise one here and the customer can't pay a wrong price; after they
+          approve, the number is one they agreed to.
+        </p>
+      )}
+
+      {/* List */}
+      {isError ? (
+        <ErrorBanner message={error instanceof Error ? error.message : "Failed to load quotes."} onRetry={() => void refetch()} />
+      ) : isLoading ? (
+        <div className="bg-card border border-border rounded-2xl divide-y divide-border">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <SkeletonRow key={i} cols={6} />
+          ))}
+        </div>
+      ) : quotes.length === 0 ? (
+        <div className="bg-card border border-border rounded-2xl">
+          <EmptyState
+            icon={FileText}
+            title={empty.title}
+            description={empty.description}
+            action={!review && (filter === "all" || filter === "draft") ? { label: "New quote", onClick: openNew } : undefined}
+          />
+        </div>
+      ) : (
+        <>
+          {/* Desktop table */}
+          <div className="hidden md:block bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-secondary/30 border-b border-border">
+                    {["Number", "Customer", "Title", "Total", "Deposit", "Status", "Date"].map((h) => (
+                      <th
+                        key={h}
+                        className={cn(
+                          "px-4 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-wider",
+                          (h === "Total" || h === "Deposit") && "text-right",
+                        )}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {quotes.map((q) => (
+                    <tr
+                      key={q.id}
+                      onClick={() => setSelectedId(q.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setSelectedId(q.id);
+                        }
+                      }}
+                      tabIndex={0}
+                      className={cn(
+                        "hover:bg-secondary/40 transition-colors cursor-pointer focus:outline-none focus-visible:bg-secondary/50",
+                        selectedId === q.id && "bg-secondary/60",
+                      )}
+                    >
+                      <td className="px-4 py-3">
+                        <p className={cn("text-sm font-semibold whitespace-nowrap", q.quote_number ? "text-foreground" : "text-muted-foreground italic")}>
+                          {q.quote_number ?? "Draft"}
+                        </p>
+                        {q.auto_generated && <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--warning))]">Auto</p>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-sm text-foreground/90 truncate block max-w-[14rem]">{q.contact_name || "—"}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-sm text-foreground/80 truncate block max-w-[16rem]">{q.title || "Untitled"}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className="text-sm font-semibold text-foreground tabular-nums">{formatCents(q.total_cents, q.currency)}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className="text-sm text-foreground/80 tabular-nums">{formatCents(q.deposit_cents, q.currency)}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          <QuoteStatusBadge status={q.status} />
+                          <InvoicedChip q={q} onOpen={openInvoice} />
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <DateCell q={q} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
 
-          {view === "review" && (
-            <p className="text-xs text-muted-foreground">
-              Sent or viewed, not yet paid. Void one here and the customer cannot pay a
-              wrong price; after they approve, the number is one they agreed to.
-            </p>
-          )}
-          {quotes.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              {view === "review" ? "Nothing waiting — every auto-quote has been actioned." : "None yet."}
-            </p>
-          )}
-          <ul className="space-y-2">
+          {/* Mobile cards */}
+          <div className="md:hidden space-y-2">
             {quotes.map((q) => (
-              <li
+              <div
                 key={q.id}
-                className={`rounded border p-3 text-sm ${editingId === q.id ? "border-slate-900" : ""}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedId(q.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedId(q.id);
+                  }
+                }}
+                className="w-full text-left bg-card border border-border rounded-xl p-3.5 shadow-sm transition-colors active:bg-secondary/40 cursor-pointer"
               >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-medium">{q.quote_number ?? "(draft — no number yet)"}</span>
-                  <span className="rounded bg-slate-100 px-2 py-0.5 text-xs">{q.status}</span>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate">{q.contact_name || "No customer"}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">
+                      {q.quote_number ?? "Draft"}
+                      {q.title ? ` · ${q.title}` : ""}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-bold tabular-nums text-foreground">{formatCents(q.total_cents, q.currency)}</p>
+                    <p className="text-[10px] text-muted-foreground tabular-nums">{formatCents(q.deposit_cents, q.currency)} deposit</p>
+                  </div>
                 </div>
-                <div className="mt-1 text-muted-foreground">
-                  {q.title || "Untitled"} — total {money(q.total_cents, q.currency)}, deposit{" "}
-                  {money(q.deposit_cents, q.currency)}
-                  {q.auto_generated && <span className="ml-2 rounded bg-amber-100 px-1.5 text-xs">auto</span>}
+                <div className="flex items-center justify-between gap-2 mt-2.5">
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <QuoteStatusBadge status={q.status} />
+                    <InvoicedChip q={q} onOpen={openInvoice} />
+                  </span>
+                  <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                    {q.sent_at ? "Sent " : "Created "}
+                    {formatDate(q.sent_at ?? q.created_at, "MMM d")}
+                  </span>
                 </div>
-                <div className="mt-2 flex gap-3 text-xs">
-                  <button type="button" className="underline" onClick={() => editQuote(q)}>
-                    Edit
-                  </button>
-                  {q.status !== "draft" && (
-                    <a className="underline" href={`/q/${q.public_token}`} target="_blank" rel="noreferrer">
-                      Customer view
-                    </a>
-                  )}
-                  {INVOICEABLE_STATUSES.includes(q.status) && (
-                    <button
-                      type="button"
-                      className="underline disabled:opacity-50"
-                      disabled={invoicingId !== null}
-                      onClick={() => void createInvoice(q)}
-                    >
-                      {invoicingId === q.id ? "Creating invoice…" : "Create invoice"}
-                    </button>
-                  )}
-                  {!["cancelled", "deposit_paid", "completed"].includes(q.status) && (
-                    <button
-                      type="button"
-                      className="underline text-red-700"
-                      onClick={() => {
-                        if (window.confirm(`Void quote ${q.quote_number ?? "(draft)"}? This cannot be undone.`)) {
-                          run(() => voidQuote(orgId, q.id));
-                        }
-                      }}
-                    >
-                      Void
-                    </button>
-                  )}
-                </div>
-              </li>
+              </div>
             ))}
-          </ul>
-        </div>
-      </div>
+          </div>
+        </>
+      )}
+
+      <QuoteDetailPanel quoteId={selectedId} onClose={closePanel} onEdit={editFromPanel} onOpenQuote={setSelectedId} />
+
+      {builder && (
+        <QuoteBuilderDialog
+          quoteId={builder.quoteId}
+          contactName={builder.contactName}
+          onClose={() => {
+            const back = builder.returnTo;
+            setBuilder(null);
+            if (back) setSelectedId(back);
+          }}
+          onSaved={(id) => {
+            setBuilder(null);
+            setSelectedId(id);
+          }}
+        />
+      )}
     </div>
   );
 }

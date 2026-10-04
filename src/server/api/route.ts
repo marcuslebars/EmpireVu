@@ -17,7 +17,12 @@ export async function handleRoute(
     return await handler();
   } catch (error) {
     const status = getStatusCode(error);
-    const message = error instanceof Error ? error.message : "Unexpected server error.";
+    const message =
+      error instanceof ZodError
+        ? readableZodMessage(error)
+        : error instanceof Error
+          ? error.message
+          : "Unexpected server error.";
     const headers =
       error instanceof TooManyRequestsError ? { "Retry-After": String(Math.max(1, Math.ceil(error.retryAfterSeconds))) } : undefined;
 
@@ -115,4 +120,10 @@ function getStatusCode(error: unknown): number {
   }
 
   return 500;
+}
+
+/** "services.0.lengthFt: Number must be less than or equal to 100" rather than a JSON dump. */
+export function readableZodMessage(error: ZodError): string {
+  const parts = error.issues.slice(0, 3).map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message));
+  return parts.join("; ") || "Invalid request.";
 }
