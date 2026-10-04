@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 
 import type { Database } from "@/server/db/database.types";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/server/supabase/env";
+import { noStoreFetch } from "@/server/supabase/no-store-fetch";
 
 /**
  * Pull a Supabase access token from `Authorization: Bearer <jwt>`.
@@ -41,6 +42,7 @@ export function createSupabaseServerClient(): SupabaseClient<Database, "public">
   const cookieStore = cookies();
 
   return createServerClient<Database, "public">(getSupabaseUrl(), getSupabaseAnonKey(), {
+    global: { fetch: noStoreFetch },
     cookies: {
       getAll() {
         return cookieStore.getAll();
@@ -63,7 +65,7 @@ export function createSupabaseServerClient(): SupabaseClient<Database, "public">
 function createBearerClient(accessToken: string): SupabaseClient<Database, "public"> {
   const client = createClient<Database, "public">(getSupabaseUrl(), getSupabaseAnonKey(), {
     auth: { autoRefreshToken: false, detectSessionInUrl: false, persistSession: false },
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    global: { headers: { Authorization: `Bearer ${accessToken}` }, fetch: noStoreFetch },
   });
 
   const getUser = client.auth.getUser.bind(client.auth);
