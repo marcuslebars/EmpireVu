@@ -12,6 +12,7 @@ import {
   Phone,
   Play,
   Receipt,
+  Repeat,
   StickyNote,
   Truck,
   User,
@@ -115,6 +116,11 @@ export function JobSheetView({ orgId, job }: { orgId: string; job: JobSheet }) {
               {whenLabel(job.scheduledFor, tz)} · {durationLabel(job.durationMinutes)}
             </p>
             {job.companyName && <p className="text-xs text-muted-foreground mt-0.5">{job.companyName}</p>}
+            {job.recurringJobId && (
+              <Link to={`/recurring?open=${job.recurringJobId}`} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline mt-1">
+                <Repeat className="w-3 h-3" /> Part of a recurring job
+              </Link>
+            )}
           </div>
           <StageBadge stage={job.stage} />
         </div>

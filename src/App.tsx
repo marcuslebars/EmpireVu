@@ -33,6 +33,7 @@ import CRMPage from "./screens/CRMPage";
 import QuotesPage from "./screens/QuotesPage";
 import InvoicesPage from "./screens/InvoicesPage";
 import JobsPage, { JobDetailPage } from "./screens/JobsPage";
+import RecurringJobsPage from "./screens/RecurringJobsPage";
 import CustomerAccountsPage from "./screens/CustomerAccountsPage";
 import ContactDetailPage from "./screens/ContactDetailPage";
 import InboxPage from "./screens/InboxPage";
@@ -362,6 +363,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <JobDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/recurring"
+          element={
+            <ProtectedRoute>
+              <RecurringJobsPage />
             </ProtectedRoute>
           }
         />

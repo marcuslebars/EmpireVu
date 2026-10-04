@@ -86,6 +86,8 @@ export interface JobSheet extends JobSummary {
   completedBy: string | null;
   checklistItems: ChecklistItem[];
   invoiceId: string | null;
+  /** Set when this visit belongs to a recurring job. */
+  recurringJobId: string | null;
 }
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
@@ -288,6 +290,7 @@ export async function getJobSheet(ctx: TenantServiceContext, bookingId: string):
     completedBy: booking.completed_by ?? null,
     checklistItems: items,
     invoiceId: invoice.data?.id ?? null,
+    recurringJobId: booking.recurring_job_id ?? null,
   };
 }
 

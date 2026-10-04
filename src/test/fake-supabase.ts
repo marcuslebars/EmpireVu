@@ -98,6 +98,10 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
         filters.push((row) => readPath(row, column) !== value);
         return builder;
       },
+      gt: (column: string, value: unknown) => {
+        filters.push((row) => String(readPath(row, column) ?? "") > String(value));
+        return builder;
+      },
       gte: (column: string, value: unknown) => {
         filters.push((row) => String(readPath(row, column) ?? "") >= String(value));
         return builder;
@@ -169,18 +173,37 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
         };
         return inserted;
       },
-      upsert: (value: Row, opts?: { onConflict?: string; ignoreDuplicates?: boolean }) => {
+      upsert: (values: Row | Row[], opts?: { onConflict?: string; ignoreDuplicates?: boolean }) => {
         const failure = takeFailure(table, "upsert");
-        if (failure) return Promise.resolve({ data: null, error: failure });
         const keys = (opts?.onConflict ?? "id").split(",").map((k) => k.trim());
-        const existing = tables[table].find((row) => keys.every((k) => row[k] === value[k]));
-        ops.push({ table, op: "upsert", row: value });
-        if (existing) {
-          if (!opts?.ignoreDuplicates) Object.assign(existing, value);
-        } else {
-          tables[table].push({ id: `${table}-${++idCounter}`, created_at: new Date().toISOString(), ...value });
+        const written: Row[] = [];
+        if (!failure) {
+          for (const value of Array.isArray(values) ? values : [values]) {
+            const existing = tables[table].find((row) => keys.every((k) => row[k] === value[k]));
+            ops.push({ table, op: "upsert", row: value });
+            if (existing) {
+              if (!opts?.ignoreDuplicates) {
+                Object.assign(existing, value);
+                written.push(existing);
+              }
+            } else {
+              const row = { id: `${table}-${++idCounter}`, created_at: new Date().toISOString(), ...value };
+              tables[table].push(row);
+              written.push(row);
+            }
+          }
         }
-        return Promise.resolve({ data: null, error: null });
+        // Like PostgREST: awaiting resolves { data: null }; .select() returns the rows written
+        // (with ignoreDuplicates, only the newly inserted ones).
+        const result = failure ? { data: null, error: failure } : { data: null, error: null };
+        const upserted: Record<string, unknown> = {
+          select: () => ({
+            then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
+              Promise.resolve(failure ? result : { data: written, error: null }).then(resolve, reject),
+          }),
+          then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => Promise.resolve(result).then(resolve, reject),
+        };
+        return upserted;
       },
     };
     return builder;

@@ -20,6 +20,7 @@
  */
 import { randomBytes } from "node:crypto";
 
+import { seriesLineItems } from "@/server/services/recurring/service";
 import { toJson } from "@/server/db/json";
 import {
   assertBookingInOrganization,
@@ -406,11 +407,15 @@ export async function createInvoiceFromBooking(ctx: TenantServiceContext, bookin
   if (!booking.company_id) throw new InvoiceValidationError("This booking has no company to invoice from.");
   if (!booking.contact_id) throw new InvoiceValidationError("This booking has no customer to invoice.");
 
+  // A visit of a recurring job invoices the series' price; anything else starts at $0.
+  const seriesLines = booking.recurring_job_id ? await seriesLineItems(ctx, booking.recurring_job_id) : [];
   return createInvoice(ctx, {
     companyId: booking.company_id,
     contactId: booking.contact_id,
     title: booking.title,
-    lines: [{ label: booking.title, description: booking.description ?? null, quantity: 1, unitPriceCents: 0 }],
+    lines: seriesLines.length
+      ? seriesLines.map((l) => ({ label: l.label, description: null, quantity: l.quantity, unitPriceCents: l.unitPriceCents }))
+      : [{ label: booking.title, description: booking.description ?? null, quantity: 1, unitPriceCents: 0 }],
     bookingId,
   });
 }
