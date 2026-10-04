@@ -868,6 +868,111 @@ export interface Database {
         };
         Relationships: [];
       };
+      time_entries: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string | null;
+          booking_id: string | null;
+          profile_id: string;
+          started_at: string;
+          ended_at: string | null;
+          break_minutes: number;
+          notes: string | null;
+          source: "clock" | "manual";
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id?: string | null;
+          booking_id?: string | null;
+          profile_id: string;
+          started_at: string;
+          ended_at?: string | null;
+          break_minutes?: number;
+          notes?: string | null;
+          source?: "clock" | "manual";
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string | null;
+          booking_id?: string | null;
+          profile_id?: string;
+          started_at?: string;
+          ended_at?: string | null;
+          break_minutes?: number;
+          notes?: string | null;
+          source?: "clock" | "manual";
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      job_materials: {
+        Row: {
+          id: string;
+          organization_id: string;
+          booking_id: string;
+          label: string;
+          quantity: number;
+          unit_cost_cents: number;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          booking_id: string;
+          label: string;
+          quantity?: number;
+          unit_cost_cents: number;
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          booking_id?: string;
+          label?: string;
+          quantity?: number;
+          unit_cost_cents?: number;
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      member_pay_rates: {
+        Row: {
+          organization_id: string;
+          profile_id: string;
+          hourly_cost_cents: number;
+          updated_by: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          organization_id: string;
+          profile_id: string;
+          hourly_cost_cents: number;
+          updated_by?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          organization_id?: string;
+          profile_id?: string;
+          hourly_cost_cents?: number;
+          updated_by?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       profiles: {
         Row: {
           avatar_url: string | null;
@@ -3720,6 +3825,10 @@ export interface Database {
       };
     };
     Functions: {
+      close_job_time_entries: {
+        Args: { p_booking_id: string };
+        Returns: number;
+      };
       ui_conversation_thread: {
         Args: {
           p_org_id: string;

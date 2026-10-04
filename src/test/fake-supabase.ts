@@ -102,6 +102,10 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
         filters.push((row) => String(readPath(row, column) ?? "") > String(value));
         return builder;
       },
+      lt: (column: string, value: unknown) => {
+        filters.push((row) => String(readPath(row, column) ?? "") < String(value));
+        return builder;
+      },
       gte: (column: string, value: unknown) => {
         filters.push((row) => String(readPath(row, column) ?? "") >= String(value));
         return builder;
