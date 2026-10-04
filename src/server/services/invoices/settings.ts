@@ -50,6 +50,12 @@ export const invoiceSettingsSchema = z.object({
   chequeMailingAddress: optionalText(500),
   acceptCash: z.boolean().optional().nullable(),
 
+  /**
+   * When a job (booking) is marked done: do nothing, create a draft invoice for
+   * review, or create AND send it. Off unless the brand turns it on.
+   */
+  autoInvoiceOnComplete: z.enum(["off", "draft", "send"]).optional().nullable(),
+
   /** Overdue reminders (days AFTER the due date). */
   remindersEnabled: z.boolean().optional().nullable(),
   reminderDays: z.array(z.number().int().min(1).max(180)).max(6).optional().nullable(),
@@ -73,6 +79,7 @@ export interface InvoiceSettings {
   acceptCash: boolean;
   remindersEnabled: boolean;
   reminderDays: number[];
+  autoInvoiceOnComplete: "off" | "draft" | "send";
 }
 
 export const DEFAULT_REMINDER_DAYS = [1, 7, 14];
@@ -113,6 +120,7 @@ export function parseInvoiceSettings(raw: unknown): InvoiceSettings {
     acceptCash: s.acceptCash ?? false,
     remindersEnabled: s.remindersEnabled ?? true,
     reminderDays,
+    autoInvoiceOnComplete: s.autoInvoiceOnComplete ?? "off",
   };
 }
 

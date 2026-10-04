@@ -1,3 +1,8 @@
+import {
+  invoiceOverdueOwnerAlert,
+  invoicePaidOwnerAlert,
+  invoicePaidThankYou,
+} from "@/server/services/workflow-engine/recipes/invoices";
 import { bookingReminder } from "@/server/services/workflow-engine/recipes/booking-reminder";
 import { missedCallTextBack } from "@/server/services/workflow-engine/recipes/missed-call-text-back";
 import { newLeadOwnerAlert } from "@/server/services/workflow-engine/recipes/new-lead-owner-alert";
@@ -39,6 +44,10 @@ export const ALL_RECIPES: readonly Recipe[] = [
   callStartedToOwner,
   callAbandonedRecoveryText,
   depositLinkFailedOwnerAlert,
+  // Getting paid — see recipes/invoices.ts.
+  invoicePaidOwnerAlert,
+  invoicePaidThankYou,
+  invoiceOverdueOwnerAlert,
 ];
 
 const RECIPES_BY_SLUG = new Map(ALL_RECIPES.map((recipe) => [recipe.slug, recipe]));

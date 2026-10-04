@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Inserts, Tables } from "@/server/db/database.types";
 import { toIsoDate } from "@/server/db/helpers";
 import { createActivityEvent } from "@/server/services/activity-events";
+import { autoInvoiceCompletedBooking } from "@/server/services/invoices/auto";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import {
   assertBookingInOrganization,
@@ -205,6 +206,8 @@ export async function updateBookingStatus(
     }, {
       dispatchAsync: options.dispatchWorkflow !== false,
     });
+    // Job done → invoice, when the brand has it switched on. Never throws.
+    await autoInvoiceCompletedBooking(context, updated);
   }
 
   // Task 9 triggers: fire booking.cancelled / booking.no_show on the transition into them.

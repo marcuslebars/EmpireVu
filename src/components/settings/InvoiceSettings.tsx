@@ -38,7 +38,14 @@ interface FormState {
   acceptCash: boolean;
   remindersEnabled: boolean;
   reminderDays: number[];
+  autoInvoiceOnComplete: "off" | "draft" | "send";
 }
+
+const AUTO_INVOICE_OPTIONS: Array<{ value: FormState["autoInvoiceOnComplete"]; label: string; hint: string }> = [
+  { value: "off", label: "Do nothing", hint: "You create invoices yourself." },
+  { value: "draft", label: "Create a draft invoice", hint: "Ready for you to review and send." },
+  { value: "send", label: "Create and send it", hint: "Emailed to the customer straight away." },
+];
 
 function bpsToPercent(bps: number): string {
   return String(Math.round(bps) / 100);
@@ -64,6 +71,7 @@ function toForm(data: CompanyInvoiceSettings): FormState {
     acceptCash: s.acceptCash,
     remindersEnabled: s.remindersEnabled,
     reminderDays: [...s.reminderDays].sort((a, b) => a - b),
+    autoInvoiceOnComplete: s.autoInvoiceOnComplete ?? "off",
   };
 }
 
@@ -113,6 +121,7 @@ function toPayload(f: FormState) {
     acceptCash: f.acceptCash,
     remindersEnabled: f.remindersEnabled,
     reminderDays: f.reminderDays,
+    autoInvoiceOnComplete: f.autoInvoiceOnComplete,
   };
   return {
     taxRegistrationNumber: text(f.taxRegistrationNumber),
@@ -496,6 +505,38 @@ function CompanyInvoicePanel({
           checked={form.acceptCash}
           onChange={(v) => set("acceptCash", v)}
         />
+      </section>
+
+      {/* Job done → invoice */}
+      <section className="space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">When a job is marked done</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Invoices the booking's linked quote (less any deposit paid). A job with no price becomes a task to price and send.
+          </p>
+        </div>
+        <div role="radiogroup" aria-label="When a job is marked done" className="grid gap-2 sm:grid-cols-3">
+          {AUTO_INVOICE_OPTIONS.map((o) => {
+            const active = form.autoInvoiceOnComplete === o.value;
+            return (
+              <button
+                key={o.value}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                disabled={!canManage}
+                onClick={() => set("autoInvoiceOnComplete", o.value)}
+                className={cn(
+                  "text-left rounded-lg border px-3 py-2.5 transition-colors disabled:opacity-60",
+                  active ? "border-primary bg-primary/10" : "border-border bg-secondary hover:bg-secondary/80",
+                )}
+              >
+                <span className="block text-sm font-medium text-foreground">{o.label}</span>
+                <span className="block text-xs text-muted-foreground mt-0.5">{o.hint}</span>
+              </button>
+            );
+          })}
+        </div>
       </section>
 
       {/* Reminders */}
