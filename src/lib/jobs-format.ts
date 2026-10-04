@@ -73,3 +73,10 @@ export function initials(name: string): string {
 export function directionsUrl(location: string): string {
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(location)}`;
 }
+
+/** "1h 05m" / "45m" */
+export function hm(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
+}

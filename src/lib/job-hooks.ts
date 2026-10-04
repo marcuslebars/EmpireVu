@@ -35,6 +35,7 @@ function useInvalidateJob(orgId: string, bookingId: string) {
   return () => {
     void qc.invalidateQueries({ queryKey: [JOBS] });
     void qc.invalidateQueries({ queryKey: ["calendar"] });
+    void qc.invalidateQueries({ queryKey: ["time"] });
     void qc.invalidateQueries({ queryKey: [JOBS, "sheet", orgId, bookingId] });
   };
 }

@@ -33,9 +33,11 @@ import { useCompleteJob, useJobEnRoute, useStartJob, useUpdateJob } from "@/lib/
 import { checklistIncomplete, type JobSheet } from "@/lib/jobs-api";
 import { STAGE_LABEL, directionsUrl, durationLabel, timeLabel, whenLabel } from "@/lib/jobs-format";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-context";
 import { CrewPicker } from "./CrewPicker";
 import { JobChecklist } from "./JobChecklist";
 import { JobPhotos } from "./JobPhotos";
+import { JobMaterials, JobProfitCard, JobTime } from "./JobTimeAndCost";
 
 export function StageBadge({ stage }: { stage: JobSheet["stage"] }) {
   const tone: Record<JobSheet["stage"], string> = {
@@ -54,6 +56,9 @@ function Section({ children }: { children: React.ReactNode }) {
 
 /** The whole job on one screen — built to be used one-handed on a phone at the dock. */
 export function JobSheetView({ orgId, job }: { orgId: string; job: JobSheet }) {
+  const { session } = useAuth();
+  const role = session?.organizations.find((o) => o.id === orgId)?.membershipRole ?? "member";
+  const canSeeCosts = role === "owner" || role === "admin";
   const enRoute = useJobEnRoute(orgId, job.id);
   const start = useStartJob(orgId, job.id);
   const complete = useCompleteJob(orgId, job.id);
@@ -243,13 +248,28 @@ export function JobSheetView({ orgId, job }: { orgId: string; job: JobSheet }) {
         <CrewPicker orgId={orgId} bookingId={job.id} crew={job.crew} disabled={closed} />
       </Section>
 
-      <Section>
-        <JobChecklist orgId={orgId} bookingId={job.id} companyId={job.companyId} items={job.checklistItems} readOnly={closed} />
-      </Section>
+      {!(closed && job.checklistItems.length === 0) && (
+        <Section>
+          <JobChecklist orgId={orgId} bookingId={job.id} companyId={job.companyId} items={job.checklistItems} readOnly={closed} />
+        </Section>
+      )}
 
       <Section>
         <JobPhotos orgId={orgId} bookingId={job.id} canAdd={job.stage !== "cancelled"} />
       </Section>
+
+      <Section>
+        <div className="space-y-5">
+          <JobTime orgId={orgId} bookingId={job.id} timeZone={job.timeZone} closed={closed} />
+          <JobMaterials orgId={orgId} bookingId={job.id} readOnly={job.stage === "cancelled"} />
+        </div>
+      </Section>
+
+      {canSeeCosts && (
+        <Section>
+          <JobProfitCard orgId={orgId} bookingId={job.id} />
+        </Section>
+      )}
 
       {job.stage === "done" && (
         <Section>

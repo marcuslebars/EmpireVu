@@ -13,6 +13,7 @@ import { ValidationError } from "@/server/organizations/context";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { updateBookingStatus } from "@/server/services/bookings";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { clockIn, closeJobTime } from "@/server/services/time/service";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import {
   checklistProgress,
@@ -408,6 +409,8 @@ export async function markEnRoute(ctx: TenantServiceContext, bookingId: string):
 export async function startJob(ctx: TenantServiceContext, bookingId: string): Promise<void> {
   const booking = await loadBooking(ctx, bookingId);
   assertOpen(booking);
+  // Starting the job clocks you in to it — every crew member who taps Start (best effort).
+  await clockIn(ctx, { bookingId }).catch((err: unknown) => console.error("[crew] auto clock-in failed:", err instanceof Error ? err.message : err));
   if (booking.started_at) return;
   const { error } = await ctx.supabase
     .from("bookings")
@@ -449,6 +452,8 @@ export async function completeJob(ctx: TenantServiceContext, bookingId: string, 
     .eq("organization_id", ctx.organizationId)
     .eq("id", bookingId);
   if (error) throw error;
+  // Job done stops every running clock on it (the whole crew's).
+  await closeJobTime(ctx, bookingId).catch((err: unknown) => console.error("[crew] clock-out failed:", err instanceof Error ? err.message : err));
   return updateBookingStatus(ctx, { bookingId, status: "completed" });
 }
 
