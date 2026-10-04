@@ -50,6 +50,7 @@ export interface JobSheet extends JobSummary {
   completedBy: string | null;
   checklistItems: ChecklistItem[];
   invoiceId: string | null;
+  recurringJobId: string | null;
 }
 
 export interface ChecklistTemplate {

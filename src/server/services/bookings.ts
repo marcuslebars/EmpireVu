@@ -245,6 +245,10 @@ export async function rescheduleBooking(
   if (input.durationMinutes !== undefined) {
     patch.duration_minutes = input.durationMinutes;
   }
+  // A visit of a recurring job moved by hand: later edits to the series leave it alone.
+  if (existing.recurring_job_id) {
+    patch.recurrence_exception = true;
+  }
 
   const query = context.supabase
     .from("bookings")

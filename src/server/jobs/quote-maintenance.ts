@@ -23,6 +23,7 @@
  *    setting — invoices are their own feature.
  */
 import { sweepInvoiceReminders } from "@/server/services/invoices/reminders";
+import { sweepRecurringJobs } from "@/server/services/recurring/sweep";
 import { getQuotesConfig } from "@/server/services/quotes/config";
 import { sweepExpiredQuotes, sweepExpiryReminders } from "@/server/services/quotes/expiry";
 
@@ -34,6 +35,16 @@ async function main(): Promise<number> {
     failures += await runQuoteSweeps(now);
   } else {
     console.log("[quote-maintenance] STRIPE_QUOTES_ENABLED=0 — skipping the quote sweeps.");
+  }
+
+  // Recurring jobs: keep ~60 days of visits on the calendar.
+  try {
+    const rec = await sweepRecurringJobs(now);
+    console.log(`[quote-maintenance] recurring: scanned=${rec.scanned} created=${rec.visitsCreated} failed=${rec.failed.length}`);
+    if (rec.failed.length) failures += 1;
+  } catch (err) {
+    failures += 1;
+    console.error("[quote-maintenance] recurring sweep failed:", err instanceof Error ? err.message : err);
   }
 
   // Invoices last: a long reminder run (a PDF per email) must not delay quote expiry.
