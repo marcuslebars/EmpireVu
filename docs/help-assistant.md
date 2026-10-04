@@ -41,7 +41,10 @@ Every outcome is logged in `help_chat_events`, so we can see how much the assist
 | `website-form` | Add a lead form to your website (hosted `/f/:key` link vs embed) |
 | `services-prices` | Your services and prices |
 | `booking-link` | Your booking link and reminders |
-| `quotes-deposits` | Quotes and card deposits (Stripe Connect) |
+| `quotes-deposits` | Quotes and card deposits (Stripe Connect, point-and-click builder, revise/void) |
+| `invoices` | Send an invoice and get paid |
+| `invoice-settings` | Invoice settings (Settings → Invoices, incl. bank debit / ACSS) |
+| `business-accounts` | Business accounts and statements |
 | `review-requests` | Asking customers for reviews |
 | `ai-receptionist` | The AI receptionist (Front Desk) |
 | `automations` | Automations: what runs on its own |
@@ -185,4 +188,4 @@ Migration `20261004140000_help_support.sql` (additive):
 
 - The separate mobile app (`mobile/`) doesn't have the Help panel yet.
 - No in-app view of past support requests or replies — replies go by email.
-- No vector search: BM25 over ~18 short articles is enough and is deterministic and testable.
+- No vector search: BM25 over ~21 short articles is enough and is deterministic and testable.

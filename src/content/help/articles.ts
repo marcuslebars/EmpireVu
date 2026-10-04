@@ -201,8 +201,8 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
   {
     id: "quotes-deposits",
     title: "Quotes and card deposits",
-    summary: "Connect Stripe, send a quote, and let customers approve and pay a deposit online.",
-    keywords: ["quote", "quotes", "estimate", "deposit", "stripe", "payment", "pay", "card", "connect", "stripe connect", "approve", "invoice", "follow up"],
+    summary: "Build a quote from your price list, let customers pick options and pay a deposit online, and revise it if things change.",
+    keywords: ["quote", "quotes", "estimate", "deposit", "stripe", "payment", "pay", "card", "connect", "stripe connect", "approve", "follow up", "quote builder", "new quote", "price list", "options", "optional", "add-on", "extras", "revise", "reissue", "change quote", "edit quote", "void quote", "custom line", "bundle"],
     sections: [
       {
         heading: "Connect Stripe first",
@@ -210,9 +210,24 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
           "Deposits are paid into your own Stripe account. Connect it in the Payments step of setup or in Settings → Payments → Connect Stripe. Stripe opens in a new tab; when you're done, come back and click \"Refresh status\" — it shows \"Connected\" once Stripe lets you take payments. Only owners and admins can do this.",
       },
       {
-        heading: "Sending a quote",
+        heading: "Building a quote",
         body:
-          "Create the quote on the Quotes page and send it. The customer gets a link to a page showing the quote. They type their name, approve it, and pay the deposit by card through Stripe's secure checkout. You can see each quote's status on the Quotes page.\nIf the Quotes page says quotes are not enabled for your account, use Contact support and we'll switch them on.",
+          "On the Quotes page, click \"New quote\". Choose the company and the customer (or click \"New customer\"), and give it a title.\n1. Search \"Add a service\" to pick services from your price list.\n2. Fill in what each service asks for — a quantity or measurement, and any options it has. The \"Live pricing\" panel updates as you go, and the customer sees the same prices.\n3. Use \"Add custom line\" for hand-priced work that isn't on your price list. If your price list has them, you can also pick a boat type or a bundle discount.\n4. Click \"Save draft\", or \"Save & send\".\nQuotes are priced from your price list, so set it up first (Settings → Industry pack). If the Quotes page says quotes aren't enabled, use Contact support and we'll switch them on.",
+      },
+      {
+        heading: "Options the customer can choose",
+        body:
+          "Tick \"Customer can choose (optional)\" on a service or custom line to make it an add-on. Tick \"Pre-selected for them\" too if it should be included unless they untick it. On their quote page the customer ticks the add-ons they want, and the total and deposit update.",
+      },
+      {
+        heading: "Sending and approval",
+        body:
+          "Click \"Save & send\" in the builder, or \"Send quote\" on a draft. The customer is emailed a link to their quote — you can also use \"Copy link\" and share it yourself. On that page they choose any add-ons, type their name and click \"Approve & pay\" to pay the deposit by card through Stripe's secure checkout. You can see each quote's status on the Quotes page. When the work is done, click \"Create invoice\" on the quote — see \"Send an invoice and get paid\".",
+      },
+      {
+        heading: "Changing, revising or voiding a quote",
+        body:
+          "- Not approved yet: click \"Edit\". Saving a quote you've already sent updates the prices on the customer's link, but doesn't email them again.\n- To send a replacement, click \"Revise\" (\"Revise & resend\" while the customer hasn't approved yet). This voids the old quote and opens a copy as a new draft. Make your changes and send it: the customer is emailed that their quote was updated, with your note if you added one, and the old link says it was replaced.\n- \"Void\" retires a quote with no replacement. The customer's link stops accepting approval and payment, and this can't be undone.\nOnce a deposit has been paid, a quote can't be edited, revised or voided.",
       },
       {
         heading: "Follow-ups",
@@ -222,7 +237,106 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "Expired quotes",
         body:
-          "Each quote is valid until its expiry date. After that the customer's page says it has expired; send a new quote if they still want the work.",
+          "Each quote is valid until its expiry date. After that the customer's page says it has expired. Click \"Revise\" on the quote to send them a fresh copy.",
+      },
+    ],
+  },
+  {
+    id: "invoices",
+    title: "Send an invoice and get paid",
+    summary: "Create an invoice from scratch, a quote or a booking, send it, and get paid by card, bank debit, e-Transfer, cheque or cash.",
+    keywords: ["invoice", "invoices", "invoicing", "bill", "bill a customer", "send invoice", "get paid", "pay link", "record payment", "mark paid", "paid", "cash", "cheque", "check", "e-transfer", "etransfer", "interac", "bank debit", "pad", "overdue", "late", "reminder", "pdf", "download", "void", "cancel invoice", "hst", "gst", "tax", "receipt", "balance", "owing", "partial payment", "job done"],
+    sections: [
+      {
+        heading: "Making an invoice",
+        body:
+          "Open Invoices and click \"New invoice\". Choose the company, who it's for (Person or Business), and add a line for each item (description, quantity and unit price — a negative price makes a discount line). Then click \"Save draft\" or \"Save & send\".\nYou can also start from work you've already done:\n- From a quote: open the quote on the Quotes page and click \"Create invoice\". It uses the add-ons the customer chose and takes off any deposit they paid.\n- From a booking: open the booking in your Calendar and click \"Create invoice\". A booking made from a quote invoices that quote. Any other booking starts as a draft with no price — add the amount before you send it.\n- When a job is marked done: EmpireVu can make it for you — see \"Invoice settings\".\nA quote or booking only gets one invoice; clicking \"Create invoice\" again opens the one you already have.",
+      },
+      {
+        heading: "Tax and deposits",
+        body:
+          "Each invoice has one tax rate, shown on the invoice as HST/GST with its amount. The \"New invoice\" form starts at 13% (Ontario HST) — change \"Tax rate (%)\" if you charge a different rate. Invoices made from a quote use the quote's rate. Anything already paid, like a deposit, goes in \"Deposit / credit\" and is taken off the amount due. Add your HST/GST number in Settings → Invoices to have it printed on every invoice.",
+      },
+      {
+        heading: "Sending it",
+        body:
+          "Click \"Send invoice\". Sending gives it a number and starts the payment terms. Tick \"Email the invoice (PDF attached)\" and/or \"Also text the pay link\" — or untick both and click \"Issue without sending\" to share the link yourself. Texts never go to someone who replied STOP.\nAfter that, open the invoice to \"Resend\", \"Copy link\" or \"Text link\". You can still edit a sent invoice until a payment comes in; saving updates the customer's copy.\nFor a PDF, open the invoice and click \"Preview\" on a draft, \"PDF\" once it's sent, or \"Download PDF\" once it's paid. Your customer can download it from their invoice page too.",
+      },
+      {
+        heading: "How your customer pays",
+        body:
+          "The invoice link opens a page with a \"How to pay\" section showing only the ways you've turned on in Settings → Invoices:\n- Card — Visa, Mastercard, Amex, Apple Pay or Google Pay through Stripe's secure checkout. Needs Stripe connected in Settings → Payments.\n- Bank debit — only if you've turned it on. Pre-authorized debit from a Canadian bank account. It takes a few business days to clear and shows as \"Clearing\" until then; if the debit fails, the balance is owing again.\n- Interac e-Transfer — shows your e-Transfer email and asks the customer to put the invoice number in the message.\n- Cheque or cash — shows who cheques are payable to and where to mail them, or that cash is accepted in person.\nOnline payments are for the whole balance. They mark the invoice paid by themselves and email the customer a receipt (for bank debit, once it clears).",
+      },
+      {
+        heading: "Recording a cash, cheque or e-Transfer payment",
+        body:
+          "When money arrives another way, open the invoice and click \"Record payment\". Enter the amount, the method (e-Transfer, Cheque, Cash, Card (terminal), Bank debit or Other), the date received and an optional reference such as the cheque number. Leave \"Email a receipt to the customer\" ticked to send one. A part payment leaves the invoice \"Partly paid\"; you can't record more than is owing.\nRecorded one by mistake? Click \"Remove\" next to that payment. Online payments can't be removed — refund them in Stripe and the invoice updates.",
+      },
+      {
+        heading: "Overdue reminders",
+        body:
+          "An invoice is overdue the day after its due date, and the Invoices page shows what's Overdue at the top. Unless you turn them off, the customer is emailed a reminder 1, 7 and 14 days after the due date (change the days in Settings → Invoices). Reminders go out once a day in the morning, never more than one per invoice per day, and stop once it's paid or voided. To hear about it yourself, see the overdue alert in \"Automations: what runs on its own\".",
+      },
+      {
+        heading: "Fixing a mistake or voiding",
+        body:
+          "You can edit an invoice until a payment comes in. To cancel one, open it and click \"Void\" (a reason is optional). Voiding stops the pay link and reminders and can't be undone; the invoice is kept under Void for your records. An invoice with payments on it can't be voided — remove a payment recorded by mistake first, or refund an online payment in Stripe. To bill again, create a new invoice.",
+      },
+    ],
+  },
+  {
+    id: "invoice-settings",
+    title: "Invoice settings",
+    summary: "Settings → Invoices: what's printed on your invoices, how customers can pay, job-done invoicing and overdue reminders.",
+    keywords: ["invoice settings", "settings", "hst number", "gst number", "tax number", "registration number", "business address", "invoice number", "prefix", "numbering", "terms", "net 30", "due on receipt", "tax rate", "footer", "bank debit", "pad", "acss", "acss debit", "pre-authorized debit", "turn on bank debit", "e-transfer email", "payment methods", "reminders", "turn off reminders", "job done", "auto invoice", "mark completed"],
+    sections: [
+      {
+        heading: "Where to find it",
+        body:
+          "Go to Settings → Invoices. If you have more than one company, pick it at the top — each company has its own settings. Only owners and admins can change them. Click \"Save Changes\" when you're done.",
+      },
+      {
+        heading: "Printed on every invoice: HST number, address, numbering",
+        body:
+          "- HST/GST registration number and Business address.\n- Invoice number prefix — invoices are numbered like INV-2026-0001; replace \"INV\" with your own letters. A number is only used when an invoice is sent, so drafts don't skip numbers.\n- Default terms (individual customers) — Due on receipt, Net 7, Net 15 or Net 30. Business accounts can have their own terms.\n- Default tax rate — 13% is Ontario HST. Invoices made from a quote use the quote's rate, and the \"New invoice\" form starts at 13%, so check the rate on each invoice if yours is different.\n- Footer text — printed at the bottom of every invoice, such as a thank-you or your late-payment terms.",
+      },
+      {
+        heading: "How customers can pay",
+        body:
+          "Switch on the ways you accept; they're shown on the invoice and its payment page.\n- Card / Apple Pay / Google Pay — paid online through Stripe. Connect Stripe in Settings → Payments first.\n- Bank debit (PAD) — Canadian pre-authorized debit, with lower fees than cards; it takes 3–5 business days to clear. It's off until you switch it on here, and you must also turn on \"ACSS Debit\" in your Stripe dashboard (Settings → Payment methods), or customers won't be able to complete a bank debit.\n- Interac e-Transfer — enter the email address to send e-Transfers to, plus optional instructions (for example, that auto-deposit is on). You record the payment when it lands.\n- Cheque — enter who cheques are payable to; the mailing address is optional (your business address is used if it's blank).\n- Cash — shown as accepted in person.\nIf nothing is switched on, the invoice asks the customer to contact you to arrange payment.",
+      },
+      {
+        heading: "When a job is marked done",
+        body:
+          "Choose what happens when a booking is marked completed (for example with \"Mark Completed\" in your Calendar):\n- Do nothing — you create invoices yourself. This is the default.\n- Create a draft invoice — ready for you to review and send.\n- Create and send it — emailed to the customer straight away.\nA booking made from a quote is invoiced at the quote's prices, less any deposit paid. A booking with no price becomes a draft plus a task for you to price and send it — nothing without a price is ever sent. Jobs that already have an invoice are skipped.",
+      },
+      {
+        heading: "Overdue reminders",
+        body:
+          "\"Email overdue reminders\" is on unless you switch it off. Reminders are emailed to the customer this many days after the due date — 1, 7 and 14 to start. Add or remove days (up to 6). They stop once the invoice is paid or voided.",
+      },
+    ],
+  },
+  {
+    id: "business-accounts",
+    title: "Business accounts and statements",
+    summary: "Bill a marina, club or other business instead of a person, on its own terms, and send it a statement.",
+    keywords: ["business account", "business accounts", "accounts", "company", "marina", "club", "fleet", "commercial", "attn", "billing email", "billing address", "net 30", "net 60", "terms", "statement", "aging", "link contact", "link to business"],
+    sections: [
+      {
+        heading: "Adding a business",
+        body:
+          "Click Accounts in the menu, then \"New business account\". Add its name, billing email, phone and address, its GST/HST number, and its payment terms — \"Company default\" or its own, such as Net 30. The people who work there stay ordinary contacts.",
+      },
+      {
+        heading: "Linking people to it",
+        body:
+          "Open the business account and click \"Link contact\", or click \"Link to business\" on a contact's page. Invoices for a linked contact are addressed to the business, \"Attn:\" that person, sent to the business's billing email, and use its terms. On a new invoice you can also choose Business under Bill to.",
+      },
+      {
+        heading: "Statements",
+        body:
+          "Open a business account to see its open balance, what's overdue, and its invoices. Under Statement, pick the company it's from if you have more than one, then click \"View statement PDF\" or \"Email statement\". The statement lists that company's open invoices for the business and how long each has been owing. It goes to the billing email unless you type another address in \"Send to\".",
       },
     ],
   },
@@ -276,7 +390,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
     id: "automations",
     title: "Automations: what runs on its own",
     summary: "The ready-made texts, reminders and alerts, and how to switch them on or off.",
-    keywords: ["automation", "automations", "workflow", "recipe", "auto text", "auto reply", "turn off", "turn on", "draft", "alerts", "new lead alert"],
+    keywords: ["automation", "automations", "workflow", "recipe", "recipes", "auto text", "auto reply", "turn off", "turn on", "draft", "alerts", "new lead alert", "invoice paid", "paid alert", "overdue alert", "thank you"],
     sections: [
       {
         heading: "The ready-made automations",
@@ -284,9 +398,14 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
           "- Missed-call text-back — texts people whose call you missed.\n- New-lead owner alert — tells you the moment a new lead arrives.\n- Booking reminders — 24 hours and 2 hours before each booking.\n- Quote follow-up sequence — nudges customers who haven't approved a quote.\n- Stale-lead nudge — puts a follow-up task on your list when a lead goes quiet for 3 days.\n- Review request and No-show recovery — start as drafts; review and switch on.\n- Forward customer texts to me — when a customer replies to one of your texts, it's forwarded to your phone.",
       },
       {
+        heading: "Getting paid",
+        body:
+          "- Text me when an invoice is paid — texts you the number, amount and job when an invoice is paid in full.\n- Tell me when an invoice is overdue — emails you the first day an invoice is late, with the balance and the pay link.\n- Thank-you + review ask when paid — texts the customer a thank-you with your review link. It starts as a draft: use it or Review request, not both, so nobody is asked twice.\nOverdue reminders to the customer aren't automations — they're set in Settings → Invoices.",
+      },
+      {
         heading: "Turning them on or off",
         body:
-          "Choose them in the Automations step of setup, or manage them any time on the Automations page. A draft never sends anything until you switch it on. If you use an industry pack, the messages are written for your trade.",
+          "Choose them in the Automations step of setup, or manage them any time on the Automations page. A draft never sends anything until you switch it on. If you use an industry pack, the messages are written for your trade. Missing one? Click \"Recipes\" on the Automations page and click \"Install\" next to it.",
       },
     ],
   },

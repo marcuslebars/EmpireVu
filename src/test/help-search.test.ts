@@ -43,6 +43,9 @@ describe("help library hygiene", () => {
       "services-prices",
       "booking-link",
       "quotes-deposits",
+      "invoices",
+      "invoice-settings",
+      "business-accounts",
       "review-requests",
       "ai-receptionist",
       "monthly-scorecard",
@@ -110,6 +113,16 @@ describe("retrieval ranking (golden questions)", () => {
     ["fill in prices for my services", "services-prices"],
     ["what does the ai receptionist do", "ai-receptionist"],
     ["continue setup", "getting-started"],
+    ["how do I send an invoice to a customer", "invoices"],
+    ["customer paid by cheque how do I mark the invoice paid", "invoices"],
+    ["when do overdue invoice reminders go out", "invoices"],
+    ["void an invoice", "invoices"],
+    ["turn on bank debit PAD", "invoice-settings"],
+    ["where do I add my HST number", "invoice-settings"],
+    ["send a statement to a marina", "business-accounts"],
+    ["customer wants to change the quote, revise it", "quotes-deposits"],
+    ["let the customer choose optional add-ons on a quote", "quotes-deposits"],
+    ["text me when an invoice is paid", "automations"],
   ];
 
   it.each(cases)("%s → %s", (question, expected) => {
