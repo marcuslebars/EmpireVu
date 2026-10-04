@@ -2,7 +2,7 @@
  * Re-run CrankLeads provisioning for one purchase. See docs/crankleads-purchase.md.
  *
  * SANCTIONED EXCEPTION (service role) — jobs. Delegates to services/crankleads/rerun.ts.
- * Needs NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY,
+ * Needs NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY), RESEND_API_KEY,
  * OUTBOUND_FROM_EMAIL, APP_BASE_URL (+ OWNER_EMAIL for the operator copy, and
  * STRIPE_SECRET_KEY only when the purchase never got its webhook).
  *

@@ -35,7 +35,7 @@ Client (Vite, build-time):
 Server + worker:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY` — **worker only**; never used in a request path (RLS-bypassing)
+- `SUPABASE_SECRET_KEY` — **worker only**; never used in a request path (RLS-bypassing)
 
 ## Scripts
 

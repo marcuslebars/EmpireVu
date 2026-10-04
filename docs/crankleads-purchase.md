@@ -210,7 +210,7 @@ is a credential; this public endpoint stops minting them).
    - **[reconcile]**: `STRIPE_PRICE_CL_*` (plan-drift check).
    - **[crankleads-sweep]** — new Railway **cron** service, config file
      `railway.crankleads-sweep.json` (`npm run job:crankleads-provision -- --stuck`, `*/15 * * * *`):
-     `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`, `APP_BASE_URL`,
+     `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `STRIPE_SECRET_KEY`, `APP_BASE_URL`,
      `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`, `OWNER_EMAIL`, `TWILIO_*` (same values as web).
 4. **Stripe webhook** (Dashboard → Developers → Webhooks → the `/api/webhooks/stripe` endpoint):
    make sure it sends `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
