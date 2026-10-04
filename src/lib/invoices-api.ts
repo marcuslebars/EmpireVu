@@ -178,6 +178,8 @@ export interface InvoiceSettingsValues {
   acceptCash: boolean;
   remindersEnabled: boolean;
   reminderDays: number[];
+  /** When a job is marked done: nothing, a draft invoice, or an invoice that's sent right away. */
+  autoInvoiceOnComplete: "off" | "draft" | "send";
 }
 
 export interface CompanyInvoiceSettings {

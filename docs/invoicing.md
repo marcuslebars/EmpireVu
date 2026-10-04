@@ -53,7 +53,16 @@ No new environment variables. Reminders run in the existing daily
 - **Automations**: new triggers `invoice.sent`, `invoice.paid`, `invoice.overdue`,
   `invoice.payment_failed`; templates can use `{{ invoice.number }}`,
   `{{ invoice.balance }}`, `{{ invoice.total }}`, `{{ invoice.due }}`,
-  `{{ invoice.public_url }}`.
+  `{{ invoice.public_url }}`. Recipes: "Text me when an invoice is paid" (on),
+  "Tell me when an invoice is overdue" (on), "Thank-you + review ask when paid"
+  (draft — use it *or* "Review request", not both). Recipes install on new brands;
+  existing brands add them from Automations → Recipes.
+- **Job done → invoice** (Settings → Invoices, off by default): when a booking is
+  marked completed, `invoices/auto.ts` creates a draft invoice or creates and sends
+  it. A booking from a quote invoices the quote (deposit credited); a booking with no
+  price stays a $0 draft and the owner gets a task — an unpriced invoice is never
+  sent. A job that's already invoiced is skipped. Failures are logged, never block
+  completing the job.
 - Invoices and receipts are transactional messages: they're sent without marketing
   consent, but an SMS opt-out (STOP) is always honoured.
 
