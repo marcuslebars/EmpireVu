@@ -17,6 +17,7 @@ import { TasksPanel, CreateTaskDialog } from "@/components/contact/TasksPanel";
 import { QuotesPanel } from "@/components/contact/QuotesPanel";
 import { AiDraftPanel } from "@/components/contact/AiDraftPanel";
 import { AccountLinkControl } from "@/components/invoices/AccountLinkControl";
+import { PortalLinkControl } from "@/components/contact/PortalLinkControl";
 
 // ─── Internal notes (small tab body — kept co-located) ────────────────────────
 
@@ -89,6 +90,8 @@ function ContactDetailContent({ detail, orgId }: { detail: ContactDetailResponse
         contactName={contact.name}
         customerAccountId={contact.customerAccountId ?? null}
       />
+
+      <PortalLinkControl orgId={orgId} contactId={contact.id} hasPhone={Boolean(contact.phone)} hasEmail={Boolean(contact.email)} />
 
       {/* Tabs */}
       <div className="opacity-0 animate-fade-in" style={{ animationDelay: "80ms" }}>

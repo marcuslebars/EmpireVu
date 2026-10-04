@@ -13,6 +13,7 @@
 const PUBLIC_PATHS: RegExp[] = [
   /^\/q\//, // customer quote — the deposit link
   /^\/i\//, // customer invoice — the pay page
+  /^\/p\//, // customer portal — their visits, quotes and invoices
   /^\/book\//, // public booking
   /^\/f\//, // hosted website lead form (also the /embed/v1.js iframe)
   /^\/invite\//, // team invitation, which prompts sign-in itself when needed

@@ -16,6 +16,7 @@ import PrivacyPolicyPage from "@/screens/PrivacyPolicyPage";
 import PublicBookingPage from "@/screens/PublicBookingPage";
 import PublicQuotePage from "@/screens/PublicQuotePage";
 import PublicInvoicePage from "@/screens/PublicInvoicePage";
+import PublicPortalPage from "@/screens/PublicPortalPage";
 import PublicLeadFormPage from "@/screens/PublicLeadFormPage";
 import AcceptInvitePage from "@/screens/AcceptInvitePage";
 import CrankleadsWelcomePage from "@/screens/CrankleadsWelcomePage";
@@ -320,6 +321,7 @@ function AppRoutes() {
       <Route path="/q/:token" element={<PublicQuotePage />} />
       {/* Customer-facing invoice + pay page. Public + unauthenticated: the token is the credential. */}
       <Route path="/i/:token" element={<PublicInvoicePage />} />
+      <Route path="/p/:token" element={<PublicPortalPage />} />
       {/* Hosted website lead form (and the /embed/v1.js iframe). Public: the publishable form key is the credential. */}
       <Route path="/f/:formKey" element={<PublicLeadFormPage />} />
       {/* Team invitation. Public: the token is the credential; the page prompts sign-in if needed. */}

@@ -973,6 +973,45 @@ export interface Database {
         };
         Relationships: [];
       };
+      customer_portal_links: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          contact_id: string;
+          token: string;
+          created_by: string | null;
+          created_at: string;
+          revoked_at: string | null;
+          last_viewed_at: string | null;
+          view_count: number;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          contact_id: string;
+          token: string;
+          created_by?: string | null;
+          created_at?: string;
+          revoked_at?: string | null;
+          last_viewed_at?: string | null;
+          view_count?: number;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          contact_id?: string;
+          token?: string;
+          created_by?: string | null;
+          created_at?: string;
+          revoked_at?: string | null;
+          last_viewed_at?: string | null;
+          view_count?: number;
+        };
+        Relationships: [];
+      };
       profiles: {
         Row: {
           avatar_url: string | null;
