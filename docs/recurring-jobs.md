@@ -7,7 +7,8 @@ Repeat work on a schedule — a weekly clean, a monthly service, a yearly inspec
 Run `supabase/migrations/20261004180000_recurring_jobs.sql` in the SQL editor
 (rollback: `supabase/rollback/20261004180000_recurring_jobs.down.sql`). It needs the
 crew-dispatch migration (`20261004170000`) first. Visits beyond the first ~60 days are
-added by the daily `job:quote-maintenance` cron (no new service or env).
+added by the existing **[worker]** scheduler pass (hourly; no new service or env). The
+same sweep also runs in `job:quote-maintenance` if that cron is deployed.
 
 ## How it works
 
@@ -21,7 +22,7 @@ added by the daily `job:quote-maintenance` cron (no new service or env).
   assigned and the checklist copied in.
 - **How far ahead**: ~60 days, and always at least the next visit (so a yearly job is
   on the calendar). Saving a series lays them out immediately; the daily sweep
-  (`services/recurring/sweep.ts`, service role, each series pinned to its own org) tops
+  (`services/recurring/sweep.ts`, service role, each series pinned to its own org; run hourly by the worker) tops
   them up. Generation is idempotent.
 - **No "booked" texts per visit**: generated visits don't fire `booking.created`.
   `booking.upcoming` reminders still go out before each visit if that automation is on.

@@ -1,3 +1,4 @@
+import { sweepRecurringJobs } from "@/server/services/recurring/sweep";
 import type { Json, Tables } from "@/server/db/database.types";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { sendDailyDigests } from "@/server/services/push/digest";
@@ -304,6 +305,9 @@ export async function scanContactStale(admin: Admin, nowMs: number = Date.now())
 
 /** Last setup follow-up pass in this worker process (the pass itself is idempotent across workers). */
 let lastSetupFollowupRunMs = 0;
+/** Last recurring-jobs top-up in this worker process (the sweep itself is idempotent). */
+let lastRecurringRunMs = 0;
+const RECURRING_INTERVAL_MS = 60 * 60 * 1000;
 /** Last operator-health look in this worker process (the daily send is claimed per day in the DB). */
 let lastOperatorHealthRunMs = 0;
 
@@ -350,6 +354,16 @@ export async function runScheduler(
     await processOperatorHealth(admin, nowMs).catch((error) =>
       console.error("[scheduler] operator health failed", error instanceof Error ? error.message : error),
     );
+  }
+  // Recurring jobs (docs/recurring-jobs.md): keep ~60 days of visits on the calendar.
+  // Hourly; the sweep only touches series whose horizon is running out, and is idempotent.
+  if (nowMs - lastRecurringRunMs >= RECURRING_INTERVAL_MS) {
+    lastRecurringRunMs = nowMs;
+    await sweepRecurringJobs(new Date(nowMs))
+      .then((r) => {
+        if (r.visitsCreated || r.failed.length) console.log(`[scheduler] recurring: created=${r.visitsCreated} failed=${r.failed.length}`);
+      })
+      .catch((error) => console.error("[scheduler] recurring sweep failed", error instanceof Error ? error.message : error));
   }
   return { ticksMaterialized, ticksProcessed, entitiesEmitted };
 }
