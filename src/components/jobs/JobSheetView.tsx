@@ -38,6 +38,7 @@ import { CrewPicker } from "./CrewPicker";
 import { JobChecklist } from "./JobChecklist";
 import { JobPhotos } from "./JobPhotos";
 import { VisitLinkRow } from "./VisitLinkRow";
+import { JobExpenses } from "@/components/expenses/JobExpenses";
 import { JobMaterials, JobProfitCard, JobTime } from "./JobTimeAndCost";
 
 export function StageBadge({ stage }: { stage: JobSheet["stage"] }) {
@@ -264,6 +265,7 @@ export function JobSheetView({ orgId, job }: { orgId: string; job: JobSheet }) {
         <div className="space-y-5">
           <JobTime orgId={orgId} bookingId={job.id} timeZone={job.timeZone} closed={closed} />
           <JobMaterials orgId={orgId} bookingId={job.id} readOnly={job.stage === "cancelled"} />
+          <JobExpenses orgId={orgId} job={{ id: job.id, title: job.title }} manager={canSeeCosts} readOnly={job.stage === "cancelled"} />
         </div>
       </Section>
 

@@ -982,6 +982,75 @@ export interface Database {
         };
         Relationships: [];
       };
+      expenses: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string | null;
+          booking_id: string | null;
+          spent_on: string;
+          vendor: string | null;
+          description: string | null;
+          category: string;
+          amount_cents: number;
+          tax_cents: number;
+          paid_with: string;
+          reimbursed_at: string | null;
+          reimbursed_by: string | null;
+          billable: boolean;
+          billed_invoice_id: string | null;
+          receipt_path: string | null;
+          receipt_type: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id?: string | null;
+          booking_id?: string | null;
+          spent_on: string;
+          vendor?: string | null;
+          description?: string | null;
+          category?: string;
+          amount_cents: number;
+          tax_cents?: number;
+          paid_with?: string;
+          reimbursed_at?: string | null;
+          reimbursed_by?: string | null;
+          billable?: boolean;
+          billed_invoice_id?: string | null;
+          receipt_path?: string | null;
+          receipt_type?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string | null;
+          booking_id?: string | null;
+          spent_on?: string;
+          vendor?: string | null;
+          description?: string | null;
+          category?: string;
+          amount_cents?: number;
+          tax_cents?: number;
+          paid_with?: string;
+          reimbursed_at?: string | null;
+          reimbursed_by?: string | null;
+          billable?: boolean;
+          billed_invoice_id?: string | null;
+          receipt_path?: string | null;
+          receipt_type?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       member_pay_rates: {
         Row: {
           organization_id: string;
@@ -4061,6 +4130,19 @@ export interface Database {
           p_invoice_id: string;
         };
         Returns: Database["public"]["Tables"]["invoices"]["Row"][];
+      };
+      billable_expenses_for_booking: {
+        Args: {
+          p_booking_id: string;
+        };
+        Returns: { id: string; vendor: string | null; description: string | null; category: string; amount_cents: number; tax_cents: number; spent_on: string }[];
+      };
+      mark_expenses_billed: {
+        Args: {
+          p_invoice_id: string;
+          p_expense_ids: string[];
+        };
+        Returns: number;
       };
       record_review_click: {
         Args: {

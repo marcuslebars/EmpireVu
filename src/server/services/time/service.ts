@@ -453,14 +453,16 @@ export async function jobProfit(ctx: TenantServiceContext, bookingId: string, no
     .maybeSingle();
   if (error) throw error;
   if (!booking) throw new ValidationError("Job not found.");
-  const [revenue, entries, materials, rates] = await Promise.all([
+  const [revenue, entries, materials, expenses, rates] = await Promise.all([
     revenueFor(ctx, [booking]),
     ctx.supabase.from("time_entries").select("profile_id, started_at, ended_at, break_minutes").eq("organization_id", ctx.organizationId).eq("booking_id", bookingId),
     ctx.supabase.from("job_materials").select("quantity, unit_cost_cents").eq("organization_id", ctx.organizationId).eq("booking_id", bookingId),
+    ctx.supabase.from("expenses").select("amount_cents, tax_cents").eq("organization_id", ctx.organizationId).eq("booking_id", bookingId),
     rateMap(ctx),
   ]);
   if (entries.error) throw entries.error;
   if (materials.error) throw materials.error;
+  if (expenses.error) throw expenses.error;
   const rev = revenue.get(bookingId)!;
   const profit = computeJobProfit({
     revenueCents: rev.cents,
@@ -468,6 +470,7 @@ export async function jobProfit(ctx: TenantServiceContext, bookingId: string, no
     entries: entries.data ?? [],
     rates,
     materials: (materials.data ?? []).map((m) => ({ quantity: Number(m.quantity), unit_cost_cents: m.unit_cost_cents })),
+    expenses: expenses.data ?? [],
     now,
   });
   let missingRateNames: string[] = [];
@@ -507,16 +510,17 @@ export async function profitReport(
   if (list.length === 0) return { rows: [], totals: { revenueCents: 0, costCents: 0, profitCents: 0, labourMinutes: 0 }, missingRateNames: [] };
   const ids = list.map((b) => b.id);
   const contactIds = [...new Set(list.map((b) => b.contact_id).filter((v): v is string => !!v))];
-  const [revenue, entries, materials, rates, contacts] = await Promise.all([
+  const [revenue, entries, materials, expenses, rates, contacts] = await Promise.all([
     revenueFor(ctx, list),
     ctx.supabase.from("time_entries").select("booking_id, profile_id, started_at, ended_at, break_minutes").eq("organization_id", ctx.organizationId).in("booking_id", ids),
     ctx.supabase.from("job_materials").select("booking_id, quantity, unit_cost_cents").eq("organization_id", ctx.organizationId).in("booking_id", ids),
+    ctx.supabase.from("expenses").select("booking_id, amount_cents, tax_cents").eq("organization_id", ctx.organizationId).in("booking_id", ids),
     rateMap(ctx),
     contactIds.length
       ? ctx.supabase.from("contacts").select("id, first_name, last_name").eq("organization_id", ctx.organizationId).in("id", contactIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
-  for (const r of [entries, materials, contacts]) if (r.error) throw r.error;
+  for (const r of [entries, materials, expenses, contacts]) if (r.error) throw r.error;
   const contactName = new Map((contacts.data ?? []).map((c) => [c.id, [c.first_name, c.last_name].filter(Boolean).join(" ").trim() || null]));
   const missing = new Set<string>();
   const rows: ProfitRow[] = list.map((b) => {
@@ -527,6 +531,7 @@ export async function profitReport(
       entries: (entries.data ?? []).filter((e) => e.booking_id === b.id),
       rates,
       materials: (materials.data ?? []).filter((m) => m.booking_id === b.id).map((m) => ({ quantity: Number(m.quantity), unit_cost_cents: m.unit_cost_cents })),
+      expenses: (expenses.data ?? []).filter((e) => e.booking_id === b.id),
       now,
     });
     p.missingRates.forEach((id) => missing.add(id));

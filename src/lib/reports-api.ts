@@ -46,7 +46,16 @@ export interface OverviewReport {
     people: Array<{ profileId: string; name: string; minutes: number; jobs: number; costCents: number | null }>;
     missingRateNames: string[];
   };
-  series: Array<{ key: string; collectedCents: number; invoicedCents: number; jobsCompleted: number; minutes: number }>;
+  spending: {
+    /** Before tax. */
+    spent: Compare;
+    count: number;
+    onJobsCents: number;
+    overheadCents: number;
+    byCategory: Array<{ category: string; label: string; cents: number; count: number }>;
+    owedCents: number;
+  };
+  series: Array<{ key: string; collectedCents: number; invoicedCents: number; jobsCompleted: number; minutes: number; spentCents: number }>;
   topCustomers: Array<{ contactId: string; name: string; collectedCents: number; jobsCompleted: number }>;
 }
 
@@ -178,11 +187,12 @@ export function overviewCsv(r: OverviewReport): string {
     ["Quote value approved", money(r.quotes.approvedCents.value), money(r.quotes.approvedCents.previous)],
     ["New customers", r.customers.newCustomers.value, r.customers.newCustomers.previous],
     ["Crew hours", (r.crew.minutes.value / 60).toFixed(2), (r.crew.minutes.previous / 60).toFixed(2)],
+    ["Spent (before tax)", money(r.spending.spent.value), money(r.spending.spent.previous)],
     ["Owed to you (today)", money(r.receivables.outstandingCents), null],
     ["Overdue (today)", money(r.receivables.overdueCents), null],
     [],
-    ["Period starting", "Collected", "Invoiced", "Jobs completed", "Crew hours"],
-    ...r.series.map((s) => [s.key, money(s.collectedCents), money(s.invoicedCents), s.jobsCompleted, (s.minutes / 60).toFixed(2)]),
+    ["Period starting", "Collected", "Invoiced", "Jobs completed", "Crew hours", "Spent"],
+    ...r.series.map((s) => [s.key, money(s.collectedCents), money(s.invoicedCents), s.jobsCompleted, (s.minutes / 60).toFixed(2), money(s.spentCents)]),
   ];
   return rows.map((row) => row.map(csvCell).join(",")).join("\n");
 }

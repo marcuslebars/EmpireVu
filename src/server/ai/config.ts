@@ -28,3 +28,11 @@ export function getWorkflowsModel(): string {
 export function getHelpModel(): string {
   return process.env.AI_MODEL_HELP?.trim() || DEFAULT_MODEL;
 }
+
+/**
+ * Reading a receipt photo / PDF into an expense (docs/expenses.md). A short, structured
+ * extraction — a smaller model works; if you move it, set AI_PRICE_* to match.
+ */
+export function getReceiptsModel(): string {
+  return process.env.AI_MODEL_RECEIPTS?.trim() || DEFAULT_MODEL;
+}

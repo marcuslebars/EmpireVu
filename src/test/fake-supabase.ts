@@ -53,18 +53,22 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
     const filters: Array<(row: Row) => boolean> = [];
     let mode: FakeDbOp["op"] = "select";
     let patch: Row | null = null;
-    let order: { column: string; ascending: boolean } | null = null;
+    const order: Array<{ column: string; ascending: boolean }> = [];
     let limitN: number | null = null;
     let offsetN = 0;
 
     const matching = () => {
       let rows = tables[table].filter((row) => filters.every((f) => f(row)));
-      if (order) {
-        const { column, ascending } = order;
+      if (order.length) {
+        // Multiple .order() calls sort by the first, then the next as a tie-breaker (like SQL).
         rows = [...rows].sort((a, b) => {
-          const av = String(a[column] ?? "");
-          const bv = String(b[column] ?? "");
-          return ascending ? av.localeCompare(bv) : bv.localeCompare(av);
+          for (const { column, ascending } of order) {
+            const av = String(a[column] ?? "");
+            const bv = String(b[column] ?? "");
+            const c = ascending ? av.localeCompare(bv) : bv.localeCompare(av);
+            if (c !== 0) return c;
+          }
+          return 0;
         });
       }
       return limitN === null ? rows.slice(offsetN) : rows.slice(offsetN, offsetN + limitN);
@@ -154,7 +158,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
         return builder;
       },
       order: (column: string, opts?: { ascending?: boolean }) => {
-        order = { column, ascending: opts?.ascending ?? true };
+        order.push({ column, ascending: opts?.ascending ?? true });
         return builder;
       },
       limit: (n: number) => {

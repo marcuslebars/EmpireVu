@@ -42,6 +42,8 @@ export interface JobProfit {
   labourMinutes: number;
   labourCents: number;
   materialsCents: number;
+  /** Receipts / expenses logged on the job, before tax. */
+  expensesCents: number;
   costCents: number;
   profitCents: number;
   /** Profit ÷ revenue, or null with no revenue. */
@@ -57,6 +59,7 @@ export function computeJobProfit(input: {
   entries: CostEntry[];
   rates: Map<string, number>;
   materials: Array<{ quantity: number; unit_cost_cents: number }>;
+  expenses?: Array<{ amount_cents: number; tax_cents: number }>;
   now?: Date;
 }): JobProfit {
   const now = input.now ?? new Date();
@@ -71,7 +74,8 @@ export function computeJobProfit(input: {
     else labour += labourCents(mins, rate);
   }
   const materials = input.materials.reduce((s, m) => s + materialCents(m), 0);
-  const cost = labour + materials;
+  const expenses = (input.expenses ?? []).reduce((s, e) => s + Math.max(0, e.amount_cents - e.tax_cents), 0);
+  const cost = labour + materials + expenses;
   const profit = input.revenueCents - cost;
   return {
     revenueCents: input.revenueCents,
@@ -79,6 +83,7 @@ export function computeJobProfit(input: {
     labourMinutes,
     labourCents: labour,
     materialsCents: materials,
+    expensesCents: expenses,
     costCents: cost,
     profitCents: profit,
     marginPct: input.revenueCents > 0 ? Math.round((profit / input.revenueCents) * 1000) / 10 : null,

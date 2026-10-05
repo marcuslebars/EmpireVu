@@ -24,6 +24,7 @@
  *    anything else compares with the same number of days immediately before.
  */
 import { addDays, daysBetween, localDateString } from "@/server/services/invoices/math";
+import { categoryLabel } from "@/server/services/expenses/rules";
 import { labourCents, weekStart, workedMinutes } from "@/server/services/time/logic";
 import { tzOffsetMs } from "@/server/services/attribution";
 
@@ -157,6 +158,10 @@ export interface OverviewInputs {
   rates: Record<string, number | null>;
   people: Record<string, string>;
   contactNames: Record<string, string>;
+  /** Expenses dated in [prevFromDate, toDate): pre-tax cost. */
+  expenses: Array<{ spentOn: string; cents: number; category: string; onJob: boolean }>;
+  /** Paid out of pocket and not paid back yet, right now (amount incl. tax). */
+  owedCents: number;
 }
 
 export function emptyOverviewInputs(): OverviewInputs {
@@ -173,6 +178,8 @@ export function emptyOverviewInputs(): OverviewInputs {
     rates: {},
     people: {},
     contactNames: {},
+    expenses: [],
+    owedCents: 0,
   };
 }
 
@@ -235,7 +242,16 @@ export interface OverviewReport {
     people: Array<{ profileId: string; name: string; minutes: number; jobs: number; costCents: number | null }>;
     missingRateNames: string[];
   };
-  series: Array<{ key: string; collectedCents: number; invoicedCents: number; jobsCompleted: number; minutes: number }>;
+  spending: {
+    /** Before tax. */
+    spent: Compare;
+    count: number;
+    onJobsCents: number;
+    overheadCents: number;
+    byCategory: Array<{ category: string; label: string; cents: number; count: number }>;
+    owedCents: number;
+  };
+  series: Array<{ key: string; collectedCents: number; invoicedCents: number; jobsCompleted: number; minutes: number; spentCents: number }>;
   topCustomers: Array<{ contactId: string; name: string; collectedCents: number; jobsCompleted: number }>;
 }
 
@@ -270,7 +286,7 @@ export function computeOverview(inputs: OverviewInputs, period: OverviewPeriod, 
   const localDay = (iso: string) => localDateString(new Date(iso), tz);
 
   const keys = bucketKeys(period.fromDate, period.toDate, period.bucket);
-  const series = new Map(keys.map((key) => [key, { key, collectedCents: 0, invoicedCents: 0, jobsCompleted: 0, minutes: 0 }]));
+  const series = new Map(keys.map((key) => [key, { key, collectedCents: 0, invoicedCents: 0, jobsCompleted: 0, minutes: 0, spentCents: 0 }]));
   const slot = (iso: string) => series.get(bucketKey(localDay(iso), period.bucket));
 
   const currency = mostCommon(
@@ -444,6 +460,26 @@ export function computeOverview(inputs: OverviewInputs, period: OverviewPeriod, 
     })
     .sort((a, b) => b.minutes - a.minutes);
 
+  // ── Spending ──
+  let spent = 0;
+  let prevSpent = 0;
+  let spentCount = 0;
+  let onJobs = 0;
+  const byCategory = new Map<string, { cents: number; count: number }>();
+  for (const e of inputs.expenses) {
+    if (e.spentOn >= period.fromDate && e.spentOn < period.toDate) {
+      spent += e.cents;
+      spentCount += 1;
+      if (e.onJob) onJobs += e.cents;
+      const c = byCategory.get(e.category) ?? { cents: 0, count: 0 };
+      c.cents += e.cents;
+      c.count += 1;
+      byCategory.set(e.category, c);
+      const s = series.get(bucketKey(e.spentOn, period.bucket));
+      if (s) s.spentCents += e.cents;
+    } else if (e.spentOn >= period.prevFromDate && e.spentOn < period.prevToDate) prevSpent += e.cents;
+  }
+
   const topCustomers = [...byContact.entries()]
     .filter(([, cents]) => cents > 0)
     .sort((a, b) => b[1] - a[1])
@@ -497,6 +533,16 @@ export function computeOverview(inputs: OverviewInputs, period: OverviewPeriod, 
       labourCostCents: people.length === 0 ? null : labour,
       people,
       missingRateNames: missing,
+    },
+    spending: {
+      spent: { value: spent, previous: prevSpent },
+      count: spentCount,
+      onJobsCents: onJobs,
+      overheadCents: spent - onJobs,
+      byCategory: [...byCategory.entries()]
+        .map(([category, v]) => ({ category, label: categoryLabel(category), ...v }))
+        .sort((a, b) => b.cents - a.cents || a.label.localeCompare(b.label)),
+      owedCents: inputs.owedCents,
     },
     series: [...series.values()],
     topCustomers,

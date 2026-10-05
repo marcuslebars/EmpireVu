@@ -245,6 +245,39 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
     ],
   },
   {
+    id: "expenses",
+    title: "Expenses and receipts",
+    summary: "Logging receipts, job costs, paying people back, billing materials to customers, and exporting for your bookkeeper.",
+    keywords: ["expense", "expenses", "receipt", "receipts", "spending", "costs", "reimburse", "reimbursement", "out of pocket", "fuel", "materials", "bookkeeper", "accountant", "hst", "tax", "billable"],
+    sections: [
+      {
+        heading: "Adding an expense",
+        body:
+          "Open Expenses → Add expense, or Add receipt on a job. Tap \"Snap or upload the receipt\" to take a photo or pick a PDF; the app reads it and fills in the total, tax, date, store and category for you to check. Then save. Enter the total you paid with tax included, and the tax in it if you know it.",
+      },
+      {
+        heading: "Job costs and profit",
+        body:
+          "An expense on a job counts in that job's profit (owners and admins see Job profit on the job), before tax. Expenses not on a job are overhead. Reports shows what was spent and where the money went.",
+      },
+      {
+        heading: "Billing it to the customer",
+        body:
+          "Tick \"Bill this to the customer\" on a job expense and it's added to the job's invoice at cost, before tax, when the invoice is made. Voiding that invoice frees the expense to go on the next one. You can change the line on the draft invoice, for example to add a markup.",
+      },
+      {
+        heading: "Paying people back",
+        body:
+          "If someone paid with their own money, they choose \"My own money\". Owners and admins see it under \"Owed back to your team\" on the Expenses page and press \"Mark paid back\" once they've repaid it.",
+      },
+      {
+        heading: "Who sees what",
+        body:
+          "Team members see and change only the expenses they logged, until it's paid back or billed. Owners and admins see everyone's. Export CSV on the Expenses page downloads the list for your bookkeeper.",
+      },
+    ],
+  },
+  {
     id: "ai-receptionist",
     title: "The AI receptionist (Front Desk)",
     summary: "What the AI receptionist does, how to get its number, and how minutes work.",

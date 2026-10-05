@@ -404,7 +404,7 @@ function ProfitTab({ orgId, companyId }: { orgId: string; companyId: string | nu
                     <th className="text-left font-medium px-4 py-2">Job</th>
                     <th className="text-right font-medium px-3 py-2">Revenue</th>
                     <th className="text-right font-medium px-3 py-2">Labour</th>
-                    <th className="text-right font-medium px-3 py-2">Materials</th>
+                    <th className="text-right font-medium px-3 py-2">Materials & expenses</th>
                     <th className="text-right font-medium px-4 py-2">Profit</th>
                   </tr>
                 </thead>
@@ -427,7 +427,7 @@ function ProfitTab({ orgId, companyId }: { orgId: string; companyId: string | nu
                         {formatCents(r.labourCents)}
                         <span className="block text-[11px]">{hm(r.labourMinutes)}</span>
                       </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{formatCents(r.materialsCents)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{formatCents(r.materialsCents + (r.expensesCents ?? 0))}</td>
                       <td className={cn("px-4 py-2.5 text-right tabular-nums font-semibold", r.profitCents < 0 ? "text-destructive" : "text-foreground")}>
                         {formatCents(r.profitCents)}
                         {r.marginPct !== null && <span className="block text-[11px] font-normal text-muted-foreground">{r.marginPct}%</span>}
