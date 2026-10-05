@@ -2,218 +2,192 @@ import { z } from "zod";
 
 import type { Tables } from "@/server/db/database.types";
 import { ValidationError } from "@/server/organizations/context";
-import { getBusinessTimezone } from "@/server/services/ai";
-import type { BusySlot } from "@/server/ai/claude";
+import { parseBookingPolicy, type BusyBooking } from "@/server/services/booking-windows";
+import { companyTimeZone, invoicePublicUrl, loadCompanyForInvoice } from "@/server/services/invoices/common";
+import { brandOfCompany, type InvoiceBrand } from "@/server/services/invoices/document";
+import { createInvoice, sendInvoice } from "@/server/services/invoices/service";
+import { notifyOnlineBooking } from "@/server/services/push/notify";
+import { quotePublicBaseUrlFor } from "@/server/services/quotes/config";
+import {
+  bookableService,
+  depositFor,
+  flatPrice,
+  openTimes,
+  parseOnlineBookingSettings,
+  presentOpenTimes,
+  type BookableService,
+  type CatalogService,
+  type OnlineBookingSettings,
+  type PresentedTime,
+} from "@/server/services/scheduling/rules";
+import type { TenantServiceContext } from "@/server/services/shared";
 // ─────────────────────────────────────────────────────────────────────────────
 // SANCTIONED EXCEPTION #2 (approved 2026-07-16): public customer self-booking.
 // The SECOND request path allowed to use the Supabase service-role (RLS-bypassing)
 // client, held to the same discipline as intake:
 //   • the company is resolved from the URL on the SERVER — the request body can
 //     never choose which org/company is written;
-//   • the only write is a PENDING booking (+ find-or-create of the contact);
-//   • the requested time must be in the freshly-computed availability, so the
-//     payload cannot book an arbitrary, past, or already-taken slot;
-//   • the response echoes only the confirmed time.
-// This module is the only other place allowed to import createSupabaseAdminClient.
+//   • the only writes are a booking (+ find-or-create of the contact) and, when the
+//     brand takes a deposit, that booking's deposit invoice — all pinned to the company;
+//   • the requested time must be in the freshly-computed open times, so the payload
+//     cannot book an arbitrary, past, or already-taken slot; the service must be one of
+//     the company's active ones, and the price / deposit come from the database;
+//   • the response echoes only the booked time and the customer's own links.
+// docs/online-booking.md
 // ─────────────────────────────────────────────────────────────────────────────
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
-// Availability rules (no per-company config yet — sensible defaults, tunable later).
-const HORIZON_DAYS = 14;
-const SLOT_DURATION_MINUTES = 60;
-const WORK_START_HOUR = 9; // local, inclusive
-const WORK_END_HOUR = 17; // local, exclusive (last slot starts at 16:00)
-const MIN_LEAD_MINUTES = 120; // no bookings inside the next 2 hours
-
-export interface PublicCompany {
-  id: string;
-  name: string;
-  organizationId: string;
-}
-
-export interface AvailableSlot {
-  startsAt: string;
-  durationMinutes: number;
-}
-
-export interface PublicAvailability {
+export interface PublicBookingPage {
   company: { id: string; name: string };
+  brand: InvoiceBrand;
   timezone: string;
-  slots: AvailableSlot[];
+  mode: "windows" | "hourly";
+  services: BookableService[];
+  requireService: boolean;
+  times: PresentedTime[];
 }
 
 export const publicBookingRequestSchema = z.object({
-  name: z.string().min(1).max(200),
-  email: z.string().email().max(320),
-  phone: z.string().max(40).optional(),
-  startsAt: z.string(),
+  name: z.string().trim().min(1).max(200),
+  email: z.string().trim().email().max(320),
+  phone: z.string().trim().max(40).optional(),
+  location: z.string().trim().max(300).optional(),
   notes: z.string().max(2000).optional(),
+  serviceId: z.string().uuid().nullish(),
+  startsAt: z.string(),
+  windowKey: z.string().max(32).nullish(),
 });
 
 export type PublicBookingRequestInput = z.infer<typeof publicBookingRequestSchema>;
 
-// ── Timezone-aware slot math (DST-safe, no dependency) ───────────────────────
-
-/** Offset (localWallClock − UTC) in ms for an instant, in a given IANA zone. */
-function tzOffsetMs(utcMs: number, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-  }).formatToParts(new Date(utcMs));
-
-  const map: Record<string, number> = {};
-  for (const part of parts) {
-    if (part.type !== "literal") map[part.type] = Number(part.value);
-  }
-  const asIfUtc = Date.UTC(map.year, map.month - 1, map.day, map.hour, map.minute, map.second);
-  return asIfUtc - utcMs;
+export interface PublicBookingResult {
+  ok: true;
+  scheduledFor: string;
+  dayLabel: string;
+  label: string;
+  status: "confirmed" | "pending";
+  /** The customer's own confirm / reschedule / cancel page. */
+  manageUrl: string | null;
+  /** Present when the slot is held for a deposit: pay here before holdUntil. */
+  deposit: { cents: number; payUrl: string; holdUntil: string } | null;
 }
 
-/** The UTC instant (ms) of a wall-clock time (y-m-d hour:00) in a given zone. */
-function zonedWallTimeToUtcMs(
-  year: number,
-  month: number,
-  day: number,
-  hour: number,
-  timeZone: string,
-): number {
-  const naiveUtc = Date.UTC(year, month - 1, day, hour, 0, 0);
-  return naiveUtc - tzOffsetMs(naiveUtc, timeZone);
+interface ResolvedCompany {
+  row: NonNullable<Awaited<ReturnType<typeof loadCompanyForInvoice>>> & { id: string; name: string };
+  organizationId: string;
+  settings: OnlineBookingSettings;
+  policy: ReturnType<typeof parseBookingPolicy>;
+  timeZone: string;
+  stripeReady: boolean;
 }
 
-/** The local calendar date (y/m/d) of a UTC instant, in a given zone. */
-function localCalendarDate(utcMs: number, timeZone: string): { year: number; month: number; day: number } {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  }).formatToParts(new Date(utcMs));
-
-  const map: Record<string, number> = {};
-  for (const part of parts) {
-    if (part.type !== "literal") map[part.type] = Number(part.value);
-  }
-  return { year: map.year, month: map.month, day: map.day };
-}
-
-function overlapsBusy(startMs: number, endMs: number, busy: BusySlot[]): boolean {
-  return busy.some((slot) => {
-    const busyStart = new Date(slot.startsAt).getTime();
-    if (!Number.isFinite(busyStart)) return false;
-    const busyEnd = busyStart + slot.durationMinutes * 60_000;
-    return startMs < busyEnd && busyStart < endMs;
-  });
-}
-
-/**
- * Open working-hours slots over the next two weeks, minus anything already on
- * the calendar and minus the past (with a short booking lead time). Closed on
- * Sundays. All timezone reasoning is done in the business zone so DST is handled.
- */
-export function generateAvailability(nowIso: string, timeZone: string, busy: BusySlot[]): AvailableSlot[] {
-  const nowMs = new Date(nowIso).getTime();
-  const earliestMs = nowMs + MIN_LEAD_MINUTES * 60_000;
-
-  const today = localCalendarDate(nowMs, timeZone);
-  // Anchor at UTC-noon of today's local date; adding whole days enumerates
-  // consecutive local calendar dates regardless of DST.
-  const baseUtc = Date.UTC(today.year, today.month - 1, today.day, 12, 0, 0);
-
-  const slots: AvailableSlot[] = [];
-  for (let dayOffset = 0; dayOffset < HORIZON_DAYS; dayOffset++) {
-    const anchor = new Date(baseUtc + dayOffset * 86_400_000);
-    const year = anchor.getUTCFullYear();
-    const month = anchor.getUTCMonth() + 1;
-    const day = anchor.getUTCDate();
-    if (anchor.getUTCDay() === 0) continue; // closed Sundays
-
-    for (let hour = WORK_START_HOUR; hour < WORK_END_HOUR; hour++) {
-      const startMs = zonedWallTimeToUtcMs(year, month, day, hour, timeZone);
-      if (startMs < earliestMs) continue;
-      const endMs = startMs + SLOT_DURATION_MINUTES * 60_000;
-      if (overlapsBusy(startMs, endMs, busy)) continue;
-      slots.push({ startsAt: new Date(startMs).toISOString(), durationMinutes: SLOT_DURATION_MINUTES });
-    }
-  }
-  return slots;
-}
-
-// ── Service-role data access (every query pinned to the resolved company/org) ─
-
-async function resolveCompany(admin: AdminClient, companyId: string): Promise<PublicCompany | null> {
+async function resolveCompany(admin: AdminClient, companyId: string): Promise<ResolvedCompany | null> {
+  if (!z.string().uuid().safeParse(companyId).success) return null;
   const { data, error } = await admin
     .from("companies")
-    .select("id, name, organization_id")
+    .select("id, organization_id, online_booking_settings, booking_policy")
     .eq("id", companyId)
     .maybeSingle();
-
   if (error) throw error;
-  const row = data as { id: string; name: string; organization_id: string } | null;
-  return row ? { id: row.id, name: row.name, organizationId: row.organization_id } : null;
+  if (!data) return null;
+  const row = await loadCompanyForInvoice(admin as never, data.organization_id, data.id);
+  if (!row) return null;
+  return {
+    row: row as ResolvedCompany["row"],
+    organizationId: data.organization_id,
+    settings: parseOnlineBookingSettings(data.online_booking_settings),
+    policy: parseBookingPolicy(data.booking_policy ?? null),
+    timeZone: companyTimeZone(row),
+    stripeReady: Boolean(row.stripe_connected_account_id && row.stripe_charges_enabled),
+  };
 }
 
-async function loadBusy(admin: AdminClient, company: PublicCompany, nowIso: string): Promise<BusySlot[]> {
-  const horizonIso = new Date(new Date(nowIso).getTime() + HORIZON_DAYS * 86_400_000).toISOString();
+async function loadServices(admin: AdminClient, company: ResolvedCompany): Promise<CatalogService[]> {
+  if (!company.settings.showServices) return [];
+  const { data, error } = await admin
+    .from("service_catalog_items")
+    .select("id, label, description, pricing_type, rate_cents, minimum_cents, unit_label")
+    .eq("organization_id", company.organizationId)
+    .eq("company_id", company.row.id)
+    .eq("active", true)
+    .order("sort_order", { ascending: true })
+    .limit(100);
+  if (error) throw error;
+  return (data ?? []) as CatalogService[];
+}
 
+async function loadBusy(admin: AdminClient, company: ResolvedCompany, now: Date): Promise<BusyBooking[]> {
+  const horizonDays = (company.policy ? company.policy.horizonDays : company.settings.horizonDays) + 14;
   const { data, error } = await admin
     .from("bookings")
-    .select("title, scheduled_for, duration_minutes")
+    .select("scheduled_for, duration_minutes, window_key")
     .eq("organization_id", company.organizationId)
-    .eq("company_id", company.id)
+    .eq("company_id", company.row.id)
     .neq("status", "cancelled")
-    .gte("scheduled_for", nowIso)
-    .lte("scheduled_for", horizonIso);
-
+    .gte("scheduled_for", new Date(now.getTime() - 86_400_000).toISOString())
+    .lte("scheduled_for", new Date(now.getTime() + horizonDays * 86_400_000).toISOString())
+    .limit(3000);
   if (error) throw error;
-  const rows = (data ?? []) as Array<Pick<Tables<"bookings">, "title" | "scheduled_for" | "duration_minutes">>;
-  return rows.map((row) => ({
-    startsAt: row.scheduled_for,
-    durationMinutes: row.duration_minutes ?? 30,
-    title: row.title,
+  return ((data ?? []) as Array<Pick<Tables<"bookings">, "scheduled_for" | "duration_minutes" | "window_key">>).map((r) => ({
+    scheduledFor: r.scheduled_for,
+    durationMinutes: r.duration_minutes ?? 30,
+    windowKey: r.window_key,
   }));
 }
 
+async function timesFor(admin: AdminClient, company: ResolvedCompany, now: Date): Promise<PresentedTime[]> {
+  const busy = await loadBusy(admin, company, now);
+  return presentOpenTimes(openTimes({ now, timeZone: company.timeZone, policy: company.policy, settings: company.settings, busy }), company.policy, company.timeZone);
+}
+
+export async function getPublicBookingPage(companyId: string, now: Date = new Date()): Promise<PublicBookingPage | null> {
+  const admin = createSupabaseAdminClient();
+  const company = await resolveCompany(admin, companyId);
+  if (!company || !company.settings.enabled) return null;
+  const [services, times] = await Promise.all([loadServices(admin, company), timesFor(admin, company, now)]);
+  return {
+    company: { id: company.row.id, name: company.row.name },
+    brand: brandOfCompany(company.row),
+    timezone: company.timeZone,
+    mode: company.policy ? "windows" : "hourly",
+    services: services.map((s) => bookableService(s, company.settings, company.stripeReady)),
+    requireService: company.settings.requireService && services.length > 0,
+    times,
+  };
+}
+
 function splitName(name: string): { firstName: string; lastName: string | null } {
-  const trimmed = name.trim();
-  if (!trimmed) return { firstName: "Customer", lastName: null };
-  const parts = trimmed.split(/\s+/);
+  const parts = name.trim().split(/\s+/);
+  if (!parts[0]) return { firstName: "Customer", lastName: null };
   return { firstName: parts[0], lastName: parts.length > 1 ? parts.slice(1).join(" ") : null };
 }
 
-async function findOrCreateContact(
-  admin: AdminClient,
-  company: PublicCompany,
-  input: PublicBookingRequestInput,
-): Promise<string> {
+async function findOrCreateContact(admin: AdminClient, company: ResolvedCompany, input: PublicBookingRequestInput): Promise<string> {
   const email = input.email.trim();
-
   const { data: existing, error: findError } = await admin
     .from("contacts")
-    .select("id")
+    .select("id, phone")
     .eq("organization_id", company.organizationId)
-    .eq("company_id", company.id)
+    .eq("company_id", company.row.id)
     .ilike("email", email)
     .limit(1)
     .maybeSingle();
-
   if (findError) throw findError;
-  const found = existing as { id: string } | null;
-  if (found) return found.id;
-
+  const found = existing as { id: string; phone: string | null } | null;
+  if (found) {
+    // Fill a missing phone so reminders can text them; never overwrite one we have.
+    if (!found.phone && input.phone?.trim()) {
+      await admin.from("contacts").update({ phone: input.phone.trim() }).eq("organization_id", company.organizationId).eq("id", found.id);
+    }
+    return found.id;
+  }
   const { firstName, lastName } = splitName(input.name);
   const { data: created, error: createError } = await admin
     .from("contacts")
     .insert({
-      company_id: company.id,
+      company_id: company.row.id,
       email,
       first_name: firstName,
       last_name: lastName,
@@ -226,111 +200,141 @@ async function findOrCreateContact(
     })
     .select("id")
     .single();
-
   if (createError) throw createError;
   return (created as { id: string }).id;
 }
 
-export async function getPublicAvailability(companyId: string): Promise<PublicAvailability | null> {
-  const admin = createSupabaseAdminClient();
-  const company = await resolveCompany(admin, companyId);
-  if (!company) return null;
-
-  const nowIso = new Date().toISOString();
-  const timezone = getBusinessTimezone();
-  const busy = await loadBusy(admin, company, nowIso);
-  const slots = generateAvailability(nowIso, timezone, busy);
-
-  return { company: { id: company.id, name: company.name }, timezone, slots };
-}
-
-export async function createPublicBookingRequest(
-  companyId: string,
-  input: PublicBookingRequestInput,
-): Promise<{ ok: true; scheduledFor: string }> {
-  const admin = createSupabaseAdminClient();
-  const company = await resolveCompany(admin, companyId);
-  if (!company) {
-    throw new ValidationError("This booking link is not valid.");
-  }
-
-  // Re-derive availability now and require the requested slot to be in it. The
-  // client cannot book a time we didn't just offer (past / taken / off-hours).
-  const nowIso = new Date().toISOString();
-  const busy = await loadBusy(admin, company, nowIso);
-  const slots = generateAvailability(nowIso, getBusinessTimezone(), busy);
-  const requestedMs = new Date(input.startsAt).getTime();
-  const match = slots.find((slot) => new Date(slot.startsAt).getTime() === requestedMs);
-  if (!match) {
-    throw new ValidationError("That time is no longer available. Please choose another slot.");
-  }
-
-  const contactId = await findOrCreateContact(admin, company, input);
-
-  const { data: bookingData, error: bookingError } = await admin
-    .from("bookings")
-    .insert({
-      company_id: company.id,
-      contact_id: contactId,
-      created_by: null,
-      description: input.notes?.trim()
-        ? `Customer note: ${input.notes.trim()}`
-        : "Self-booked from the public booking page.",
-      duration_minutes: match.durationMinutes,
-      organization_id: company.organizationId,
-      scheduled_for: match.startsAt,
-      status: "pending",
-      title: `Booking request — ${input.name.trim()}`,
-    })
-    .select("*")
-    .single();
-
-  if (bookingError) throw bookingError;
-  const booking = bookingData as Tables<"bookings">;
-
-  // Fire the booking.created trigger so automations run on customer bookings,
-  // and give the owner a timeline row. Best effort: the booking is already saved,
-  // so a dispatch hiccup means "no automation ran", never "the request was lost".
-  // (The normal createBooking path dispatches via emitActivityEventAndDispatch;
-  // here we replicate its two writes — the event, then the job the worker polls —
-  // because there's no authenticated actor/context on a public request.)
+/** booking.created for automations + the owner's timeline (no session here, so replicate the two writes). */
+async function dispatchCreated(admin: AdminClient, company: ResolvedCompany, booking: Tables<"bookings">, contactId: string): Promise<void> {
   try {
     const { data: eventData, error: eventError } = await admin
       .from("activity_events")
       .insert({
         actor_user_id: null,
-        company_id: company.id,
+        company_id: company.row.id,
         entity_id: booking.id,
         entity_type: "booking",
         event_type: "booking.created",
-        metadata_json: {
-          bookingId: booking.id,
-          scheduledFor: booking.scheduled_for,
-          status: booking.status,
-          source: "public_booking",
-        },
+        metadata_json: { bookingId: booking.id, scheduledFor: booking.scheduled_for, status: booking.status, source: "public_booking" },
         organization_id: company.organizationId,
         related_entity_id: contactId,
         related_entity_type: "contact",
       })
       .select("id")
       .single();
-
     if (eventError) throw eventError;
-
     const { error: jobError } = await admin.from("workflow_event_jobs").insert({
       activity_event_id: (eventData as { id: string }).id,
       available_at: new Date().toISOString(),
-      company_id: company.id,
+      company_id: company.row.id,
       max_attempts: 5,
       organization_id: company.organizationId,
       status: "pending",
     });
-
     if (jobError) throw jobError;
   } catch (dispatchError) {
     console.error("[public-booking] workflow dispatch failed (non-fatal):", dispatchError);
   }
+}
 
-  return { ok: true, scheduledFor: booking.scheduled_for };
+export async function createPublicBooking(companyId: string, input: PublicBookingRequestInput, now: Date = new Date()): Promise<PublicBookingResult> {
+  const admin = createSupabaseAdminClient();
+  const company = await resolveCompany(admin, companyId);
+  if (!company || !company.settings.enabled) throw new ValidationError("This booking link is not valid.");
+
+  // The service: one of the company's own active ones (never a price from the request).
+  let service: CatalogService | null = null;
+  if (input.serviceId) {
+    service = (await loadServices(admin, company)).find((s) => s.id === input.serviceId) ?? null;
+    if (!service) throw new ValidationError("Please choose one of the services listed.");
+  } else if (company.settings.requireService && (await loadServices(admin, company)).length > 0) {
+    throw new ValidationError("Please choose a service.");
+  }
+
+  // The time: one of the open times we'd offer right now.
+  const times = await timesFor(admin, company, now);
+  const match = times.find((t) => Date.parse(t.startsAt) === Date.parse(input.startsAt) && (t.windowKey ?? null) === (input.windowKey ?? null));
+  if (!match) throw new ValidationError("That time is no longer available. Please choose another.");
+
+  const contactId = await findOrCreateContact(admin, company, input);
+  const price = service ? flatPrice(service) : null;
+  const deposit = depositFor(price, company.settings, company.stripeReady);
+  const holdUntil = deposit ? new Date(now.getTime() + company.settings.holdMinutes * 60_000).toISOString() : null;
+  const name = input.name.trim();
+  const notes = input.notes?.trim();
+
+  const { data: bookingData, error: bookingError } = await admin
+    .from("bookings")
+    .insert({
+      organization_id: company.organizationId,
+      company_id: company.row.id,
+      contact_id: contactId,
+      created_by: null,
+      title: service ? `${service.label} — ${name}` : `Booking — ${name}`,
+      description: notes ? `Customer note: ${notes}` : "Booked online.",
+      location: input.location?.trim() || null,
+      duration_minutes: match.durationMinutes,
+      scheduled_for: match.startsAt,
+      window_key: match.windowKey,
+      status: !deposit && company.settings.autoConfirm ? "confirmed" : "pending",
+      source: "public_booking",
+      service_item_id: service?.id ?? null,
+      price_cents: price,
+      deposit_cents: deposit,
+      hold_expires_at: holdUntil,
+    })
+    .select("*")
+    .single();
+  if (bookingError) throw bookingError;
+  const booking = bookingData as Tables<"bookings">;
+
+  let depositOut: PublicBookingResult["deposit"] = null;
+  if (deposit && service) {
+    const ctx = { organizationId: company.organizationId, actorProfileId: null, supabase: admin } as unknown as TenantServiceContext;
+    try {
+      const invoice = await createInvoice(ctx, {
+        companyId: company.row.id,
+        contactId,
+        customerAccountId: null,
+        title: `Deposit — ${service.label}`,
+        lines: [
+          {
+            label: `Deposit — ${service.label}`,
+            description: `Holds your booking for ${match.dayLabel}, ${match.label}. Credited on your final invoice.`,
+            quantity: 1,
+            unitPriceCents: deposit,
+          },
+        ],
+        taxRateBps: 0,
+        paymentTermsDays: 0,
+      });
+      const sent = await sendInvoice(ctx, invoice.id, { email: true });
+      await admin.from("bookings").update({ deposit_invoice_id: invoice.id }).eq("organization_id", company.organizationId).eq("id", booking.id);
+      depositOut = { cents: deposit, payUrl: sent.publicUrl ?? invoicePublicUrl(company.row, invoice.public_token), holdUntil: holdUntil! };
+    } catch (err) {
+      // Couldn't set up the payment: release the slot rather than hold it for nothing.
+      console.error("[public-booking] deposit invoice failed:", err instanceof Error ? err.message : err);
+      await admin.from("bookings").update({ status: "cancelled", hold_expires_at: null }).eq("organization_id", company.organizationId).eq("id", booking.id);
+      throw new ValidationError("We couldn't set up the deposit payment. Please try again, or call us to book.");
+    }
+  }
+
+  await dispatchCreated(admin, company, booking, contactId);
+  await notifyOnlineBooking({
+    organizationId: company.organizationId,
+    companyId: company.row.id,
+    bookingId: booking.id,
+    title: `New online booking: ${name}`,
+    body: `${service?.label ?? "Booking"} · ${match.dayLabel}, ${match.label}${deposit ? ` · waiting for a $${(deposit / 100).toFixed(2)} deposit` : ""}`,
+  });
+
+  return {
+    ok: true,
+    scheduledFor: booking.scheduled_for,
+    dayLabel: match.dayLabel,
+    label: match.label,
+    status: booking.status === "confirmed" ? "confirmed" : "pending",
+    manageUrl: booking.manage_token ? `${quotePublicBaseUrlFor(company.row)}/v/${booking.manage_token}` : null,
+    deposit: depositOut,
+  };
 }

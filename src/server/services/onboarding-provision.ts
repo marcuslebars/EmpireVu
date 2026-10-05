@@ -1,5 +1,6 @@
 import type { Tables } from "@/server/db/database.types";
 import { listCatalogItems } from "@/server/services/quotes/catalog-items";
+import { bookingPageUrl } from "@/server/services/scheduling/urls";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { upsertCompanyVoiceProfile } from "@/server/services/company-voice-profiles";
 import { getPack, packReceptionistNotes } from "@/server/services/packs";
@@ -112,7 +113,7 @@ export async function provisionPhoneForCompany(
   const services = items.map((i) => i.label);
   const baseUrl = (process.env.APP_BASE_URL ?? "").replace(/\/$/, "");
   const webhookUrl = `${baseUrl}/api/retell/webhook`;
-  const bookingUrl = baseUrl ? `${baseUrl}/book/${company.id}` : null;
+  const bookingUrl = bookingPageUrl(company);
 
   // The company's industry pack (if one was applied) adds trade FAQs / urgency keywords.
   const appliedPack = parseAppliedIndustryPack(company.industry_pack);

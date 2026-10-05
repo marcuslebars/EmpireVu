@@ -19,12 +19,12 @@
 import { z } from "zod";
 
 import type { Tables } from "@/server/db/database.types";
-import { findOpenWindows, localDate, parseBookingPolicy, type BusyBooking } from "@/server/services/booking-windows";
+import { parseBookingPolicy, type BusyBooking } from "@/server/services/booking-windows";
+import { openTimes, parseOnlineBookingSettings, presentOpenTimes } from "@/server/services/scheduling/rules";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { rescheduleBooking, updateBookingStatus } from "@/server/services/bookings";
 import { companyTimeZone, loadCompanyForInvoice } from "@/server/services/invoices/common";
 import { brandOfCompany, type InvoiceBrand } from "@/server/services/invoices/document";
-import { generateAvailability } from "@/server/services/public-booking";
 import { notifyVisitChange } from "@/server/services/push/notify";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { createTask } from "@/server/services/tasks";
@@ -85,7 +85,7 @@ async function load(db: Admin, token: string) {
   ]);
   const { data: settingsRow } = await db
     .from("companies")
-    .select("visit_settings, booking_policy")
+    .select("visit_settings, booking_policy, online_booking_settings")
     .eq("organization_id", booking.organization_id)
     .eq("id", booking.company_id)
     .maybeSingle();
@@ -94,6 +94,7 @@ async function load(db: Admin, token: string) {
     company,
     firstName: ((contactRes.data as { first_name?: string | null } | null)?.first_name ?? "").trim() || null,
     settings: parseVisitSettings(settingsRow?.visit_settings),
+    bookingSettings: parseOnlineBookingSettings(settingsRow?.online_booking_settings),
     policy: parseBookingPolicy(settingsRow?.booking_policy ?? null),
     timeZone: companyTimeZone(company),
   };
@@ -153,43 +154,19 @@ async function busyFor(db: Admin, booking: Booking, now: Date, days: number): Pr
 
 /** Open times the visit can move to: the brand's booking windows, or hourly slots. */
 export async function openTimesFor(db: Admin, ctx: Awaited<ReturnType<typeof load>>, now: Date): Promise<OpenTime[]> {
-  const { booking, policy, timeZone } = ctx;
-  const cutoffMs = now.getTime() + ctx.settings.cutoffHours * 3_600_000;
-  const dayLabel = (iso: string) => visitLabels(iso, timeZone).date;
-
-  if (policy) {
-    const busy = await busyFor(db, booking, now, policy.horizonDays + 14);
-    return findOpenWindows({ now, timeZone, policy, bookings: busy, limit: 60 })
-      .filter((w) => Date.parse(w.startsAt) >= cutoffMs && Date.parse(w.startsAt) !== Date.parse(booking.scheduled_for))
-      .map((w) => {
-        const def = policy.windows.find((x) => x.key === w.windowKey)!;
-        const spoken = def.spoken.replace(/^in the /, "");
-        return {
-          startsAt: w.startsAt,
-          day: w.date,
-          dayLabel: dayLabel(w.startsAt),
-          label: spoken.charAt(0).toUpperCase() + spoken.slice(1),
-          windowKey: w.windowKey,
-        };
-      });
-  }
-
-  const busy = await busyFor(db, booking, now, 16);
-  const durationMs = Math.max(30, booking.duration_minutes) * 60_000;
-  const overlaps = (start: number) =>
-    busy.some((b) => {
-      const s = Date.parse(b.scheduledFor);
-      const e = s + Math.max(1, b.durationMinutes) * 60_000;
-      return start < e && s < start + durationMs;
-    });
-  return generateAvailability(now.toISOString(), timeZone, busy.map((b) => ({ startsAt: b.scheduledFor, durationMinutes: b.durationMinutes, title: "" })))
-    .map((s) => Date.parse(s.startsAt))
-    .filter((start) => start >= cutoffMs && !overlaps(start) && start !== Date.parse(booking.scheduled_for))
-    .map((start) => {
-      const iso = new Date(start).toISOString();
-      const l = visitLabels(iso, timeZone);
-      return { startsAt: iso, day: localDate(new Date(start), timeZone), dayLabel: l.date, label: l.time, windowKey: null };
-    });
+  const { booking, policy, timeZone, bookingSettings } = ctx;
+  const busy = await busyFor(db, booking, now, (policy ? policy.horizonDays : bookingSettings.horizonDays) + 14);
+  const hours = Math.max(ctx.settings.cutoffHours, policy ? 0 : bookingSettings.minNoticeHours);
+  const times = openTimes({
+    now,
+    timeZone,
+    policy,
+    settings: bookingSettings,
+    busy,
+    earliestMs: now.getTime() + hours * 3_600_000,
+    durationMinutes: Math.max(15, booking.duration_minutes),
+  }).filter((t) => Date.parse(t.startsAt) !== Date.parse(booking.scheduled_for));
+  return presentOpenTimes(times, policy, timeZone).map(({ startsAt, day, dayLabel, label, windowKey }) => ({ startsAt, day, dayLabel, label, windowKey }));
 }
 
 export async function getOpenTimes(token: string, now: Date = new Date()): Promise<OpenTime[]> {

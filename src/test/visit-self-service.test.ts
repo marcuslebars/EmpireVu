@@ -264,6 +264,6 @@ describe("staff side", () => {
     expect(before).toMatchObject({ settings: DEFAULT_VISIT_SETTINGS, linkBase: "https://quotes.a1marinecare.ca/v/", reminders: [{ id: "w1", hasLink: false }] });
     const after = await addLinkToReminders(ctx, CO);
     expect(after.reminders[0].hasLink).toBe(true);
-    expect(await getVisitLink(ctx, "b1")).toEqual({ url: `https://quotes.a1marinecare.ca/v/${TOKEN}`, customerConfirmedAt: null });
+    expect(await getVisitLink(ctx, "b1")).toEqual({ url: `https://quotes.a1marinecare.ca/v/${TOKEN}`, customerConfirmedAt: null, depositCents: null, depositPaidAt: null, holdExpiresAt: null });
   });
 });

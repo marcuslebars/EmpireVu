@@ -132,13 +132,17 @@ export async function addLinkToReminders(ctx: TenantServiceContext, companyId: s
 export interface VisitLink {
   url: string | null;
   customerConfirmedAt: string | null;
+  /** Online bookings that took a deposit. */
+  depositCents: number | null;
+  depositPaidAt: string | null;
+  holdExpiresAt: string | null;
 }
 
 /** The customer's link for one job (staff can copy or text it). */
 export async function getVisitLink(ctx: TenantServiceContext, bookingId: string): Promise<VisitLink> {
   const { data: booking, error } = await ctx.supabase
     .from("bookings")
-    .select("id, company_id, manage_token, customer_confirmed_at")
+    .select("id, company_id, manage_token, customer_confirmed_at, deposit_cents, deposit_paid_at, hold_expires_at")
     .eq("organization_id", ctx.organizationId)
     .eq("id", bookingId)
     .maybeSingle();
@@ -153,5 +157,8 @@ export async function getVisitLink(ctx: TenantServiceContext, bookingId: string)
   return {
     url: booking.manage_token ? `${quotePublicBaseUrlFor(company)}/v/${booking.manage_token}` : null,
     customerConfirmedAt: booking.customer_confirmed_at,
+    depositCents: booking.deposit_cents ?? null,
+    depositPaidAt: booking.deposit_paid_at ?? null,
+    holdExpiresAt: booking.hold_expires_at ?? null,
   };
 }

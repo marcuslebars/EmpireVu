@@ -9,6 +9,7 @@ import {
   spokenWindowLabel,
 } from "@/server/services/booking-windows";
 import { quotePublicBaseUrlFor } from "@/server/services/quotes/config";
+import { bookingPageUrl } from "@/server/services/scheduling/urls";
 import { loadCallForTemplate, ownerClockTime, prettyPhone } from "@/server/services/retell/call-summary";
 import { boatFromSnapshot, DEFAULT_AGENT_NAME, formatDollars } from "@/server/services/retell/caller-lookup";
 
@@ -345,10 +346,9 @@ function readIdField(value: Json | undefined): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-/** The tenant's public booking URL for a company, or null when APP_BASE_URL is unset. */
-function companyBookingUrl(companyId: string | null): string | null {
-  const base = process.env.APP_BASE_URL?.trim().replace(/\/+$/, "");
-  return base && companyId ? `${base}/book/${companyId}` : null;
+/** The brand's public booking page, on its own domain (scheduling/urls.ts). */
+function companyBookingUrl(company: Record<string, unknown> | null): string | null {
+  return company && typeof company.id === "string" ? bookingPageUrl(company as { id: string; quote_public_base_url?: string | null }) : null;
 }
 
 async function loadRowById(
@@ -430,7 +430,7 @@ export async function buildMessageTemplateData(
     company: company
       ? {
           ...company,
-          booking_url: companyBookingUrl(companyId),
+          booking_url: companyBookingUrl(company as Record<string, unknown> | null),
           // Friendly alias for the branding column, mirroring booking_url (Task 10).
           review_url: (company as Record<string, unknown>).brand_review_url ?? null,
         }

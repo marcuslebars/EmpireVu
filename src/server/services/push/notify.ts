@@ -169,3 +169,29 @@ export function notifyVisitChange(
     "visit change notify",
   );
 }
+
+/** A customer booked online (or their deposit came in). Owners and admins. */
+export function notifyOnlineBooking(
+  input: { organizationId: string; companyId: string | null; bookingId: string; title: string; body: string },
+  options: NotifyOptions = {},
+): Promise<void> {
+  return withPush(
+    options,
+    async (admin, senders) => {
+      const recipients = await memberIds(admin, input.organizationId, ["owner", "admin"]);
+      if (recipients.length === 0) return;
+      await sendPushToOrganization(
+        admin,
+        input.organizationId,
+        {
+          title: input.title,
+          body: input.body.length > 160 ? `${input.body.slice(0, 157)}…` : input.body,
+          category: "leads",
+          data: { screen: "booking", recordId: input.bookingId, organizationId: input.organizationId, companyId: input.companyId },
+        },
+        { recipientUserIds: recipients, senders },
+      );
+    },
+    "online booking notify",
+  );
+}

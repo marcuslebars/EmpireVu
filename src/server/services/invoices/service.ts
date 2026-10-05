@@ -407,15 +407,20 @@ export async function createInvoiceFromBooking(ctx: TenantServiceContext, bookin
   if (!booking.company_id) throw new InvoiceValidationError("This booking has no company to invoice from.");
   if (!booking.contact_id) throw new InvoiceValidationError("This booking has no customer to invoice.");
 
-  // A visit of a recurring job invoices the series' price; anything else starts at $0.
+  // A visit of a recurring job invoices the series' price; a service booked online invoices
+  // the price it was booked at, crediting a paid deposit; anything else starts at $0.
   const seriesLines = booking.recurring_job_id ? await seriesLineItems(ctx, booking.recurring_job_id) : [];
+  const bookedPrice = booking.price_cents && booking.price_cents > 0 ? booking.price_cents : 0;
+  const depositPaid = booking.deposit_paid_at && booking.deposit_cents ? booking.deposit_cents : 0;
   return createInvoice(ctx, {
     companyId: booking.company_id,
     contactId: booking.contact_id,
     title: booking.title,
     lines: seriesLines.length
       ? seriesLines.map((l) => ({ label: l.label, description: null, quantity: l.quantity, unitPriceCents: l.unitPriceCents }))
-      : [{ label: booking.title, description: booking.description ?? null, quantity: 1, unitPriceCents: 0 }],
+      : [{ label: booking.title, description: booking.description ?? null, quantity: 1, unitPriceCents: bookedPrice }],
+    // The deposit was its own (tax-free) invoice; it comes off the balance here.
+    creditCents: !seriesLines.length && bookedPrice > 0 ? Math.min(depositPaid, bookedPrice) : 0,
     bookingId,
   });
 }
