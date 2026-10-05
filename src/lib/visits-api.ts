@@ -58,6 +58,9 @@ export interface VisitSettingsView {
 export interface VisitLink {
   url: string | null;
   customerConfirmedAt: string | null;
+  depositCents: number | null;
+  depositPaidAt: string | null;
+  holdExpiresAt: string | null;
 }
 
 const org = (orgId: string) => `/api/organizations/${orgId}`;

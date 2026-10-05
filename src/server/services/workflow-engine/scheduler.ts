@@ -1,5 +1,6 @@
 import { sweepRecurringJobs } from "@/server/services/recurring/sweep";
 import { sweepReviewRequests } from "@/server/services/reviews/send";
+import { expireDepositHolds } from "@/server/services/scheduling/deposits";
 import type { Json, Tables } from "@/server/db/database.types";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { sendDailyDigests } from "@/server/services/push/digest";
@@ -310,6 +311,7 @@ let lastSetupFollowupRunMs = 0;
 let lastRecurringRunMs = 0;
 const RECURRING_INTERVAL_MS = 60 * 60 * 1000;
 let lastReviewRunMs = 0;
+let lastHoldRunMs = 0;
 const REVIEW_INTERVAL_MS = 5 * 60 * 1000;
 /** Last operator-health look in this worker process (the daily send is claimed per day in the DB). */
 let lastOperatorHealthRunMs = 0;
@@ -377,6 +379,16 @@ export async function runScheduler(
         if (r.due) console.log(`[scheduler] reviews: due=${r.due} sent=${r.sent} skipped=${r.skipped} deferred=${r.deferred} failed=${r.failed}`);
       })
       .catch((error) => console.error("[scheduler] review requests failed", error instanceof Error ? error.message : error));
+  }
+  // Online-booking deposit holds (docs/online-booking.md): release slots whose deposit never
+  // came. Same 5-minute cadence as review requests; idempotent.
+  if (nowMs - lastHoldRunMs >= REVIEW_INTERVAL_MS) {
+    lastHoldRunMs = nowMs;
+    await expireDepositHolds(new Date(nowMs))
+      .then((r) => {
+        if (r.expired || r.extended) console.log(`[scheduler] deposit holds: released=${r.expired} still-clearing=${r.extended}`);
+      })
+      .catch((error) => console.error("[scheduler] deposit holds failed", error instanceof Error ? error.message : error));
   }
   return { ticksMaterialized, ticksProcessed, entitiesEmitted };
 }

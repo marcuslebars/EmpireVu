@@ -164,6 +164,15 @@ export async function fetchOverviewInputs(ctx: TenantServiceContext, period: Ove
 
   const timeEntries = entries.filter((e) => !companyId || !e.company_id || e.company_id === companyId);
 
+  // Online-booking deposit invoices: the job's own invoice later bills the full price and
+  // credits the deposit, so counting both would invoice the deposit twice.
+  const depositInvoiceIds = new Set<string>();
+  for (const ids of chunks(issued.map((i) => i.id))) {
+    const { data, error } = await db.from("bookings").select("deposit_invoice_id").eq("organization_id", org).in("deposit_invoice_id", ids);
+    if (error) throw error;
+    for (const b of data ?? []) if (b.deposit_invoice_id) depositInvoiceIds.add(b.deposit_invoice_id);
+  }
+
   const quotesById = new Map<string, (typeof sentQuotes)[number]>();
   for (const q of [...sentQuotes, ...approvedQuotes]) quotesById.set(q.id, q);
 
@@ -201,7 +210,7 @@ export async function fetchOverviewInputs(ctx: TenantServiceContext, period: Ove
     })),
     invoiceContacts,
     issued: issued
-      .filter((i) => i.issue_date && i.status !== "draft" && i.status !== "void")
+      .filter((i) => i.issue_date && i.status !== "draft" && i.status !== "void" && !depositInvoiceIds.has(i.id))
       .map((i) => ({ issueDate: i.issue_date as string, totalCents: i.total_cents, currency: i.currency })),
     open: open.map((o) => ({ balanceCents: o.balance_due_cents, pendingCents: o.pending_payment_cents, dueDate: o.due_date, currency: o.currency })),
     bookings: bookings.map((b) => ({ scheduledFor: b.scheduled_for, status: b.status, contactId: b.contact_id })),

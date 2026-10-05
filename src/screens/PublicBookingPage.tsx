@@ -1,294 +1,420 @@
+/**
+ * Online booking — /book/:companyId
+ *
+ * The brand's own booking page: pick a service (from its price list), pick one of its real
+ * open times (its booking windows, or its bookable hours), leave your details — and, when
+ * the brand takes deposits, pay one to hold the slot. Everything on it is the BRAND's (logo,
+ * colour, phone); the platform behind it is never named. Mobile-first.
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { useDocumentTitle } from "@/lib/use-document-title";
-import { Calendar, Clock, CheckCircle2, Loader2, ArrowLeft } from "lucide-react";
-import TurnstileWidget from "@/components/TurnstileWidget";
+import { AlertCircle, ArrowLeft, CalendarDays, CheckCircle2, Clock, Loader2, Phone } from "lucide-react";
 
-interface AvailableSlot {
+import TurnstileWidget from "@/components/TurnstileWidget";
+import { inkOnWhite, textOn } from "@/lib/brand-colors";
+import type { PortalBrand } from "@/lib/portal-api";
+import { useDocumentTitle } from "@/lib/use-document-title";
+
+const DEFAULT_PRIMARY = "#1f2937";
+const INK = "#111827";
+const MUTED = "#6b7280";
+const BORDER = "#e5e7eb";
+
+interface Service {
+  id: string;
+  label: string;
+  description: string | null;
+  priceCents: number | null;
+  priceLabel: string | null;
+  depositCents: number | null;
+}
+
+interface OpenTime {
   startsAt: string;
+  day: string;
+  dayLabel: string;
+  label: string;
+  windowKey: string | null;
   durationMinutes: number;
 }
 
-interface Availability {
+interface BookingPage {
   company: { id: string; name: string };
+  brand: PortalBrand;
   timezone: string;
-  slots: AvailableSlot[];
+  mode: "windows" | "hourly";
+  services: Service[];
+  requireService: boolean;
+  times: OpenTime[];
 }
 
-type Status = "loading" | "ready" | "error";
+interface Booked {
+  scheduledFor: string;
+  dayLabel: string;
+  label: string;
+  status: "confirmed" | "pending";
+  manageUrl: string | null;
+  deposit: { cents: number; payUrl: string; holdUntil: string } | null;
+}
+
+type Step = "service" | "time" | "details";
+
+const dollars = (cents: number) => `$${(cents / 100).toLocaleString("en-CA", { minimumFractionDigits: cents % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
 
 export default function PublicBookingPage() {
-  const { companyId } = useParams();
-
-  const [status, setStatus] = useState<Status>("loading");
-  const [errorMsg, setErrorMsg] = useState("");
-  const [availability, setAvailability] = useState<Availability | null>(null);
-
-  const [selected, setSelected] = useState<string | null>(null);
+  const { companyId = "" } = useParams<{ companyId: string }>();
+  const [status, setStatus] = useState<"loading" | "ready" | "notfound" | "error">("loading");
+  const [page, setPage] = useState<BookingPage | null>(null);
+  const [step, setStep] = useState<Step>("time");
+  const [service, setService] = useState<Service | null>(null);
+  const [day, setDay] = useState<string | null>(null);
+  const [time, setTime] = useState<OpenTime | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState("");
-  const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [booked, setBooked] = useState<Booked | null>(null);
 
-  // Abuse controls (Task 5): a honeypot the visitor never sees, a "form opened at"
-  // timestamp (a sub-3s submit is a bot), and a Turnstile token when configured.
+  // Abuse controls: a honeypot the visitor never sees, a "form opened at" timestamp (a
+  // sub-3s submit is a bot), and a Turnstile token when configured.
   const websiteRef = useRef<HTMLInputElement>(null);
   const [formStartedAt] = useState(() => Date.now());
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const handleTurnstileToken = useCallback((token: string | null) => setTurnstileToken(token), []);
 
-  useEffect(() => {
-    let active = true;
-    setStatus("loading");
-    (async () => {
-      try {
-        const res = await fetch(`/api/public/booking/${companyId}`);
-        if (!res.ok) {
-          if (active) {
-            setStatus("error");
-            setErrorMsg(res.status === 404 ? "This booking link isn't valid." : "Couldn't load available times.");
-          }
-          return;
-        }
-        const json = await res.json();
-        if (active) {
-          setAvailability(json.data as Availability);
-          setStatus("ready");
-        }
-      } catch {
-        if (active) {
-          setStatus("error");
-          setErrorMsg("Couldn't load available times. Please try again.");
-        }
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/public/booking/${encodeURIComponent(companyId)}`);
+      if (!res.ok) {
+        setStatus(res.status === 404 ? "notfound" : "error");
+        return;
       }
-    })();
-    return () => {
-      active = false;
-    };
+      const json = (await res.json()) as { data: BookingPage };
+      setPage(json.data);
+      setStatus("ready");
+      return json.data;
+    } catch {
+      setStatus("error");
+    }
   }, [companyId]);
 
-  useDocumentTitle(availability?.company.name ? `Book with ${availability.company.name}` : null);
-
-  const tz = availability?.timezone ?? "America/Toronto";
-
-  const { dayFormatter, timeFormatter, tzLabel } = useMemo(() => {
-    const day = new Intl.DateTimeFormat("en-US", {
-      timeZone: tz,
-      weekday: "long",
-      month: "short",
-      day: "numeric",
+  useEffect(() => {
+    void load().then((p) => {
+      if (p && p.services.length > 0) setStep("service");
     });
-    const time = new Intl.DateTimeFormat("en-US", {
-      timeZone: tz,
-      hour: "numeric",
-      minute: "2-digit",
-    });
-    let label = tz;
-    try {
-      const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "short" }).formatToParts(new Date());
-      label = parts.find((p) => p.type === "timeZoneName")?.value ?? tz;
-    } catch {
-      /* keep IANA name */
+  }, [load]);
+
+  useDocumentTitle(page?.brand.name ? `Book with ${page.brand.name}` : page ? `Book with ${page.company.name}` : null);
+
+  const days = useMemo(() => {
+    const map = new Map<string, { day: string; label: string; times: OpenTime[] }>();
+    for (const t of page?.times ?? []) {
+      const d = map.get(t.day) ?? { day: t.day, label: t.dayLabel, times: [] };
+      d.times.push(t);
+      map.set(t.day, d);
     }
-    return { dayFormatter: day, timeFormatter: time, tzLabel: label };
-  }, [tz]);
+    return [...map.values()];
+  }, [page]);
 
-  const groups = useMemo(() => {
-    const map = new Map<string, { label: string; slots: AvailableSlot[] }>();
-    for (const slot of availability?.slots ?? []) {
-      const label = dayFormatter.format(new Date(slot.startsAt));
-      if (!map.has(label)) map.set(label, { label, slots: [] });
-      map.get(label)!.slots.push(slot);
-    }
-    return Array.from(map.values());
-  }, [availability, dayFormatter]);
-
-  const canSubmit = Boolean(selected) && name.trim().length > 0 && email.trim().length > 0 && !submitting;
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmit || !selected) return;
+    if (!time || !name.trim() || !email.trim()) return;
     setSubmitting(true);
-    setSubmitError("");
+    setError(null);
     try {
-      const res = await fetch(`/api/public/booking/${companyId}`, {
+      const res = await fetch(`/api/public/booking/${encodeURIComponent(companyId)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
           email: email.trim(),
           phone: phone.trim() || undefined,
+          location: location.trim() || undefined,
           notes: notes.trim() || undefined,
-          startsAt: selected,
-          // Abuse signals — see the route's honeypot / timing / Turnstile checks.
+          serviceId: service?.id ?? null,
+          startsAt: time.startsAt,
+          windowKey: time.windowKey,
           website: websiteRef.current?.value || undefined,
           formStartedAt,
           turnstileToken: turnstileToken ?? undefined,
         }),
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setSubmitError((json as { error?: string })?.error || "Couldn't submit your request. Please try again.");
-        setSubmitting(false);
+      const json = (await res.json().catch(() => ({}))) as { data?: Booked; error?: string };
+      if (!res.ok || !json.data) {
+        setError(json.error || "Couldn't book that. Please try again.");
+        if (res.status === 400 && /no longer available/i.test(json.error ?? "")) {
+          setTime(null);
+          setStep("time");
+          void load();
+        }
         return;
       }
-      setConfirmedAt((json as { data?: { scheduledFor?: string } })?.data?.scheduledFor ?? selected);
+      setBooked(json.data);
     } catch {
-      setSubmitError("Couldn't submit your request. Please try again.");
+      setError("Couldn't book that. Please try again.");
+    } finally {
       setSubmitting(false);
     }
   };
 
-  const inputCls =
-    "w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring";
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+      </div>
+    );
+  }
+  if (status !== "ready" || !page) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6">
+        <div className="max-w-sm text-center space-y-2">
+          <AlertCircle className="w-8 h-8 mx-auto text-gray-400" />
+          <p className="text-base font-semibold" style={{ color: INK }}>
+            {status === "notfound" ? "Online booking isn't available" : "Couldn't load the booking page"}
+          </p>
+          <p className="text-sm" style={{ color: MUTED }}>
+            {status === "notfound" ? "Please contact the business to book." : "Please refresh the page in a moment."}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
-  return (
-    <div className="min-h-screen w-full bg-background text-foreground flex items-start sm:items-center justify-center p-4 sm:p-8">
-      <div className="w-full max-w-lg">
-        {status === "loading" && (
-          <div className="flex items-center justify-center gap-2 text-muted-foreground py-24">
-            <Loader2 className="w-5 h-5 animate-spin" /> Loading available times…
-          </div>
-        )}
+  const { brand } = page;
+  const brandName = brand.name || page.company.name;
+  const primary = brand.primaryColor || DEFAULT_PRIMARY;
+  const onPrimary = textOn(primary);
+  const accent = inkOnWhite(primary);
+  const primaryBtn = "w-full rounded-xl px-5 py-3.5 text-base font-semibold disabled:opacity-50";
+  const inputCls = "w-full rounded-xl border px-3 py-2.5 text-sm focus:outline-none focus:ring-2";
+  const pickedDay = days.find((d) => d.day === day) ?? days[0];
+  const chosenDeposit = service?.depositCents ?? null;
 
-        {status === "error" && (
-          <div className="bg-card border border-border rounded-2xl p-8 text-center">
-            <p className="text-sm text-foreground">{errorMsg}</p>
-          </div>
-        )}
-
-        {status === "ready" && availability && confirmedAt && (
-          <div className="bg-card border border-border rounded-2xl p-8 text-center space-y-3">
-            <CheckCircle2 className="w-10 h-10 text-[hsl(var(--success))] mx-auto" />
-            <h1 className="text-lg font-semibold">Request sent</h1>
-            <p className="text-sm text-muted-foreground">
-              Thanks, {name.trim().split(" ")[0]}. We&rsquo;ll confirm your{" "}
-              <span className="text-foreground font-medium">
-                {dayFormatter.format(new Date(confirmedAt))} at {timeFormatter.format(new Date(confirmedAt))} ({tzLabel})
-              </span>{" "}
-              request shortly at {email.trim()}.
-            </p>
-          </div>
-        )}
-
-        {status === "ready" && availability && !confirmedAt && (
-          <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-2xl shadow-black/20">
-            <div className="px-6 py-5 border-b border-border">
-              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Book with</p>
-              <h1 className="text-xl font-bold text-foreground mt-0.5">{availability.company.name}</h1>
-              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5" /> 60-minute appointment · times in {tzLabel}
-              </p>
-            </div>
-
-            <form onSubmit={handleSubmit} className="p-6 space-y-5">
-              {/* Slot picker */}
-              {!selected ? (
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5" /> Choose a time
-                  </label>
-                  {groups.length === 0 ? (
-                    <p className="text-sm text-muted-foreground bg-secondary rounded-lg p-4 text-center">
-                      No open times in the next two weeks. Please check back soon.
-                    </p>
-                  ) : (
-                    <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
-                      {groups.map((group) => (
-                        <div key={group.label}>
-                          <p className="text-xs font-semibold text-foreground mb-1.5">{group.label}</p>
-                          <div className="flex flex-wrap gap-2">
-                            {group.slots.map((slot) => (
-                              <button
-                                key={slot.startsAt}
-                                type="button"
-                                onClick={() => setSelected(slot.startsAt)}
-                                className="px-3 py-1.5 text-sm rounded-lg border border-border bg-secondary hover:border-primary/50 hover:bg-surface-3 transition-colors"
-                              >
-                                {timeFormatter.format(new Date(slot.startsAt))}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2.5">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Calendar className="w-4 h-4 text-primary" />
-                    <span className="font-medium text-foreground">
-                      {dayFormatter.format(new Date(selected))} at {timeFormatter.format(new Date(selected))}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelected(null)}
-                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" /> Change
-                  </button>
-                </div>
-              )}
-
-              {/* Details — only once a slot is picked */}
-              {selected && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Your name <span className="text-destructive">*</span></label>
-                    <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Jane Smith" className={inputCls} />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Email <span className="text-destructive">*</span></label>
-                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="jane@example.com" className={inputCls} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Phone</label>
-                      <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Optional" className={inputCls} />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1.5 block">What do you need? </label>
-                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Optional — tell us about the job (boat type, service, etc.)" className={`${inputCls} resize-none`} />
-                  </div>
-
-                  {/* Honeypot — hidden from real users, catches bots that fill every field. */}
-                  <input
-                    ref={websiteRef}
-                    type="text"
-                    name="website"
-                    tabIndex={-1}
-                    autoComplete="off"
-                    aria-hidden="true"
-                    style={{ position: "absolute", left: "-9999px", width: 1, height: 1, opacity: 0 }}
-                  />
-
-                  {/* Turnstile — renders only when VITE_TURNSTILE_SITE_KEY is set. */}
-                  <TurnstileWidget onToken={handleTurnstileToken} />
-
-                  {submitError && (
-                    <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-2.5 text-xs text-destructive">{submitError}</div>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={!canSubmit}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</> : "Request this time"}
-                  </button>
-                  <p className="text-[11px] text-muted-foreground/70 text-center">You&rsquo;ll get a confirmation once we approve your request.</p>
-                </div>
-              )}
-            </form>
-          </div>
+  const header = (
+    <header className="bg-white border-b" style={{ borderColor: BORDER }}>
+      <div className="max-w-lg mx-auto px-5 py-4 flex items-center gap-3">
+        {brand.logoUrl ? (
+          <img src={brand.logoUrl} alt={brandName} className="h-9 w-auto max-w-[160px] object-contain" />
+        ) : (
+          <span className="text-lg font-bold" style={{ color: accent }}>
+            {brandName}
+          </span>
         )}
       </div>
+    </header>
+  );
+
+  if (booked) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        {header}
+        <main className="max-w-lg mx-auto px-5 py-8 space-y-4">
+          {booked.deposit ? (
+            <section className="rounded-2xl bg-white border p-6 space-y-4" style={{ borderColor: BORDER }}>
+              <h1 className="text-xl font-bold" style={{ color: INK }}>
+                One more step: pay the deposit
+              </h1>
+              <p className="text-sm" style={{ color: MUTED }}>
+                We're holding <span className="font-semibold" style={{ color: INK }}>{booked.dayLabel}, {booked.label}</span> for you. Pay the{" "}
+                {dollars(booked.deposit.cents)} deposit by{" "}
+                {new Date(booked.deposit.holdUntil).toLocaleTimeString("en-CA", { timeZone: page.timezone, hour: "numeric", minute: "2-digit" })} to confirm it. It comes off your final bill.
+              </p>
+              <a href={booked.deposit.payUrl} className={`${primaryBtn} block text-center`} style={{ background: primary, color: onPrimary }}>
+                Pay {dollars(booked.deposit.cents)} deposit
+              </a>
+            </section>
+          ) : (
+            <section className="rounded-2xl bg-white border p-6 space-y-3 text-center" style={{ borderColor: BORDER }}>
+              <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-600" />
+              <h1 className="text-xl font-bold" style={{ color: INK }}>
+                {booked.status === "confirmed" ? "You're booked" : "Request sent"}
+              </h1>
+              <p className="text-sm" style={{ color: MUTED }}>
+                {booked.dayLabel}, {booked.label}.{" "}
+                {booked.status === "confirmed" ? "See you then!" : `${brandName} will confirm shortly.`}
+              </p>
+            </section>
+          )}
+          {booked.manageUrl && (
+            <a href={booked.manageUrl} className="block text-center text-sm font-medium" style={{ color: accent }}>
+              View or change your booking
+            </a>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {header}
+      <main className="max-w-lg mx-auto px-5 py-6 space-y-4">
+        <div>
+          <h1 className="text-2xl font-bold" style={{ color: INK }}>
+            Book with {brandName}
+          </h1>
+          {(service || time) && (
+            <p className="text-sm mt-1" style={{ color: MUTED }}>
+              {[service?.label, time ? `${time.dayLabel}, ${time.label}` : null].filter(Boolean).join(" · ")}
+            </p>
+          )}
+        </div>
+
+        {error && (
+          <p role="alert" className="text-sm rounded-xl border border-red-200 bg-red-50 text-red-700 px-4 py-3">
+            {error}
+          </p>
+        )}
+
+        {step === "service" && (
+          <section className="rounded-2xl bg-white border p-5 space-y-3" style={{ borderColor: BORDER }}>
+            <p className="text-sm font-semibold" style={{ color: INK }}>
+              What do you need?
+            </p>
+            <ul className="space-y-2">
+              {page.services.map((s) => (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    onClick={() => { setService(s); setStep("time"); }}
+                    className="w-full text-left rounded-xl border px-4 py-3 hover:bg-gray-50"
+                    style={service?.id === s.id ? { borderColor: primary } : { borderColor: BORDER }}
+                  >
+                    <span className="flex items-start justify-between gap-3">
+                      <span className="text-sm font-semibold" style={{ color: INK }}>
+                        {s.label}
+                      </span>
+                      {s.priceLabel && (
+                        <span className="text-sm whitespace-nowrap" style={{ color: INK }}>
+                          {s.priceLabel}
+                        </span>
+                      )}
+                    </span>
+                    {s.description && (
+                      <span className="block text-xs mt-1 line-clamp-2" style={{ color: MUTED }}>
+                        {s.description}
+                      </span>
+                    )}
+                    {s.depositCents && (
+                      <span className="block text-xs mt-1" style={{ color: MUTED }}>
+                        {dollars(s.depositCents)} deposit to book
+                      </span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {!page.requireService && (
+              <button type="button" onClick={() => { setService(null); setStep("time"); }} className="w-full py-2 text-sm font-medium" style={{ color: MUTED }}>
+                Not sure — just book a time
+              </button>
+            )}
+          </section>
+        )}
+
+        {step === "time" && (
+          <section className="rounded-2xl bg-white border p-5 space-y-4" style={{ borderColor: BORDER }}>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold flex items-center gap-2" style={{ color: INK }}>
+                <CalendarDays className="w-4 h-4" style={{ color: accent }} /> Pick a time
+              </p>
+              {page.services.length > 0 && (
+                <button type="button" onClick={() => setStep("service")} className="text-xs flex items-center gap-1" style={{ color: MUTED }}>
+                  <ArrowLeft className="w-3.5 h-3.5" /> Service
+                </button>
+              )}
+            </div>
+            {days.length === 0 ? (
+              <p className="text-sm" style={{ color: MUTED }}>
+                No open times right now — please call or text us to book.
+              </p>
+            ) : (
+              <>
+                <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" role="tablist" aria-label="Day">
+                  {days.map((d) => {
+                    const active = d.day === pickedDay?.day;
+                    return (
+                      <button
+                        key={d.day}
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => { setDay(d.day); setTime(null); }}
+                        className="shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold text-left"
+                        style={active ? { background: primary, color: onPrimary, borderColor: primary } : { borderColor: BORDER, color: INK }}
+                      >
+                        {d.label.split(",")[0]}
+                        <span className="block font-normal opacity-80">{d.label.split(",")[1]?.trim()}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {pickedDay?.times.map((t) => {
+                    const active = time?.startsAt === t.startsAt && time?.windowKey === t.windowKey;
+                    return (
+                      <button
+                        key={`${t.startsAt}-${t.windowKey ?? ""}`}
+                        onClick={() => setTime(t)}
+                        aria-pressed={active}
+                        className="rounded-xl border px-3 py-2.5 text-sm font-medium"
+                        style={active ? { background: primary, color: onPrimary, borderColor: primary } : { borderColor: BORDER, color: INK }}
+                      >
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs flex items-center gap-1" style={{ color: MUTED }}>
+                  <Clock className="w-3.5 h-3.5" /> Times are {page.timezone.replace("_", " ").split("/").pop()} time
+                </p>
+              </>
+            )}
+            <button type="button" disabled={!time} onClick={() => setStep("details")} className={primaryBtn} style={{ background: primary, color: onPrimary }}>
+              {time ? `Continue with ${time.dayLabel.split(",")[0]}, ${time.label}` : "Pick a time"}
+            </button>
+          </section>
+        )}
+
+        {step === "details" && time && (
+          <form onSubmit={(e) => void submit(e)} className="rounded-2xl bg-white border p-5 space-y-3" style={{ borderColor: BORDER }}>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold" style={{ color: INK }}>
+                Your details
+              </p>
+              <button type="button" onClick={() => setStep("time")} className="text-xs flex items-center gap-1" style={{ color: MUTED }}>
+                <ArrowLeft className="w-3.5 h-3.5" /> Time
+              </button>
+            </div>
+            <input aria-label="Your name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Your name" className={inputCls} style={{ borderColor: BORDER, color: INK }} />
+            <input aria-label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="Email" className={inputCls} style={{ borderColor: BORDER, color: INK }} />
+            <input aria-label="Mobile number" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Mobile number (for reminders)" className={inputCls} style={{ borderColor: BORDER, color: INK }} />
+            <input aria-label="Where" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Where? (address, marina, dock…)" className={inputCls} style={{ borderColor: BORDER, color: INK }} />
+            <textarea aria-label="Anything we should know" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Anything we should know? (optional)" className={`${inputCls} resize-none`} style={{ borderColor: BORDER, color: INK }} />
+
+            {/* Honeypot — hidden from real users, catches bots that fill every field. */}
+            <input ref={websiteRef} type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: "absolute", left: "-9999px", width: 1, height: 1, opacity: 0 }} />
+            <TurnstileWidget onToken={handleTurnstileToken} />
+
+            {chosenDeposit && (
+              <p className="text-xs rounded-xl bg-gray-50 border px-3 py-2" style={{ borderColor: BORDER, color: MUTED }}>
+                A {dollars(chosenDeposit)} deposit holds this time — you'll pay it next. It comes off your final bill.
+              </p>
+            )}
+            <button type="submit" disabled={submitting || !name.trim() || !email.trim()} className={primaryBtn} style={{ background: primary, color: onPrimary }}>
+              {submitting ? "Booking…" : chosenDeposit ? "Continue to deposit" : "Book it"}
+            </button>
+          </form>
+        )}
+
+        {brand.replyPhone && (
+          <a href={`tel:${brand.replyPhone}`} className="flex items-center justify-center gap-2 text-sm font-medium pt-2" style={{ color: accent }}>
+            <Phone className="w-4 h-4" /> Rather call? {brand.replyPhone}
+          </a>
+        )}
+      </main>
     </div>
   );
 }

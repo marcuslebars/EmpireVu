@@ -22,7 +22,20 @@ export function VisitLinkRow({ orgId, bookingId }: { orgId: string; bookingId: s
     }
   };
 
+  const deposit = data.depositCents
+    ? data.depositPaidAt
+      ? { text: `$${(data.depositCents / 100).toFixed(2)} deposit paid`, tone: "text-[hsl(var(--success))]" }
+      : data.holdExpiresAt
+        ? {
+            text: `Waiting for $${(data.depositCents / 100).toFixed(2)} deposit — held until ${new Date(data.holdExpiresAt).toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit" })}`,
+            tone: "text-[hsl(var(--warning))]",
+          }
+        : null
+    : null;
+
   return (
+    <>
+    {deposit && <p className={`text-xs font-medium ${deposit.tone}`}>{deposit.text}</p>}
     <div className="flex items-center justify-between gap-3 text-xs">
       {data.customerConfirmedAt ? (
         <span className="flex items-center gap-1.5 text-[hsl(var(--success))] font-medium">
@@ -39,5 +52,6 @@ export function VisitLinkRow({ orgId, bookingId }: { orgId: string; bookingId: s
         </button>
       )}
     </div>
+    </>
   );
 }

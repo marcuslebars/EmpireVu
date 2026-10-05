@@ -100,19 +100,35 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
         return builder;
       },
       gt: (column: string, value: unknown) => {
-        filters.push((row) => String(readPath(row, column) ?? "") > String(value));
+        // Like SQL: a NULL never compares true.
+        filters.push((row) => {
+          const v = readPath(row, column);
+          return v !== null && v !== undefined && String(v) > String(value);
+        });
         return builder;
       },
       lt: (column: string, value: unknown) => {
-        filters.push((row) => String(readPath(row, column) ?? "") < String(value));
+        // Like SQL: a NULL never compares true.
+        filters.push((row) => {
+          const v = readPath(row, column);
+          return v !== null && v !== undefined && String(v) < String(value);
+        });
         return builder;
       },
       gte: (column: string, value: unknown) => {
-        filters.push((row) => String(readPath(row, column) ?? "") >= String(value));
+        // Like SQL: a NULL never compares true.
+        filters.push((row) => {
+          const v = readPath(row, column);
+          return v !== null && v !== undefined && String(v) >= String(value);
+        });
         return builder;
       },
       lte: (column: string, value: unknown) => {
-        filters.push((row) => String(readPath(row, column) ?? "") <= String(value));
+        // Like SQL: a NULL never compares true.
+        filters.push((row) => {
+          const v = readPath(row, column);
+          return v !== null && v !== undefined && String(v) <= String(value);
+        });
         return builder;
       },
       is: (column: string, value: unknown) => {
@@ -126,6 +142,11 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
       },
       delete: () => {
         mode = "delete";
+        return builder;
+      },
+      ilike: (column: string, pattern: string) => {
+        const re = new RegExp(`^${String(pattern).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".")}$`, "i");
+        filters.push((row) => re.test(String(readPath(row, column) ?? "")));
         return builder;
       },
       in: (column: string, values: unknown[]) => {

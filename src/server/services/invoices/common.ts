@@ -267,6 +267,14 @@ async function onInvoicePaid(db: Db, invoice: InvoiceRow): Promise<void> {
     eventType: "invoice.paid",
   });
 
+  // A deposit for an online booking → the booking is confirmed. Never throws.
+  try {
+    const { onDepositInvoicePaid } = await import("@/server/services/scheduling/deposits");
+    await onDepositInvoicePaid(db, invoice);
+  } catch (err) {
+    console.error("[invoices] could not confirm the booking deposit:", err instanceof Error ? err.message : err);
+  }
+
   // Paid → queue a review request, when the brand asks on payment. Never throws.
   // Imported lazily: the review module reaches back into messaging/quotes code.
   try {

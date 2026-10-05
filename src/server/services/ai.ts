@@ -1,3 +1,4 @@
+import { bookingPageUrl } from "@/server/services/scheduling/urls";
 import type { Tables } from "@/server/db/database.types";
 import { ValidationError } from "@/server/organizations/context";
 import type { TenantServiceContext } from "@/server/services/shared";
@@ -102,14 +103,17 @@ export async function analyzeContact(
   }
 
   let companyName: string | null = null;
+  let companyBase: { id: string; quote_public_base_url: string | null } | null = null;
   if (contact.company_id) {
     const { data: companyData } = await context.supabase
       .from("companies")
-      .select("name")
+      .select("id, name, quote_public_base_url")
       .eq("organization_id", context.organizationId)
       .eq("id", contact.company_id)
       .maybeSingle();
-    companyName = (companyData as { name: string } | null)?.name ?? null;
+    const row = companyData as { id: string; name: string; quote_public_base_url: string | null } | null;
+    companyName = row?.name ?? null;
+    companyBase = row ? { id: row.id, quote_public_base_url: row.quote_public_base_url } : null;
   }
 
   const metadata =
@@ -123,9 +127,8 @@ export async function analyzeContact(
     new Date().toISOString(),
   );
 
-  const appBaseUrl = getAppBaseUrl();
-  const bookingUrl =
-    appBaseUrl && contact.company_id ? `${appBaseUrl}/book/${contact.company_id}` : null;
+  // Customer-facing: the brand's own booking page (its quote domain), not the app domain.
+  const bookingUrl = companyBase ? bookingPageUrl(companyBase) : null;
 
   const { analysis, usage } = await analyzeLead({
     firstName: contact.first_name,

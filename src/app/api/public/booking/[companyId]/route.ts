@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { handleRoute } from "@/server/api/route";
-import {
-  createPublicBookingRequest,
-  getPublicAvailability,
-  publicBookingRequestSchema,
-} from "@/server/services/public-booking";
+import { createPublicBooking, getPublicBookingPage, publicBookingRequestSchema } from "@/server/services/public-booking";
 import { clientIp, enforceRateLimit } from "@/server/services/rate-limit";
 import { assessFormSignals, verifyTurnstile } from "@/server/services/turnstile";
 
@@ -41,11 +37,11 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     });
     if (limited) return limited;
 
-    const data = await getPublicAvailability(context.params.companyId);
+    const data = await getPublicBookingPage(context.params.companyId);
     if (!data) {
       return NextResponse.json({ error: "This booking link is not valid." }, { status: 404 });
     }
-    return NextResponse.json({ data });
+    return NextResponse.json({ data }, { headers: { "cache-control": "no-store" } });
   });
 }
 
@@ -97,7 +93,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
 
     // Unknown keys (website / formStartedAt / turnstileToken) are stripped by the schema.
     const input = publicBookingRequestSchema.parse(raw);
-    const data = await createPublicBookingRequest(companyId, input);
+    const data = await createPublicBooking(companyId, input);
     return NextResponse.json({ data });
   });
 }
