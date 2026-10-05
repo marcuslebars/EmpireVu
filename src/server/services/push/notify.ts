@@ -142,3 +142,30 @@ export function notifyPortalRequest(
     "portal request notify",
   );
 }
+
+/** A customer moved or cancelled their visit from its link. Owners, admins and the visit's crew. */
+export function notifyVisitChange(
+  input: { organizationId: string; companyId: string | null; bookingId: string; title: string; body: string; crewIds: string[] },
+  options: NotifyOptions = {},
+): Promise<void> {
+  return withPush(
+    options,
+    async (admin, senders) => {
+      const managers = await memberIds(admin, input.organizationId, ["owner", "admin"]);
+      const recipients = [...new Set([...managers, ...input.crewIds])];
+      if (recipients.length === 0) return;
+      await sendPushToOrganization(
+        admin,
+        input.organizationId,
+        {
+          title: input.title,
+          body: input.body.length > 160 ? `${input.body.slice(0, 157)}…` : input.body,
+          category: "conflicts",
+          data: { screen: "booking", recordId: input.bookingId, organizationId: input.organizationId, companyId: input.companyId },
+        },
+        { recipientUserIds: recipients, senders },
+      );
+    },
+    "visit change notify",
+  );
+}

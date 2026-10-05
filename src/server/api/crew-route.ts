@@ -13,14 +13,14 @@ import { createSupabaseServerClient } from "@/server/supabase/server";
 export function crewRoute(
   organizationId: string,
   run: (ctx: TenantServiceContext, role: string) => Promise<NextResponse>,
-  options: { adminOnly?: boolean } = {},
+  options: { adminOnly?: boolean; adminOnlyMessage?: string } = {},
 ): Promise<NextResponse> {
   return handleRoute(async () => {
     const supabase = createSupabaseServerClient();
     const organization = await requireOrganizationContext(supabase, organizationId);
     const role = organization.membership.role;
     if (options.adminOnly && role !== "owner" && role !== "admin") {
-      throw new AuthorizationError("Only owners and admins can change checklists.");
+      throw new AuthorizationError(options.adminOnlyMessage ?? "Only owners and admins can change checklists.");
     }
     const ctx: TenantServiceContext = { actorProfileId: organization.user.id, organizationId: organization.organizationId, supabase };
     try {

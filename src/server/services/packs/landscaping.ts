@@ -125,7 +125,7 @@ export const landscapingPack: IndustryPack = {
       "Hi {{contact.first_name}},\n\nFollowing up on the landscaping quote we sent: {{quote.public_url}}\n\nOur install schedule books up quickly, so approving early gets your project on the calendar. If you'd like to change anything — materials, layout, timing — just reply and we'll adjust it.\n\nThanks,\n{{company.name}}",
     ),
     bookingReminder(
-      "Hi {{contact.first_name}}, a reminder from {{company.name}}: we're booked at your property on {{booking.scheduled_for | date}}. Please leave side gates unlocked and keep pets inside. Reply if you need to change it.",
+      "Hi {{contact.first_name}}, a reminder from {{company.name}}: we're booked at your property on {{booking.scheduled_for | date}}. Please leave side gates unlocked and keep pets inside. Confirm or change it here: {{booking.manage_url}}",
       "{{company.name}} here. Our crew will be at your place in about 2 hours ({{booking.scheduled_for | time}}). See you soon, {{contact.first_name}}!",
     ),
     reviewRequest(

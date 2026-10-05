@@ -3,7 +3,8 @@ import type { Recipe } from "@/server/services/workflow-engine/recipes/types";
 /**
  * Booking coming up → a reminder ~24h before (the scheduler fires booking.upcoming at
  * hours_before), then a second nudge ~2h before via a wait-until, skipped if the booking
- * was cancelled or already completed.
+ * was cancelled or already completed. The first text links the customer's visit page
+ * ({{booking.manage_url}}) to confirm, move or cancel — docs/confirm-reschedule.md.
  */
 export const bookingReminder: Recipe = {
   slug: "booking-reminder",
@@ -21,7 +22,7 @@ export const bookingReminder: Recipe = {
       {
         type: "send_sms",
         to: "contact",
-        body: "Hi {{contact.first_name}}, a reminder of your booking with {{company.name}} on {{booking.scheduled_for | date}}. Reply if you need to change it.",
+        body: "Hi {{contact.first_name}}, a reminder of your booking with {{company.name}} on {{booking.scheduled_for | date}}. Confirm or change it here: {{booking.manage_url}}",
       },
       {
         type: "wait",

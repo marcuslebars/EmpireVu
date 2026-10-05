@@ -124,7 +124,7 @@ export const marinePack: IndustryPack = {
       "Hi {{contact.first_name}},\n\nFollowing up on the quote we sent: {{quote.public_url}}\n\nOur fall schedule fills up before freeze-up, so approving early gets your boat on the list. If anything about your boat has changed — length, engine, where it's stored — just reply and we'll update it.\n\nThanks,\n{{company.name}}",
     ),
     bookingReminder(
-      "Hi {{contact.first_name}}, a reminder from {{company.name}}: we're booked for your boat on {{booking.scheduled_for | date}}. Please make sure we can get to it and the cover is off. Reply if you need to change it.",
+      "Hi {{contact.first_name}}, a reminder from {{company.name}}: we're booked for your boat on {{booking.scheduled_for | date}}. Please make sure we can get to it and the cover is off. Confirm or change it here: {{booking.manage_url}}",
       "{{company.name}} here. We'll be at your boat in about 2 hours ({{booking.scheduled_for | time}}). See you soon, {{contact.first_name}}!",
     ),
     reviewRequest(

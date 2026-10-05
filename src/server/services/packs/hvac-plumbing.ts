@@ -133,7 +133,7 @@ export const hvacPlumbingPack: IndustryPack = {
       "Hi {{contact.first_name}},\n\nFollowing up on the quote we sent: {{quote.public_url}}\n\nIf you have questions about the equipment, efficiency ratings or rebate programs, just reply and a technician will walk you through it. Approving the quote gets your install on the schedule.\n\nThanks,\n{{company.name}}",
     ),
     bookingReminder(
-      "Hi {{contact.first_name}}, a reminder from {{company.name}}: your service visit is on {{booking.scheduled_for | date}}. Please make sure we can get to the furnace, water heater or work area. Reply if you need to change it.",
+      "Hi {{contact.first_name}}, a reminder from {{company.name}}: your service visit is on {{booking.scheduled_for | date}}. Please make sure we can get to the furnace, water heater or work area. Confirm or change it here: {{booking.manage_url}}",
       "{{company.name}} here. Your technician is scheduled to arrive in about 2 hours ({{booking.scheduled_for | time}}). See you soon, {{contact.first_name}}!",
     ),
     reviewRequest(

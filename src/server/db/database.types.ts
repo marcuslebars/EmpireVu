@@ -152,6 +152,8 @@ export interface Database {
           recurring_job_id: string | null;
           occurrence_date: string | null;
           recurrence_exception: boolean;
+          manage_token: string | null;
+          customer_confirmed_at: string | null;
         };
         Insert: {
           company_id: string;
@@ -178,6 +180,8 @@ export interface Database {
           recurring_job_id?: string | null;
           occurrence_date?: string | null;
           recurrence_exception?: boolean;
+          manage_token?: string | null;
+          customer_confirmed_at?: string | null;
         };
         Update: {
           company_id?: string;
@@ -204,6 +208,8 @@ export interface Database {
           recurring_job_id?: string | null;
           occurrence_date?: string | null;
           recurrence_exception?: boolean;
+          manage_token?: string | null;
+          customer_confirmed_at?: string | null;
         };
         Relationships: [];
       };
@@ -303,6 +309,7 @@ export interface Database {
           quote_deposit_flat_cents: number | null;
           quote_public_base_url: string | null;
           review_settings: Json;
+          visit_settings: Json;
           quote_terms_text: string | null;
           slug: string;
           stage: Database["public"]["Enums"]["company_stage"];
@@ -349,6 +356,7 @@ export interface Database {
           quote_deposit_flat_cents?: number | null;
           quote_public_base_url?: string | null;
           review_settings?: Json;
+          visit_settings?: Json;
           quote_terms_text?: string | null;
           slug: string;
           stage?: Database["public"]["Enums"]["company_stage"];
@@ -395,6 +403,7 @@ export interface Database {
           quote_deposit_flat_cents?: number | null;
           quote_public_base_url?: string | null;
           review_settings?: Json;
+          visit_settings?: Json;
           quote_terms_text?: string | null;
           slug?: string;
           stage?: Database["public"]["Enums"]["company_stage"];

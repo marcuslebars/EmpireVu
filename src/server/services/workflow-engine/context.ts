@@ -435,7 +435,16 @@ export async function buildMessageTemplateData(
           review_url: (company as Record<string, unknown>).brand_review_url ?? null,
         }
       : null,
-    booking: booking ? withWindowLabels(booking, company, timeZone) : null,
+    booking: booking
+      ? {
+          ...withWindowLabels(booking, company, timeZone),
+          // The customer's private confirm / reschedule / cancel page (docs/confirm-reschedule.md).
+          manage_url:
+            typeof (booking as Record<string, unknown>).manage_token === "string"
+              ? `${quotePublicBaseUrlFor(company)}/v/${(booking as Record<string, unknown>).manage_token as string}`
+              : null,
+        }
+      : null,
     quote,
     invoice,
     call: call as Record<string, unknown> | null,

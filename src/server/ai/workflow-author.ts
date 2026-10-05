@@ -138,7 +138,7 @@ Rules:
 - Prefer a few high-value automations over many marginal ones. If their setup is already good, return fewer — or an empty list. An empty list is a valid, useful answer.
 - The rationale is read by a busy business owner. One or two plain sentences on what it does and why it's worth it. No jargon.
 - Only ever use the triggers and actions listed below. Anything else is discarded.
-- Message bodies may use these template tokens: {{contact.first_name}}, {{contact.last_name}}, {{contact.phone}}, {{contact.email}}, {{company.name}}, {{company.booking_url}}, {{company.review_url}}, {{booking.scheduled_for | date}}, {{booking.scheduled_for | time}}.
+- Message bodies may use these template tokens: {{contact.first_name}}, {{contact.last_name}}, {{contact.phone}}, {{contact.email}}, {{company.name}}, {{company.booking_url}}, {{company.review_url}}, {{booking.scheduled_for | date}}, {{booking.scheduled_for | time}}, {{booking.manage_url}} (the customer's own link to confirm, reschedule or cancel the visit — use it in booking reminders).
 
 Triggers:
 - "contact.created" — a new lead arrives (from a website form or added by hand)
