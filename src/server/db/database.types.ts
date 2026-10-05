@@ -982,6 +982,192 @@ export interface Database {
         };
         Relationships: [];
       };
+      accounting_connections: {
+        Row: {
+          company_id: string;
+          organization_id: string;
+          provider: string;
+          status: string;
+          remote_tenant_id: string;
+          remote_name: string | null;
+          environment: string;
+          settings: Json;
+          sync_start_date: string;
+          connected_by: string | null;
+          connected_at: string;
+          last_sync_at: string | null;
+          last_error: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          company_id: string;
+          organization_id: string;
+          provider: string;
+          status?: string;
+          remote_tenant_id: string;
+          remote_name?: string | null;
+          environment?: string;
+          settings?: Json;
+          sync_start_date?: string;
+          connected_by?: string | null;
+          connected_at?: string;
+          last_sync_at?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          company_id?: string;
+          organization_id?: string;
+          provider?: string;
+          status?: string;
+          remote_tenant_id?: string;
+          remote_name?: string | null;
+          environment?: string;
+          settings?: Json;
+          sync_start_date?: string;
+          connected_by?: string | null;
+          connected_at?: string;
+          last_sync_at?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      accounting_tokens: {
+        Row: {
+          company_id: string;
+          access_token_enc: string;
+          refresh_token_enc: string;
+          access_expires_at: string;
+          refresh_expires_at: string | null;
+          refresh_lock_at: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          company_id: string;
+          access_token_enc: string;
+          refresh_token_enc: string;
+          access_expires_at: string;
+          refresh_expires_at?: string | null;
+          refresh_lock_at?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          company_id?: string;
+          access_token_enc?: string;
+          refresh_token_enc?: string;
+          access_expires_at?: string;
+          refresh_expires_at?: string | null;
+          refresh_lock_at?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      accounting_links: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          provider: string;
+          remote_tenant_id: string;
+          entity_type: string;
+          local_key: string;
+          remote_id: string;
+          remote_version: string | null;
+          payload_hash: string | null;
+          attached_receipt_path: string | null;
+          note: string | null;
+          synced_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          provider: string;
+          remote_tenant_id: string;
+          entity_type: string;
+          local_key: string;
+          remote_id: string;
+          remote_version?: string | null;
+          payload_hash?: string | null;
+          attached_receipt_path?: string | null;
+          note?: string | null;
+          synced_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          provider?: string;
+          remote_tenant_id?: string;
+          entity_type?: string;
+          local_key?: string;
+          remote_id?: string;
+          remote_version?: string | null;
+          payload_hash?: string | null;
+          attached_receipt_path?: string | null;
+          note?: string | null;
+          synced_at?: string;
+        };
+        Relationships: [];
+      };
+      accounting_sync_jobs: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          entity_type: string;
+          entity_id: string;
+          status: string;
+          attempts: number;
+          max_attempts: number;
+          available_at: string;
+          locked_at: string | null;
+          last_error: string | null;
+          detail: string | null;
+          done_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          entity_type: string;
+          entity_id: string;
+          status?: string;
+          attempts?: number;
+          max_attempts?: number;
+          available_at?: string;
+          locked_at?: string | null;
+          last_error?: string | null;
+          detail?: string | null;
+          done_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          entity_type?: string;
+          entity_id?: string;
+          status?: string;
+          attempts?: number;
+          max_attempts?: number;
+          available_at?: string;
+          locked_at?: string | null;
+          last_error?: string | null;
+          detail?: string | null;
+          done_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       expenses: {
         Row: {
           id: string;
@@ -4130,6 +4316,28 @@ export interface Database {
           p_invoice_id: string;
         };
         Returns: Database["public"]["Tables"]["invoices"]["Row"][];
+      };
+      enqueue_accounting_sync: {
+        Args: {
+          p_company_id: string;
+          p_entity_type: string;
+          p_entity_id: string;
+        };
+        Returns: undefined;
+      };
+      claim_accounting_token_refresh: {
+        Args: {
+          p_company_id: string;
+          p_stale_after_seconds?: number;
+        };
+        Returns: boolean;
+      };
+      claim_accounting_sync_jobs: {
+        Args: {
+          p_limit?: number;
+          p_stale_after_seconds?: number;
+        };
+        Returns: Database["public"]["Tables"]["accounting_sync_jobs"]["Row"][];
       };
       billable_expenses_for_booking: {
         Args: {

@@ -1,3 +1,4 @@
+import { processAccountingJobs } from "@/server/services/accounting/engine";
 import { sweepRecurringJobs } from "@/server/services/recurring/sweep";
 import { sweepReviewRequests } from "@/server/services/reviews/send";
 import { expireDepositHolds } from "@/server/services/scheduling/deposits";
@@ -390,5 +391,13 @@ export async function runScheduler(
       })
       .catch((error) => console.error("[scheduler] deposit holds failed", error instanceof Error ? error.message : error));
   }
+  // QuickBooks / Xero sync (docs/accounting-sync.md): push queued invoices, payments and
+  // expenses. Every pass (jobs are claimed skip-locked, so overlapping passes are safe);
+  // a provider outage only backs off its own jobs.
+  await processAccountingJobs({ admin })
+    .then((r) => {
+      if (r.claimed) console.log(`[scheduler] accounting: claimed=${r.claimed} done=${r.done} skipped=${r.skipped} retrying=${r.retrying} failed=${r.failed}`);
+    })
+    .catch((error) => console.error("[scheduler] accounting sync failed", error instanceof Error ? error.message : error));
   return { ticksMaterialized, ticksProcessed, entitiesEmitted };
 }

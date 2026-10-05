@@ -278,6 +278,34 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
     ],
   },
   {
+    id: "accounting-sync",
+    title: "QuickBooks and Xero",
+    summary: "Sending invoices, payments and expenses to QuickBooks Online or Xero automatically.",
+    keywords: ["quickbooks", "qbo", "xero", "accounting", "bookkeeping", "sync", "accountant", "books", "ledger", "chart of accounts", "tax code"],
+    sections: [
+      {
+        heading: "Connecting",
+        body:
+          "Owners and admins open Settings → Accounting, pick the company, and press Connect QuickBooks Online or Connect Xero, then sign in and approve. Each company connects its own books. QuickBooks Desktop isn't supported.",
+      },
+      {
+        heading: "Choosing where things go",
+        body:
+          "After connecting, choose the product/service (QuickBooks) or sales account (Xero) for invoice lines, the tax codes, where payments go, and the accounts for expenses. EmpireVu pre-fills its best guesses from your chart of accounts. Set \"Sync records from\" to the day after the last thing you entered by hand, so nothing is duplicated. Then press Save & start syncing.",
+      },
+      {
+        heading: "What syncs",
+        body:
+          "Sent invoices with their customer, payments, refunds and voids, and expenses with their receipt photos. Drafts never sync. It's one way — changes made in QuickBooks or Xero don't come back. Edits in EmpireVu update the same record in your books, usually within a minute.",
+      },
+      {
+        heading: "When something doesn't sync",
+        body:
+          "The Activity list in Settings → Accounting shows each record and any problem. Temporary problems retry on their own. If the sign-in expires you'll see Reconnect — reconnect the same file and it picks up where it left off. Press Sync now after fixing a mapping to retry.",
+      },
+    ],
+  },
+  {
     id: "ai-receptionist",
     title: "The AI receptionist (Front Desk)",
     summary: "What the AI receptionist does, how to get its number, and how minutes work.",
