@@ -1,4 +1,5 @@
 import { sweepRecurringJobs } from "@/server/services/recurring/sweep";
+import { sweepReviewRequests } from "@/server/services/reviews/send";
 import type { Json, Tables } from "@/server/db/database.types";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { sendDailyDigests } from "@/server/services/push/digest";
@@ -308,6 +309,8 @@ let lastSetupFollowupRunMs = 0;
 /** Last recurring-jobs top-up in this worker process (the sweep itself is idempotent). */
 let lastRecurringRunMs = 0;
 const RECURRING_INTERVAL_MS = 60 * 60 * 1000;
+let lastReviewRunMs = 0;
+const REVIEW_INTERVAL_MS = 5 * 60 * 1000;
 /** Last operator-health look in this worker process (the daily send is claimed per day in the DB). */
 let lastOperatorHealthRunMs = 0;
 
@@ -364,6 +367,16 @@ export async function runScheduler(
         if (r.visitsCreated || r.failed.length) console.log(`[scheduler] recurring: created=${r.visitsCreated} failed=${r.failed.length}`);
       })
       .catch((error) => console.error("[scheduler] recurring sweep failed", error instanceof Error ? error.message : error));
+  }
+  // Review requests (docs/review-requests.md): send asks that are due. Every 5 min; each
+  // row is claimed before sending, so overlapping passes can't text a customer twice.
+  if (nowMs - lastReviewRunMs >= REVIEW_INTERVAL_MS) {
+    lastReviewRunMs = nowMs;
+    await sweepReviewRequests(new Date(nowMs))
+      .then((r) => {
+        if (r.due) console.log(`[scheduler] reviews: due=${r.due} sent=${r.sent} skipped=${r.skipped} deferred=${r.deferred} failed=${r.failed}`);
+      })
+      .catch((error) => console.error("[scheduler] review requests failed", error instanceof Error ? error.message : error));
   }
   return { ticksMaterialized, ticksProcessed, entitiesEmitted };
 }

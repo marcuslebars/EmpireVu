@@ -266,4 +266,13 @@ async function onInvoicePaid(db: Db, invoice: InvoiceRow): Promise<void> {
     quoteId: invoice.quote_id,
     eventType: "invoice.paid",
   });
+
+  // Paid → queue a review request, when the brand asks on payment. Never throws.
+  // Imported lazily: the review module reaches back into messaging/quotes code.
+  try {
+    const { scheduleReviewForPaidInvoice } = await import("@/server/services/reviews/service");
+    await scheduleReviewForPaidInvoice(db, invoice);
+  } catch (err) {
+    console.error("[invoices] could not queue a review request:", err instanceof Error ? err.message : err);
+  }
 }

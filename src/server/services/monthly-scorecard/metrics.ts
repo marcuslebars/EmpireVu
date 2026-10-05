@@ -26,7 +26,8 @@ import type { TenantServiceContext } from "@/server/services/shared";
  *  - jobsBooked: bookings created in the period, not cancelled. jobsCompleted: bookings
  *    scheduled in the period with status 'completed'.
  *  - reviewsRequested: completed runs (completed_at in period) of the company's
- *    `review-request` workflow.
+ *    `review-request` workflow, plus built-in review requests sent in the period
+ *    (docs/review-requests.md).
  *  - receptionist: inbound retell_calls created in the period; minutes = metered
  *    `voice_minutes` usage for the company in the period.
  *  - attributedRevenue: `getAttributionSummary` (Task 14) over the same period.
@@ -129,6 +130,10 @@ export interface ScorecardInputs {
   inboundCalls: Array<{ at: string }>;
   voiceMinutes: number;
   attribution: { approvedCents: number; paidCents: number } | null;
+  /** sent_at of built-in review requests sent in the period. */
+  reviewRequestsSent?: string[];
+  /** The company has built-in review requests switched on. */
+  reviewRequestsOn?: boolean;
 }
 
 export function emptyScorecardInputs(): ScorecardInputs {
@@ -146,6 +151,8 @@ export function emptyScorecardInputs(): ScorecardInputs {
     inboundCalls: [],
     voiceMinutes: 0,
     attribution: null,
+    reviewRequestsSent: [],
+    reviewRequestsOn: false,
   };
 }
 
@@ -174,6 +181,8 @@ export interface ScorecardMetrics {
   attributedRevenue: { approvedCents: number; paidCents: number };
   /** Recipe slug → workflow status for the company (drives "what we're tuning next"). */
   recipeStatus: Record<string, string>;
+  /** Built-in review requests are switched on (Settings → Reviews). */
+  reviewRequestsOn: boolean;
 }
 
 const DEFAULT_CURRENCY = "CAD";
@@ -271,9 +280,10 @@ export function computeScorecardMetrics(inputs: ScorecardInputs, range: PeriodRa
   const automationsRun = inputs.workflowRuns.filter(
     (run) => run.status === "completed" && inRange(run.createdAt, fromMs, toMs),
   ).length;
-  const reviewsRequested = inputs.workflowRuns.filter(
-    (run) => reviewWorkflowIds.has(run.workflowId) && run.status === "completed" && inRange(run.completedAt, fromMs, toMs),
-  ).length;
+  const reviewsRequested =
+    inputs.workflowRuns.filter(
+      (run) => reviewWorkflowIds.has(run.workflowId) && run.status === "completed" && inRange(run.completedAt, fromMs, toMs),
+    ).length + (inputs.reviewRequestsSent ?? []).filter((at) => inRange(at, fromMs, toMs)).length;
 
   // Quotes.
   const sentQuotes = inputs.quotes.filter((quote) => inRange(quote.sentAt, fromMs, toMs));
@@ -317,6 +327,7 @@ export function computeScorecardMetrics(inputs: ScorecardInputs, range: PeriodRa
       paidCents: inputs.attribution?.paidCents ?? 0,
     },
     recipeStatus,
+    reviewRequestsOn: Boolean(inputs.reviewRequestsOn),
   };
 }
 
@@ -514,7 +525,22 @@ export async function fetchScorecardInputs(
       return null;
     });
 
+  // Built-in review requests (docs/review-requests.md). Tolerant: a database without the
+  // table yet still produces a scorecard.
+  const [reviewSentRes, reviewCompanyRes] = await Promise.all([
+    db.from("review_requests").select("sent_at")
+      .eq("organization_id", org).eq("company_id", companyId)
+      .eq("status", "sent")
+      .gte("sent_at", range.from).lt("sent_at", range.to)
+      .limit(5000),
+    db.from("companies").select("review_settings").eq("organization_id", org).eq("id", companyId).maybeSingle(),
+  ]);
+  if (reviewSentRes.error) console.error("[monthly-scorecard] review requests unavailable:", reviewSentRes.error.message);
+  const reviewSettingsRaw = reviewCompanyRes.error ? null : asRecord((reviewCompanyRes.data as { review_settings?: unknown } | null)?.review_settings);
+
   return {
+    reviewRequestsSent: reviewSentRes.error ? [] : (reviewSentRes.data ?? []).map((row: { sent_at: string | null }) => row.sent_at).filter((v: string | null): v is string => !!v),
+    reviewRequestsOn: reviewSettingsRaw?.enabled === true,
     newContacts: contactRows.map((row) => ({
       id: row.id,
       createdAt: row.created_at,

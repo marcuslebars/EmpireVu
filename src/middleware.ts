@@ -21,6 +21,10 @@ export async function middleware(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith("/api/")) {
     return withApiCors(request);
   }
+  // Customer review links (/r/{token}) are a bare redirect; there's no session to refresh.
+  if (request.nextUrl.pathname.startsWith("/r/")) {
+    return NextResponse.next();
+  }
 
   let response = NextResponse.next({ request });
 
