@@ -302,6 +302,7 @@ export interface Database {
           owner_phone_e164: string | null;
           quote_deposit_flat_cents: number | null;
           quote_public_base_url: string | null;
+          review_settings: Json;
           quote_terms_text: string | null;
           slug: string;
           stage: Database["public"]["Enums"]["company_stage"];
@@ -347,6 +348,7 @@ export interface Database {
           owner_phone_e164?: string | null;
           quote_deposit_flat_cents?: number | null;
           quote_public_base_url?: string | null;
+          review_settings?: Json;
           quote_terms_text?: string | null;
           slug: string;
           stage?: Database["public"]["Enums"]["company_stage"];
@@ -392,6 +394,7 @@ export interface Database {
           owner_phone_e164?: string | null;
           quote_deposit_flat_cents?: number | null;
           quote_public_base_url?: string | null;
+          review_settings?: Json;
           quote_terms_text?: string | null;
           slug?: string;
           stage?: Database["public"]["Enums"]["company_stage"];
@@ -1009,6 +1012,75 @@ export interface Database {
           revoked_at?: string | null;
           last_viewed_at?: string | null;
           view_count?: number;
+        };
+        Relationships: [];
+      };
+      review_requests: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          contact_id: string;
+          booking_id: string | null;
+          invoice_id: string | null;
+          source: string;
+          status: string;
+          scheduled_for: string;
+          channel: string | null;
+          sent_to: string | null;
+          token: string;
+          sent_at: string | null;
+          clicked_at: string | null;
+          last_clicked_at: string | null;
+          click_count: number;
+          reason: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          contact_id: string;
+          booking_id?: string | null;
+          invoice_id?: string | null;
+          source: string;
+          status?: string;
+          scheduled_for: string;
+          channel?: string | null;
+          sent_to?: string | null;
+          token: string;
+          sent_at?: string | null;
+          clicked_at?: string | null;
+          last_clicked_at?: string | null;
+          click_count?: number;
+          reason?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          contact_id?: string;
+          booking_id?: string | null;
+          invoice_id?: string | null;
+          source?: string;
+          status?: string;
+          scheduled_for?: string;
+          channel?: string | null;
+          sent_to?: string | null;
+          token?: string;
+          sent_at?: string | null;
+          clicked_at?: string | null;
+          last_clicked_at?: string | null;
+          click_count?: number;
+          reason?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
         };
         Relationships: [];
       };
@@ -3959,6 +4031,12 @@ export interface Database {
           p_invoice_id: string;
         };
         Returns: Database["public"]["Tables"]["invoices"]["Row"][];
+      };
+      record_review_click: {
+        Args: {
+          p_token: string;
+        };
+        Returns: { review_url: string | null; fallback_url: string | null }[];
       };
       record_billing_event: {
         Args: {

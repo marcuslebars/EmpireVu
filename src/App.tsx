@@ -41,6 +41,7 @@ import ContactDetailPage from "./screens/ContactDetailPage";
 import InboxPage from "./screens/InboxPage";
 import AutomationsPage from "./screens/AutomationsPage";
 import ReportsPage from "./screens/ReportsPage";
+import ReviewsPage from "./screens/ReviewsPage";
 import ReportsAttributionPage from "./screens/ReportsAttributionPage";
 import ReportsMonthlyPage from "./screens/ReportsMonthlyPage";
 import SettingsPage from "./screens/SettingsPage";
@@ -439,6 +440,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <AutomationsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reviews"
+          element={
+            <ProtectedRoute>
+              <ReviewsPage />
             </ProtectedRoute>
           }
         />

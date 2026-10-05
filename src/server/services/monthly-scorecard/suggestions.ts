@@ -98,7 +98,7 @@ const RULES: Rule[] = [
   (m) => {
     if (m.jobsCompleted === 0) return null;
     if (m.reviewsRequested / m.jobsCompleted >= MIN_REVIEW_ASK_RATE) return null;
-    return isActive(m, "review-request")
+    return isActive(m, "review-request") || m.reviewRequestsOn
       ? {
           id: "more_review_asks",
           title: "Ask more customers for reviews",
@@ -108,8 +108,8 @@ const RULES: Rule[] = [
       : {
           id: "enable_review_requests",
           title: "Turn on review requests",
-          detail: `${m.jobsCompleted} job${m.jobsCompleted === 1 ? " was" : "s were"} completed and only ${m.reviewsRequested} review request${m.reviewsRequested === 1 ? " went" : "s went"} out. An automatic ask the day after each job builds your reviews on autopilot.`,
-          recipeSlug: "review-request",
+          detail: `${m.jobsCompleted} job${m.jobsCompleted === 1 ? " was" : "s were"} completed and only ${m.reviewsRequested} review request${m.reviewsRequested === 1 ? " went" : "s went"} out. Turn on review requests in Settings → Reviews and every finished job gets a friendly ask, with clicks tracked.`,
+          recipeSlug: null,
         };
   },
   // 5. No leads at all.

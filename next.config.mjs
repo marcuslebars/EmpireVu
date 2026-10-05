@@ -24,7 +24,10 @@ const nextConfig = {
   async rewrites() {
     return {
       afterFiles: [
-        { source: "/((?!api/).*)", destination: "/index.html" },
+        // /r/{token} (customer review links) is a dynamic route handler, and dynamic routes
+        // are matched AFTER afterFiles rewrites — so it must be excluded here or the SPA
+        // fallback swallows it.
+        { source: "/((?!api/|r/).*)", destination: "/index.html" },
       ],
     };
   },
