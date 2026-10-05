@@ -20,6 +20,7 @@
  */
 import { randomBytes } from "node:crypto";
 
+import { billableExpenseLines, markExpensesBilled } from "@/server/services/expenses/service";
 import { seriesLineItems } from "@/server/services/recurring/service";
 import { toJson } from "@/server/db/json";
 import {
@@ -369,7 +370,7 @@ export async function createInvoiceFromQuote(
     deposit_paid_at: quote.deposit_paid_at,
   });
 
-  return createInvoice(ctx, {
+  return createInvoiceWithJobExpenses(ctx, {
     companyId: quote.company_id,
     contactId: quote.contact_id,
     title: draft.title,
@@ -379,6 +380,18 @@ export async function createInvoiceFromQuote(
     quoteId,
     bookingId,
   });
+}
+
+/**
+ * createInvoice for a job: the job's billable expenses (receipts marked "bill to the
+ * customer") are added as lines at cost before tax, then marked billed on this invoice.
+ * Voiding the invoice releases them for the next one.
+ */
+async function createInvoiceWithJobExpenses(ctx: TenantServiceContext, input: InvoiceWriteInput): Promise<InvoiceRow> {
+  const extra = input.bookingId ? await billableExpenseLines(ctx, input.bookingId) : { ids: [], lines: [] };
+  const invoice = await createInvoice(ctx, { ...input, lines: [...input.lines, ...extra.lines] });
+  await markExpensesBilled(ctx, invoice.id, extra.ids);
+  return invoice;
 }
 
 /**
@@ -412,7 +425,7 @@ export async function createInvoiceFromBooking(ctx: TenantServiceContext, bookin
   const seriesLines = booking.recurring_job_id ? await seriesLineItems(ctx, booking.recurring_job_id) : [];
   const bookedPrice = booking.price_cents && booking.price_cents > 0 ? booking.price_cents : 0;
   const depositPaid = booking.deposit_paid_at && booking.deposit_cents ? booking.deposit_cents : 0;
-  return createInvoice(ctx, {
+  return createInvoiceWithJobExpenses(ctx, {
     companyId: booking.company_id,
     contactId: booking.contact_id,
     title: booking.title,

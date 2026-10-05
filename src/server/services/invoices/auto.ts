@@ -21,6 +21,16 @@ import { InvoiceConflictError } from "./errors";
 import { createInvoiceFromBooking, sendInvoice } from "./service";
 import { parseInvoiceSettings } from "./settings";
 
+/**
+ * A stand-alone job with no price yet is invoiced as a $0 line named after the job. Billed
+ * expenses can make the total non-zero, but the work itself still needs a price — so it
+ * stays a draft with a task, never sent.
+ */
+export function hasUnpricedJobLine(invoice: Pick<Tables<"invoices">, "line_items">, jobTitle: string): boolean {
+  const lines = Array.isArray(invoice.line_items) ? (invoice.line_items as Array<{ label?: unknown; unitPriceCents?: unknown }>) : [];
+  return lines.some((l) => l.label === jobTitle.trim() && l.unitPriceCents === 0);
+}
+
 export type AutoInvoiceOutcome =
   | { action: "skipped"; reason: string }
   | { action: "drafted" | "sent" | "needs_price"; invoiceId: string; emailed?: boolean };
@@ -45,7 +55,7 @@ export async function autoInvoiceCompletedBooking(
       throw err;
     }
 
-    if (invoice.total_cents <= 0) {
+    if (invoice.total_cents <= 0 || hasUnpricedJobLine(invoice, booking.title)) {
       await createTask(ctx, {
         title: `Price and send the invoice for "${booking.title}"`,
         description: "The job was marked done. Its draft invoice has no price yet — open Invoices, add the amount, then send it.",

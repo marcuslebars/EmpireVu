@@ -56,7 +56,7 @@ export async function fetchOverviewInputs(ctx: TenantServiceContext, period: Ove
   const org = ctx.organizationId;
   const db = ctx.supabase;
 
-  const [payments, depositQuotes, issued, open, bookings, sentQuotes, approvedQuotes, contacts, entries, rates] = await Promise.all([
+  const [payments, depositQuotes, issued, open, bookings, sentQuotes, approvedQuotes, contacts, entries, rates, expenses, owed] = await Promise.all([
     readAll((a, b) => {
       let q = db
           .from("invoice_payments")
@@ -146,6 +146,27 @@ export async function fetchOverviewInputs(ctx: TenantServiceContext, period: Ove
         .range(a, b),
     ),
     db.from("member_pay_rates").select("profile_id, hourly_cost_cents").eq("organization_id", org),
+    // Expenses: with a company selected keep that company's plus unassigned overhead (like crew time).
+    readAll((a, b) =>
+      db
+        .from("expenses")
+        .select("id, company_id, booking_id, spent_on, category, amount_cents, tax_cents")
+        .eq("organization_id", org)
+        .gte("spent_on", period.prevFromDate)
+        .lt("spent_on", period.toDate)
+        .order("spent_on", { ascending: true })
+        .range(a, b),
+    ),
+    readAll((a, b) =>
+      db
+        .from("expenses")
+        .select("id, company_id, amount_cents")
+        .eq("organization_id", org)
+        .eq("paid_with", "personal")
+        .is("reimbursed_at", null)
+        .order("id", { ascending: true })
+        .range(a, b),
+    ),
   ]);
   if (rates.error) throw rates.error;
 
@@ -233,6 +254,10 @@ export async function fetchOverviewInputs(ctx: TenantServiceContext, period: Ove
     rates: Object.fromEntries((rates.data ?? []).map((r) => [r.profile_id, r.hourly_cost_cents])),
     people,
     contactNames,
+    expenses: expenses
+      .filter((e) => !companyId || !e.company_id || e.company_id === companyId)
+      .map((e) => ({ spentOn: e.spent_on, cents: Math.max(0, e.amount_cents - e.tax_cents), category: e.category, onJob: Boolean(e.booking_id) })),
+    owedCents: owed.filter((e) => !companyId || !e.company_id || e.company_id === companyId).reduce((s, e) => s + e.amount_cents, 0),
   };
 }
 

@@ -44,6 +44,8 @@ export interface JobProfit {
   labourMinutes: number;
   labourCents: number;
   materialsCents: number;
+  /** Receipts / expenses on the job, before tax. */
+  expensesCents: number;
   costCents: number;
   profitCents: number;
   marginPct: number | null;

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { AlertTriangle, ArrowDownRight, ArrowUpRight, BarChart3, CalendarCheck, Clock, Download, FileText, Minus, Sparkles, Users, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, BarChart3, CalendarCheck, Clock, Download, FileText, Minus, Receipt, Sparkles, Users, Wallet } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Button } from "@/components/ui/button";
@@ -297,9 +297,37 @@ function Report({ r }: { r: OverviewReport }) {
         </DashboardCard>
       </div>
 
+      <div className="grid lg:grid-cols-3 gap-5">
+        <DashboardCard
+          title="Spending"
+          icon={<Receipt className="w-3.5 h-3.5" />}
+          action={<Link to="/expenses" className="text-xs text-primary hover:underline">Expenses</Link>}
+        >
+          <p className="text-2xl font-bold tabular-nums text-foreground">{formatCents(r.spending.spent.value, cur)}</p>
+          <Delta c={r.spending.spent} lowerIsBetter />
+          <div className="mt-3">
+            <Stat label="On jobs" value={formatCents(r.spending.onJobsCents, cur)} />
+            <Stat label="Overhead" value={formatCents(r.spending.overheadCents, cur)} />
+            <Stat label="Receipts logged" value={r.spending.count} />
+            <Stat label="Owed back to the team (today)" value={formatCents(r.spending.owedCents, cur)} />
+          </div>
+        </DashboardCard>
+        <div className="lg:col-span-2">
+          <DashboardCard title="Where the money went" icon={<Receipt className="w-3.5 h-3.5" />}>
+            {r.spending.byCategory.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No expenses in this period. <Link to="/expenses" className="text-primary hover:underline">Log a receipt</Link> to see where money goes.
+              </p>
+            ) : (
+              <ShareRows rows={r.spending.byCategory.slice(0, 8).map((c) => ({ key: c.category, label: c.label, cents: c.cents, count: c.count }))} currency={cur} />
+            )}
+          </DashboardCard>
+        </div>
+      </div>
+
       <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
         <Sparkles className="w-3 h-3 text-primary mt-0.5 shrink-0" />
-        Collected counts payments that have cleared and quote deposits. "Owed to you" and its aging are as of today. Dates follow {r.period.timeZone.replace("_", " ")}.
+        Collected counts payments that have cleared and quote deposits. "Owed to you" and its aging are as of today. Spending is before sales tax. Dates follow {r.period.timeZone.replace("_", " ")}.
       </p>
     </div>
   );

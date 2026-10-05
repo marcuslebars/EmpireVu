@@ -42,6 +42,7 @@ import ContactDetailPage from "./screens/ContactDetailPage";
 import InboxPage from "./screens/InboxPage";
 import AutomationsPage from "./screens/AutomationsPage";
 import ReportsPage from "./screens/ReportsPage";
+import ExpensesPage from "./screens/ExpensesPage";
 import ReviewsPage from "./screens/ReviewsPage";
 import ReportsAttributionPage from "./screens/ReportsAttributionPage";
 import ReportsMonthlyPage from "./screens/ReportsMonthlyPage";
@@ -378,6 +379,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <RecurringJobsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/expenses"
+          element={
+            <ProtectedRoute>
+              <ExpensesPage />
             </ProtectedRoute>
           }
         />

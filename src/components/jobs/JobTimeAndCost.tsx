@@ -179,6 +179,7 @@ export function JobProfitCard({ orgId, bookingId }: { orgId: string; bookingId: 
       {row("Revenue", formatCents(p.revenueCents), p.revenueSource === "invoice" ? "invoiced, before tax" : p.revenueSource === "estimate" ? "quoted, before tax" : "not priced yet")}
       {row("Labour", `− ${formatCents(p.labourCents)}`, hm(p.labourMinutes) + (p.running ? " · clock running" : ""))}
       {row("Materials", `− ${formatCents(p.materialsCents)}`)}
+      {p.expensesCents > 0 && row("Expenses", `− ${formatCents(p.expensesCents)}`, "receipts, before tax")}
       <div className="flex items-baseline justify-between gap-3 border-t border-border pt-2">
         <span className="text-sm font-semibold text-foreground">Profit</span>
         <span className={cn("text-base font-bold tabular-nums", p.profitCents < 0 ? "text-destructive" : "text-emerald-600 dark:text-emerald-400")}>
