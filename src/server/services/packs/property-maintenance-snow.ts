@@ -131,7 +131,7 @@ export const propertyMaintenanceSnowPack: IndustryPack = {
       "Hi {{contact.first_name}},\n\nFollowing up on the quote we sent: {{quote.public_url}}\n\nWe build our snow routes in the fall, so approving early guarantees your property is on one before the first storm. Happy to answer any questions — just reply to this email.\n\nThanks,\n{{company.name}}",
     ),
     bookingReminder(
-      "Hi {{contact.first_name}}, a reminder from {{company.name}}: we're booked at your property on {{booking.scheduled_for | date}}. Please leave gates unlocked and move vehicles if you can. Reply if you need to change it.",
+      "Hi {{contact.first_name}}, a reminder from {{company.name}}: we're booked at your property on {{booking.scheduled_for | date}}. Please leave gates unlocked and move vehicles if you can. Confirm or change it here: {{booking.manage_url}}",
       "{{company.name}} here. Our crew will be at your property in about 2 hours ({{booking.scheduled_for | time}}). See you soon, {{contact.first_name}}!",
     ),
     reviewRequest(

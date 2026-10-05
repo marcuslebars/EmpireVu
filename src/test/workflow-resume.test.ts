@@ -16,6 +16,7 @@ const executeWorkflowActions = vi.fn((..._a: unknown[]) =>
   Promise.resolve({ actionsExecutedCount: 0, createdTasksCount: 0, projectedActions: [], timeSavedSeconds: 0, pause: null }),
 );
 const updateWorkflowRun = vi.fn((..._a: unknown[]) => Promise.resolve({}));
+let templateBooking: Record<string, unknown> | null = null;
 
 vi.mock("@/server/services/workflows", () => ({ getWorkflowById: (...a: unknown[]) => getWorkflowById(...a) }));
 vi.mock("@/server/services/activity-events", () => ({
@@ -24,6 +25,8 @@ vi.mock("@/server/services/activity-events", () => ({
 }));
 vi.mock("@/server/services/workflow-engine/context", () => ({
   buildWorkflowEventContext: (...a: unknown[]) => buildWorkflowEventContext(...a),
+  buildMessageTemplateData: () =>
+    Promise.resolve({ contact: null, company: { timezone: "America/Toronto" }, booking: templateBooking, quote: null, invoice: null, call: null, fields: {} }),
 }));
 vi.mock("@/server/services/workflow-engine/actions", () => ({
   executeWorkflowActions: (...a: unknown[]) => executeWorkflowActions(...a),
@@ -137,5 +140,39 @@ describe("resumeWorkflowRun", () => {
 
     expect(getWorkflowById).not.toHaveBeenCalled();
     expect(lastPatch()).toMatchObject({ status: "completed", resume_at: null });
+  });
+
+  describe("waits timed against a booking", () => {
+    const until = { _wait_until: { expr: "booking.scheduled_for - 2h", within_hours: null } };
+
+    it("re-times instead of firing when the booking moved later", async () => {
+      const later = new Date(Date.now() + 26 * 3_600_000).toISOString();
+      templateBooking = { scheduled_for: later, status: "confirmed" };
+      await resumeWorkflowRun(context, waitingRun({ context_json: until }));
+      expect(executeWorkflowActions).not.toHaveBeenCalled();
+      expect(lastPatch()).toMatchObject({ status: "waiting", resume_at: new Date(Date.parse(later) - 2 * 3_600_000).toISOString() });
+    });
+
+    it("fires when the time it waited for has come (booking unchanged or moved earlier)", async () => {
+      templateBooking = { scheduled_for: new Date(Date.now() + 90 * 60_000).toISOString(), status: "confirmed" };
+      await resumeWorkflowRun(context, waitingRun({ context_json: until }));
+      expect(executeWorkflowActions).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves plain duration waits alone", async () => {
+      templateBooking = { scheduled_for: new Date(Date.now() + 26 * 3_600_000).toISOString() };
+      await resumeWorkflowRun(context, waitingRun({ context_json: { _wait_until: null } }));
+      expect(executeWorkflowActions).toHaveBeenCalledTimes(1);
+    });
+
+    it("still stops on resume_conditions before re-timing", async () => {
+      templateBooking = { scheduled_for: new Date(Date.now() + 26 * 3_600_000).toISOString() };
+      buildWorkflowEventContext.mockResolvedValue(makeEventContext({ status: "cancelled" }));
+      await resumeWorkflowRun(
+        context,
+        waitingRun({ context_json: { ...until, _resume_conditions: [{ field: "status", operator: "in", value: ["pending", "confirmed"] }] } }),
+      );
+      expect(lastPatch()).toMatchObject({ status: "completed" });
+    });
   });
 });

@@ -125,7 +125,7 @@ export const generalContractorPack: IndustryPack = {
       "Hi {{contact.first_name}},\n\nFollowing up on the estimate we sent: {{quote.public_url}}\n\nA renovation is a big decision, so if you'd like to change the scope, finishes or timing, just reply and we'll put together a revised version. Approving it locks in your spot on our schedule.\n\nThanks,\n{{company.name}}",
     ),
     bookingReminder(
-      "Hi {{contact.first_name}}, a reminder from {{company.name}}: we're booked to see you on {{booking.scheduled_for | date}}. If you have photos, plans or inspiration, have them handy. Reply if you need to change it.",
+      "Hi {{contact.first_name}}, a reminder from {{company.name}}: we're booked to see you on {{booking.scheduled_for | date}}. If you have photos, plans or inspiration, have them handy. Confirm or change it here: {{booking.manage_url}}",
       "{{company.name}} here. We'll see you in about 2 hours ({{booking.scheduled_for | time}}), {{contact.first_name}}. Reply if anything has come up.",
     ),
     reviewRequest(

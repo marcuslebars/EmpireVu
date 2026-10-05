@@ -55,7 +55,7 @@ const TEMPLATE_DATA: MessageTemplateData = {
     booking_url: "https://app.empirevu.com/book/3f2c9a1e-8d4b-4c6a-9e1f-0a2b3c4d5e6f",
     review_url: "https://g.page/r/CdXyZ12345abcdEBM/review",
   },
-  booking: { scheduled_for: "2026-11-17T14:00:00.000Z", when: "Tuesday, November 17th in the morning" },
+  booking: { scheduled_for: "2026-11-17T14:00:00.000Z", when: "Tuesday, November 17th in the morning", manage_url: "https://quotes.example.ca/v/0123456789abcdef0123456789abcdef" },
   quote: {
     public_url: "https://app.empirevu.com/q/AbCdEfGhIjKlMnOpQrSt",
     subtotal: "$12,480.50",

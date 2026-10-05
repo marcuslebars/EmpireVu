@@ -125,7 +125,7 @@ export const roofingPack: IndustryPack = {
       "Hi {{contact.first_name}},\n\nFollowing up on the roofing quote we sent: {{quote.public_url}}\n\nRoofing season books up and weather can push dates, so approving early gets you the best choice of install days. If you have questions about shingle colours, warranty or timing, just reply.\n\nThanks,\n{{company.name}}",
     ),
     bookingReminder(
-      "Hi {{contact.first_name}}, a reminder from {{company.name}}: we're booked at your home on {{booking.scheduled_for | date}}. Please keep the driveway clear for our truck. Reply if you need to change it.",
+      "Hi {{contact.first_name}}, a reminder from {{company.name}}: we're booked at your home on {{booking.scheduled_for | date}}. Please keep the driveway clear for our truck. Confirm or change it here: {{booking.manage_url}}",
       "{{company.name}} here. We'll be at your home in about 2 hours ({{booking.scheduled_for | time}}). See you soon, {{contact.first_name}}!",
     ),
     reviewRequest(

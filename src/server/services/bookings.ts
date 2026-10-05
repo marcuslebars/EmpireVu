@@ -5,6 +5,7 @@ import { toIsoDate } from "@/server/db/helpers";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { autoInvoiceCompletedBooking } from "@/server/services/invoices/auto";
 import { scheduleReviewForCompletedBooking } from "@/server/services/reviews/service";
+import { wakeWaitingRunsForBooking } from "@/server/services/workflow-engine/retime";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import {
   assertBookingInOrganization,
@@ -238,7 +239,7 @@ export async function updateBookingStatus(
 
 export async function rescheduleBooking(
   context: TenantServiceContext,
-  input: RescheduleBookingInput,
+  input: RescheduleBookingInput & { by?: "customer"; windowKey?: string | null },
 ): Promise<Tables<"bookings">> {
   const existing = await getBookingById(context, input.bookingId);
 
@@ -247,6 +248,10 @@ export async function rescheduleBooking(
   };
   if (input.durationMinutes !== undefined) {
     patch.duration_minutes = input.durationMinutes;
+  }
+  // A customer moving their own visit (services/visits) lands it in a booking window.
+  if (input.windowKey !== undefined) {
+    patch.window_key = input.windowKey;
   }
   // A visit of a recurring job moved by hand: later edits to the series leave it alone.
   if (existing.recurring_job_id) {
@@ -278,10 +283,14 @@ export async function rescheduleBooking(
       durationMinutes: updated.duration_minutes,
       previousScheduledFor: existing.scheduled_for,
       scheduledFor: updated.scheduled_for,
+      ...(input.by ? { by: input.by } : {}),
     },
     relatedEntityId: updated.contact_id,
     relatedEntityType: updated.contact_id ? "contact" : null,
   });
+
+  // Reminders waiting on the old time re-time themselves against the new one.
+  if (existing.scheduled_for !== updated.scheduled_for) await wakeWaitingRunsForBooking(context, updated.id);
 
   return updated;
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone, Send, Copy, Trash2, Mail, CreditCard, Landmark, Package, Receipt, ListChecks, Star } from "lucide-react";
+import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone, Send, Copy, Trash2, Mail, CreditCard, Landmark, Package, Receipt, ListChecks, Star, CalendarCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
 import { useOrg } from "@/lib/org-context";
@@ -25,6 +25,7 @@ import { IndustryPackSettings } from "@/components/settings/IndustryPackSettings
 import { InvoiceSettings } from "@/components/settings/InvoiceSettings";
 import { ChecklistSettings } from "@/components/settings/ChecklistSettings";
 import { ReviewSettings } from "@/components/settings/ReviewSettings";
+import { VisitSettings } from "@/components/settings/VisitSettings";
 
 const sections = [
   { id: "org", label: "Organization", icon: Building2, description: "Manage organization name, slug, and companies" },
@@ -34,6 +35,7 @@ const sections = [
   { id: "billing", label: "Billing & Plans", icon: CreditCard, description: "Manage your subscription and plan" },
   { id: "payments", label: "Payments", icon: Landmark, description: "Connect each company's Stripe account to take deposits" },
   { id: "invoices", label: "Invoices", icon: Receipt, description: "HST number, payment methods, terms and reminders for each company's invoices" },
+  { id: "visits", label: "Confirm & reschedule", icon: CalendarCheck, description: "Let customers confirm, move or cancel visits from the reminder" },
   { id: "reviews", label: "Reviews", icon: Star, description: "Ask customers for a review after each job" },
   { id: "checklists", label: "Job checklists", icon: ListChecks, description: "Reusable checklists your crew ticks off on each kind of job" },
   { id: "notifications", label: "Notifications", icon: Bell, description: "Owner daily digest and notification preferences" },
@@ -428,6 +430,8 @@ export default function SettingsPage() {
             <PaymentsSettings />
           ) : active === "invoices" ? (
             <InvoiceSettings onOpenPayments={() => setActive("payments")} />
+          ) : active === "visits" ? (
+            <VisitSettings />
           ) : active === "reviews" ? (
             <ReviewSettings />
           ) : active === "checklists" ? (

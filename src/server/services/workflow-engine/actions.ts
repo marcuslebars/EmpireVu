@@ -39,6 +39,12 @@ export interface WorkflowPause {
   nextIndex: number;
   resumeAt: string;
   resumeConditions: WorkflowCondition[] | null;
+  /**
+   * An `until` wait ("booking.scheduled_for - 2h") is re-resolved when the run resumes, so a
+   * booking moved after the wait began re-times the next step instead of firing at the old
+   * time. Null for plain duration waits.
+   */
+  until?: { expr: string; within_hours: { start: string; end: string } | null } | null;
 }
 
 function asStr(value: unknown): string | null {
@@ -421,7 +427,12 @@ export async function executeWorkflowActions(
         });
         // A dry-run just previews the resume time; a real run pauses the sequence here.
         if (!options.dryRun) {
-          pause = { nextIndex: index + 1, resumeAt, resumeConditions: action.resume_conditions ?? null };
+          pause = {
+            nextIndex: index + 1,
+            resumeAt,
+            resumeConditions: action.resume_conditions ?? null,
+            until: !action.duration && action.until ? { expr: action.until, within_hours: action.within_hours ?? null } : null,
+          };
         }
         actionsExecutedCount += 1;
         timeSavedSeconds += action.time_saved_seconds ?? 0;

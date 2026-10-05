@@ -37,6 +37,7 @@ import { useAuth } from "@/lib/auth-context";
 import { CrewPicker } from "./CrewPicker";
 import { JobChecklist } from "./JobChecklist";
 import { JobPhotos } from "./JobPhotos";
+import { VisitLinkRow } from "./VisitLinkRow";
 import { JobMaterials, JobProfitCard, JobTime } from "./JobTimeAndCost";
 
 export function StageBadge({ stage }: { stage: JobSheet["stage"] }) {
@@ -172,6 +173,7 @@ export function JobSheetView({ orgId, job }: { orgId: string; job: JobSheet }) {
               <User className="w-4 h-4" /> No customer linked
             </p>
           )}
+          {job.contactName && <VisitLinkRow orgId={orgId} bookingId={job.id} />}
 
           {!editing ? (
             <>

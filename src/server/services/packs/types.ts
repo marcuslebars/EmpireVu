@@ -36,6 +36,7 @@ export const PACK_TEMPLATE_VARIABLES = [
   "company.review_url",
   "booking.scheduled_for",
   "booking.when",
+  "booking.manage_url",
   "quote.public_url",
   "quote.subtotal",
   "quote.total",

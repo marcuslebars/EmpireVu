@@ -11,7 +11,7 @@ import {
   type WorkflowRunLogEntry,
 } from "@/server/services/workflow-runs";
 import { getWorkflowById } from "@/server/services/workflows";
-import { executeWorkflowActions } from "@/server/services/workflow-engine/actions";
+import { executeWorkflowActions, type WorkflowPause } from "@/server/services/workflow-engine/actions";
 import { evaluateWorkflowConditions } from "@/server/services/workflow-engine/conditions";
 import {
   assertSupportedWorkflowTrigger,
@@ -19,7 +19,9 @@ import {
   type ManualWorkflowEventInput,
   parseWorkflowDefinition,
 } from "@/server/services/workflow-engine/definitions";
-import { buildWorkflowEventContext } from "@/server/services/workflow-engine/context";
+import { buildMessageTemplateData, buildWorkflowEventContext } from "@/server/services/workflow-engine/context";
+import { businessTimezone } from "@/server/services/workflow-engine/interpolate";
+import { computeResumeAt, resolveUntil } from "@/server/services/workflow-engine/timing";
 import { PaidActionGuardError } from "@/server/services/workflow-engine/guards";
 import { matchActiveWorkflows } from "@/server/services/workflow-engine/matcher";
 import type {
@@ -160,7 +162,7 @@ async function executeWorkflowForEvent(
       });
       run = await updateWorkflowRun(context, run.id, {
         actions_executed_count: actionResult.actionsExecutedCount,
-        context_json: withResumeConditions(runContextJson, pause.resumeConditions),
+        context_json: withResumeConditions(runContextJson, pause.resumeConditions, pause.until),
         created_tasks_count: actionResult.createdTasksCount,
         current_step_index: pause.nextIndex,
         logs_json: logs.map(toLogJson),
@@ -421,13 +423,30 @@ export async function runWorkflowNow(
 
 // ── Durable-wait resume (Task 9) ─────────────────────────────────────────────
 
-function withResumeConditions(runContextJson: Json, conditions: WorkflowCondition[] | null): Json {
+function withResumeConditions(runContextJson: Json, conditions: WorkflowCondition[] | null, until: WorkflowPause["until"] = null): Json {
   const base =
     runContextJson && typeof runContextJson === "object" && !Array.isArray(runContextJson)
       ? (runContextJson as Record<string, Json>)
       : {};
-  return { ...base, _resume_conditions: toJson(conditions ?? []) };
+  return { ...base, _resume_conditions: toJson(conditions ?? []), _wait_until: toJson(until ?? null) };
 }
+
+function readWaitUntil(contextJson: Json): NonNullable<WorkflowPause["until"]> | null {
+  const record =
+    contextJson && typeof contextJson === "object" && !Array.isArray(contextJson)
+      ? (contextJson as Record<string, Json>)
+      : {};
+  const raw = record._wait_until as { expr?: unknown; within_hours?: unknown } | null | undefined;
+  if (!raw || typeof raw !== "object" || typeof raw.expr !== "string") return null;
+  const wh = raw.within_hours as { start?: unknown; end?: unknown } | null | undefined;
+  return {
+    expr: raw.expr,
+    within_hours: wh && typeof wh.start === "string" && typeof wh.end === "string" ? { start: wh.start, end: wh.end } : null,
+  };
+}
+
+/** A re-resolved `until` that has moved this far past now re-pauses the run. */
+const RETIME_SLACK_MS = 60_000;
 
 function readResumeConditions(contextJson: Json): WorkflowCondition[] {
   const record =
@@ -479,6 +498,22 @@ export async function resumeWorkflowRun(
     }
   }
 
+  // The thing the wait was timed against moved (a booking rescheduled after a "2h before"
+  // wait began): wait for the new time instead of firing now.
+  const waitUntil = readWaitUntil(run.context_json);
+  if (waitUntil) {
+    const data = await buildMessageTemplateData(context, eventContext);
+    const zone = (typeof data.company?.timezone === "string" && data.company.timezone) || businessTimezone();
+    if (resolveUntil(waitUntil.expr, data)) {
+      const retimed = computeResumeAt({ until: waitUntil.expr, within_hours: waitUntil.within_hours ?? undefined }, data, Date.now(), zone);
+      if (Date.parse(retimed) > Date.now() + RETIME_SLACK_MS) {
+        logs.push({ at: nowIso(), details: { resume_at: retimed }, level: "info", message: "The time this step waits for changed — re-timed." });
+        await updateWorkflowRun(context, run.id, { logs_json: logs.map(toLogJson), resume_at: retimed, status: "waiting" });
+        return;
+      }
+    }
+  }
+
   logs.push({
     at: nowIso(),
     details: { from_step_index: run.current_step_index },
@@ -503,7 +538,7 @@ export async function resumeWorkflowRun(
       });
       await updateWorkflowRun(context, run.id, {
         actions_executed_count: run.actions_executed_count + actionResult.actionsExecutedCount,
-        context_json: withResumeConditions(run.context_json, actionResult.pause.resumeConditions),
+        context_json: withResumeConditions(run.context_json, actionResult.pause.resumeConditions, actionResult.pause.until),
         current_step_index: actionResult.pause.nextIndex,
         logs_json: logs.map(toLogJson),
         resume_at: actionResult.pause.resumeAt,
