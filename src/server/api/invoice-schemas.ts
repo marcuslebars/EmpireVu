@@ -2,7 +2,8 @@ import { z } from "zod";
 
 /** One invoice line as the dashboard sends it. Prices in cents; discounts may be negative. */
 export const invoiceLineSchema = z.object({
-  label: z.string().trim().min(1, "Every line needs a description.").max(300),
+  // May be blank on a draft; sending checks every line has one.
+  label: z.string().trim().max(300),
   description: z.string().max(2000).nullable().optional(),
   quantity: z.number().positive().max(100_000),
   unitPriceCents: z.number().int().min(-100_000_000).max(100_000_000),
@@ -14,7 +15,8 @@ export const invoiceWriteSchema = z.object({
   contactId: z.string().uuid().nullable().optional(),
   customerAccountId: z.string().uuid().nullable().optional(),
   title: z.string().max(300).nullable().optional(),
-  lines: z.array(invoiceLineSchema).min(1).max(100),
+  // A draft can be saved with no lines yet; sending needs at least one.
+  lines: z.array(invoiceLineSchema).max(100),
   taxRateBps: z.number().int().min(0).max(5000).nullable().optional(),
   creditCents: z.number().int().min(0).max(100_000_000).nullable().optional(),
   dueDate: ymd.nullable().optional(),

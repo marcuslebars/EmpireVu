@@ -56,6 +56,11 @@ export const invoiceSettingsSchema = z.object({
    */
   autoInvoiceOnComplete: z.enum(["off", "draft", "send"]).optional().nullable(),
 
+  /** Email a copy of every sent invoice (same email + PDF) to the brand's own inbox. */
+  sendCopy: z.boolean().optional().nullable(),
+  /** Where the copy goes; blank = the organization owner's email. */
+  copyEmail: z.string().trim().email().max(254).optional().nullable().or(z.literal("")),
+
   /** Overdue reminders (days AFTER the due date). */
   remindersEnabled: z.boolean().optional().nullable(),
   reminderDays: z.array(z.number().int().min(1).max(180)).max(6).optional().nullable(),
@@ -80,6 +85,8 @@ export interface InvoiceSettings {
   remindersEnabled: boolean;
   reminderDays: number[];
   autoInvoiceOnComplete: "off" | "draft" | "send";
+  sendCopy: boolean;
+  copyEmail: string | null;
 }
 
 export const DEFAULT_REMINDER_DAYS = [1, 7, 14];
@@ -121,6 +128,8 @@ export function parseInvoiceSettings(raw: unknown): InvoiceSettings {
     remindersEnabled: s.remindersEnabled ?? true,
     reminderDays,
     autoInvoiceOnComplete: s.autoInvoiceOnComplete ?? "off",
+    sendCopy: s.sendCopy ?? false,
+    copyEmail: typeof s.copyEmail === "string" && s.copyEmail.trim() ? s.copyEmail.trim().toLowerCase() : null,
   };
 }
 

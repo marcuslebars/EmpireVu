@@ -36,6 +36,16 @@ No new environment variables. Reminders run in the existing daily
 - **Invoices** (`invoices`) are per brand (company) with their own number series
   (`INV-2026-0001`, prefix configurable). Numbers are allocated on send, so drafts
   don't burn numbers.
+- **Drafts can be half-finished**: no customer yet, no lines, blank descriptions, $0
+  (migration `20261006120000_invoice_drafts.sql` limits the "needs a contact or account"
+  check to non-drafts). `sendBlockers()` lists what's missing and `sendInvoice` refuses
+  until it's empty ("Before sending: choose who it's for; give line 2 a description…").
+  An issued invoice can't lose its customer or all its lines.
+- **Send me a copy** (Settings → Invoices, per brand: `sendCopy`, `copyEmail` in
+  `invoice_settings`): each send / resend also emails the same message + PDF to that
+  address (blank = the organization owner's email), with a line on top saying how the
+  customer got it. Its own email, not a BCC, so it arrives even when the customer was
+  only texted. Logged as `copy_sent` / `copy_failed` on the invoice; never blocks the send.
 - **Status** past `draft` is derived from payments by `refresh_invoice_balance()`
   (SQL): `sent → viewed → partially_paid → paid`, or `void`. Bank debits are
   `pending` until they clear and don't count as paid until then.

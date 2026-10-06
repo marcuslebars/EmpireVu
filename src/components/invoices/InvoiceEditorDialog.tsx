@@ -203,7 +203,7 @@ export function InvoiceEditorDialog({
   const [customerType, setCustomerType] = useState<"person" | "business">(invoice?.customer_account_id ? "business" : "person");
   const [contactId, setContactId] = useState<string | null>(invoice?.contact_id ?? null);
   const [contactLabel, setContactLabel] = useState(
-    invoice ? (invoice.customer_account_id ? invoice.bill_to.attention ?? "" : invoice.bill_to.name) : "",
+    invoice ? (invoice.customer_account_id ? invoice.bill_to.attention ?? "" : invoice.contact_id ? invoice.bill_to.name : "") : "",
   );
   const [accountId, setAccountId] = useState(invoice?.customer_account_id ?? "");
   const [title, setTitle] = useState(invoice?.title ?? "");
@@ -268,18 +268,26 @@ export function InvoiceEditorDialog({
 
   const isPending = createInvoice.isPending || updateInvoice.isPending;
 
-  function buildPayload(): InvoiceWritePayload | string {
+  /**
+   * `draft`: save whatever is there — no customer yet, blank lines, no prices. Only
+   * numbers that can't be read are refused. `send`: everything must be complete
+   * (the server checks again before an invoice goes out).
+   */
+  function buildPayload(mode: "draft" | "send"): InvoiceWritePayload | string {
+    const strict = mode === "send" || !isDraft;
     if (!companyId) return "Choose the company this invoice is from.";
-    if (customerType === "person" && !contactId) return "Choose the contact this invoice is for.";
-    if (customerType === "business" && !accountId) return "Choose the business account this invoice is for.";
+    if (strict && customerType === "person" && !contactId) return "Choose the contact this invoice is for.";
+    if (strict && customerType === "business" && !accountId) return "Choose the business account this invoice is for.";
 
     const outLines: InvoiceWritePayload["lines"] = [];
     for (const [i, l] of lines.entries()) {
       const n = i + 1;
-      if (!l.label.trim()) return `Line ${n} needs a description.`;
-      const qty = Number(l.quantity);
+      const empty = !l.label.trim() && !l.unitPrice.trim() && (!l.quantity.trim() || l.quantity.trim() === "1") && !l.description.trim();
+      if (!strict && empty) continue; // an untouched line isn't worth keeping on a draft
+      if (strict && !l.label.trim()) return `Line ${n} needs a description.`;
+      const qty = l.quantity.trim() === "" && !strict ? 1 : Number(l.quantity);
       if (!Number.isFinite(qty) || qty <= 0) return `Line ${n}: quantity must be above zero.`;
-      const unit = parseDollarsToCents(l.unitPrice);
+      const unit = l.unitPrice.trim() === "" && !strict ? 0 : parseDollarsToCents(l.unitPrice);
       if (unit === null) return `Line ${n}: enter a unit price (use 0 for no charge).`;
       outLines.push({
         label: l.label.trim(),
@@ -288,14 +296,14 @@ export function InvoiceEditorDialog({
         unitPriceCents: unit,
       });
     }
-    if (outLines.length === 0) return "Add at least one line.";
+    if (strict && outLines.length === 0) return "Add at least one line.";
 
     const pct = Number(taxPct);
     if (!Number.isFinite(pct) || pct < 0 || pct > 50) return "Tax rate must be between 0% and 50%.";
     const creditCents = credit.trim() ? parseDollarsToCents(credit) : 0;
     if (creditCents === null || creditCents < 0) return "Enter the deposit / credit as a positive dollar amount.";
 
-    if (terms === "date" && !dueDate) return "Pick a due date, or choose payment terms instead.";
+    if (strict && terms === "date" && !dueDate) return "Pick a due date, or choose payment terms instead.";
 
     const payload: InvoiceWritePayload = {
       title: title.trim() || null,
@@ -311,18 +319,19 @@ export function InvoiceEditorDialog({
     // business account, so be explicit about both ids.
     if (customerType === "person") {
       payload.contactId = contactId;
+      if (!contactId) payload.customerAccountId = null;
       // Create links the contact's business account itself; on edit, "Person"
       // means bill the person.
       if (isEdit) payload.customerAccountId = null;
     } else {
-      payload.customerAccountId = accountId;
+      payload.customerAccountId = accountId || null;
       // Keep the attention contact only if the account didn't change.
       payload.contactId = invoice && invoice.customer_account_id === accountId ? invoice.contact_id : null;
     }
 
     // Terms / due date.
     if (terms === "date") {
-      payload.dueDate = dueDate;
+      payload.dueDate = dueDate || null;
     } else if (terms !== "default") {
       payload.paymentTermsDays = Number(terms);
       // Drafts get their due date when sent; an issued invoice's due date
@@ -334,7 +343,7 @@ export function InvoiceEditorDialog({
 
   async function submit(send: boolean) {
     setError(null);
-    const built = buildPayload();
+    const built = buildPayload(send ? "send" : "draft");
     if (typeof built === "string") {
       setError(built);
       return;
@@ -365,7 +374,7 @@ export function InvoiceEditorDialog({
           <p className="text-xs text-muted-foreground mt-0.5">
             {isEdit && !isDraft
               ? "This invoice has been sent — saving updates the customer's copy and pay link."
-              : "Save as a draft, or save and send it to the customer."}
+              : "Save a draft any time, even half-finished, and send it when it’s ready."}
           </p>
         </div>
         <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors" aria-label="Close">
@@ -415,7 +424,7 @@ export function InvoiceEditorDialog({
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-xs font-medium text-muted-foreground">
-              Bill to <span className="text-destructive">*</span>
+              Bill to <span className="text-xs font-normal text-muted-foreground">(needed to send)</span>
             </label>
             <div className="flex items-center gap-1 bg-secondary rounded-lg p-0.5">
               {(["person", "business"] as const).map((t) => (

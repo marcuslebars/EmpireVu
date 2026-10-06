@@ -39,6 +39,8 @@ interface FormState {
   remindersEnabled: boolean;
   reminderDays: number[];
   autoInvoiceOnComplete: "off" | "draft" | "send";
+  sendCopy: boolean;
+  copyEmail: string;
 }
 
 const AUTO_INVOICE_OPTIONS: Array<{ value: FormState["autoInvoiceOnComplete"]; label: string; hint: string }> = [
@@ -72,6 +74,8 @@ function toForm(data: CompanyInvoiceSettings): FormState {
     remindersEnabled: s.remindersEnabled,
     reminderDays: [...s.reminderDays].sort((a, b) => a - b),
     autoInvoiceOnComplete: s.autoInvoiceOnComplete ?? "off",
+    sendCopy: s.sendCopy ?? false,
+    copyEmail: s.copyEmail ?? "",
   };
 }
 
@@ -100,6 +104,7 @@ function validate(f: FormState): string | null {
     return "The e-Transfer email doesn't look right.";
   }
   if (f.acceptCheque && !f.chequePayableTo.trim()) return "Add who cheques should be made payable to.";
+  if (f.copyEmail.trim() && !EMAIL_RE.test(f.copyEmail.trim())) return "The email for your invoice copies doesn't look right.";
   return null;
 }
 
@@ -122,6 +127,8 @@ function toPayload(f: FormState) {
     remindersEnabled: f.remindersEnabled,
     reminderDays: f.reminderDays,
     autoInvoiceOnComplete: f.autoInvoiceOnComplete,
+    sendCopy: f.sendCopy,
+    copyEmail: text(f.copyEmail),
   };
   return {
     taxRegistrationNumber: text(f.taxRegistrationNumber),
@@ -537,6 +544,36 @@ function CompanyInvoicePanel({
             );
           })}
         </div>
+      </section>
+
+      {/* Copy to me */}
+      <section className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Send me a copy</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Every time an invoice is sent or resent, get the same email and PDF the customer got.
+            </p>
+          </div>
+          <Switch checked={form.sendCopy} onCheckedChange={(v) => set("sendCopy", v)} disabled={!canManage} aria-label="Send me a copy of sent invoices" />
+        </div>
+        {form.sendCopy && (
+          <div className="max-w-md">
+            <label htmlFor="inv-copy-email" className="block text-xs font-medium text-muted-foreground mb-1.5">
+              Send copies to
+            </label>
+            <input
+              id="inv-copy-email"
+              type="email"
+              value={form.copyEmail}
+              onChange={(e) => set("copyEmail", e.target.value)}
+              disabled={!canManage}
+              placeholder="The account owner's email"
+              className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+            />
+            <p className="text-xs text-muted-foreground mt-1">Leave blank to use the account owner's email.</p>
+          </div>
+        )}
       </section>
 
       {/* Reminders */}
