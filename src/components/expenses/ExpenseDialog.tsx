@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Camera, FileText, Loader2, Receipt, Sparkles, Trash2, X } from "lucide-react";
 
+import { SyncBadge } from "@/components/accounting/SyncBadge";
 import { AccountDialogShell } from "@/components/invoices/AccountDialogShell";
 import { centsToInput, errorMessage, inputCls, labelCls, parseDollarsToCents, primaryBtnCls, secondaryBtnCls, selectCls, todayYmd } from "@/components/invoices/invoice-ui";
 import { toast } from "@/components/ui/sonner";
@@ -417,6 +418,7 @@ export function ExpenseDialog({
           )}
         </fieldset>
 
+        {expense && manager && <SyncBadge orgId={orgId} companyId={expense.companyId} type="expense" id={expense.id} />}
         {readOnly && (
           <p className="text-xs text-muted-foreground">
             {expense?.reimbursedAt || billed ? "This expense has been paid back or billed, so only an owner or admin can change it." : "Only the person who logged this can change it."}

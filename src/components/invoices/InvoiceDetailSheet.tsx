@@ -43,6 +43,7 @@ import { useOrgId } from "@/lib/org-context";
 import { cn } from "@/lib/utils";
 
 import { InvoiceEditorDialog } from "./InvoiceEditorDialog";
+import { SyncBadge } from "@/components/accounting/SyncBadge";
 import { InvoiceStatusBadge } from "./InvoiceStatusBadge";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
 import { SendInvoiceDialog } from "./SendInvoiceDialog";
@@ -381,6 +382,7 @@ export function InvoiceDetailSheet({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <InvoiceStatusBadge status={invoice.status} overdue={invoice.overdue} />
+            {invoice.status !== "draft" && <SyncBadge orgId={orgId} companyId={invoice.company_id} type="invoice" id={invoice.id} />}
             {invoice.quote_id && (
               <button
                 type="button"
