@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { Tables } from "@/server/db/database.types";
-import { ValidationError } from "@/server/organizations/context";
+import { AuthorizationError, ValidationError } from "@/server/organizations/context";
 import type { TenantServiceContext } from "@/server/services/shared";
 
 export interface OrganizationUserSummary {
@@ -100,11 +100,37 @@ async function loadMembership(
   return data;
 }
 
+const ROLE_RANK: Record<Tables<"organization_memberships">["role"], number> = { owner: 3, admin: 2, member: 1 };
+
+/**
+ * Who may change whose role. Enforced again in the database (trigger
+ * organization_memberships_guard, migration 20261006170000) so a direct PostgREST call
+ * can't skip it:
+ *   • only an owner may grant or remove owner access;
+ *   • nobody may raise their own role (an admin can't make themselves owner).
+ */
+export function assertMayChangeRole(
+  actor: { profileId: string | null; role: Tables<"organization_memberships">["role"] },
+  target: { profileId: string; from: Tables<"organization_memberships">["role"]; to: Tables<"organization_memberships">["role"] },
+): void {
+  if ((target.from === "owner" || target.to === "owner") && actor.role !== "owner") {
+    throw new AuthorizationError("Only an owner can grant or remove owner access.");
+  }
+  if (actor.profileId === target.profileId && ROLE_RANK[target.to] > ROLE_RANK[target.from]) {
+    throw new AuthorizationError("You can't raise your own role.");
+  }
+}
+
 export async function updateMemberRole(
   context: TenantServiceContext,
   input: UpdateMemberRoleInput,
+  actorRole: Tables<"organization_memberships">["role"],
 ): Promise<OrganizationUserSummary> {
   const membership = await loadMembership(context, input.profileId);
+  assertMayChangeRole(
+    { profileId: context.actorProfileId, role: actorRole },
+    { profileId: input.profileId, from: membership.role, to: input.role },
+  );
 
   // Never leave an org ownerless by demoting its last owner.
   if (membership.role === "owner" && input.role !== "owner" && (await countOwners(context)) <= 1) {
@@ -139,8 +165,13 @@ export async function updateMemberRole(
 export async function removeMember(
   context: TenantServiceContext,
   profileId: string,
+  actorRole: Tables<"organization_memberships">["role"],
 ): Promise<{ id: string }> {
   const membership = await loadMembership(context, profileId);
+
+  if (membership.role === "owner" && actorRole !== "owner") {
+    throw new AuthorizationError("Only an owner can remove an owner.");
+  }
 
   if (membership.role === "owner" && (await countOwners(context)) <= 1) {
     throw new ValidationError("An organization must have at least one owner.");

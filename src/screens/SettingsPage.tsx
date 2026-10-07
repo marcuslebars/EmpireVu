@@ -297,7 +297,8 @@ function MembersSettings() {
                   </p>
                   <p className="text-xs text-muted-foreground truncate">{m.email}</p>
                 </div>
-                {canManage ? (
+                {/* Only an owner can touch an owner's access (enforced server-side too). */}
+                {canManage && (myRole === "owner" || m.role !== "owner") ? (
                   <>
                     <select
                       value={m.role}
@@ -309,7 +310,7 @@ function MembersSettings() {
                       }
                       className="px-2 py-1.5 text-xs bg-secondary border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
                     >
-                      <option value="owner">Owner</option>
+                      {myRole === "owner" ? <option value="owner">Owner</option> : null}
                       <option value="admin">Admin</option>
                       <option value="member">Member</option>
                     </select>
