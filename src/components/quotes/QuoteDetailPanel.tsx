@@ -171,12 +171,12 @@ export function QuoteDetailPanel({
     setConfirmError(null);
     try {
       const { successor } = await reissueQuote(orgId, quote.id, reason);
-      toast.success("Revised draft created — the old link now says it was replaced");
+      toast.success("New version created as an unsent draft — the old link now says it was replaced");
       setConfirm(null);
       void invalidate();
       onEdit(successor.id, contactName);
     } catch (err) {
-      setConfirmError(errorMessage(err, "Couldn't revise the quote."));
+      setConfirmError(errorMessage(err, "Couldn't make a new version of the quote."));
     } finally {
       setBusy(null);
     }
@@ -398,7 +398,11 @@ export function QuoteDetailPanel({
             </div>
           )}
 
+          {/* Only a quote the customer approved can be invoiced — its approved lines are what we bill. */}
           {(status === "approved" || status === "deposit_paid" || status === "completed") && invoiceButton}
+          {(status === "sent" || status === "viewed") && !invoiceId && (
+            <p className="text-[11px] text-muted-foreground text-center">You can create the invoice once the customer approves this quote.</p>
+          )}
 
           {(status === "deposit_paid" || status === "completed") && (
             <button type="button" onClick={() => void copyLink()} className={cn(actionBtnCls, "w-full")}>
@@ -414,22 +418,12 @@ export function QuoteDetailPanel({
                   onClick={() => setConfirm("revise")}
                   className="text-[11px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1"
                 >
-                  <RefreshCw className="w-3 h-3" /> {status === "approved" || status === "expired" ? "Revise" : "Revise & resend"}
+                  <RefreshCw className="w-3 h-3" /> Make a new version
                 </button>
               )}
               {status === "approved" && (
                 <button type="button" onClick={() => void copyLink()} className="text-[11px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1">
                   <Copy className="w-3 h-3" /> Copy link
-                </button>
-              )}
-              {(status === "sent" || status === "viewed") && !invoiceId && (
-                <button
-                  type="button"
-                  onClick={() => void createInvoice()}
-                  disabled={busy !== null}
-                  className="text-[11px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 disabled:opacity-50"
-                >
-                  <Receipt className="w-3 h-3" /> Create invoice
                 </button>
               )}
               {showVoidLink && (
@@ -485,6 +479,7 @@ export function QuoteDetailPanel({
               : "The customer's link stops accepting approval and payment. This can't be undone."
           }
           confirmLabel="Void quote"
+          cancelLabel="Don't void"
           destructive
           pending={busy === "void"}
           error={confirmError}
@@ -497,9 +492,10 @@ export function QuoteDetailPanel({
       )}
       {quote && confirm === "revise" && (
         <QuoteConfirmDialog
-          title={`Revise ${quote.quote_number ?? "this quote"}?`}
-          description="This voids the current quote and opens a new draft copy for you to change and send. The customer's old link will say it was replaced, and they're emailed that their quote was updated."
-          confirmLabel="Revise quote"
+          title={`Make a new version of ${quote.quote_number ?? "this quote"}?`}
+          description="This voids the current quote and opens a new, unsent draft copy for you to change. Nothing is sent yet. The customer's old link will say it was replaced, and when you send the new version they're emailed that their quote was updated."
+          confirmLabel="Make a new version"
+          cancelLabel="Not now"
           askReason
           reasonLabel="Note for the customer (optional — included in their email)"
           reasonPlaceholder="e.g., Added bottom paint as you asked."

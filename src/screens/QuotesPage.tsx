@@ -193,7 +193,7 @@ export default function QuotesPage() {
 
       {review && (
         <p className="text-xs text-muted-foreground -mt-3">
-          Machine-written quotes that are sent or viewed but not yet paid. Void or revise one here and the customer can't pay a wrong price; after they
+          Machine-written quotes that are sent or viewed but not yet paid. Void one or make a new version here and the customer can't pay a wrong price; after they
           approve, the number is one they agreed to.
         </p>
       )}
