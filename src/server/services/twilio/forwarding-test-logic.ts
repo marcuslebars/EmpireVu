@@ -254,7 +254,7 @@ export function businessLineProblem(
   if (area === "900" || area === "976") return "That business number can't be test-called.";
   for (const own of [ours.catcher, ours.callerId, ours.sharedSender]) {
     if (own && same10(line, own)) {
-      return "Your business number is set to your EmpireVu number — set it to the phone customers call you on.";
+      return "Your business number is set to your missed-call number — set it to the phone customers call you on.";
     }
   }
   return null;

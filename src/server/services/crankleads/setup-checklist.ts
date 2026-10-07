@@ -34,6 +34,7 @@ import { isCrankleadsTier, type CrankleadsTier } from "@/server/services/crankle
 import type { OnboardingStep } from "@/server/services/onboarding";
 import { needsPrice } from "@/server/services/packs/apply";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { appBaseUrlFor } from "@/server/services/platform-brand";
 
 export const SETUP_STEP_KEYS = ["services", "phone", "forwarding", "test_call", "payments", "website", "automations"] as const;
 export type SetupStepKey = (typeof SETUP_STEP_KEYS)[number];
@@ -198,7 +199,7 @@ export interface ComputeSetupChecklistInput {
   companyId: string;
   tier: CrankleadsTier;
   facts: SetupFacts;
-  /** Absolute app origin for deep links (APP_BASE_URL), no trailing slash needed. */
+  /** Absolute app origin for deep links (the CrankLeads host), no trailing slash needed. */
   appBaseUrl: string;
 }
 
@@ -313,8 +314,9 @@ export async function loadSetupFacts(ctx: TenantServiceContext, companyId: strin
   };
 }
 
+/** Only CrankLeads orgs have a setup checklist, so its deep links default to the CrankLeads host. */
 function defaultAppBaseUrl(): string {
-  return (process.env.APP_BASE_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  return appBaseUrlFor("crankleads");
 }
 
 export interface LoadSetupChecklistOptions {

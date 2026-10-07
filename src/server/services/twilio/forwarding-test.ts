@@ -66,6 +66,7 @@ import {
 import { buildForwardingTestAnsweredTwiml } from "@/server/services/twilio/voice-twiml";
 import { deliverMessage, resolveOwnerContacts } from "@/server/services/workflow-engine/messaging";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
+import { appBaseUrlFor, loadOrganizationBrand } from "@/server/services/platform-brand";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 type ForwardingTestRow = Tables<"forwarding_tests">;
@@ -225,7 +226,7 @@ async function placeForwardingTest(
   if (problem || !target.businessLine) throw new ValidationError(problem ?? "Add your business phone number first.");
   const businessLine = target.businessLine;
   if (await isPlatformNumber(admin, businessLine)) {
-    throw new ValidationError("Your business number is an EmpireVu number — set it to the phone customers call you on.");
+    throw new ValidationError("Your business number is one of our missed-call numbers — set it to the phone customers call you on.");
   }
 
   const { data: inserted, error: insertError } = await admin
@@ -499,6 +500,15 @@ async function markOnboardingTestStep(admin: AdminClient, test: ForwardingTestRo
   }
 }
 
+/**
+ * App origin for the owner's "test again" link: the CrankLeads host for a CrankLeads org;
+ * APP_BASE_URL (or no link when unset) for everyone else, as before.
+ */
+async function ownerAppBaseUrl(admin: AdminClient, organizationId: string): Promise<string | null> {
+  const brand = await loadOrganizationBrand(admin, organizationId);
+  return brand.key === "empirevu" ? process.env.APP_BASE_URL ?? null : appBaseUrlFor(brand);
+}
+
 /** SMS to the owner's mobile (email when there is no mobile). Claimed once; best-effort. */
 async function notifyOwnerOfResult(admin: AdminClient, test: ForwardingTestRow, outcome: ForwardingTestOutcome, nowIso: string): Promise<void> {
   try {
@@ -521,7 +531,7 @@ async function notifyOwnerOfResult(admin: AdminClient, test: ForwardingTestRow, 
       businessLine: test.business_line,
       catcherNumber: test.catcher_number,
       answeredBy: test.outbound_answered_by,
-      link: phoneStepLink(process.env.APP_BASE_URL),
+      link: phoneStepLink(await ownerAppBaseUrl(admin, test.organization_id)),
     });
     const useSms = Boolean(owner.phone);
     const result = await deliverMessage({

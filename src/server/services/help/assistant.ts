@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import { findHelpArticle } from "@/content/help/articles";
+import { brandHelpArticle, findHelpArticle } from "@/content/help/articles";
+import { platformBrand, type PlatformBrand } from "@/lib/platform-brand";
 import { getHelpIndex, retrieveHelpSections, type ScoredSection } from "@/content/help/search";
 import type { HelpModelAnswer } from "@/server/ai/help-assistant";
 import type { AiUsageMeta } from "@/server/ai/claude";
@@ -32,8 +33,11 @@ export interface HelpAnswer {
 
 export const NOT_COVERED_ANSWER =
   "I'm not sure — I couldn't find that in the help articles. Click Contact support and a person will reply by email.";
-export const HANDOFF_ANSWER =
-  "Sure — click Contact support below and the EmpireVu team will reply by email.";
+/** "…the CrankLeads team will reply" for a CrankLeads org. */
+export function handoffAnswer(brand: Pick<PlatformBrand, "name"> = platformBrand(null)): string {
+  return `Sure — click Contact support below and the ${brand.name} team will reply by email.`;
+}
+export const HANDOFF_ANSWER = handoffAnswer();
 export const PRICE_GUARD_ANSWER =
   "For prices, see your plan in Settings → Billing & Plans. If you have a billing question, click Contact support.";
 
@@ -78,11 +82,15 @@ export function buildHelpUserMessage(input: {
     byArticle.set(hit.article.id, list);
   }
 
+  const brand = platformBrand(input.account.platformBrand);
   const articleBlocks = [...byArticle.entries()].map(([id, hits]) => {
-    const article = hits[0].article;
+    const article = brandHelpArticle(hits[0].article, brand);
     const sections = [...hits]
       .sort((a, b) => a.sectionIndex - b.sectionIndex)
-      .map((hit) => `### ${hit.section.heading}\n${hit.section.body}`)
+      .map((hit) => {
+        const section = article.sections[hit.sectionIndex] ?? hit.section;
+        return `### ${section.heading}\n${section.body}`;
+      })
       .join("\n\n");
     return `<article id="${id}" title="${article.title}">\n${sections}\n</article>`;
   });
@@ -120,7 +128,11 @@ export function retrievalQuery(question: string, history: readonly ChatTurn[]): 
 }
 
 /** Validate what the model said against what it was given. */
-export function finalizeModelAnswer(model: HelpModelAnswer, sections: readonly ScoredSection[]): HelpAnswer {
+export function finalizeModelAnswer(
+  model: HelpModelAnswer,
+  sections: readonly ScoredSection[],
+  brand: Pick<PlatformBrand, "name"> = platformBrand(null),
+): HelpAnswer {
   // Never show a price: they live in Stripe, and the model was told not to — enforce it.
   if (/\$\s?\d/.test(model.answer)) {
     return { status: "not_sure", answer: PRICE_GUARD_ANSWER, sources: [] };
@@ -130,7 +142,7 @@ export function finalizeModelAnswer(model: HelpModelAnswer, sections: readonly S
   const sources: HelpAnswer["sources"] = [];
   for (const id of model.sourceArticleIds) {
     const article = provided.has(id) ? findHelpArticle(id) : undefined;
-    if (article && !sources.some((s) => s.id === id)) sources.push({ id, title: article.title });
+    if (article && !sources.some((s) => s.id === id)) sources.push({ id, title: brandHelpArticle(article, brand).title });
   }
 
   if (model.status === "not_sure") {
@@ -141,7 +153,7 @@ export function finalizeModelAnswer(model: HelpModelAnswer, sections: readonly S
 
 export interface AskHelpDeps {
   /** null when AI isn't configured — the panel then points at the matching articles instead. */
-  callModel: ((userMessage: string) => Promise<{ answer: HelpModelAnswer; usage: AiUsageMeta }>) | null;
+  callModel: ((userMessage: string, productName: string) => Promise<{ answer: HelpModelAnswer; usage: AiUsageMeta }>) | null;
   recordUsage: (usage: AiUsageMeta) => Promise<void>;
 }
 
@@ -156,11 +168,13 @@ export interface AskHelpResult extends HelpAnswer {
 export const FALLBACK_ANSWER =
   "I can't write an answer right now, but these help articles look like a match. If they don't cover it, click Contact support.";
 
-function articleFallback(sections: readonly ScoredSection[]): HelpAnswer {
+function articleFallback(sections: readonly ScoredSection[], brand: Pick<PlatformBrand, "name">): HelpAnswer {
   const sources: HelpAnswer["sources"] = [];
   for (const hit of sections) {
     if (sources.length >= 3) break;
-    if (!sources.some((s) => s.id === hit.article.id)) sources.push({ id: hit.article.id, title: hit.article.title });
+    if (!sources.some((s) => s.id === hit.article.id)) {
+      sources.push({ id: hit.article.id, title: brandHelpArticle(hit.article, brand).title });
+    }
   }
   return { status: "not_sure", answer: FALLBACK_ANSWER, sources };
 }
@@ -170,9 +184,10 @@ export async function askHelp(
   deps: AskHelpDeps,
 ): Promise<AskHelpResult> {
   const question = input.question.trim().slice(0, MAX_QUESTION_CHARS);
+  const brand = platformBrand(input.account.platformBrand);
 
   if (wantsHuman(question)) {
-    return { status: "handoff_requested", answer: HANDOFF_ANSWER, sources: [], retrieved: [], modelCalled: false, fallback: null };
+    return { status: "handoff_requested", answer: handoffAnswer(brand), sources: [], retrieved: [], modelCalled: false, fallback: null };
   }
 
   const sections = retrieveHelpSections(getHelpIndex(), retrievalQuery(question, input.history));
@@ -184,18 +199,18 @@ export async function askHelp(
   }
 
   if (!deps.callModel) {
-    return { ...articleFallback(sections), retrieved, modelCalled: false, fallback: "ai_unavailable" };
+    return { ...articleFallback(sections, brand), retrieved, modelCalled: false, fallback: "ai_unavailable" };
   }
 
   const userMessage = buildHelpUserMessage({ question, history: input.history, sections, account: input.account });
   let modelResult: { answer: HelpModelAnswer; usage: AiUsageMeta };
   try {
-    modelResult = await deps.callModel(userMessage);
+    modelResult = await deps.callModel(userMessage, brand.name);
   } catch (err) {
     console.error("[help] model call failed:", err instanceof Error ? err.message : err);
-    return { ...articleFallback(sections), retrieved, modelCalled: true, fallback: "ai_error" };
+    return { ...articleFallback(sections, brand), retrieved, modelCalled: true, fallback: "ai_error" };
   }
   await deps.recordUsage(modelResult.usage);
 
-  return { ...finalizeModelAnswer(modelResult.answer, sections), retrieved, modelCalled: true, fallback: null };
+  return { ...finalizeModelAnswer(modelResult.answer, sections, brand), retrieved, modelCalled: true, fallback: null };
 }

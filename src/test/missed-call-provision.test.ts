@@ -181,7 +181,7 @@ describe("provisionMissedCallCatcher", () => {
     const { client } = mockTwilio();
     db.failNext("voice_numbers", { message: "duplicate key", code: "23505" }, "insert");
     await expect(provisionMissedCallCatcher(ctx(), { companyId: COMPANY, areaCode: 705 }, deps(client))).rejects.toThrow(
-      /already connected to another EmpireVu account/,
+      /already connected to another account/,
     );
   });
 
@@ -229,7 +229,7 @@ describe("provisioning ownership guards (one Twilio account, many tenants)", () 
     });
     const { client } = mockTwilio([{ sid: "PN6", phone_number: "+17055550501", voice_url: null, sms_url: null }]);
     await expect(provisionMissedCallCatcher(ctx(), { companyId: COMPANY, attachNumber: "+17055550501" }, deps(client))).rejects.toThrow(
-      /already connected to another EmpireVu company/,
+      /already connected to another company/,
     );
     expect(client.updateWebhooks).not.toHaveBeenCalled();
   });

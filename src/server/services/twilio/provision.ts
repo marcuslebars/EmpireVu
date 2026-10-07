@@ -175,7 +175,7 @@ export async function assertNumberClaimable(
     const sameCompany =
       owner.organization_id === context.organizationId && owner.company_id === companyId && owner.provider === "twilio";
     if (!sameCompany) {
-      throw new ValidationError(`${pretty} is already connected to another EmpireVu company or account.`);
+      throw new ValidationError(`${pretty} is already connected to another company or account.`);
     }
     return;
   }
@@ -287,7 +287,7 @@ async function saveCatcherRow(
     .insert({ ...fields, organization_id: context.organizationId, phone_e164: phone });
   if (error) {
     if (isUniqueViolation(error)) {
-      throw new ValidationError("That number is already connected to another EmpireVu account.");
+      throw new ValidationError("That number is already connected to another account.");
     }
     throw error;
   }

@@ -99,7 +99,7 @@ export function buildForwardingInstructions(catcherNumber: string, ringSeconds =
       "From a DIFFERENT phone (not the business line), call your business number.",
       "Don't answer — let it ring out (or decline it).",
       `The call forwards to ${pretty}: the caller hears your greeting and can leave a voicemail.`,
-      "Within seconds the calling phone gets a text from you, and the call shows up in EmpireVu.",
+      "Within seconds the calling phone gets a text from you, and the call shows up in your Inbox.",
     ],
   };
 }

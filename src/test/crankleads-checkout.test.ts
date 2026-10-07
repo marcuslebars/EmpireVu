@@ -71,6 +71,7 @@ beforeEach(() => {
   resendWelcomeEmail.mockReset();
   couponsRetrieve.mockReset().mockResolvedValue({ id: "crankleads_founding_50", valid: true });
   vi.stubEnv("APP_BASE_URL", "https://app.empirevu.test/");
+  vi.stubEnv("CRANKLEADS_APP_BASE_URL", "https://app.crankleads.test/");
   vi.stubEnv("STRIPE_PRICE_CL_CATCH", "price_cl_catch_m");
   vi.stubEnv("STRIPE_SETUP_FEE_CL_CATCH", "price_cl_catch_s");
   vi.stubEnv("STRIPE_PRICE_CL_CLOSE", "price_cl_close_m");
@@ -150,7 +151,8 @@ describe("POST /api/public/crankleads/checkout", () => {
       allow_promotion_codes: false,
       metadata,
       subscription_data: { metadata },
-      success_url: "https://app.empirevu.test/welcome/crankleads?session_id={CHECKOUT_SESSION_ID}",
+      // The buyer lands on the CrankLeads app host, never the EmpireVu one.
+      success_url: "https://app.crankleads.test/welcome/crankleads?session_id={CHECKOUT_SESSION_ID}",
       cancel_url: "https://crankleads.com/#pricing",
     });
     expect(options).toEqual({ idempotencyKey: `crankleads-checkout-${row.id}` });

@@ -8,6 +8,8 @@ import {
   getStripeSetupFeePriceId,
 } from "@/server/services/billing/env";
 import { getStripeClient } from "@/server/services/billing/stripe";
+import { crankleadsCheckoutBranding } from "@/server/services/crankleads/config";
+import { appBaseUrlFor, brandForOrg, type PlatformBrand } from "@/server/services/platform-brand";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -26,6 +28,31 @@ async function loadOrganization(
     throw new Error(`Organization ${organizationId} not found: ${error?.message ?? "no row"}`);
   }
   return data as Tables<"organizations">;
+}
+
+/**
+ * Where Stripe sends the org's people back: the CrankLeads host for a CrankLeads org; the
+ * existing APP_BASE_URL behaviour (getAppBaseUrl) for everyone else.
+ */
+function billingBaseUrl(brand: PlatformBrand): string {
+  return brand.key === "empirevu" ? getAppBaseUrl() : appBaseUrlFor(brand);
+}
+
+/**
+ * Checkout branding for a CrankLeads org — the same CrankLeads look as the crankleads.com
+ * purchase checkout (crankleadsCheckoutBranding). EmpireVu orgs keep the account default.
+ */
+export function checkoutBrandingFor(brand: PlatformBrand): Stripe.Checkout.SessionCreateParams["branding_settings"] | undefined {
+  if (brand.key !== "crankleads") return undefined;
+  const b = crankleadsCheckoutBranding();
+  return {
+    display_name: b.displayName,
+    logo: { type: "url", url: b.logoUrl },
+    background_color: b.backgroundColor,
+    button_color: b.buttonColor,
+    font_family: "inter",
+    border_style: "rounded",
+  };
 }
 
 /**
@@ -100,8 +127,11 @@ export async function createCheckoutSession(
     lineItems.push({ price: setupFeePrice, quantity: 1 });
   }
 
-  const base = getAppBaseUrl();
+  const brand = brandForOrg(org);
+  const base = billingBaseUrl(brand);
+  const branding = checkoutBrandingFor(brand);
   const session = await stripe.checkout.sessions.create({
+    ...(branding ? { branding_settings: branding } : {}),
     cancel_url: params.cancelUrl ?? `${base}/settings/billing?checkout=cancelled`,
     customer: customerId,
     line_items: lineItems,
@@ -133,10 +163,12 @@ export async function createBillingPortalSession(
     );
   }
 
+  // The billing portal has no per-session branding (its look is the Stripe account's
+  // portal configuration — EmpireVu). Only the return URL follows the org's brand host.
   const stripe = getStripeClient();
   const session = await stripe.billingPortal.sessions.create({
     customer: org.stripe_customer_id,
-    return_url: params.returnUrl ?? `${getAppBaseUrl()}/settings/billing`,
+    return_url: params.returnUrl ?? `${billingBaseUrl(brandForOrg(org))}/settings/billing`,
   });
 
   return { url: session.url };

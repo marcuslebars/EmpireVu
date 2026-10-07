@@ -10,7 +10,7 @@
 import type Stripe from "stripe";
 import { z } from "zod";
 
-import { getAppBaseUrl } from "@/server/services/billing/env";
+import { appBaseUrlFor } from "@/server/services/platform-brand";
 import { getStripeClient } from "@/server/services/billing/stripe";
 import {
   CRANKLEADS_SOURCE,
@@ -134,7 +134,9 @@ export function buildCrankleadsSessionParams(
     utm: utmMetadata(utm),
   };
 
-  const base = getAppBaseUrl().replace(/\/+$/, "");
+  // After paying, the buyer lands on the CrankLeads app host (CRANKLEADS_APP_BASE_URL) — the
+  // same host their welcome email and every later link uses (docs/crankleads-branding.md).
+  const base = appBaseUrlFor("crankleads");
   const brand = crankleadsCheckoutBranding();
 
   // Subscription mode with BOTH prices: the recurring monthly price becomes the

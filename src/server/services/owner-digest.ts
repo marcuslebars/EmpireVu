@@ -21,6 +21,7 @@ import {
 } from "@/server/templates/digest";
 import { boatFromSnapshot } from "@/server/services/retell/caller-lookup";
 import { companyReceptionistHealth, hasReceptionist } from "@/server/services/retell/health";
+import { appBaseUrlFor, loadOrganizationBrand } from "@/server/services/platform-brand";
 
 /**
  * Owner daily digest (Task 15). Company-scoped: one message per company with digest enabled
@@ -38,9 +39,6 @@ function ctxFor(admin: Admin, organizationId: string): TenantServiceContext {
   return { organizationId, actorProfileId: null, supabase: admin };
 }
 
-function appBaseUrl(): string {
-  return (process.env.APP_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-}
 
 function fallbackTimeZone(): string {
   return process.env.BUSINESS_TIMEZONE?.trim() || "America/Toronto";
@@ -441,7 +439,9 @@ async function renderAndDeliver(
   data: DigestData,
 ): Promise<{ smsStatus: string | null; emailStatus: string | null; channelsSent: string[] }> {
   const owner = await resolveOwnerContacts(context, company);
-  const deepLink = `${appBaseUrl()}/inbox`;
+  // The owner's own app host (app.crankleads.com for a CrankLeads org).
+  const brand = await loadOrganizationBrand(context.supabase, context.organizationId);
+  const deepLink = `${appBaseUrlFor(brand)}/inbox`;
   const channelsSent: string[] = [];
   let smsStatus: string | null = null;
   let emailStatus: string | null = null;

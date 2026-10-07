@@ -18,7 +18,8 @@ import type { Tables } from "@/server/db/database.types";
 import { downloadReceipt } from "@/server/services/expenses/receipts";
 import { reviewTimeZone } from "@/server/services/reviews/rules";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { customerDoc, depositPaymentDoc, docHash, expenseDoc, invoiceDoc, paymentDoc } from "./mapping";
+import { loadOrganizationBrand } from "@/server/services/platform-brand";
+import { DEFAULT_PRODUCT_NAME, customerDoc, depositPaymentDoc, docHash, expenseDoc, invoiceDoc, paymentDoc } from "./mapping";
 import { providerFor } from "./providers";
 import { sessionFor } from "./tokens";
 import { ProviderError, missingSettings, parseSettings, type AccountingProvider, type AccountingSettings, type ProviderSession, type RemoteRef } from "./types";
@@ -43,16 +44,20 @@ export class SyncContext {
   readonly provider: AccountingProvider;
   readonly settings: AccountingSettings;
   readonly timeZone: string;
+  /** The org's platform brand name, for memos and the generic vendor ("CrankLeads" for a CrankLeads org). */
+  readonly productName: string;
 
   constructor(
     readonly admin: Admin,
     readonly conn: Connection,
     timeZone: string,
     private readonly f: typeof fetch,
+    productName: string = DEFAULT_PRODUCT_NAME,
   ) {
     this.provider = providerFor(conn.provider);
     this.settings = parseSettings(conn.settings);
     this.timeZone = timeZone;
+    this.productName = productName;
   }
 
   session(): Promise<ProviderSession> {
@@ -149,11 +154,14 @@ async function ensureCustomer(ctx: SyncContext, inv: Tables<"invoices">): Promis
   return remote;
 }
 
-const GENERIC_VENDOR = "Expenses (EmpireVu)";
+/** Xero needs a contact on every spend: "Expenses (CrankLeads)" / "Expenses (EmpireVu)". */
+function genericVendor(productName: string): string {
+  return `Expenses (${productName})`;
+}
 
 async function ensureVendor(ctx: SyncContext, name: string | null): Promise<RemoteRef | null> {
   // QuickBooks expenses don't need a vendor; Xero needs a contact on every spend.
-  const vendorName = name ?? (ctx.provider.id === "xero" ? GENERIC_VENDOR : null);
+  const vendorName = name ?? (ctx.provider.id === "xero" ? genericVendor(ctx.productName) : null);
   if (!vendorName) return null;
   const key = vendorName.trim().toLowerCase();
   const existing = await ctx.link("vendor", key);
@@ -217,14 +225,14 @@ export async function syncInvoice(ctx: SyncContext, invoiceId: string): Promise<
     }
   }
 
-  const doc = invoiceDoc(inv, { timeZone: ctx.timeZone, depositAsLine, depositInvoiceNumber });
+  const doc = invoiceDoc(inv, { timeZone: ctx.timeZone, depositAsLine, depositInvoiceNumber, productName: ctx.productName });
   const customer = await ensureCustomer(ctx, inv);
   const s = ctx.settings;
   const hash = docHash(doc, customer.id, s.incomeTarget?.id, s.salesTaxCode?.id, s.salesExemptCode?.id, s.country);
   let detail = `Up to date (${inv.invoice_number ?? "invoice"}).`;
   if (!link || link.payload_hash !== hash) {
     const res = await ctx.provider.pushInvoice(await ctx.session(), doc, customer, s, link ? { id: link.remote_id, version: link.remote_version } : null);
-    const note = res.totalCents !== null && res.totalCents !== doc.totalCents ? `Total in the file is ${money(res.totalCents)}; EmpireVu has ${money(doc.totalCents)} — check the tax code on this invoice.` : null;
+    const note = res.totalCents !== null && res.totalCents !== doc.totalCents ? `Total in the file is ${money(res.totalCents)}; ${ctx.productName} has ${money(doc.totalCents)} — check the tax code on this invoice.` : null;
     await ctx.saveLink("invoice", inv.id, res, { hash, note });
     detail = `${link ? "Updated" : "Created"} ${inv.invoice_number ?? "invoice"}${note ? ` — ${note}` : "."}`;
   }
@@ -233,7 +241,7 @@ export async function syncInvoice(ctx: SyncContext, invoiceId: string): Promise<
   if (inv.credit_cents > 0 && !depositAsLine) {
     const invLink = await ctx.link("invoice", inv.id);
     if (invLink) {
-      const pdoc = depositPaymentDoc(inv, quoteDepositPaidAt, ctx.timeZone);
+      const pdoc = depositPaymentDoc(inv, quoteDepositPaidAt, ctx.timeZone, ctx.productName);
       const dlink = await ctx.link("deposit", pdoc.localKey);
       const phash = docHash(pdoc, invLink.remote_id, s.paymentAccount?.id);
       if (!dlink || dlink.payload_hash !== phash) {
@@ -280,7 +288,7 @@ export async function syncPayment(ctx: SyncContext, paymentId: string): Promise<
   const inv = await loadInvoice(ctx, p.invoice_id);
   if (!inv) return { status: "skipped", detail: "Its invoice no longer exists." };
   const customer = await ensureCustomer(ctx, inv);
-  const doc = paymentDoc(p, ctx.timeZone);
+  const doc = paymentDoc(p, ctx.timeZone, ctx.productName);
   const hash = docHash(doc, invLink.remote_id, ctx.settings.paymentAccount?.id);
   if (link && link.payload_hash === hash) return { status: "done", detail: "Up to date." };
   const res = await ctx.provider.pushPayment(
@@ -312,7 +320,7 @@ export async function syncExpense(ctx: SyncContext, expenseId: string): Promise<
   if (!link && e.spent_on < ctx.startDate) return { status: "skipped", detail: `Dated before the sync start date (${ctx.startDate}).` };
   assertReady(ctx, "expenses");
 
-  const doc = expenseDoc(e);
+  const doc = expenseDoc(e, ctx.productName);
   const vendor = await ensureVendor(ctx, doc.vendorName);
   const s = ctx.settings;
   const account = s.expenseAccounts[e.category as keyof AccountingSettings["expenseAccounts"]] ?? s.expenseFallbackAccount;
@@ -372,7 +380,8 @@ async function contextFor(admin: Admin, companyId: string, f: typeof fetch): Pro
   const { data: conn } = await admin.from("accounting_connections").select("*").eq("company_id", companyId).maybeSingle();
   if (!conn || conn.status !== "active") return null;
   const { data: company } = await admin.from("companies").select("timezone").eq("id", companyId).eq("organization_id", conn.organization_id).maybeSingle();
-  return new SyncContext(admin, conn, reviewTimeZone(company), f);
+  const brand = await loadOrganizationBrand(admin, conn.organization_id);
+  return new SyncContext(admin, conn, reviewTimeZone(company), f, brand.name);
 }
 
 export async function runJob(ctx: SyncContext, job: Job): Promise<Outcome> {

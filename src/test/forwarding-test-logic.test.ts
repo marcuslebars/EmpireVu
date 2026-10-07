@@ -260,9 +260,9 @@ describe("businessLineProblem (only the company's own callable number)", () => {
     expect(businessLineProblem(null, ours)).toMatch(/business phone/);
     expect(businessLineProblem("+447700900123", ours)).toMatch(/North American/);
     expect(businessLineProblem("+19005551234", ours)).toMatch(/can't be test-called/);
-    expect(businessLineProblem(CATCHER, ours)).toMatch(/EmpireVu number/);
-    expect(businessLineProblem("+17055550001", ours)).toMatch(/EmpireVu number/);
-    expect(businessLineProblem(VERIFIER, { ...ours, callerId: VERIFIER })).toMatch(/EmpireVu number/);
+    expect(businessLineProblem(CATCHER, ours)).toMatch(/missed-call number/);
+    expect(businessLineProblem("+17055550001", ours)).toMatch(/missed-call number/);
+    expect(businessLineProblem(VERIFIER, { ...ours, callerId: VERIFIER })).toMatch(/missed-call number/);
   });
 });
 

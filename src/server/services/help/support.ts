@@ -6,6 +6,7 @@ import type { SendEmailInput, SendEmailResult } from "@/server/outbound/email";
 import { describeAccount, type HelpAccountContext } from "@/server/services/help/account-context";
 import { MAX_TURN_CHARS, chatTurnSchema, type ChatTurn } from "@/server/services/help/assistant";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { appBaseUrlFor, platformBrand } from "@/server/services/platform-brand";
 
 /**
  * "Contact support" (docs/help-assistant.md): persist a support_requests row on the
@@ -58,7 +59,8 @@ export interface SupportEmailInput {
 /** The operator email. Plain text — user-typed content is never rendered as HTML. */
 export function buildSupportEmail(input: SupportEmailInput): { subject: string; body: string } {
   const who = input.account.organizationName ?? "Unknown organization";
-  const subject = `[EmpireVu Help] ${oneLine(who, 60)}: ${oneLine(input.question, 70)}`;
+  const brand = platformBrand(input.account.platformBrand);
+  const subject = `[${brand.name} Help] ${oneLine(who, 60)}: ${oneLine(input.question, 70)}`;
 
   const reasonText =
     input.reason === "not_sure"
@@ -149,14 +151,17 @@ export async function createSupportRequest(
       transcript,
       account: input.account,
       reason: input.body.reason,
-      appBaseUrl: process.env.APP_BASE_URL?.trim() || null,
+      appBaseUrl:
+        platformBrand(input.account.platformBrand).key === "empirevu"
+          ? process.env.APP_BASE_URL?.trim() || null
+          : appBaseUrlFor(platformBrand(input.account.platformBrand)),
     });
     try {
       await deps.sendEmail({
         to,
         subject: email.subject,
         body: email.body,
-        fromName: "EmpireVu Help",
+        fromName: `${platformBrand(input.account.platformBrand).name} Help`,
         ...(input.requesterEmail ? { replyTo: input.requesterEmail } : {}),
       });
       emailStatus = "sent";

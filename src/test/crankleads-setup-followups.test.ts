@@ -43,7 +43,7 @@ type Row = Record<string, unknown>;
 const ORG = "org-1";
 const COMPANY = "company-1";
 const PURCHASE = "purchase-1";
-const APP = "https://app.empirevu.test";
+const APP = "https://app.crankleads.test";
 const CATCHER = "+17055550000";
 const TOKEN = "a".repeat(48);
 
@@ -315,7 +315,7 @@ describe("follow-up templates", () => {
     expect(renderReminderEmail({ ...REMINDER, stage: "day5" }).subject).toBe("Your CrankLeads system isn't live yet (2 steps left)");
     expect(renderReminderEmail({ ...REMINDER, stage: "day10" }).subject).toBe("Need a hand finishing setup? (2 steps left)");
     const withPassword = renderReminderEmail({ ...REMINDER, setPasswordUrl: `${APP}/update-password?token_hash=t&type=recovery&next=x` });
-    expect(withPassword.body).toContain("You haven't set your EmpireVu password yet");
+    expect(withPassword.body).toContain("You haven't set your CrankLeads password yet");
     expect(withPassword.html).toContain("Set your password and turn on call forwarding");
     expect(renderReminderEmail({ ...REMINDER, businessName: "<b>x</b>" }).html).not.toContain("<b>x</b>");
   });
@@ -397,7 +397,8 @@ const sends = () => db.tables.crankleads_setup_followups ?? [];
 const delivered = (channel: "email" | "sms") => deliver.mock.calls.map(([m]) => m).filter((m) => m.channel === channel);
 
 beforeEach(() => {
-  vi.stubEnv("APP_BASE_URL", APP);
+  vi.stubEnv("APP_BASE_URL", "https://app.house.test");
+  vi.stubEnv("CRANKLEADS_APP_BASE_URL", APP);
   vi.stubEnv("OWNER_EMAIL", "ops@empirevu.test");
   deliver = vi.fn<SetupFollowupDeps["deliver"]>(async (input) => ({ status: "sent", body: input.body, providerRef: "ref" }));
   sendEmail = vi.fn<SetupFollowupDeps["sendEmail"]>(async () => ({ id: "op_1" }));

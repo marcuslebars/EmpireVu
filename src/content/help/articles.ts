@@ -1,22 +1,26 @@
 import type { HelpArticle } from "@/content/help/types";
+import { withProductName, type PlatformBrand } from "@/lib/platform-brand";
 
 /**
  * The customer help library. Keep each article short, in plain words, and true to what the
  * app does today — if a feature isn't built, it isn't documented (the assistant answers ONLY
  * from these). No dollar amounts: prices live in Stripe and are shown in Settings → Billing &
  * Plans (a test fails on any `$<number>` here). See docs/help-assistant.md before editing.
+ *
+ * Never write a platform name here: write `{{product}}` and it becomes "EmpireVu" or
+ * "CrankLeads" for the reader's account (brandHelpArticle; docs/crankleads-branding.md).
  */
 export const HELP_ARTICLES: readonly HelpArticle[] = [
   {
     id: "getting-started",
-    title: "Finish setting up EmpireVu",
+    title: "Finish setting up {{product}}",
     summary: "The setup checklist: what each step does and how to get back to it.",
     keywords: ["setup", "onboarding", "wizard", "start", "checklist", "continue setup", "new account", "crankleads", "welcome", "password"],
     sections: [
       {
         heading: "Where setup lives",
         body:
-          "Setup is a short checklist called \"Set up EmpireVu\". Until it's finished, your Dashboard shows a \"Finish setting up EmpireVu\" card — click \"Continue setup\" to pick up where you left off. You can click any step in the list on the left to go back to it later.",
+          "Setup is a short checklist called \"Set up {{product}}\". Until it's finished, your Dashboard shows a \"Finish setting up {{product}}\" card — click \"Continue setup\" to pick up where you left off. You can click any step in the list on the left to go back to it later.",
       },
       {
         heading: "The steps",
@@ -39,7 +43,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "Two ways to handle calls",
         body:
-          "In setup, open the Phone step. Depending on your plan you'll see one or both options:\n- AI receptionist answers — a new number answered by the AI receptionist, who picks up every call. Included with the Front Desk plan.\n- Missed-call catcher (no AI) — you keep your own business number and keep answering it. Calls you miss are forwarded to your EmpireVu number, and the caller gets a text from you within seconds.\nIf your plan only includes the missed-call catcher, the AI option isn't shown; you can upgrade any time in Settings → Billing & Plans.",
+          "In setup, open the Phone step. Depending on your plan you'll see one or both options:\n- AI receptionist answers — a new number answered by the AI receptionist, who picks up every call. Included with the Front Desk plan.\n- Missed-call catcher (no AI) — you keep your own business number and keep answering it. Calls you miss are forwarded to your {{product}} number, and the caller gets a text from you within seconds.\nIf your plan only includes the missed-call catcher, the AI option isn't shown; you can upgrade any time in Settings → Billing & Plans.",
       },
       {
         heading: "Getting your missed-call number",
@@ -49,7 +53,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "What happens on a missed call",
         body:
-          "The caller hears a short greeting in your business name (\"Sorry we missed your call…\"), can leave a voicemail, and gets a text from you right away. The call shows up in EmpireVu as a new lead. If they leave a voicemail, you get an email with a link to play it on the contact's page.\n- If the same person calls again within a few minutes, they don't get a second text.\n- Callers who hide their caller ID can't be texted, but you still see the missed call.\n- Someone who replied STOP is never texted again.",
+          "The caller hears a short greeting in your business name (\"Sorry we missed your call…\"), can leave a voicemail, and gets a text from you right away. The call shows up in {{product}} as a new lead. If they leave a voicemail, you get an email with a link to play it on the contact's page.\n- If the same person calls again within a few minutes, they don't get a second text.\n- Callers who hide their caller ID can't be texted, but you still see the missed call.\n- Someone who replied STOP is never texted again.",
       },
       {
         heading: "Next step",
@@ -67,17 +71,17 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "Before you start",
         body:
-          "You do this once, from your business phone. The Phone step in setup shows these codes with your EmpireVu number already filled in, plus a copy button for each — use those. Below, NUMBER stands for your EmpireVu number written like +17055551234.",
+          "You do this once, from your business phone. The Phone step in setup shows these codes with your {{product}} number already filled in, plus a copy button for each — use those. Below, NUMBER stands for your {{product}} number written like +17055551234.",
       },
       {
         heading: "Mobile phones (Rogers, Bell, Telus, Fido, Koodo, Freedom, Virgin)",
         body:
-          "Most Canadian mobile carriers accept these codes. Dial the code like a phone number and press Call.\n- Recommended, all in one: `**004*NUMBER#` — forwards when you don't answer, when you're on another call, and when your phone is off or has no signal.\n- If that code is rejected, dial these one at a time: `**61*NUMBER#` (no answer), `**67*NUMBER#` (busy), `**62*NUMBER#` (phone off or no signal).\n- Want more rings first? `**61*NUMBER**20#` waits 20 seconds before forwarding (you can use 5 to 30 seconds).\nPlans differ. If a code is rejected, call your carrier and ask for \"conditional call forwarding\" (no answer, busy, unreachable) to your EmpireVu number. Some carriers want the number as 10 or 11 digits instead of +1.",
+          "Most Canadian mobile carriers accept these codes. Dial the code like a phone number and press Call.\n- Recommended, all in one: `**004*NUMBER#` — forwards when you don't answer, when you're on another call, and when your phone is off or has no signal.\n- If that code is rejected, dial these one at a time: `**61*NUMBER#` (no answer), `**67*NUMBER#` (busy), `**62*NUMBER#` (phone off or no signal).\n- Want more rings first? `**61*NUMBER**20#` waits 20 seconds before forwarding (you can use 5 to 30 seconds).\nPlans differ. If a code is rejected, call your carrier and ask for \"conditional call forwarding\" (no answer, busy, unreachable) to your {{product}} number. Some carriers want the number as 10 or 11 digits instead of +1.",
       },
       {
         heading: "Landline or VoIP office phone",
         body:
-          "These codes don't work on landlines or office phone systems. Call your phone provider, or use its online portal, and ask them to set \"call forward no answer\" and \"call forward busy\" to your EmpireVu number, with about 4–5 rings before it forwards.",
+          "These codes don't work on landlines or office phone systems. Call your phone provider, or use its online portal, and ask them to set \"call forward no answer\" and \"call forward busy\" to your {{product}} number, with about 4–5 rings before it forwards.",
       },
       {
         heading: "Turning it off",
@@ -87,7 +91,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "Never forward all calls",
         body:
-          "Don't use \"forward all calls\" (unconditional forwarding, such as `**21*`). Your own phone would stop ringing and every call would go straight to EmpireVu.",
+          "Don't use \"forward all calls\" (unconditional forwarding, such as `**21*`). Your own phone would stop ringing and every call would go straight to {{product}}.",
       },
     ],
   },
@@ -100,7 +104,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "Run the test",
         body:
-          "In the Phone step, under the forwarding codes, press \"Test my forwarding\":\n1. We call your business line from your EmpireVu number.\n2. Don't answer or decline it — just let it ring out.\n3. If forwarding is on, the call comes back to your EmpireVu number and the test passes.\nIt takes about a minute. You'll see the result on screen and get a text: \"Missed-call text-back is live\" when it works, or what to fix when it doesn't. The test call never creates a lead or texts anyone.",
+          "In the Phone step, under the forwarding codes, press \"Test my forwarding\":\n1. We call your business line from your {{product}} number.\n2. Don't answer or decline it — just let it ring out.\n3. If forwarding is on, the call comes back to your {{product}} number and the test passes.\nIt takes about a minute. You'll see the result on screen and get a text: \"Missed-call text-back is live\" when it works, or what to fix when it doesn't. The test call never creates a lead or texts anyone.",
       },
       {
         heading: "We keep checking",
@@ -314,12 +318,12 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "Choosing where things go",
         body:
-          "After connecting, choose the product/service (QuickBooks) or sales account (Xero) for invoice lines, the tax codes, where payments go, and the accounts for expenses. EmpireVu pre-fills its best guesses from your chart of accounts. Set \"Sync records from\" to the day after the last thing you entered by hand, so nothing is duplicated. Then press Save & start syncing.",
+          "After connecting, choose the product/service (QuickBooks) or sales account (Xero) for invoice lines, the tax codes, where payments go, and the accounts for expenses. {{product}} pre-fills its best guesses from your chart of accounts. Set \"Sync records from\" to the day after the last thing you entered by hand, so nothing is duplicated. Then press Save & start syncing.",
       },
       {
         heading: "What syncs",
         body:
-          "Sent invoices with their customer, payments, refunds and voids, and expenses with their receipt photos. Drafts never sync. It's one way — changes made in QuickBooks or Xero don't come back. Edits in EmpireVu update the same record in your books, usually within a minute.",
+          "Sent invoices with their customer, payments, refunds and voids, and expenses with their receipt photos. Drafts never sync. It's one way — changes made in QuickBooks or Xero don't come back. Edits in {{product}} update the same record in your books, usually within a minute.",
       },
       {
         heading: "When something doesn't sync",
@@ -434,7 +438,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "Update your card, change plan or cancel",
         body:
-          "Click \"Manage subscription\" (or \"Change in portal\" on a plan card). This opens Stripe's secure billing portal, where you can update your card, see your invoices, change your plan, or cancel. When you're done it brings you back to EmpireVu.",
+          "Click \"Manage subscription\" (or \"Change in portal\" on a plan card). This opens Stripe's secure billing portal, where you can update your card, see your invoices, change your plan, or cancel. When you're done it brings you back to {{product}}.",
       },
       {
         heading: "If a payment fails",
@@ -457,22 +461,22 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "Who can be texted",
         body:
-          "EmpireVu checks permission before every text to a customer:\n- People who contact you first — a call, your website form or a booking request — can be texted about their request for 6 months.\n- People who tick the texting box on your form have given ongoing permission.\n- Contacts you add by hand can't be texted until they opt in.\nTexts to you (alerts, digests) aren't affected.",
+          "{{product}} checks permission before every text to a customer:\n- People who contact you first — a call, your website form or a booking request — can be texted about their request for 6 months.\n- People who tick the texting box on your form have given ongoing permission.\n- Contacts you add by hand can't be texted until they opt in.\nTexts to you (alerts, digests) aren't affected.",
       },
       {
         heading: "The STOP message",
         body:
-          "The first text EmpireVu sends to a customer ends with \"Reply STOP to opt out\", and every text names your business. You don't need to add this yourself.",
+          "The first text {{product}} sends to a customer ends with \"Reply STOP to opt out\", and every text names your business. You don't need to add this yourself.",
       },
       {
         heading: "When someone replies STOP",
         body:
-          "Replies like STOP, UNSUBSCRIBE, CANCEL, END or QUIT opt that person out straight away, and no automation or text from EmpireVu will reach them. If they reply START, YES or UNSTOP, texting is allowed again. You can't override an opt-out.",
+          "Replies like STOP, UNSUBSCRIBE, CANCEL, END or QUIT opt that person out straight away, and no automation or text from {{product}} will reach them. If they reply START, YES or UNSTOP, texting is allowed again. You can't override an opt-out.",
       },
       {
         heading: "A note on the rules",
         body:
-          "These checks follow Canada's anti-spam rules (CASL) and the CRTC texting rules, but EmpireVu isn't a lawyer. If you're unsure about your wording or your market, check with yours.",
+          "These checks follow Canada's anti-spam rules (CASL) and the CRTC texting rules, but {{product}} isn't a lawyer. If you're unsure about your wording or your market, check with yours.",
       },
     ],
   },
@@ -513,14 +517,14 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "Deleting your account",
         body:
-          "In the EmpireVu mobile app go to More → Settings → Delete account, or email us and we'll confirm before removing anything. If you're the only owner of a team, you'll be asked to hand ownership to someone else first. If you're the only member of an organization, deleting your account deletes that organization's contacts, bookings, tasks, quotes and job photos too. Invoices and payment records are kept for as long as tax law requires. Deletion is permanent.",
+          "In the mobile app go to More → Settings → Delete account, or email us and we'll confirm before removing anything. If you're the only owner of a team, you'll be asked to hand ownership to someone else first. If you're the only member of an organization, deleting your account deletes that organization's contacts, bookings, tasks, quotes and job photos too. Invoices and payment records are kept for as long as tax law requires. Deletion is permanent.",
       },
     ],
   },
   {
     id: "contact-support",
     title: "Getting help from a person",
-    summary: "When and how to reach the EmpireVu team.",
+    summary: "When and how to reach the {{product}} team.",
     keywords: ["support", "help", "human", "person", "contact", "talk to someone", "email", "problem", "bug", "broken", "issue"],
     sections: [
       {
@@ -539,4 +543,17 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
 
 export function findHelpArticle(id: string): HelpArticle | undefined {
   return HELP_ARTICLES.find((article) => article.id === id);
+}
+
+/** An article with `{{product}}` filled in for the reader's platform brand. */
+export function brandHelpArticle(article: HelpArticle, brand: Pick<PlatformBrand, "name">): HelpArticle {
+  return {
+    ...article,
+    title: withProductName(article.title, brand),
+    summary: withProductName(article.summary, brand),
+    sections: article.sections.map((section) => ({
+      heading: withProductName(section.heading, brand),
+      body: withProductName(section.body, brand),
+    })),
+  };
 }
