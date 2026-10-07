@@ -59,6 +59,57 @@
     --urgent: 0 72% 51%;
     --card-elevated: 222 18% 11%;
   }
+
+  /*
+   * CrankLeads accounts (src/lib/platform-brand.ts → BrandProvider sets data-brand on <html>).
+   * Same dark UI, re-tuned to crankleads.com: near-black #0C0E12 surfaces, #21242C edges,
+   * lime #A6EE2B accent, off-white #F4F4F1 text. Lime is light, so anything that sits ON
+   * the primary colour uses dark ink (#0C0E12) — white on lime fails contrast.
+   * Status colours (--accent-blue/--success/--warning/--urgent) keep their meaning.
+   */
+  :root[data-brand="crankleads"] {
+    --background: 220 20% 5.9%;
+    --foreground: 60 12% 95%;
+
+    --card: 222 18% 8.5%;
+    --card-foreground: 60 12% 95%;
+
+    --popover: 222 18% 8.5%;
+    --popover-foreground: 60 12% 95%;
+
+    --primary: 82 85% 55%;
+    --primary-foreground: 220 20% 6%;
+
+    --secondary: 224 14% 12%;
+    --secondary-foreground: 60 6% 82%;
+
+    --muted: 224 14% 12%;
+    --muted-foreground: 220 8% 56%;
+
+    --accent: 224 14% 15%;
+    --accent-foreground: 60 12% 95%;
+
+    --border: 224 14% 15%;
+    --input: 224 14% 15%;
+    --ring: 82 85% 55%;
+
+    --sidebar-background: 220 20% 4.5%;
+    --sidebar-foreground: 60 6% 72%;
+    --sidebar-primary: 82 85% 55%;
+    --sidebar-primary-foreground: 220 20% 6%;
+    --sidebar-accent: 224 14% 11%;
+    --sidebar-accent-foreground: 60 12% 95%;
+    --sidebar-border: 224 14% 12%;
+    --sidebar-ring: 82 85% 55%;
+
+    --surface-1: 222 18% 8.5%;
+    --surface-2: 224 14% 11%;
+    --surface-3: 224 14% 14%;
+    --text-primary: 60 12% 95%;
+    --text-secondary: 60 4% 64%;
+    --text-tertiary: 220 8% 42%;
+    --card-elevated: 222 18% 10%;
+  }
 }
 
 @layer base {

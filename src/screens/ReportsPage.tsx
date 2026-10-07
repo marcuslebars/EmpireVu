@@ -25,6 +25,7 @@ import {
   type Preset,
 } from "@/lib/reports-api";
 import { cn } from "@/lib/utils";
+import { useBrand } from "@/lib/brand-context";
 
 const AXIS_TICK = { fontSize: 11, fill: "hsl(var(--muted-foreground))" };
 const TOOLTIP_STYLE = { background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 };
@@ -334,6 +335,7 @@ function Report({ r }: { r: OverviewReport }) {
 }
 
 export default function ReportsPage() {
+  const brand = useBrand();
   const { organizationId, companyId, isValid } = useOrg();
   const { session } = useAuth();
   const role = session?.organizations.find((o) => o.id === organizationId)?.membershipRole ?? "member";
@@ -410,7 +412,7 @@ export default function ReportsPage() {
           <Button variant="outline" size="sm" asChild>
             <Link to="/reports/attribution">
               <BarChart3 className="w-4 h-4 mr-2" />
-              Captured by EmpireVu
+              Captured by {brand.name}
             </Link>
           </Button>
           <Button

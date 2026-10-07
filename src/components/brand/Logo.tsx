@@ -1,38 +1,45 @@
+import { useBrand } from "@/lib/brand-context";
 import { cn } from "@/lib/utils";
 
 /**
- * EmpireVu brand lockup.
+ * Platform brand lockup — EmpireVu or CrankLeads, whichever the current account sees
+ * (src/lib/platform-brand.ts, BrandProvider in src/lib/brand-context.tsx).
  *
- * `public/empirevu-logo.png` is the dark-theme wordmark; it reads cleanly on the
- * app's dark surfaces. If a light-background lockup is ever needed (invoices,
- * PDFs), use a dark variant of the wordmark rather than this file.
+ * Both wordmarks are made for the app's dark surfaces. If a light-background lockup is ever
+ * needed (invoices, PDFs), use a dark variant rather than these files.
  */
 
-const LOGO_SRC = "/empirevu-logo.png";
-
-/** Full wordmark. Set the height; width follows the ~3.5:1 aspect. */
+/** Full wordmark. Set the height; width follows the file's aspect. */
 export function Logo({ className }: { className?: string }) {
+  const brand = useBrand();
   return (
     <img
-      src={LOGO_SRC}
-      alt="EmpireVu"
+      src={brand.logoSrc}
+      alt={brand.name}
+      width={brand.logoWidth}
+      height={brand.logoHeight}
+      data-brand-logo={brand.key}
       className={cn("h-5 w-auto select-none", className)}
       draggable={false}
     />
   );
 }
 
-/**
- * Square brand mark for tight spots (the collapsed sidebar) — the EmpireVu
- * emblem, rendered white on the app's dark surfaces.
- */
+/** Square brand mark for tight spots (the collapsed sidebar). */
 export function LogoMark({ className }: { className?: string }) {
+  const brand = useBrand();
   return (
     <img
-      src="/empirevu-favicon.svg"
-      alt="EmpireVu"
+      src={brand.markSrc}
+      alt={brand.name}
+      data-brand-logo={brand.key}
       className={cn("select-none shrink-0 object-contain", className)}
       draggable={false}
     />
   );
+}
+
+/** The product name as text ("Welcome to {name}"). */
+export function ProductName() {
+  return <>{useBrand().name}</>;
 }

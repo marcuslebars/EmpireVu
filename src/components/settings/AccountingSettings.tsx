@@ -24,6 +24,7 @@ import { categoryLabel } from "@/lib/expenses-api";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
 import { cn } from "@/lib/utils";
+import { useBrand } from "@/lib/brand-context";
 
 const labelCls = "block text-sm font-medium text-foreground mb-1.5";
 const hintCls = "text-xs text-muted-foreground mt-1";
@@ -93,6 +94,7 @@ function ProviderMark({ id }: { id: ProviderId }) {
 }
 
 function ConnectChoices({ orgId, companyId, status }: { orgId: string; companyId: string; status: AccountingStatus }) {
+  const brand = useBrand();
   const connect = useConnectAccounting(orgId, companyId);
   const go = (p: ProviderId) =>
     connect.mutate(p, { onError: (err) => toast.error(err instanceof Error ? err.message : "Couldn't start connecting.") });
@@ -117,13 +119,13 @@ function ConnectChoices({ orgId, companyId, status }: { orgId: string; companyId
               {connect.isPending && connect.variables === p.id && <Loader2 className="w-4 h-4 animate-spin" />}
               Connect {p.label}
             </button>
-            {!p.configured && <p className="text-[11px] text-muted-foreground">Not set up on this server yet — ask EmpireVu support to turn it on.</p>}
+            {!p.configured && <p className="text-[11px] text-muted-foreground">Not set up on this server yet — ask {brand.name} support to turn it on.</p>}
           </div>
         ))}
       </div>
       <div className="rounded-lg bg-secondary/50 px-4 py-3 text-xs text-muted-foreground space-y-1">
         <p className="text-foreground font-medium text-sm">What syncs</p>
-        <p>Sent invoices (with their customer), payments, refunds and voids, and expenses with their receipt photos — one way, from EmpireVu into your books.</p>
+        <p>Sent invoices (with their customer), payments, refunds and voids, and expenses with their receipt photos — one way, from {brand.name} into your books.</p>
         <p>You choose a start date, so nothing you've already entered by hand is duplicated. Drafts never sync.</p>
       </div>
     </div>

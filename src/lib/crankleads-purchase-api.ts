@@ -8,8 +8,8 @@ import { ApiError, resolveApiUrl } from "@/lib/api-client";
 
 /** The offer the buyer purchased (named on the welcome page only). */
 export const PURCHASED_OFFER_NAME = "CrankLeads";
-/** The app the buyer logs into. */
-export const APP_NAME = "EmpireVu";
+/** The app the buyer logs into — CrankLeads accounts see CrankLeads (docs/crankleads-branding.md). */
+export const APP_NAME = "CrankLeads";
 
 export type PurchaseStatus = "pending" | "provisioning" | "ready" | "failed";
 

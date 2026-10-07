@@ -6,6 +6,7 @@ import { toast } from "@/components/ui/sonner";
 import { getForwardingVerification, startForwardingTest, type ForwardingTestView } from "@/lib/api-client";
 import type { ForwardingInstructions } from "@/lib/carrier-forwarding";
 import { cn } from "@/lib/utils";
+import { useBrand } from "@/lib/brand-context";
 
 /**
  * "Test my forwarding" (docs/missed-call-catcher.md → Forwarding verification). We call the
@@ -89,6 +90,7 @@ function ResultLine({ test, instructions }: { test: ForwardingTestView; instruct
 }
 
 export function ForwardingTestPanel({ orgId, companyId, instructions, onVerified }: ForwardingTestPanelProps) {
+  const brand = useBrand();
   const qc = useQueryClient();
   const startedId = useRef<string | null>(null);
   const announced = useRef<string | null>(null);
@@ -145,7 +147,7 @@ export function ForwardingTestPanel({ orgId, companyId, instructions, onVerified
           <>
             We'll call your business line <strong className="text-foreground">{data.businessLinePretty}</strong> from{" "}
             <strong className="text-foreground">{data.callerIdPretty}</strong>. <strong>Don't answer it</strong> — if forwarding is on,
-            the call comes back to your EmpireVu number and we text you the result.
+            the call comes back to your {brand.name} number and we text you the result.
           </>
         ) : (
           "Add the phone number customers call you on (Business step → Owner phone, or Settings → Company) so we can test it."

@@ -9,12 +9,13 @@ import { getMissedCallCatcher, provisionMissedCallCatcher } from "@/lib/api-clie
 import type { ForwardingInstructions } from "@/lib/carrier-forwarding";
 import { availablePhoneModes } from "@/lib/phone-modes";
 import { ForwardingTestPanel } from "@/components/onboarding/ForwardingTestPanel";
+import { useBrand } from "@/lib/brand-context";
 
 /**
  * Onboarding Phone step: choose how calls are handled.
  *   • "AI receptionist answers" — the existing Retell/Marina flow (rendered via `aiStep`).
  *   • "Missed-call catcher (no AI)" — the business keeps its number and forwards unanswered
- *     calls to an EmpireVu number that texts the caller back (docs/missed-call-catcher.md).
+ *     calls to a platform number that texts the caller back (docs/missed-call-catcher.md).
  * Kept out of OnboardingWizard.tsx so the wizard only swaps one render.
  */
 
@@ -93,6 +94,7 @@ export function PhoneModeStep({ orgId, companyId, stepData, onDone, aiStep }: Ph
 }
 
 function CatcherSetup({ orgId, companyId, onDone }: { orgId: string; companyId: string | null; onDone: () => void }) {
+  const brand = useBrand();
   const qc = useQueryClient();
   const status = useQuery({
     queryKey: ["missed-call-catcher", orgId, companyId],
@@ -129,7 +131,7 @@ function CatcherSetup({ orgId, companyId, onDone }: { orgId: string; companyId: 
   return (
     <div className="space-y-4 max-w-2xl">
       <p className="text-sm text-muted-foreground">
-        You keep your business number. When you can't pick up, your carrier forwards the call to your EmpireVu number: the
+        You keep your business number. When you can't pick up, your carrier forwards the call to your {brand.name} number: the
         caller hears a short greeting in your name, can leave a voicemail, and gets a text from you right away.
       </p>
 

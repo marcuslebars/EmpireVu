@@ -1,6 +1,6 @@
 /**
  * /welcome/crankleads?session_id=… — polls the purchase status, shows "setting up", then
- * "Done! Check your email (j***@…)" with a resend button and an "Open EmpireVu" link.
+ * "Done! Check your email (j***@…)" with a resend button and an "Open CrankLeads" link.
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -43,13 +43,14 @@ afterEach(() => {
 });
 
 describe("CrankLeads welcome page", () => {
-  it("shows setting-up, then done with the masked email, resend and Open EmpireVu", async () => {
+  it("shows setting-up, then done with the masked email, resend and Open CrankLeads", async () => {
     renderPage();
     await screen.findByText(/setting up your system/i);
     await vi.advanceTimersByTimeAsync(3100);
     await screen.findByTestId("welcome-ready");
     expect(screen.getByText("j***@roofco.example")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open EmpireVu" })).toHaveAttribute("href", "/signin");
+    expect(screen.getByRole("link", { name: "Open CrankLeads" })).toHaveAttribute("href", "/signin");
+    expect(screen.getByTestId("welcome-ready").textContent).not.toMatch(/EmpireVu/);
 
     fireEvent.click(screen.getByRole("button", { name: /resend the email/i }));
     await screen.findByText(/Sent!/);

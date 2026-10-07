@@ -12,6 +12,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
+import { BrandOrgSync } from "@/lib/brand-context";
 
 export interface ValidOrgContext {
   organizationId: string;
@@ -132,6 +133,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
         reset,
       }}
     >
+      <BrandOrgSync organizationId={organizationId} />
       {children}
     </OrgContext.Provider>
   );

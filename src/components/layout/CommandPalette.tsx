@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/command";
 import { useOrg } from "@/lib/org-context";
 import { useCRMContacts } from "@/lib/api-hooks";
+import { useBrand } from "@/lib/brand-context";
+import { withProductName } from "@/lib/platform-brand";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -40,7 +42,7 @@ const NAV_ITEMS = [
   { label: "Automations", to: "/automations", icon: Zap, keywords: "workflows rules" },
   { label: "Reviews", to: "/reviews", icon: Star, keywords: "reviews google review request ask rating feedback" },
   { label: "Reports", to: "/reports", icon: BarChart3, keywords: "reports revenue collected owed overdue jobs quotes win rate hours analytics" },
-  { label: "Captured by EmpireVu", to: "/reports/attribution", icon: BarChart3, keywords: "attribution revenue captured report analytics" },
+  { label: "Captured by {{product}}", to: "/reports/attribution", icon: BarChart3, keywords: "attribution revenue captured report analytics" },
   { label: "Monthly results", to: "/reports/monthly", icon: BarChart3, keywords: "scorecard monthly results leads jobs report" },
   { label: "Settings", to: "/settings", icon: SettingsIcon, keywords: "preferences organization" },
 ];
@@ -70,6 +72,7 @@ function initialsOf(name: string): string {
 }
 
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
+  const brand = useBrand();
   const navigate = useNavigate();
   const { organizationId } = useOrg();
   const [query, setQuery] = useState("");
@@ -91,7 +94,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   };
 
   const actionResults = QUICK_ACTIONS.filter((a) => matches(trimmed, a.label, a.keywords));
-  const navResults = NAV_ITEMS.filter((n) => matches(trimmed, n.label, n.keywords));
+  const navItems = NAV_ITEMS.map((n) => ({ ...n, label: withProductName(n.label, brand) }));
+  const navResults = navItems.filter((n) => matches(trimmed, n.label, n.keywords));
   const nothing = contacts.length === 0 && actionResults.length === 0 && navResults.length === 0;
 
   return (

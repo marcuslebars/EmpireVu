@@ -37,6 +37,7 @@ import {
 import { SkeletonStatCard, SkeletonCard, ErrorBanner, EmptyState, LoadingCards } from "@/components/ui/StateViews";
 import { relativeTime, formatCentsCompact, formatSeconds, formatPercent } from "@/lib/format";
 import type { DashboardActivityItem } from "@/lib/api-client";
+import { useBrand } from "@/lib/brand-context";
 
 const ONBOARDING_TOTAL_STEPS = 8;
 
@@ -78,6 +79,7 @@ function SetupChecklistCard({ orgId }: { orgId: string }) {
 
 /** Shown until onboarding is complete — nudges the owner back into the wizard (Task 13). */
 function OnboardingChecklistCard({ orgId }: { orgId: string }) {
+  const brand = useBrand();
   const navigate = useNavigate();
   const { data } = useOnboardingProgress(orgId);
   const { data: setup, isLoading: setupLoading } = useSetupChecklist(orgId);
@@ -90,7 +92,7 @@ function OnboardingChecklistCard({ orgId }: { orgId: string }) {
   return (
     <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex items-center justify-between gap-4 opacity-0 animate-fade-in">
       <div className="min-w-0">
-        <p className="text-sm font-semibold text-foreground">Finish setting up EmpireVu</p>
+        <p className="text-sm font-semibold text-foreground">Finish setting up {brand.name}</p>
         <p className="text-xs text-muted-foreground mt-0.5">{done} of {ONBOARDING_TOTAL_STEPS} steps done — get your Marina number and website leads live.</p>
         <div className="mt-2 h-1.5 w-48 max-w-full rounded-full bg-secondary overflow-hidden">
           <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${(done / ONBOARDING_TOTAL_STEPS) * 100}%` }} />
@@ -106,8 +108,9 @@ function OnboardingChecklistCard({ orgId }: { orgId: string }) {
   );
 }
 
-/** "Captured by EmpireVu" — money collected this month, with a per-company drill-down (Task 14). */
-function CapturedByEmpireVuCard({ orgId, companyId }: { orgId: string; companyId?: string }) {
+/** "Captured by {brand}" — money collected this month, with a per-company drill-down (Task 14). */
+function CapturedByPlatformCard({ orgId, companyId }: { orgId: string; companyId?: string }) {
+  const brand = useBrand();
   const navigate = useNavigate();
   const { data, isLoading, isError, refetch } = useAttribution(orgId, companyId ? { companyId } : {});
   const summary = data?.summary;
@@ -125,7 +128,7 @@ function CapturedByEmpireVuCard({ orgId, companyId }: { orgId: string; companyId
             <span className="flex items-center justify-center w-7 h-7 rounded-md bg-primary/15 text-primary">
               <Sparkles className="w-3.5 h-3.5" />
             </span>
-            <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Captured by EmpireVu</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Captured by {brand.name}</h3>
           </div>
           <span className="flex items-center gap-1 text-[11px] font-medium text-primary opacity-70 group-hover:opacity-100 transition-opacity">
             View report <ChevronRight className="w-3.5 h-3.5" />
@@ -345,7 +348,7 @@ export default function Dashboard() {
       <SetupChecklistCard orgId={organizationId} />
       <OnboardingChecklistCard orgId={organizationId} />
 
-      <CapturedByEmpireVuCard orgId={organizationId} companyId={companyId ?? undefined} />
+      <CapturedByPlatformCard orgId={organizationId} companyId={companyId ?? undefined} />
 
       {/* Error banners */}
       {summary.isError && (
