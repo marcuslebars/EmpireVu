@@ -9,6 +9,7 @@ import { fromJson, toJson } from "@/server/db/json";
 import { quotePublicBaseUrlFor } from "@/server/services/quotes/config";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
+import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { localDateString } from "./math";
 
 export type Db = TenantServiceContext["supabase"];
@@ -205,6 +206,11 @@ export async function emitInvoiceTrigger(
   }
 }
 
+/** Service-role client for the server-owned columns below. */
+function serverDb(): Db {
+  return createSupabaseAdminClient() as unknown as Db;
+}
+
 /**
  * Re-derive paid / pending / balance / status from the payments (the SQL function
  * is the single source of truth), then run the once-only "it's paid" side effects.
@@ -219,8 +225,9 @@ export async function refreshInvoiceBalance(db: Db, invoiceId: string): Promise<
     await onInvoicePaid(db, row);
   } else if (row.paid_notified_at) {
     // No longer paid (a refund, a bounced debit, a removed payment): re-arm the
-    // once-only "paid" effects for when it really is paid again.
-    await db.from("invoices").update({ paid_notified_at: null }).eq("id", row.id).eq("organization_id", row.organization_id).neq("status", "paid");
+    // once-only "paid" effects for when it really is paid again. paid_notified_at is
+    // server-owned (no client UPDATE grant), so this goes through the service role.
+    await serverDb().from("invoices").update({ paid_notified_at: null }).eq("id", row.id).eq("organization_id", row.organization_id).neq("status", "paid");
     return { ...row, paid_notified_at: null };
   }
   return row;
@@ -232,7 +239,12 @@ export async function refreshInvoiceBalance(db: Db, invoiceId: string): Promise<
  * redelivery and a staff click racing each other still fire this once.
  */
 async function onInvoicePaid(db: Db, invoice: InvoiceRow): Promise<void> {
-  const { data: claimed } = await db
+  // The claim and the quote's completion write server-owned columns (clients hold no
+  // UPDATE on invoices.paid_notified_at or quotes.status → completed), so both go through
+  // the service role even when a staff action (recordPayment) got us here. Every write is
+  // pinned to the invoice's own organization_id.
+  const admin = serverDb();
+  const { data: claimed } = await admin
     .from("invoices")
     .update({ paid_notified_at: new Date().toISOString() })
     .eq("id", invoice.id)
@@ -248,7 +260,7 @@ async function onInvoicePaid(db: Db, invoice: InvoiceRow): Promise<void> {
   // took a deposit has no "completed" edge (see quotes/lifecycle.ts) and is left alone.
   if (invoice.quote_id) {
     try {
-      await db
+      await admin
         .from("quotes")
         .update({ status: "completed", completed_at: new Date().toISOString(), balance_paid_at: new Date().toISOString() })
         .eq("id", invoice.quote_id)
@@ -271,7 +283,8 @@ async function onInvoicePaid(db: Db, invoice: InvoiceRow): Promise<void> {
   // A deposit for an online booking → the booking is confirmed. Never throws.
   try {
     const { onDepositInvoicePaid } = await import("@/server/services/scheduling/deposits");
-    await onDepositInvoicePaid(db, invoice);
+    // bookings.deposit_paid_at / hold_expires_at are server-owned: service role.
+    await onDepositInvoicePaid(admin, invoice);
   } catch (err) {
     console.error("[invoices] could not confirm the booking deposit:", err instanceof Error ? err.message : err);
   }

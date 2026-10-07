@@ -7,9 +7,11 @@ import type { PurchasablePlan } from "@/server/services/billing/config";
 import { newOrgTrialFields } from "@/server/services/billing/env";
 import type { CrankleadsTier } from "@/server/services/crankleads/config";
 import type { PlatformBrandKey } from "@/lib/platform-brand";
+import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 import type { createSupabaseServerClient } from "@/server/supabase/server";
 
 type AppSupabaseClient = ReturnType<typeof createSupabaseServerClient>;
+type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>;
 
 export const createOrganizationInputSchema = z.object({
   name: z.string().min(1).max(200),
@@ -35,8 +37,14 @@ export interface PaidOrganizationBilling {
   setAsDefaultOrganization: boolean;
 }
 
+/**
+ * Create an organization and make `userId` its owner. Callers pass the SERVICE-ROLE
+ * client: clients hold no INSERT privilege on organizations or organization_memberships
+ * (migration 20261006170000), because the row carries server-owned billing state.
+ * Callers authenticate the user first; `input` is only ever name + slug.
+ */
 export async function createOrganization(
-  supabase: AppSupabaseClient,
+  supabase: AppSupabaseClient | AdminSupabaseClient,
   userId: string,
   profileId: string,
   input: CreateOrganizationInput,

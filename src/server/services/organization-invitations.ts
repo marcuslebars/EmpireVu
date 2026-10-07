@@ -268,6 +268,12 @@ export async function acceptInvitation(
     throw new ValidationError("This invitation has expired.");
   }
 
+  // Ownership is transferred by promoting an existing member, never by invite link
+  // (createInvitationInputSchema only offers admin/member). Refuse rather than trust a row.
+  if (invitation.role === "owner") {
+    throw new ValidationError("This invitation is no longer valid. Ask the team's owner to invite you again.");
+  }
+
   // The invitation is bound to a specific address — accepting requires signing in as it.
   if (input.userEmail && input.userEmail.toLowerCase() !== invitation.email.toLowerCase()) {
     throw new ValidationError(
