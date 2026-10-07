@@ -22,7 +22,7 @@ import { enforceRateLimit } from "@/server/services/rate-limit";
 import { createDepositCheckoutSession, DepositCheckoutError } from "@/server/services/quotes/checkout";
 import { CompanyStripeError } from "@/server/services/quotes/company-stripe";
 import { getQuotesConfig } from "@/server/services/quotes/config";
-import { approveQuote, QuoteApprovalError } from "@/server/services/quotes/public-service";
+import { approveQuote, QuoteApprovalError, QuotePricesChangedError } from "@/server/services/quotes/public-service";
 import { quotePublicBaseUrlForCompanyId } from "@/server/services/quotes/public-url";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +35,8 @@ const bodySchema = z.object({
   fullName: z.string().min(2).max(120),
   termsAccepted: z.literal(true),
   selected: z.array(z.string().min(1).max(120)).max(40).default([]),
+  /** The total the page showed. A different computed total is refused, not charged. */
+  expectedTotalCents: z.number().int().min(0).optional(),
 });
 
 /** Best-effort client IP from the proxy chain. Recorded with the approval. */
@@ -81,6 +83,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
         fullName: parsed.fullName,
         termsAccepted: parsed.termsAccepted,
         selectedServiceIds: parsed.selected,
+        expectedTotalCents: parsed.expectedTotalCents ?? null,
         ip: clientIp(request),
         userAgent: request.headers.get("user-agent"),
       });
@@ -98,6 +101,9 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
         },
       });
     } catch (err) {
+      if (err instanceof QuotePricesChangedError) {
+        return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+      }
       if (err instanceof QuoteApprovalError) {
         const status = err.code === "not_found" ? 404 : err.code === "not_approvable" ? 409 : 400;
         return NextResponse.json({ error: err.message }, { status });

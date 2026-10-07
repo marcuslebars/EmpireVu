@@ -12,8 +12,11 @@
  *     tampered client total can never become a charge.
  */
 
+import { UserFacingError } from "@/server/errors";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { emitQuoteTrigger } from "@/server/services/quotes/workflow-triggers";
+import type { TenantServiceContext } from "@/server/services/shared";
+import { createTask } from "@/server/services/tasks";
 import { assertTransition, evaluateTransition, type QuoteStatus } from "./lifecycle";
 import { priceQuoteForCompany, type QuotePricing, type QuotePricingInput } from "./pricing";
 
@@ -225,17 +228,52 @@ export async function getPublicQuote(token: string, now = new Date()): Promise<P
   return shape(row, company, derivePageState(row, now));
 }
 
-/** Recompute totals for a customer's optional-line selection. Never trusts client money. */
-export async function repriceForSelection(
-  token: string,
-  selectedServiceIds: string[],
-): Promise<QuotePricing | null> {
-  const row = await loadRow(token);
-  if (!row) return null;
+/**
+ * The selection key of a stored line: `custom:{i}` (i = its position among the
+ * custom lines, which is how the input snapshot orders them) for hand-priced
+ * lines, the service id otherwise. The public page keys its checkboxes the same way.
+ */
+function storedLineKeys(raw: unknown): Array<{ key: string; line: PublicQuoteLine }> {
+  let customIndex = 0;
+  return toPublicLines(raw).map((line) => ({ key: line.custom ? `custom:${customIndex++}` : line.serviceId, line }));
+}
 
+/** The optional lines the quote was sent with ticked. */
+function defaultSelection(row: Db): Set<string> {
+  return new Set(storedLineKeys(row.line_items).filter((k) => k.line.optional && k.line.selected).map((k) => k.key));
+}
+
+/** The customer's choice, reduced to keys of optional lines that exist on the quote. */
+function normalizedSelection(row: Db, selectedServiceIds: string[]): Set<string> {
+  const optional = new Set(storedLineKeys(row.line_items).filter((k) => k.line.optional).map((k) => k.key));
+  return new Set(selectedServiceIds.filter((id) => optional.has(id)));
+}
+
+function sameSet(a: Set<string>, b: Set<string>): boolean {
+  return a.size === b.size && [...a].every((v) => b.has(v));
+}
+
+/** The amounts the quote was SENT with — exactly what the customer was shown. */
+function storedPricing(row: Db): QuotePricing {
+  return {
+    currency: "CAD",
+    lineItems: toPublicLines(row.line_items).map((l) => ({ ...l, bundleEligible: false })),
+    bundleId: row.bundle_id ?? null,
+    bundleSavingsCents: 0,
+    subtotalCents: row.subtotal_cents,
+    taxRateBps: row.tax_rate_bps,
+    taxCents: row.tax_cents,
+    totalCents: row.total_cents,
+    depositRateBps: row.deposit_rate_bps,
+    depositFlatCents: row.deposit_flat_cents ?? null,
+    depositCents: row.deposit_cents,
+  };
+}
+
+/** Price a selection from the tenant's CURRENT catalog, under the terms the quote was issued with. */
+async function priceSelection(row: Db, selected: Set<string>): Promise<QuotePricing | null> {
+  if (!row.company_id) return null;
   const snap = (row.input_snapshot ?? {}) as Partial<QuotePricingInput>;
-  const selected = new Set(selectedServiceIds);
-
   const services = (snap.services ?? []).map((s) => ({
     ...s,
     // Required lines are unaffected; optional lines take the customer's choice.
@@ -245,10 +283,8 @@ export async function repriceForSelection(
     ...l,
     selected: l.optional ? selected.has(`custom:${i}`) : true,
   }));
-
   // Priced from the tenant's own catalog, so a customer toggling options gets
   // their supplier's prices — never a built-in default.
-  if (!row.company_id) return null;
   return priceQuoteForCompany(row.company_id, {
     services,
     customLines,
@@ -262,21 +298,124 @@ export async function repriceForSelection(
   });
 }
 
+/**
+ * True when today's catalog still prices the quote's sent selection to exactly the
+ * stored amounts — i.e. the prices behind this quote haven't moved since it was sent.
+ */
+function samePrices(fresh: QuotePricing, row: Db): boolean {
+  if (fresh.subtotalCents !== row.subtotal_cents || fresh.totalCents !== row.total_cents || fresh.depositCents !== row.deposit_cents) {
+    return false;
+  }
+  const stored = toPublicLines(row.line_items);
+  return stored.length === fresh.lineItems.length && stored.every((l, i) => l.amountCents === fresh.lineItems[i]?.amountCents);
+}
+
+/**
+ * The customer's options would be priced from a price list that has changed since
+ * the quote was sent. Nothing is approved or charged; the owner is told.
+ */
+export class QuotePricesChangedError extends UserFacingError {
+  constructor(businessName: string | null) {
+    super(
+      `Prices on this quote have changed. We've let ${businessName ?? "the business"} know — they'll send you an updated quote.`,
+      { status: 409, code: "prices_changed" },
+    );
+    this.name = "QuotePricesChangedError";
+  }
+}
+
+export type SelectionPricing =
+  | { kind: "ok"; pricing: QuotePricing }
+  | { kind: "prices_changed" };
+
+/**
+ * Totals for a customer's optional-line selection. Never trusts client money.
+ *
+ *   • The selection the quote was sent with → the STORED amounts, exactly. The
+ *     customer is charged what the page showed, whatever the price list says today.
+ *   • A different selection → priced from today's catalog, but only if that catalog
+ *     still reproduces the stored amounts for the sent selection. If it doesn't,
+ *     prices moved under the quote and any toggled total would be a new number the
+ *     customer was never quoted → "prices_changed".
+ */
+export async function priceForSelection(token: string, selectedServiceIds: string[]): Promise<SelectionPricing | null> {
+  const row = await loadRow(token);
+  if (!row || !row.company_id) return null;
+  return priceRowForSelection(row, selectedServiceIds);
+}
+
+async function priceRowForSelection(row: Db, selectedServiceIds: string[]): Promise<SelectionPricing | null> {
+  const chosen = normalizedSelection(row, selectedServiceIds);
+  const sent = defaultSelection(row);
+  if (sameSet(chosen, sent)) return { kind: "ok", pricing: storedPricing(row) };
+
+  const [asSent, forChoice] = await Promise.all([priceSelection(row, sent), priceSelection(row, chosen)]);
+  if (!asSent || !forChoice) return null;
+  if (!samePrices(asSent, row)) return { kind: "prices_changed" };
+  return { kind: "ok", pricing: forChoice };
+}
+
+/** Back-compat: the pricing for a selection, or null (also when prices changed). */
+export async function repriceForSelection(token: string, selectedServiceIds: string[]): Promise<QuotePricing | null> {
+  const result = await priceForSelection(token, selectedServiceIds);
+  return result?.kind === "ok" ? result.pricing : null;
+}
+
+/**
+ * Tell the owner a customer tried to approve a quote whose prices have since
+ * changed — once per quote (an event marks it), as a task on their list.
+ * Best-effort: the customer's message doesn't depend on it.
+ */
+async function notifyOwnerPricesChanged(row: Db, attempted: { totalCents: number | null }): Promise<void> {
+  try {
+    const db = admin();
+    const { data: already } = await db
+      .from("quote_events")
+      .select("id")
+      .eq("quote_id", row.id)
+      .eq("event_type", "approval_blocked_prices_changed")
+      .limit(1)
+      .maybeSingle();
+    await recordPublicEvent(row.organization_id, row.id, "approval_blocked_prices_changed", {
+      quotedTotalCents: row.total_cents,
+      attemptedTotalCents: attempted.totalCents,
+    });
+    if (already) return;
+    const ctx = { organizationId: row.organization_id, actorProfileId: null, supabase: db } as TenantServiceContext;
+    await createTask(ctx, {
+      title: `Send an updated quote${row.quote_number ? ` for ${row.quote_number}` : ""} — prices changed`.slice(0, 200),
+      description:
+        "Your customer tried to approve this quote with different options, but prices in your price list have changed since it was sent, " +
+        "so it wasn't approved and nothing was charged. Open the quote, use Make a new version, check the prices and send it to them.",
+      companyId: row.company_id,
+      contactId: row.contact_id,
+      priority: "high",
+    });
+  } catch (err) {
+    console.error("[quotes] couldn't notify the owner about changed prices:", err instanceof Error ? err.message : err);
+  }
+}
+
 export interface ApprovalInput {
   token: string;
   fullName: string;
   termsAccepted: boolean;
   selectedServiceIds: string[];
+  /**
+   * The total the page showed when the customer pressed Approve. When given, an
+   * approval whose computed total differs is refused rather than charged.
+   */
+  expectedTotalCents?: number | null;
   ip?: string | null;
   userAgent?: string | null;
 }
 
-export class QuoteApprovalError extends Error {
+export class QuoteApprovalError extends UserFacingError {
   constructor(
     message: string,
-    readonly code: "not_found" | "not_approvable" | "terms" | "name",
+    override readonly code: "not_found" | "not_approvable" | "terms" | "name",
   ) {
-    super(message);
+    super(message, { status: code === "not_found" ? 404 : code === "not_approvable" ? 409 : 400, code });
     this.name = "QuoteApprovalError";
   }
 }
@@ -305,7 +444,14 @@ export async function approveQuote(input: ApprovalInput, now = new Date()): Prom
   if (row.approved_at) return row;
 
   if (!isApprovable(state)) {
-    throw new QuoteApprovalError(`This quote can no longer be approved (${state}).`, "not_approvable");
+    throw new QuoteApprovalError(
+      state === "expired"
+        ? "This quote has expired. Please contact us for an updated quote."
+        : state === "replaced"
+          ? "This quote has been replaced by an updated one. Please use the link in your most recent email."
+          : "This quote can no longer be approved.",
+      "not_approvable",
+    );
   }
   if (!input.termsAccepted) {
     throw new QuoteApprovalError("The terms must be accepted.", "terms");
@@ -315,8 +461,17 @@ export async function approveQuote(input: ApprovalInput, now = new Date()): Prom
     throw new QuoteApprovalError("A full name is required.", "name");
   }
 
-  const pricing = await repriceForSelection(input.token, input.selectedServiceIds);
-  if (!pricing) throw new QuoteApprovalError("Quote not found.", "not_found");
+  // The amounts frozen here are what the deposit charges and the invoice bills, so
+  // they must be the amounts the customer was shown — never a fresh re-price.
+  const priced = await priceRowForSelection(row, input.selectedServiceIds);
+  if (!priced) throw new QuoteApprovalError("Quote not found.", "not_found");
+  const shown = typeof input.expectedTotalCents === "number" ? input.expectedTotalCents : null;
+  if (priced.kind === "prices_changed" || (shown !== null && priced.pricing.totalCents !== shown)) {
+    await notifyOwnerPricesChanged(row, { totalCents: priced.kind === "ok" ? priced.pricing.totalCents : null });
+    const company = await loadCompany(row.company_id);
+    throw new QuotePricesChangedError(companyBrand(company).name);
+  }
+  const pricing = priced.pricing;
 
   assertTransition(row.status as QuoteStatus, "approved");
 
