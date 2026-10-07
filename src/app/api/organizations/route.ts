@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { handleRoute, parseJsonBody } from "@/server/api/route";
+import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 import { getAuthenticatedUser } from "@/server/organizations/context";
 import { createOrganization, createOrganizationInputSchema } from "@/server/services/organizations";
@@ -53,7 +54,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     const input = await parseJsonBody(request, createOrganizationInputSchema);
 
     // profiles.id === auth.users.id, so the authenticated user id doubles as the profile id.
-    const organization = await createOrganization(supabase, user.id, user.id, input);
+    // Written with the service role: clients hold no INSERT on organizations or
+    // organization_memberships (the billing columns are server-owned), so the user is
+    // authenticated above and createOrganization stamps the trial fields itself.
+    const organization = await createOrganization(createSupabaseAdminClient(), user.id, user.id, input);
 
     return NextResponse.json({ data: organization }, { status: 201 });
   });

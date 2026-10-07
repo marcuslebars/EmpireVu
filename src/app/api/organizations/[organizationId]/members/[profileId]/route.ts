@@ -37,6 +37,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
         supabase,
       },
       updateMemberRoleInputSchema.parse({ profileId: context.params.profileId, role: body.role }),
+      organization.membership.role,
     );
     return NextResponse.json({ data });
   });
@@ -54,6 +55,7 @@ export async function DELETE(_request: Request, context: RouteContext): Promise<
         supabase,
       },
       context.params.profileId,
+      organization.membership.role,
     );
     return NextResponse.json({ data });
   });
