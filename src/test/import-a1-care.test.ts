@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { isQuoteApprovedForInvoicing } from "@/server/services/invoices/service";
 import {
+  importedApprovalSnapshot,
   parseWinterizationAddon,
   personOf,
   planBooking,
@@ -128,5 +130,36 @@ describe("A1 Care import — the file", () => {
     expect(plan.bookings).toHaveLength(1);
     expect(() => planImport({ source: "somewhere-else", exportedAt: "x", quotes: [], bookings: [] })).toThrow();
     expect(() => planImport({ source: "a1marinecare", exportedAt: "x", quotes: [], bookings: [{ ...BOOKING, date: "Nov 2" }] })).toThrow();
+  });
+});
+
+describe("imported paid quotes carry an approval snapshot", () => {
+  const stored = {
+    line_items: [{ label: "Mobile shrink wrap (as quoted)", quantity: 1, unitPriceCents: 52000, amountCents: 52000 }],
+    subtotal_cents: 52000,
+    tax_cents: 6760,
+    total_cents: 58760,
+    deposit_cents: 14690,
+  };
+
+  it("freezes the stored lines and totals at the deposit date", () => {
+    const snap = importedApprovalSnapshot(stored, "2026-09-21T12:00:00Z", "Dana Lee");
+    expect(snap).toMatchObject({
+      approved_at: "2026-09-21T12:00:00Z",
+      approved_line_items: stored.line_items,
+      approved_subtotal_cents: 52000,
+      approved_tax_cents: 6760,
+      approved_total_cents: 58760,
+      approved_deposit_cents: 14690,
+    });
+    expect(String(snap.approved_by_name)).toContain("Dana Lee");
+  });
+
+  it("so a deposit_paid imported quote can be invoiced", () => {
+    const snap = importedApprovalSnapshot(stored, "2026-09-21T12:00:00Z", null);
+    expect(isQuoteApprovedForInvoicing({ status: "deposit_paid", approved_at: null, approved_line_items: null })).toBe(false);
+    expect(
+      isQuoteApprovedForInvoicing({ status: "deposit_paid", approved_at: snap.approved_at as string, approved_line_items: snap.approved_line_items }),
+    ).toBe(true);
   });
 });

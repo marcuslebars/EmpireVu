@@ -23,7 +23,7 @@
 import { readFileSync } from "node:fs";
 
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { planImport, IMPORT_SOURCE, type PersonKey, type PlannedImportQuote } from "@/server/services/imports/a1-care";
+import { importedApprovalSnapshot, planImport, IMPORT_SOURCE, type PersonKey, type PlannedImportQuote } from "@/server/services/imports/a1-care";
 import { parseBookingPolicy, DEFAULT_BOOKING_POLICY } from "@/server/services/booking-windows";
 import { priceQuoteForCompany } from "@/server/services/quotes/pricing";
 import { createQuote } from "@/server/services/quotes/service";
@@ -113,12 +113,17 @@ interface ImportedQuoteRow {
   status: string;
   deposit_paid_at: string | null;
   created_at: string;
+  line_items: unknown;
+  subtotal_cents: number;
+  tax_cents: number;
+  total_cents: number;
+  deposit_cents: number;
 }
 
 async function alreadyImportedQuote(db: Db, companyId: string, a1Id: string): Promise<ImportedQuoteRow | null> {
   const { data } = await db
     .from("quotes")
-    .select("id, organization_id, status, deposit_paid_at, created_at")
+    .select("id, organization_id, status, deposit_paid_at, created_at, line_items, subtotal_cents, tax_cents, total_cents, deposit_cents")
     .eq("company_id", companyId)
     .eq("source", IMPORT_SOURCE)
     .ilike("notes", `%a1marinecare quote ${a1Id}%`)
@@ -157,6 +162,8 @@ async function resyncQuote(db: Db, existing: ImportedQuoteRow, q: PlannedImportQ
   if (q.paid && !existing.deposit_paid_at && (existing.status === "sent" || existing.status === "draft")) {
     updates.status = "deposit_paid";
     updates.deposit_paid_at = q.paid.at;
+    // The deposit paid there is the approval; freeze it so the quote can be invoiced.
+    Object.assign(updates, importedApprovalSnapshot(existing, q.paid.at, q.person.name ?? null));
     changes.push("deposit paid");
   }
   if (Object.keys(updates).length && APPLY) {
@@ -233,6 +240,9 @@ async function importQuote(
     .from("quotes")
     .update({
       status: q.paid ? "deposit_paid" : "sent",
+      // A deposit paid on the Care site is the customer's acceptance — freeze the
+      // approval snapshot (invoicing bills only from it).
+      ...(q.paid ? importedApprovalSnapshot(draft, q.paid.at, q.person.name ?? null) : {}),
       // Keep the Care site's quote date, not the import time.
       created_at: q.createdAt,
       sent_at: q.createdAt,
