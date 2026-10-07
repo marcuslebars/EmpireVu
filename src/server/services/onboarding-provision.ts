@@ -1,3 +1,4 @@
+import { UserFacingError } from "@/server/errors";
 import type { Tables } from "@/server/db/database.types";
 import { listCatalogItems } from "@/server/services/quotes/catalog-items";
 import { bookingPageUrl } from "@/server/services/scheduling/urls";
@@ -105,7 +106,8 @@ export async function provisionPhoneForCompany(
   const apiKey = getRetellApiKey();
   const retell = client ?? (apiKey ? createRetellClient(apiKey) : null);
   if (!retell) {
-    throw new Error("Voice is not configured. Set RETELL_API_KEY on the server to provision a number.");
+    console.error("[onboarding] RETELL_API_KEY is not set — can't provision a number.");
+    throw new UserFacingError("Phone setup isn't available right now. Please contact support.", { status: 503, code: "voice_not_configured" });
   }
 
   const company = await loadCompany(context, input.companyId);

@@ -13,6 +13,8 @@
 // Phone→agent binding uses the weighted `inbound_agents`/`outbound_agents` lists (the
 // single `inbound_agent_id` fields were deprecated 2026-03-31).
 // ─────────────────────────────────────────────────────────────────────────────
+import { UserFacingError } from "@/server/errors";
+
 
 const RETELL_BASE_URL = "https://api.retellai.com";
 const DEFAULT_VOICE_ID = "11labs-Adrian";
@@ -34,6 +36,26 @@ export interface RetellClient {
   listPhoneNumbers(): Promise<RetellPhoneNumber[]>;
 }
 
+/**
+ * A Retell call failed while setting up the AI receptionist's number. Plain message
+ * for the owner; the raw status/body stay in `detail` for the logs.
+ */
+export class RetellProvisionError extends UserFacingError {
+  constructor(
+    readonly retellStatus: number,
+    readonly path: string,
+    body: string,
+    readonly detail: string,
+  ) {
+    const unavailable = path.includes("phone-number") && (retellStatus === 409 || /not available|unavailable|already (taken|purchased|exists)|no (phone )?numbers? available/i.test(body));
+    super(unavailable ? "That number was just taken — pick another." : "Couldn't set up that number. Try another or contact support.", {
+      status: 502,
+      code: unavailable ? "number_unavailable" : "number_setup_failed",
+    });
+    this.name = "RetellProvisionError";
+  }
+}
+
 export function getRetellApiKey(): string | null {
   return process.env.RETELL_API_KEY?.trim() || null;
 }
@@ -47,8 +69,10 @@ export function createRetellClient(apiKey: string): RetellClient {
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
     if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      throw new Error(`Retell ${method} ${path} failed (${response.status})${detail ? `: ${detail.slice(0, 300)}` : ""}`);
+      const body = await response.text().catch(() => "");
+      const detail = `Retell ${method} ${path} failed (${response.status})${body ? `: ${body.slice(0, 300)}` : ""}`;
+      console.error(`[retell] ${detail}`);
+      throw new RetellProvisionError(response.status, path, body, detail);
     }
     return response.json().catch(() => ({}));
   };
