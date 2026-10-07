@@ -162,7 +162,7 @@ are listed at the top of the workflow.
     `POST /quotes/preview`, which runs the same pricer as saving.
   - **Not yet supported:** per-service modifier options such as tier or boat type. The quote API
     doesn't accept them yet, on web or mobile.
-- **Jobber connection** (OAuth) and intake-key creation happen on the web.
+- **QuickBooks / Xero connection** (OAuth) and intake-key creation happen on the web.
 - **Public quote and booking pages** stay web pages, sent to customers who don't have the app.
 - **Light theme** is not shipped. The app is dark-only, like the web app.
 - **Offline photo uploads** drain while the app is open (on resume and when the network returns),

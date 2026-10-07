@@ -70,7 +70,7 @@ export function Crm() {
         <Empty
           icon={Users}
           title={debounced ? "No matches" : "No contacts yet"}
-          body={debounced ? `Nothing matches “${debounced}”.` : "Contacts from calls, forms and Jobber land here."}
+          body={debounced ? `Nothing matches “${debounced}”.` : "Contacts from calls, texts and forms land here."}
           action={<Btn variant="tinted" tone="pri" size="sm" onClick={() => nav.push({ name: "newContact" })}>Add contact</Btn>}
         />
       ) : (

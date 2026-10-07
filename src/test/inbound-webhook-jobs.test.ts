@@ -5,10 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 // vi.hoisted so the hoisted vi.mock factories below can close over the spies.
 const h = vi.hoisted(() => ({
   ingestRetellCall: vi.fn(() => Promise.resolve({ handled: "inbound" as const })),
-  handleJobberWebhook: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@/server/services/retell/lead-adapter", () => ({ ingestRetellCall: h.ingestRetellCall }));
-vi.mock("@/server/services/jobber/webhook", () => ({ handleJobberWebhook: h.handleJobberWebhook }));
 
 import {
   dispatchInboundWebhookJob,
@@ -58,11 +56,8 @@ describe("dispatchInboundWebhookJob", () => {
     expect(h.ingestRetellCall).toHaveBeenCalledWith(callAnalyzed);
   });
 
-  it("routes a jobber job to handleJobberWebhook with the re-serialized payload", async () => {
-    h.handleJobberWebhook.mockClear();
-    const body = { data: { webHookEvent: { topic: "QUOTE_APPROVED", itemId: "q1" } } };
-    await dispatchInboundWebhookJob(makeJob({ provider: "jobber", payload: body as InboundWebhookJob["payload"] }));
-    expect(h.handleJobberWebhook).toHaveBeenCalledWith(JSON.stringify(body));
+  it("a leftover jobber job dead-letters (Jobber was removed)", async () => {
+    await expect(dispatchInboundWebhookJob(makeJob({ provider: "jobber" }))).rejects.toThrow(/Unknown inbound webhook provider: jobber/);
   });
 
   it("throws on an unknown provider so the job dead-letters", async () => {

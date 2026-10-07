@@ -124,7 +124,7 @@ describe("priceQuote — golden anchors", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Optional line items — the Jobber mechanic the runabout/Waverunner quote needs.
+// Optional line items — what the runabout/Waverunner quote needs.
 // A deselected optional line is EXCLUDED from the engine call, so it changes
 // bundle eligibility too, not just the arithmetic.
 // ─────────────────────────────────────────────────────────────────────────────

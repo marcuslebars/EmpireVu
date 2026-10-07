@@ -2047,114 +2047,6 @@ export interface Database {
         };
         Relationships: [];
       };
-      jobber_connections: {
-        Row: {
-          access_token: string | null;
-          connected_at: string | null;
-          created_at: string;
-          jobber_account_name: string | null;
-          organization_id: string;
-          refresh_lock_at: string | null;
-          refresh_token: string | null;
-          scope: string | null;
-          token_expires_at: string | null;
-          updated_at: string;
-        };
-        Insert: {
-          access_token?: string | null;
-          connected_at?: string | null;
-          created_at?: string;
-          jobber_account_name?: string | null;
-          organization_id: string;
-          refresh_lock_at?: string | null;
-          refresh_token?: string | null;
-          scope?: string | null;
-          token_expires_at?: string | null;
-          updated_at?: string;
-        };
-        Update: {
-          access_token?: string | null;
-          connected_at?: string | null;
-          created_at?: string;
-          jobber_account_name?: string | null;
-          organization_id?: string;
-          refresh_lock_at?: string | null;
-          refresh_token?: string | null;
-          scope?: string | null;
-          token_expires_at?: string | null;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
-      jobber_sync_jobs: {
-        Row: {
-          attempt_count: number;
-          available_at: string;
-          company_id: string | null;
-          completed_at: string | null;
-          contact_id: string | null;
-          created_at: string;
-          id: string;
-          jobber_client_id: string | null;
-          jobber_quote_id: string | null;
-          last_attempted_at: string | null;
-          last_error: string | null;
-          lead_id: string;
-          locked_at: string | null;
-          locked_by: string | null;
-          max_attempts: number;
-          organization_id: string;
-          payload: Json;
-          started_at: string | null;
-          status: Database["public"]["Enums"]["jobber_sync_job_status"];
-          updated_at: string;
-        };
-        Insert: {
-          attempt_count?: number;
-          available_at?: string;
-          company_id?: string | null;
-          completed_at?: string | null;
-          contact_id?: string | null;
-          created_at?: string;
-          id?: string;
-          jobber_client_id?: string | null;
-          jobber_quote_id?: string | null;
-          last_attempted_at?: string | null;
-          last_error?: string | null;
-          lead_id: string;
-          locked_at?: string | null;
-          locked_by?: string | null;
-          max_attempts?: number;
-          organization_id: string;
-          payload?: Json;
-          started_at?: string | null;
-          status?: Database["public"]["Enums"]["jobber_sync_job_status"];
-          updated_at?: string;
-        };
-        Update: {
-          attempt_count?: number;
-          available_at?: string;
-          company_id?: string | null;
-          completed_at?: string | null;
-          contact_id?: string | null;
-          created_at?: string;
-          id?: string;
-          jobber_client_id?: string | null;
-          jobber_quote_id?: string | null;
-          last_attempted_at?: string | null;
-          last_error?: string | null;
-          lead_id?: string;
-          locked_at?: string | null;
-          locked_by?: string | null;
-          max_attempts?: number;
-          organization_id?: string;
-          payload?: Json;
-          started_at?: string | null;
-          status?: Database["public"]["Enums"]["jobber_sync_job_status"];
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
       retell_calls: {
         Row: {
           agent_id: string | null;
@@ -4281,14 +4173,6 @@ export interface Database {
         };
         Returns: Database["public"]["Tables"]["inbound_webhook_jobs"]["Row"][];
       };
-      claim_jobber_sync_jobs: {
-        Args: {
-          p_worker_id: string;
-          p_limit?: number;
-          p_stale_after_seconds?: number;
-        };
-        Returns: Database["public"]["Tables"]["jobber_sync_jobs"]["Row"][];
-      };
       claim_workflow_event_jobs: {
         Args: {
           p_worker_id: string;
@@ -4334,13 +4218,6 @@ export interface Database {
       claim_accounting_token_refresh: {
         Args: {
           p_company_id: string;
-          p_stale_after_seconds?: number;
-        };
-        Returns: boolean;
-      };
-      claim_jobber_token_refresh: {
-        Args: {
-          p_organization_id: string;
           p_stale_after_seconds?: number;
         };
         Returns: boolean;
@@ -4500,12 +4377,6 @@ export interface Database {
       company_role: "lead" | "member" | "viewer";
       company_stage: "prospect" | "active" | "paused" | "archived";
       contact_stage: "lead" | "qualified" | "active" | "closed";
-      jobber_sync_job_status:
-        | "pending"
-        | "running"
-        | "completed"
-        | "failed"
-        | "manual_review";
       membership_role: "owner" | "admin" | "member";
       task_priority: "low" | "medium" | "high" | "urgent";
       task_status: "todo" | "in_progress" | "blocked" | "completed";

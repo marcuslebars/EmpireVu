@@ -4,8 +4,7 @@
  * (services/operator-health: failed jobs in the last 24h + oldest ready-but-unclaimed job).
  *
  * Every queue has the same shape: status 'pending' = queued, a "ready at" column (the job may
- * not be claimed before it), a "last claimed" column, and one or more terminal failure statuses
- * (jobber_sync dead-letters to 'manual_review' instead of 'failed').
+ * not be claimed before it), a "last claimed" column, and one or more terminal failure statuses.
  */
 export interface QueueTableSpec {
   table: string;
@@ -38,20 +37,12 @@ export const QUEUE_TABLES = {
     label: "Billing events",
     service: "billing-worker (npm run worker:billing-events)",
   },
-  jobber_sync: {
-    table: "jobber_sync_jobs",
-    claimedColumn: "locked_at",
-    readyColumn: "available_at",
-    failedStatuses: ["failed", "manual_review"],
-    label: "Jobber sync",
-    service: "jobber-sync (npm run worker:jobber-sync)",
-  },
   inbound_webhooks: {
     table: "inbound_webhook_jobs",
     claimedColumn: "claimed_at",
     readyColumn: "run_at",
     failedStatuses: ["failed"],
-    label: "Inbound webhooks (calls, texts, Jobber)",
+    label: "Inbound webhooks (calls, texts)",
     service: "worker (npm run worker:workflow-events)",
   },
 } as const satisfies Record<string, QueueTableSpec>;

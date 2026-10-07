@@ -43,7 +43,7 @@ export function Integrations() {
     <Screen title="Integrations" onRefresh={() => Promise.all([keys.refetch(), numbers.refetch(), connect.refetch()])}>
       <div className="list">
         <NavRow icon={Bank} tone="suc" label="Stripe" sub={connect.data ? `${connected} of ${connect.data.length} companies connected` : "Quotes, deposits and Connect payouts"} onClick={() => nav.push({ name: "payments" })} />
-        <NavRow icon={ArrowsClockwise} tone="pri" label="Jobber" sub="Two-way job and client sync — connect on the web" onClick={() => void Browser.open({ url: webUrl("/settings") })} />
+        <NavRow icon={ArrowsClockwise} tone="pri" label="QuickBooks / Xero" sub="Accounting sync — connect on the web" onClick={() => void Browser.open({ url: webUrl("/settings") })} />
       </div>
 
       <Section title="Voice numbers">

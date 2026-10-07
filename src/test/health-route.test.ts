@@ -44,7 +44,6 @@ beforeEach(() => {
     const per: Record<string, [{ locked_at: string | null } | null, number]> = {
       workflow_event_jobs: [{ locked_at: "2026-09-01T10:00:00.000Z" }, 2],
       billing_event_jobs: [{ locked_at: null }, 0],
-      jobber_sync_jobs: [{ locked_at: "2026-09-01T09:00:00.000Z" }, 5],
     };
     const [claimed, count] = per[table] ?? [null, 0];
     return jobBuilder(claimed, count);
@@ -69,10 +68,7 @@ describe("GET /api/health", () => {
       queued: 2,
     });
     expect(body.workers.billing_events).toEqual({ last_claimed_at: null, queued: 0 });
-    expect(body.workers.jobber_sync).toEqual({
-      last_claimed_at: "2026-09-01T09:00:00.000Z",
-      queued: 5,
-    });
+    expect(Object.keys(body.workers).sort()).toEqual(["billing_events", "inbound_webhooks", "workflow_events"]);
   });
 
   it("defaults version to 'unknown' when unset", async () => {

@@ -132,7 +132,7 @@ export async function enforceRateLimit(
 
 /**
  * Generous per-IP DoS backstop for the SIGNED machine-to-machine endpoints (intake,
- * Retell/Telnyx/Jobber/Stripe webhooks). These already authenticate by signature; this
+ * Retell/Telnyx/Stripe webhooks). These already authenticate by signature; this
  * only sheds a flood. 600/min/IP — far above any real caller's rate. Fails open like
  * enforceRateLimit, so a limiter blip never drops a legitimate signed delivery.
  */

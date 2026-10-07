@@ -37,8 +37,8 @@ Create it whenever you like: while `STRIPE_QUOTES_ENABLED` is unset it logs and
 exits 0.
 
 The other background services (`railway.worker.json`,
-`railway.billing-worker.json`, `railway.billing-reconcile.json`,
-`railway.jobber-sync.json`) need **no new variables** — none of them touch Stripe
+`railway.billing-worker.json`, `railway.billing-reconcile.json`) need **no new
+variables** — none of them touch Stripe
 or quotes.
 
 ### New — set these now
@@ -123,7 +123,6 @@ loudly; they simply stop delivering.
 | `/api/retell/webhook` | Retell |
 | `/api/retell/functions/capture-lead` | Retell (function/tool URL) |
 | `/api/telnyx/webhook`-family: `/api/telnyx/lead-intake`, `/api/telnyx/dynamic-variables`, `/api/telnyx/insights`, `/api/telnyx/tools/quote` | Telnyx / the voice assistant config |
-| `/api/jobber/webhook`, `/api/jobber/callback` | Jobber — being retired; leave until wind-down |
 | `/api/public/booking/{companyId}` | any published booking links |
 
 Prefix each with `https://api.empirevu.com`.

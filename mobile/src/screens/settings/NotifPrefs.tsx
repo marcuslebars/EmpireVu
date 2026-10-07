@@ -25,7 +25,7 @@ interface Prefs {
 type Category = "leads" | "drafts" | "payments" | "conflicts" | "workflowFailures" | "dailyDigest";
 
 const CATEGORIES: Array<{ id: Category; label: string; sub: string; icon: Icon; tone: Tone }> = [
-  { id: "leads", label: "New leads", sub: "Every call, text, form and Jobber lead", icon: Tray, tone: "pri" },
+  { id: "leads", label: "New leads", sub: "Every call, text and form lead", icon: Tray, tone: "pri" },
   { id: "drafts", label: "AI drafts awaiting approval", sub: "Marina wrote a reply", icon: Sparkle, tone: "vio" },
   { id: "payments", label: "Payments and deposits", sub: "Quote approvals and Stripe confirmations", icon: CreditCard, tone: "suc" },
   { id: "conflicts", label: "Schedule conflicts", sub: "Overlaps and no-shows", icon: Warning, tone: "dest" },

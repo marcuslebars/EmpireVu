@@ -44,8 +44,8 @@ export function Inbox() {
   });
 
   const scopeLine = scope.company
-    ? `Every conversation for ${scope.company.name} — calls, texts, email, web forms and Jobber, in one queue.`
-    : `Every conversation across ${scope.org.name} — calls, texts, email, web forms and Jobber, in one queue.`;
+    ? `Every conversation for ${scope.company.name} — calls, texts, email and web forms, in one queue.`
+    : `Every conversation across ${scope.org.name} — calls, texts, email and web forms, in one queue.`;
 
   return (
     <Screen root onRefresh={() => query.refetch()}>
@@ -78,7 +78,7 @@ export function Inbox() {
           <Empty
             icon={Tray}
             title={debounced ? "No matches" : filter === "All" ? "No conversations yet" : "Nothing here"}
-            body={debounced ? `Nothing matches “${debounced}”.` : filter === "All" ? "New leads from calls, forms and Jobber will land here." : "No conversations match this filter."}
+            body={debounced ? `Nothing matches “${debounced}”.` : filter === "All" ? "New leads from calls, texts and forms will land here." : "No conversations match this filter."}
           />
         }
       >

@@ -48,7 +48,7 @@ async function main(): Promise<void> {
       }
     }
 
-    // Same process, same tick: drain the durable inbound-webhook queue (Retell/Jobber).
+    // Same process, same tick: drain the durable inbound-webhook queue (calls, texts).
     // processInboundWebhookJobs handles per-job success/backoff/dead-letter internally.
     let inboundProcessed = 0;
     try {

@@ -1,6 +1,6 @@
 # EmpireVu Lead Envelope — schemaVersion 1
 
-This is the **contract** every lead source (spoke) emits and the EmpireVu intake endpoint accepts. It is what the winter **Jobber** adapter will be written against, once, and what the future **A1 Coatings** spoke implements. Keep it stable; version it (`schemaVersion`) rather than mutating it.
+This is the **contract** every lead source (spoke) emits and the EmpireVu intake endpoint accepts. It is what the future **A1 Coatings** spoke implements. Keep it stable; version it (`schemaVersion`) rather than mutating it.
 
 ## Endpoint
 
@@ -41,7 +41,7 @@ X-EmpireVu-Signature: sha256=<hex HMAC-SHA256 of the raw request body>
   "message": "Looking to winterize a 24ft bowrider.", // optional — SINGLE normalized free-text field
                                             //   (reconciles the spokes' inconsistent message vs notes split)
 
-  "lineItems": [                            // optional — Jobber-shaped; preserved end-to-end for the winter adapter
+  "lineItems": [                            // optional — preserved end-to-end
     { "description": "Shrink Wrap (24ft)", "quantity": 1, "unitPriceCents": 41400 }
   ],
 
@@ -106,10 +106,10 @@ Validation sorts; it never gatekeeps. A malformed lead is still a customer.
 | `message` | `contacts.notes` (on create) + activity metadata |
 | `formType` | an `activity_events` row, `event_type = "lead.<formType>"` (`lead.contact` \| `lead.quote` \| `lead.booking`) |
 | `formType=booking` + `meta.preferredDate` | a `bookings` row (`scheduled_for` from preferredDate) |
-| `lineItems[]` | `activity_events.metadata_json.lineItems` (Jobber-shaped, preserved) |
+| `lineItems[]` | `activity_events.metadata_json.lineItems` (preserved) |
 | raw payload + `schemaValid` + generated `leadId` | `raw_leads` |
 
-## Customer matching (Phase 3 backbone; Jobber consumes it in winter)
+## Customer matching (Phase 3 backbone)
 
 On each valid lead, before creating a new contact:
 
@@ -119,11 +119,11 @@ On each valid lead, before creating a new contact:
 - **No match** → create the contact under the `sourceSite`'s company.
 - Matching is **enrichment only** — if it errors, log and record the lead unenriched. It never blocks or delays the durable write.
 
-**Winter Jobber adapter** is expected to use this contact record as the unified customer seed: on export, **match → existing Jobber client**; **no match → create a Jobber client**. The `contacts` normalized keys (email + last-10 phone) are the join key.
+Any future export (e.g. accounting sync) should use this contact record as the unified customer seed. The `contacts` normalized keys (email + last-10 phone) are the join key.
 
 ## Golden fixtures & drift protection
 
-The canonical samples in `src/server/services/lead-intake/__fixtures__/envelopes/` (one per `formType`, plus edge cases — Jobber line items with a hull surcharge, and a phone-only contact) are the shared contract. `src/test/lead-fixtures.test.ts` validates them against this schema (`leadEnvelopeSchema`), so **the docs and the tests cannot disagree**. Each spoke repo commits the *same* fixtures and adds a test asserting its forwarder's output matches them exactly — so the two per-repo forwarders (Care `crm-webhook.ts`, Storage `lead-pipeline.ts`) cannot drift from each other or from this schema without a red test.
+The canonical samples in `src/server/services/lead-intake/__fixtures__/envelopes/` (one per `formType`, plus edge cases — line items with a hull surcharge, and a phone-only contact) are the shared contract. `src/test/lead-fixtures.test.ts` validates them against this schema (`leadEnvelopeSchema`), so **the docs and the tests cannot disagree**. Each spoke repo commits the *same* fixtures and adds a test asserting its forwarder's output matches them exactly — so the two per-repo forwarders (Care `crm-webhook.ts`, Storage `lead-pipeline.ts`) cannot drift from each other or from this schema without a red test.
 
 ## Shared-module graduation rule
 

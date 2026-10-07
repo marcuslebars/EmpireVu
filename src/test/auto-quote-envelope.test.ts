@@ -142,36 +142,11 @@ describe("self-serve is opt-in and needs quotes not to be disabled", () => {
   });
 });
 
-/**
- * Two systems, two payment links, one customer.
- *
- * The Jobber sync creates AND SENDS a quote with a required deposit — that
- * transition is what surfaces Jobber's online deposit to the client. Running
- * self-serve alongside it emails the same person two quotes for the same job,
- * each payable, in two systems. This is the guard that makes that combination
- * impossible rather than merely discouraged.
- */
-describe("self-serve refuses to run alongside the Jobber sync", () => {
-  it("declines while JOBBER_SYNC_ENABLED is on", () => {
+describe("self-serve switch", () => {
+  it("runs only when SELF_SERVE_QUOTES_ENABLED=1, whatever a leftover JOBBER_SYNC_ENABLED says", () => {
     process.env.SELF_SERVE_QUOTES_ENABLED = "1";
-    process.env.JOBBER_SYNC_ENABLED = "1";
-    expect(selfServeEnabled()).toBe(false);
-    delete process.env.JOBBER_SYNC_ENABLED;
-    delete process.env.SELF_SERVE_QUOTES_ENABLED;
-  });
-
-  it("runs once Jobber is switched off", () => {
-    process.env.SELF_SERVE_QUOTES_ENABLED = "1";
-    process.env.JOBBER_SYNC_ENABLED = "0";
+    process.env.JOBBER_SYNC_ENABLED = "1"; // retired — must no longer block self-serve
     expect(selfServeEnabled()).toBe(true);
-    delete process.env.JOBBER_SYNC_ENABLED;
-    delete process.env.SELF_SERVE_QUOTES_ENABLED;
-  });
-
-  it("declines, rather than preferring one, when only Jobber is on", () => {
-    // Not a tie-break: with self-serve off this is simply the existing Jobber
-    // behaviour, untouched.
-    process.env.JOBBER_SYNC_ENABLED = "1";
     delete process.env.SELF_SERVE_QUOTES_ENABLED;
     expect(selfServeEnabled()).toBe(false);
     delete process.env.JOBBER_SYNC_ENABLED;
