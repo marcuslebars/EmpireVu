@@ -333,6 +333,7 @@ export interface Database {
           slug: string;
           stage: Database["public"]["Enums"]["company_stage"];
           stripe_account_label: string | null;
+          stripe_acss_debit_enabled: boolean;
           stripe_charges_enabled: boolean;
           stripe_connect_updated_at: string | null;
           stripe_connected_account_id: string | null;
@@ -381,6 +382,7 @@ export interface Database {
           slug: string;
           stage?: Database["public"]["Enums"]["company_stage"];
           stripe_account_label?: string | null;
+          stripe_acss_debit_enabled?: boolean;
           stripe_charges_enabled?: boolean;
           stripe_connect_updated_at?: string | null;
           stripe_connected_account_id?: string | null;
@@ -429,6 +431,7 @@ export interface Database {
           slug?: string;
           stage?: Database["public"]["Enums"]["company_stage"];
           stripe_account_label?: string | null;
+          stripe_acss_debit_enabled?: boolean;
           stripe_charges_enabled?: boolean;
           stripe_connect_updated_at?: string | null;
           stripe_connected_account_id?: string | null;

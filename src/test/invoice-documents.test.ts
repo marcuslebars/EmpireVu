@@ -31,6 +31,7 @@ const company: CompanyForInvoice = {
   quote_public_base_url: "https://quotes.a1marinecare.ca",
   stripe_connected_account_id: "acct_123",
   stripe_charges_enabled: true,
+  stripe_acss_debit_enabled: false,
 };
 
 function invoice(over: Partial<InvoiceRow> = {}): InvoiceRow {
@@ -96,6 +97,29 @@ describe("invoice document", () => {
     expect(doc.payment.cheque?.payableTo).toBe("A1 Marine Care Inc.");
     const noStripe = buildInvoiceDocument(invoice(), { ...company, stripe_charges_enabled: false });
     expect(noStripe.payment.card).toBe(false);
+  });
+
+  describe("bank debit needs Stripe's ACSS capability, not just card readiness", () => {
+    const wantsDebit = { ...company, invoice_settings: { ...(company.invoice_settings as object), acceptBankDebit: true } };
+
+    it("is hidden while the capability isn't active, even with the setting on and cards working", () => {
+      const doc = buildInvoiceDocument(invoice(), { ...wantsDebit, stripe_acss_debit_enabled: false });
+      expect(doc.payment.card).toBe(true);
+      expect(doc.payment.bankDebit).toBe(false);
+    });
+
+    it("is offered once the capability is active and the setting is on", () => {
+      expect(buildInvoiceDocument(invoice(), { ...wantsDebit, stripe_acss_debit_enabled: true }).payment.bankDebit).toBe(true);
+    });
+
+    it("stays off when the brand turned it off, capability or not", () => {
+      expect(buildInvoiceDocument(invoice(), { ...company, stripe_acss_debit_enabled: true }).payment.bankDebit).toBe(false);
+    });
+
+    it("is off when the account can't charge at all", () => {
+      const doc = buildInvoiceDocument(invoice(), { ...wantsDebit, stripe_acss_debit_enabled: true, stripe_charges_enabled: false });
+      expect(doc.payment.bankDebit).toBe(false);
+    });
   });
 
   it("derives the page state", () => {

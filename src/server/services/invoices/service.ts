@@ -41,6 +41,7 @@ import {
   type InvoicePaymentRow,
   type InvoiceRow,
 } from "./common";
+import { bankDebitReadyFor, stripeReadyFor } from "./document";
 import { InvoiceConflictError, InvoiceNotFoundError, InvoiceValidationError } from "./errors";
 import {
   addDays,
@@ -851,12 +852,12 @@ export async function getInvoiceDetail(ctx: TenantServiceContext, invoiceId: str
       .limit(100),
   ]);
   const settings = parseInvoiceSettings(company?.invoice_settings ?? null);
-  const stripeReady = Boolean(company?.stripe_connected_account_id && company?.stripe_charges_enabled);
+  const stripeReady = stripeReadyFor(company);
   return {
     invoice: { ...invoice, overdue: isOverdue(invoice, todayFor(company)) },
     payments: payments ?? [],
     events: events ?? [],
     publicUrl: invoicePublicUrl(company, invoice.public_token),
-    online: { card: stripeReady && settings.acceptCard, bankDebit: stripeReady && settings.acceptBankDebit, stripeReady },
+    online: { card: stripeReady && settings.acceptCard, bankDebit: bankDebitReadyFor(company) && settings.acceptBankDebit, stripeReady },
   };
 }

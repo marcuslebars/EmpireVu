@@ -136,6 +136,9 @@ export async function syncConnectedAccountState(account: Stripe.Account): Promis
     .from("companies")
     .update({
       stripe_charges_enabled: account.charges_enabled === true,
+      // Bank debit (ACSS / PAD) is its own capability: cards can work while it is
+      // still pending or was never requested. Only 'active' means a debit will go through.
+      stripe_acss_debit_enabled: account.capabilities?.acss_debit_payments === "active",
       stripe_payouts_enabled: account.payouts_enabled === true,
       stripe_details_submitted: account.details_submitted === true,
       stripe_requirements: toJson(account.requirements ?? null),
