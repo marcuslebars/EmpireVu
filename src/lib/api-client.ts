@@ -69,7 +69,13 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
       (body as { error: string }).error.trim().length > 0
         ? (body as { error: string }).error
         : `API error ${res.status}: ${res.statusText}`;
-    throw new ApiError(res.status, serverMessage, body);
+    // An unexpected server error comes back as a generic apology plus a short id
+    // that points at the server log; keep the id visible so support can find it.
+    const errorId =
+      body && typeof body === "object" && "errorId" in body && typeof (body as { errorId: unknown }).errorId === "string"
+        ? (body as { errorId: string }).errorId
+        : null;
+    throw new ApiError(res.status, errorId ? `${serverMessage} (Reference: ${errorId})` : serverMessage, body);
   }
 
   const json = await res.json();
@@ -2131,6 +2137,11 @@ export interface QuoteWritePayload {
   title?: string;
   introMessage?: string;
   notes?: string;
+  /**
+   * Edit only: the owner confirmed that saving changes the total on a quote the
+   * customer already has. Without it the server answers 409 "total_changed".
+   */
+  confirmTotalChange?: boolean;
 }
 
 export interface FetchQuotesOptions {

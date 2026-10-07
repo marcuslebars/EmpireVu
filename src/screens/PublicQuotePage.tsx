@@ -15,6 +15,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
+import { customerSafeMessage } from "@/lib/public-errors";
+
 interface PublicLine {
   serviceId: string;
   label: string;
@@ -69,6 +71,7 @@ interface Totals {
 }
 
 const DEFAULT_PRIMARY = "#1f2937";
+const APPROVE_FALLBACK = "Something went wrong. Please try again — if it keeps happening, contact us.";
 
 function money(cents: number, currency: string) {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency }).format(cents / 100);
@@ -197,14 +200,15 @@ export default function PublicQuotePage() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(body.error ?? "Something went wrong. Please try again.");
+        // Never raw server text on a customer's page — only a message written for them.
+        setError(customerSafeMessage(res.status, body, APPROVE_FALLBACK));
         return;
       }
       // Straight to Stripe — no interstitial. The customer taps Approve and the
       // next thing they see is the card form.
       window.location.href = body.data.checkoutUrl;
     } catch {
-      setError("Something went wrong. Please try again.");
+      setError(APPROVE_FALLBACK);
     } finally {
       setSubmitting(false);
     }

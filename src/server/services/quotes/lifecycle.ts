@@ -25,6 +25,7 @@
  *
  * Phase 3/4 write through assertTransition() rather than setting status directly.
  */
+import { UserFacingError } from "@/server/errors";
 
 export const QUOTE_STATUSES = [
   "draft",
@@ -66,12 +67,35 @@ export function allowedTransitions(from: QuoteStatus): readonly QuoteStatus[] {
   return TRANSITIONS[from];
 }
 
-export class QuoteTransitionError extends Error {
+/** How a status reads in a sentence ("This quote is deposit paid"). */
+const STATUS_WORDS: Record<QuoteStatus, string> = {
+  draft: "a draft",
+  sent: "sent",
+  viewed: "viewed",
+  approved: "approved",
+  deposit_paid: "deposit paid",
+  completed: "completed",
+  expired: "expired",
+  cancelled: "void",
+};
+
+const ACTION_WORDS: Record<QuoteStatus, string> = {
+  draft: "go back to a draft",
+  sent: "be sent",
+  viewed: "be marked viewed",
+  approved: "be approved",
+  deposit_paid: "take a deposit",
+  completed: "be marked completed",
+  expired: "expire",
+  cancelled: "be voided or replaced",
+};
+
+export class QuoteTransitionError extends UserFacingError {
   constructor(
     readonly from: QuoteStatus,
     readonly to: QuoteStatus,
   ) {
-    super(`Quote cannot move from "${from}" to "${to}".`);
+    super(`This quote is ${STATUS_WORDS[from]}, so it can't ${ACTION_WORDS[to]}.`, { status: 409, code: "quote_transition" });
     this.name = "QuoteTransitionError";
   }
 }

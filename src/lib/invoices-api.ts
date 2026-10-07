@@ -193,6 +193,8 @@ export interface CompanyInvoiceSettings {
   businessAddress: string | null;
   settings: InvoiceSettingsValues;
   stripeReady: boolean;
+  /** Stripe has approved this company's account for Canadian bank debit (ACSS). */
+  bankDebitReady: boolean;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -203,8 +205,11 @@ async function fetchBody<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { "Content-Type": "application/json", ...(await apiAuthHeaders()), ...(init?.headers ?? {}) },
   });
-  const body = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new ApiError(res.status, body.error ?? `API error ${res.status}: ${res.statusText}`, body);
+  const body = (await res.json().catch(() => ({}))) as T & { error?: string; errorId?: string };
+  if (!res.ok) {
+    const message = body.error ?? `API error ${res.status}: ${res.statusText}`;
+    throw new ApiError(res.status, typeof body.errorId === "string" ? `${message} (Reference: ${body.errorId})` : message, body);
+  }
   return body;
 }
 

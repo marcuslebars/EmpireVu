@@ -1,20 +1,45 @@
 import type { User } from "@supabase/supabase-js";
 
 import type { Tables } from "@/server/db/database.types";
+import { UserFacingError } from "@/server/errors";
 import type { createSupabaseServerClient } from "@/server/supabase/server";
 
 type AppSupabaseClient = ReturnType<typeof createSupabaseServerClient>;
 
-export class AuthenticationError extends Error {}
-export class AuthorizationError extends Error {}
-export class ValidationError extends Error {}
+/*
+ * These are all UserFacingError subclasses: their messages are written for the
+ * person using the app and reach them as-is (see handleRoute). Keep ids and
+ * internals out of them.
+ */
+/** Not signed in (→ 401). */
+export class AuthenticationError extends UserFacingError {
+  constructor(message: string) {
+    super(message, { status: 401 });
+  }
+}
+/** Signed in, but not allowed (→ 403). */
+export class AuthorizationError extends UserFacingError {
+  constructor(message: string) {
+    super(message, { status: 403 });
+  }
+}
+/** Bad input the user can fix (→ 400). */
+export class ValidationError extends UserFacingError {
+  constructor(message: string) {
+    super(message, { status: 400 });
+  }
+}
 /** A metered allowance for the month is exhausted (Task 6). Maps to HTTP 402 in handleRoute. */
-export class UsageCapExceeded extends Error {}
+export class UsageCapExceeded extends UserFacingError {
+  constructor(message: string) {
+    super(message, { status: 402 });
+  }
+}
 /** A per-tenant rate limit tripped. Maps to HTTP 429 (+ Retry-After) in handleRoute. */
-export class TooManyRequestsError extends Error {
+export class TooManyRequestsError extends UserFacingError {
   readonly retryAfterSeconds: number;
   constructor(message: string, retryAfterSeconds: number) {
-    super(message);
+    super(message, { status: 429 });
     this.retryAfterSeconds = retryAfterSeconds;
   }
 }

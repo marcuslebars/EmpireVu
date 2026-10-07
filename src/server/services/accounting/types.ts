@@ -5,6 +5,7 @@
  */
 import { z } from "zod";
 
+import { UserFacingError } from "@/server/errors";
 import { EXPENSE_CATEGORIES } from "@/server/services/expenses/rules";
 import type { ProviderId } from "./config";
 
@@ -195,12 +196,14 @@ export interface AccountingProvider {
  * `reauth` → the connection's tokens no longer work; otherwise it needs a person
  * (bad mapping, the record was changed in the file…).
  */
-export class ProviderError extends Error {
+export class ProviderError extends UserFacingError {
   constructor(
     message: string,
     public readonly opts: { status?: number; retryable?: boolean; reauth?: boolean; code?: string; retryAfterSeconds?: number } = {},
   ) {
-    super(message);
+    // Written for the owner (shown on Settings → Accounting): "reconnect it", "rename one".
+    // A failure upstream of us, so 502 rather than the provider's own status.
+    super(message, { status: 502 });
     this.name = "ProviderError";
   }
   get retryable(): boolean {

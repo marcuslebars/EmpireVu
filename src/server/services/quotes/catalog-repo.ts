@@ -9,18 +9,20 @@
  * page has no session, and the catalog is not sensitive — it is the price list
  * they are already looking at.
  */
+import { UserFacingError } from "@/server/errors";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import type { CatalogBundle, CatalogItem, CatalogSurcharge, ServiceCatalog } from "./catalog";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = any;
 
-export class CatalogNotConfiguredError extends Error {
+/** There is deliberately no fallback price list: a company must set up its own. */
+export class CatalogNotConfiguredError extends UserFacingError {
   constructor(readonly companyId: string) {
-    super(
-      `Company ${companyId} has no service catalog. Seed one before quoting — ` +
-        `there is deliberately no fallback price list.`,
-    );
+    super("This company has no price list yet. Add its services and prices before quoting.", {
+      status: 400,
+      code: "no_price_list",
+    });
     this.name = "CatalogNotConfiguredError";
   }
 }

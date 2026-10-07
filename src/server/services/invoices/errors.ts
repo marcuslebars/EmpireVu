@@ -1,9 +1,10 @@
+import { UserFacingError } from "@/server/errors";
 import { ValidationError } from "@/server/organizations/context";
 
 /** A request that names something that isn't there (→ 404). */
-export class InvoiceNotFoundError extends Error {
+export class InvoiceNotFoundError extends UserFacingError {
   constructor(message = "Invoice not found.") {
-    super(message);
+    super(message, { status: 404 });
     this.name = "InvoiceNotFoundError";
   }
 }
@@ -13,12 +14,13 @@ export class InvoiceNotFoundError extends Error {
  * with money against it, invoicing a quote twice. `existingInvoiceId` is set when
  * the conflict is "this is already invoiced", so the UI can open that invoice.
  */
-export class InvoiceConflictError extends Error {
+export class InvoiceConflictError extends UserFacingError {
   constructor(
     message: string,
     readonly existingInvoiceId: string | null = null,
+    code?: string,
   ) {
-    super(message);
+    super(message, { status: 409, code, details: existingInvoiceId ? { existingInvoiceId } : undefined });
     this.name = "InvoiceConflictError";
   }
 }

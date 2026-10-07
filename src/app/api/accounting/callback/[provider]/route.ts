@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { UserFacingError } from "@/server/errors";
 import { completeConnect } from "@/server/services/accounting/connections";
+import { ProviderError } from "@/server/services/accounting/types";
 import { getAppBaseUrl } from "@/server/services/ai";
 
 export const dynamic = "force-dynamic";
@@ -29,8 +31,13 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     back.searchParams.set("accounting", "connected");
     back.searchParams.set("company", companyId);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Couldn't finish connecting.";
-    console.error(`[accounting] ${provider} callback failed:`, message);
+    // Only messages written for the owner go into the URL; a token-exchange or
+    // database error is logged and replaced with a plain one.
+    const message =
+      err instanceof UserFacingError || err instanceof ProviderError
+        ? err.message
+        : "Couldn't finish connecting. Please try again — if it keeps happening, contact support.";
+    console.error(`[accounting] ${provider} callback failed:`, err instanceof Error ? err.message : err);
     back.searchParams.set("accounting_error", message.slice(0, 200));
   }
   return NextResponse.redirect(back, 303);
