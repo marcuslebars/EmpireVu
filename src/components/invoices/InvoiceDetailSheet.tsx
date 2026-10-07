@@ -89,6 +89,10 @@ function describeEvent(e: InvoiceEvent, currency: string): { title: string; deta
       return { title: "Email skipped", detail: reason, tone: "bad" };
     case "email_failed":
       return { title: "Email failed", detail: reason, tone: "bad" };
+    case "copy_sent":
+      return { title: "Your copy emailed", detail: to };
+    case "copy_failed":
+      return { title: "Your copy didn't send", detail: reason, tone: "bad" };
     case "sms_sent":
       return { title: "Pay link texted", detail: to };
     case "sms_failed":
@@ -312,8 +316,7 @@ export function InvoiceDetailSheet({
     }
     try {
       const result = await sendInvoice.mutateAsync({ invoiceId: invoice.id, email: false, sms: true });
-      if (result.sms?.delivered) toast.success(`Pay link texted${result.sms.to ? ` to ${result.sms.to}` : ""}`);
-      else toastDeliveryOutcomes("Pay link", null, result.sms);
+      toastDeliveryOutcomes("Pay link", null, result.sms, result.copy);
     } catch (err) {
       toast.error(errorMessage(err, "Couldn't text the pay link."));
     }
@@ -425,7 +428,11 @@ export function InvoiceDetailSheet({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1 col-span-2 sm:col-span-1">
               <p className={sectionLabelCls}>Bill to</p>
-              <p className="text-sm font-medium text-foreground">{billTo.name}</p>
+              {!invoice.contact_id && !invoice.customer_account_id ? (
+                <p className="text-sm text-muted-foreground italic">No customer yet — edit the draft to choose who it's for.</p>
+              ) : (
+                <p className="text-sm font-medium text-foreground">{billTo.name}</p>
+              )}
               {billTo.attention && <p className="text-xs text-muted-foreground">Attn: {billTo.attention}</p>}
               {billTo.email && <p className="text-xs text-muted-foreground break-all">{billTo.email}</p>}
               {billTo.phone && <p className="text-xs text-muted-foreground">{billTo.phone}</p>}

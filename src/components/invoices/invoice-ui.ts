@@ -55,7 +55,7 @@ export function errorMessage(err: unknown, fallback = "Something went wrong. Ple
 }
 
 /** Toast the outcome of a send (shared with the one-click "Text link" action). */
-export function toastDeliveryOutcomes(label: string, email: DeliveryOutcome | null, sms: DeliveryOutcome | null): void {
+export function toastDeliveryOutcomes(label: string, email: DeliveryOutcome | null, sms: DeliveryOutcome | null, copy?: DeliveryOutcome | null): void {
   const delivered: string[] = [];
   if (email?.delivered) delivered.push(`emailed${email.to ? ` to ${email.to}` : ""}`);
   if (sms?.delivered) delivered.push(`texted${sms.to ? ` to ${sms.to}` : ""}`);
@@ -66,4 +66,6 @@ export function toastDeliveryOutcomes(label: string, email: DeliveryOutcome | nu
   if (sms && !sms.delivered) {
     toast.warning(`Text not delivered: ${sms.reason ?? "unknown reason"}.`);
   }
+  if (copy?.delivered) toast.message(`Copy sent to ${copy.to ?? "your inbox"}`);
+  else if (copy && !copy.delivered) toast.warning(`Your copy didn't send: ${copy.reason ?? "unknown reason"}.`);
 }

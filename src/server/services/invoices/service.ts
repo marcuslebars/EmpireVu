@@ -49,7 +49,7 @@ import {
   quoteToInvoiceDraft,
   type InvoiceLineInput,
 } from "./math";
-import { sendInvoiceEmail, sendInvoiceSms, sendPaymentReceiptEmail, type DeliveryOutcome } from "./notify";
+import { sendInvoiceCopyEmail, sendInvoiceEmail, sendInvoiceSms, sendPaymentReceiptEmail, type DeliveryOutcome } from "./notify";
 import { expireOpenInvoiceCheckout } from "./public";
 import { formatInvoiceNumber, parseInvoiceSettings, type InvoicePaymentMethod } from "./settings";
 
@@ -115,11 +115,15 @@ async function termsFor(ctx: TenantServiceContext, accountId: string | null, fal
   return data?.payment_terms_days ?? fallback;
 }
 
-function validateLines(lines: InvoiceLineInput[]): void {
-  if (lines.length === 0) throw new InvoiceValidationError("An invoice needs at least one line.");
+/**
+ * Drafts may be half-finished (no lines yet, a line with no description); everything
+ * is checked again by `sendBlockers` before an invoice can go out.
+ */
+function validateLines(lines: InvoiceLineInput[], draft: boolean): void {
+  if (!draft && lines.length === 0) throw new InvoiceValidationError("An invoice needs at least one line.");
   if (lines.length > 100) throw new InvoiceValidationError("An invoice can have at most 100 lines.");
   for (const l of lines) {
-    if (!l.label || !l.label.trim()) throw new InvoiceValidationError("Every line needs a description.");
+    if (!draft && (!l.label || !l.label.trim())) throw new InvoiceValidationError("Every line needs a description.");
     if (!Number.isFinite(l.quantity) || l.quantity <= 0) throw new InvoiceValidationError("Quantities must be above zero.");
     if (!Number.isInteger(Math.round(l.unitPriceCents)) || Math.abs(l.unitPriceCents) > 100_000_000) {
       throw new InvoiceValidationError("A line price is out of range.");
@@ -127,12 +131,13 @@ function validateLines(lines: InvoiceLineInput[]): void {
   }
 }
 
-function priced(lines: InvoiceLineInput[], taxRateBps: number, creditCents: number) {
-  validateLines(lines);
+function priced(lines: InvoiceLineInput[], taxRateBps: number, creditCents: number, draft = false) {
+  validateLines(lines, draft);
   const totals = computeInvoiceTotals(lines, taxRateBps);
   if (totals.subtotalCents < 0) throw new InvoiceValidationError("The invoice total can't be negative.");
   if (creditCents < 0) throw new InvoiceValidationError("A credit can't be negative.");
-  if (creditCents > totals.totalCents) {
+  // A draft may get its credit before its lines; sending checks it.
+  if (!draft && creditCents > totals.totalCents) {
     throw new InvoiceValidationError("The credit (deposit already paid) is more than the invoice total.");
   }
   return {
@@ -143,6 +148,21 @@ function priced(lines: InvoiceLineInput[], taxRateBps: number, creditCents: numb
     total_cents: totals.totalCents,
     credit_cents: creditCents,
   };
+}
+
+/** What still stops this invoice going out (empty when it's ready). Drafts can be saved half-done. */
+export function sendBlockers(inv: Pick<InvoiceRow, "contact_id" | "customer_account_id" | "line_items" | "total_cents" | "credit_cents">): string[] {
+  const out: string[] = [];
+  if (!inv.contact_id && !inv.customer_account_id) out.push("choose who it's for");
+  const lines = Array.isArray(inv.line_items) ? (inv.line_items as Array<{ label?: unknown }>) : [];
+  if (lines.length === 0) out.push("add at least one line");
+  else {
+    const blank = lines.map((l, i) => (typeof l.label === "string" && l.label.trim() ? null : i + 1)).filter((n): n is number => n !== null);
+    if (blank.length) out.push(`give line${blank.length === 1 ? "" : "s"} ${blank.join(", ")} a description`);
+  }
+  if (lines.length > 0 && inv.total_cents <= 0) out.push("add a price (it totals $0)");
+  if (inv.credit_cents > inv.total_cents && inv.total_cents > 0) out.push("the deposit / credit is more than the total");
+  return out;
 }
 
 export async function getInvoice(ctx: TenantServiceContext, invoiceId: string): Promise<InvoiceRow | null> {
@@ -178,12 +198,10 @@ export async function createInvoice(ctx: TenantServiceContext, input: InvoiceWri
   // Explicit null = "bill the person, not their business"; undefined = use the contact's account.
   const accountId =
     input.customerAccountId !== undefined ? input.customerAccountId : await accountOfContact(ctx, contactId);
-  if (!contactId && !accountId) {
-    throw new InvoiceValidationError("Choose who the invoice is for — a contact or a business account.");
-  }
+  // New invoices are drafts, which may not have a customer yet — sending requires one.
 
   const terms = input.paymentTermsDays ?? (await termsFor(ctx, accountId, settings.paymentTermsDays));
-  const money = priced(input.lines, input.taxRateBps ?? settings.taxRateBps, input.creditCents ?? 0);
+  const money = priced(input.lines, input.taxRateBps ?? settings.taxRateBps, input.creditCents ?? 0, true);
   const billTo = await resolveBillTo(ctx.supabase, ctx.organizationId, { contactId, customerAccountId: accountId }, input.billToAddress);
 
   const { data, error } = await ctx.supabase
@@ -245,7 +263,8 @@ export async function updateInvoice(ctx: TenantServiceContext, invoiceId: string
 
   const contactId = input.contactId !== undefined ? input.contactId : existing.contact_id;
   const accountId = input.customerAccountId !== undefined ? input.customerAccountId : existing.customer_account_id;
-  if (!contactId && !accountId) {
+  const draft = existing.status === "draft";
+  if (!draft && !contactId && !accountId) {
     throw new InvoiceValidationError("Choose who the invoice is for — a contact or a business account.");
   }
 
@@ -254,6 +273,7 @@ export async function updateInvoice(ctx: TenantServiceContext, invoiceId: string
     lines,
     input.taxRateBps ?? existing.tax_rate_bps,
     input.creditCents ?? existing.credit_cents,
+    draft,
   );
   // Keep the current address only while the customer is unchanged; a new customer
   // brings their own address (unless one is typed in for this invoice).
@@ -451,6 +471,8 @@ export interface SendInvoiceResult {
   invoice: InvoiceRow;
   email: DeliveryOutcome | null;
   sms: DeliveryOutcome | null;
+  /** The copy to the brand's inbox, when "Send me a copy" is on. */
+  copy: DeliveryOutcome | null;
   publicUrl: string;
 }
 
@@ -470,7 +492,8 @@ export async function sendInvoice(
   const existing = await requireInvoice(ctx, invoiceId);
   if (existing.status === "void") throw new InvoiceConflictError("This invoice is void.");
   if (existing.status === "paid") throw new InvoiceConflictError("This invoice is already paid.");
-  if (existing.total_cents <= 0) throw new InvoiceValidationError("Add a price before sending — this invoice totals $0.");
+  const blockers = sendBlockers(existing);
+  if (blockers.length) throw new InvoiceValidationError(`Before sending: ${blockers.join("; ")}.`);
 
   const company = await loadCompanyForInvoice(ctx.supabase, ctx.organizationId, existing.company_id);
   if (!company) throw new InvoiceValidationError("Company not found.");
@@ -539,7 +562,9 @@ export async function sendInvoice(
 
   const email = opts.email === false ? null : await sendInvoiceEmail(invoiceId);
   const sms = opts.sms ? await sendInvoiceSms(ctx, invoiceId) : null;
-  return { invoice, email, sms, publicUrl: invoicePublicUrl(company, invoice.public_token) };
+  // "Send me a copy" (Settings → Invoices): the same email + PDF, to the brand's own inbox.
+  const copy = settings.sendCopy ? await sendInvoiceCopyEmail(invoiceId, settings.copyEmail, { email, sms }) : null;
+  return { invoice, email, sms, copy, publicUrl: invoicePublicUrl(company, invoice.public_token) };
 }
 
 // ── Void ─────────────────────────────────────────────────────────────────────
@@ -727,7 +752,7 @@ export async function listInvoices(ctx: TenantServiceContext, opts: ListInvoices
   let invoices: InvoiceListItem[] = (data ?? []).map((inv) => ({
     ...inv,
     overdue: isOverdue(inv, today),
-    bill_to_name: readBillTo(inv.bill_to).name,
+    bill_to_name: !inv.contact_id && !inv.customer_account_id ? "No customer yet" : readBillTo(inv.bill_to).name,
   }));
   if (filter === "overdue") invoices = invoices.filter((i) => i.overdue);
 

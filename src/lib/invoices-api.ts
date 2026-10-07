@@ -180,6 +180,10 @@ export interface InvoiceSettingsValues {
   reminderDays: number[];
   /** When a job is marked done: nothing, a draft invoice, or an invoice that's sent right away. */
   autoInvoiceOnComplete: "off" | "draft" | "send";
+  /** Email a copy of every sent invoice to the brand's own inbox. */
+  sendCopy: boolean;
+  /** Blank = the organization owner's email. */
+  copyEmail: string | null;
 }
 
 export interface CompanyInvoiceSettings {
@@ -244,12 +248,12 @@ export async function sendInvoice(
   orgId: string,
   invoiceId: string,
   opts: { email?: boolean; sms?: boolean } = {},
-): Promise<{ invoice: Invoice; email: DeliveryOutcome | null; sms: DeliveryOutcome | null; publicUrl: string }> {
-  const body = await fetchBody<{ data: Invoice; email: DeliveryOutcome | null; sms: DeliveryOutcome | null; publicUrl: string }>(
+): Promise<{ invoice: Invoice; email: DeliveryOutcome | null; sms: DeliveryOutcome | null; copy: DeliveryOutcome | null; publicUrl: string }> {
+  const body = await fetchBody<{ data: Invoice; email: DeliveryOutcome | null; sms: DeliveryOutcome | null; copy?: DeliveryOutcome | null; publicUrl: string }>(
     `${base(orgId)}/invoices/${invoiceId}/send`,
     { method: "POST", body: JSON.stringify(opts) },
   );
-  return { invoice: body.data, email: body.email, sms: body.sms, publicUrl: body.publicUrl };
+  return { invoice: body.data, email: body.email, sms: body.sms, copy: body.copy ?? null, publicUrl: body.publicUrl };
 }
 
 export function voidInvoice(orgId: string, invoiceId: string, reason?: string): Promise<Invoice> {

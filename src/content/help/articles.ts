@@ -245,6 +245,29 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
     ],
   },
   {
+    id: "invoices",
+    title: "Invoices: drafts and your copy",
+    summary: "Saving invoices as drafts before they're finished, and getting a copy of every invoice you send.",
+    keywords: ["invoice", "invoices", "draft", "save draft", "copy", "bcc", "my copy", "send me a copy", "records", "inbox"],
+    sections: [
+      {
+        heading: "Saving a draft",
+        body:
+          "In Invoices → New invoice, press Save draft at any point — even with no customer, no price or a line still blank. Drafts don't get an invoice number and the customer never sees them. Open the draft later to finish it.",
+      },
+      {
+        heading: "Sending",
+        body:
+          "Save & send (or Send invoice on a draft) checks the invoice first and tells you exactly what's still missing, for example \"choose who it's for\" or \"give line 2 a description\". Once it's sent it gets its number and payment terms start.",
+      },
+      {
+        heading: "Getting a copy of what you send",
+        body:
+          "Settings → Invoices → Send me a copy. Every time an invoice is sent or resent you get the same email and PDF the customer got, with a note saying how it reached them. Leave the address blank to use the account owner's email, or enter another (for example your bookkeeper's).",
+      },
+    ],
+  },
+  {
     id: "expenses",
     title: "Expenses and receipts",
     summary: "Logging receipts, job costs, paying people back, billing materials to customers, and exporting for your bookkeeper.",

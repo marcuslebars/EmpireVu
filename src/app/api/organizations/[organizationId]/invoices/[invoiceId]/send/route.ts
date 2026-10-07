@@ -20,6 +20,6 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   return invoiceRoute(context.params.organizationId, async (ctx) => {
     const opts = bodySchema.parse(await request.json().catch(() => ({})));
     const result = await sendInvoice(ctx, context.params.invoiceId, opts);
-    return NextResponse.json({ data: result.invoice, email: result.email, sms: result.sms, publicUrl: result.publicUrl });
+    return NextResponse.json({ data: result.invoice, email: result.email, sms: result.sms, copy: result.copy, publicUrl: result.publicUrl });
   });
 }

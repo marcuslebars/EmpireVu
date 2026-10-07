@@ -104,6 +104,69 @@ export async function sendInvoiceEmail(invoiceId: string): Promise<DeliveryOutco
   }
 }
 
+/** The organization owner's email — where "Send me a copy" goes when no address is set. */
+async function ownerEmail(db: Db, organizationId: string): Promise<string | null> {
+  const { data: owners } = await db
+    .from("organization_memberships")
+    .select("profile_id, created_at")
+    .eq("organization_id", organizationId)
+    .eq("role", "owner")
+    .order("created_at", { ascending: true })
+    .limit(1);
+  const id = owners?.[0]?.profile_id;
+  if (!id) return null;
+  const { data: p } = await db.from("profiles").select("email").eq("id", id).maybeSingle();
+  return p?.email?.trim() || null;
+}
+
+/**
+ * "Send me a copy": the exact email + PDF the customer got, to the brand's own inbox,
+ * with a line on top saying who it went to and how. Its own email (not a BCC), so it
+ * arrives even when the customer was only texted. Never throws.
+ */
+export async function sendInvoiceCopyEmail(
+  invoiceId: string,
+  configured: string | null,
+  sent: { email: DeliveryOutcome | null; sms: DeliveryOutcome | null },
+): Promise<DeliveryOutcome> {
+  const db = admin();
+  try {
+    const b = await loadBundle(db, invoiceId);
+    if (!b) return { delivered: false, reason: "Invoice not found." };
+    const to = configured ?? (await ownerEmail(db, b.invoice.organization_id));
+    if (!to) return { delivered: false, reason: "No address for the copy — add one in Settings → Invoices." };
+    const doc = buildInvoiceDocument(b.invoice, b.company);
+    const mail = renderInvoiceSent(doc, { firstName: firstName(b.contact) });
+    const how = [
+      sent.email?.delivered ? `emailed to ${sent.email.to ?? doc.billTo.email}` : null,
+      sent.sms?.delivered ? "texted" : null,
+    ].filter(Boolean);
+    const who = doc.billTo.name || "the customer";
+    const summary = how.length
+      ? `Your copy: this invoice was ${how.join(" and ")} (${who}).`
+      : `Your copy: this invoice was issued to ${who}, but it wasn't emailed or texted${sent.email && !sent.email.delivered && sent.email.reason ? ` (${sent.email.reason})` : ""}.`;
+    const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const banner = `<div style="margin:0 0 16px;padding:10px 14px;border-radius:8px;background:#f3f4f6;color:#374151;font:14px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">${esc(summary)}</div>`;
+    const html = mail.html.includes("<body") ? mail.html.replace(/(<body[^>]*>)/i, `$1${banner}`) : banner + mail.html;
+    const pdf = await renderInvoicePdf(doc);
+    await sendEmail({
+      to,
+      subject: `Copy: ${mail.subject}`,
+      body: `${summary}\n\n${mail.text}`,
+      html,
+      fromName: mail.fromName ?? undefined,
+      attachments: [{ filename: pdfName(b.invoice), content: base64(pdf) }],
+    });
+    await recordInvoiceEvent(db, { organizationId: b.invoice.organization_id, invoiceId, eventType: "copy_sent", metadata: { to } });
+    return { delivered: true, reason: null, to };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(`[invoices] invoice copy failed for ${invoiceId}:`, reason);
+    await safeEvent(db, invoiceId, "copy_failed", { reason });
+    return { delivered: false, reason };
+  }
+}
+
 /** Text the pay link to the contact's phone, from the brand's own number when it has one. */
 export async function sendInvoiceSms(ctx: Pick<TenantServiceContext, "organizationId" | "actorProfileId">, invoiceId: string): Promise<DeliveryOutcome> {
   const db = admin();

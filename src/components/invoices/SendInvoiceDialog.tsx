@@ -37,7 +37,7 @@ export function SendInvoiceDialog({
     try {
       const result = await send.mutateAsync({ invoiceId: invoice.id, email, sms });
       const label = `Invoice ${result.invoice.invoice_number ?? ""}`.trim();
-      toastDeliveryOutcomes(label, result.email, result.sms);
+      toastDeliveryOutcomes(label, result.email, result.sms, result.copy);
       onSent?.(result.invoice);
       onClose();
     } catch (err) {
