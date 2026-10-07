@@ -27,6 +27,7 @@
     "job:monthly-scorecard": "tsx src/server/jobs/monthly-scorecard.ts",
     "job:seed-a1-recipes": "tsx src/server/jobs/seed-a1-recipes.ts",
     "job:import-a1-care": "tsx src/server/jobs/import-a1-care.ts",
+    "job:backfill-stripe-capabilities": "tsx src/server/jobs/backfill-stripe-capabilities.ts",
     "job:seed-demo": "tsx src/server/jobs/seed-demo-org.ts",
     "job:crankleads-provision": "tsx src/server/jobs/crankleads-provision.ts",
     "job:accounting-sync": "tsx src/server/jobs/accounting-sync.ts",

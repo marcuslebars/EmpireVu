@@ -33,7 +33,7 @@ const { createInvoiceFromBooking, createInvoiceFromQuote, isQuoteApprovedForInvo
 );
 const { InvoiceConflictError } = await import("@/server/services/invoices/errors");
 const { BANK_DEBIT_UNAVAILABLE_MESSAGE, createInvoiceCheckout } = await import("@/server/services/invoices/public");
-const { syncConnectedAccountState } = await import("@/server/services/quotes/connect");
+const { backfillConnectedAccountCapabilities, syncConnectedAccountState } = await import("@/server/services/quotes/connect");
 const payRoute = await import("@/app/api/public/invoices/[token]/pay/route");
 
 const ORG = "org-1";
@@ -263,5 +263,46 @@ describe("the ACSS capability is mirrored from Stripe", () => {
 
     await syncConnectedAccountState(account(undefined));
     expect(h.db!.tables.companies[0].stripe_acss_debit_enabled).toBe(false);
+  });
+});
+
+describe("the post-migration capability backfill", () => {
+  const retrieve = vi.fn(async (id: string) => ({
+    id,
+    charges_enabled: true,
+    payouts_enabled: true,
+    details_submitted: true,
+    requirements: null,
+    capabilities: id === "acct_brand" ? { acss_debit_payments: "active" } : { acss_debit_payments: "inactive" },
+  }));
+  const stripe = { accounts: { retrieve } } as never;
+
+  beforeEach(() => {
+    retrieve.mockClear();
+    h.db!.tables.companies[0].stripe_acss_debit_enabled = false;
+    h.db!.tables.companies.push({ ...company({ id: "co-2", name: "Other", stripe_connected_account_id: "acct_other", stripe_acss_debit_enabled: false }) });
+    h.db!.tables.companies.push({ ...company({ id: "co-3", name: "Not connected", stripe_connected_account_id: null, stripe_acss_debit_enabled: false }) });
+  });
+
+  it("dry run reports what would change and writes nothing", async () => {
+    const r = await backfillConnectedAccountCapabilities({ apply: false, stripe });
+    expect(r.checked).toBe(2);
+    expect(r.changed).toEqual([{ companyId: "co-1", name: "Bayview Plumbing", acssDebit: true }]);
+    expect(h.db!.tables.companies[0].stripe_acss_debit_enabled).toBe(false);
+  });
+
+  it("--apply writes it, and a second run finds nothing to change", async () => {
+    await backfillConnectedAccountCapabilities({ apply: true, stripe });
+    expect(h.db!.tables.companies[0].stripe_acss_debit_enabled).toBe(true);
+    expect(h.db!.tables.companies[1].stripe_acss_debit_enabled).toBe(false);
+    const again = await backfillConnectedAccountCapabilities({ apply: true, stripe });
+    expect(again.changed).toEqual([]);
+  });
+
+  it("keeps going past one account Stripe can't read", async () => {
+    retrieve.mockRejectedValueOnce(new Error("No such account"));
+    const r = await backfillConnectedAccountCapabilities({ apply: true, stripe });
+    expect(r.failed).toHaveLength(1);
+    expect(r.checked).toBe(2);
   });
 });
