@@ -4332,6 +4332,13 @@ export interface Database {
         };
         Returns: boolean;
       };
+      claim_jobber_token_refresh: {
+        Args: {
+          p_organization_id: string;
+          p_stale_after_seconds?: number;
+        };
+        Returns: boolean;
+      };
       claim_accounting_sync_jobs: {
         Args: {
           p_limit?: number;
