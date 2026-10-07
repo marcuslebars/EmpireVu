@@ -298,6 +298,8 @@ function CompanyInvoicePanel({
 
   const dirty = !sameForm(form, baseline);
   const stripeReady = data.stripeReady;
+  // Older API responses lack the field; treat that as "not approved" (the safe side).
+  const bankDebitReady = data.bankDebitReady === true;
   const termOptions = TERM_OPTIONS.includes(form.paymentTermsDays) ? TERM_OPTIONS : [...TERM_OPTIONS, form.paymentTermsDays].sort((a, b) => a - b);
 
   const save = () => {
@@ -446,6 +448,16 @@ function CompanyInvoicePanel({
           disabled={!stripeReady}
           onChange={(v) => set("acceptBankDebit", v)}
         />
+        {stripeReady && form.acceptBankDebit && !bankDebitReady && (
+          <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-[hsl(var(--warning))]/10 border border-[hsl(var(--warning))]/20" role="status">
+            <AlertTriangle className="w-4 h-4 text-[hsl(var(--warning))] shrink-0 mt-0.5" />
+            <p className="text-xs text-foreground">
+              Customers won&apos;t see bank debit yet. Stripe hasn&apos;t turned on bank debit (ACSS Debit) for this company&apos;s account. Turn it
+              on in this company&apos;s Stripe dashboard under Settings → Payment methods; once Stripe approves it, the option appears on your
+              invoices automatically.
+            </p>
+          </div>
+        )}
         <MethodRow
           icon={<Mail className="w-4 h-4" />}
           title="Interac e-Transfer"

@@ -64,14 +64,31 @@ describe("builder input kinds", () => {
 });
 
 describe("validation errors read like sentences", () => {
-  it("names the field instead of dumping JSON", () => {
+  it("names the field the way the form does, with no paths, indexes or JSON", () => {
     const schema = z.object({ services: z.array(z.object({ lengthFt: z.number().max(100) })) });
     const result = schema.safeParse({ services: [{ lengthFt: 120 }] });
     expect(result.success).toBe(false);
     if (!result.success) {
       const msg = readableZodMessage(result.error);
-      expect(msg).toMatch(/^services\.0\.lengthFt: /);
+      expect(msg).toBe("Length (ft) must be at most 100.");
       expect(msg).not.toContain("{");
+      expect(msg).not.toMatch(/services|\.0\.|lengthFt/);
     }
+  });
+
+  it("says a missing field is required", () => {
+    const schema = z.object({ services: z.array(z.object({ lengthFt: z.number() })) });
+    const result = schema.safeParse({ services: [{}] });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(readableZodMessage(result.error)).toBe("Length (ft) is required.");
+  });
+
+  it("keeps a refine() message we wrote for people", () => {
+    const schema = z.object({ services: z.array(z.string()) }).refine((v) => v.services.length > 0, {
+      message: "A quote needs at least one service or custom line.",
+      path: ["services"],
+    });
+    const result = schema.safeParse({ services: [] });
+    if (!result.success) expect(readableZodMessage(result.error)).toBe("A quote needs at least one service or custom line.");
   });
 });

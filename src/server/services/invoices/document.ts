@@ -98,12 +98,28 @@ export function brandOfCompany(company: CompanyForInvoice | null): InvoiceBrand 
   };
 }
 
+/** The brand's Stripe account can take card payments. */
+export function stripeReadyFor(company: Pick<CompanyForInvoice, "stripe_connected_account_id" | "stripe_charges_enabled"> | null): boolean {
+  return Boolean(company?.stripe_connected_account_id && company?.stripe_charges_enabled);
+}
+
+/**
+ * The brand's Stripe account can take Canadian bank debits (ACSS / PAD). A separate
+ * Stripe capability from cards — mirrored as stripe_acss_debit_enabled — so "cards
+ * work" never implies "bank debit works".
+ */
+export function bankDebitReadyFor(
+  company: Pick<CompanyForInvoice, "stripe_connected_account_id" | "stripe_charges_enabled" | "stripe_acss_debit_enabled"> | null,
+): boolean {
+  return stripeReadyFor(company) && company?.stripe_acss_debit_enabled === true;
+}
+
 export function paymentOptionsFor(company: CompanyForInvoice | null): InvoicePaymentOptions {
   const s = parseInvoiceSettings(company?.invoice_settings ?? null);
-  const stripeReady = Boolean(company?.stripe_connected_account_id && company?.stripe_charges_enabled);
+  const stripeReady = stripeReadyFor(company);
   return {
     card: stripeReady && s.acceptCard,
-    bankDebit: stripeReady && s.acceptBankDebit,
+    bankDebit: bankDebitReadyFor(company) && s.acceptBankDebit,
     etransfer: s.acceptEtransfer && s.etransferEmail ? { email: s.etransferEmail, instructions: s.etransferInstructions } : null,
     cheque: s.acceptCheque ? { payableTo: s.chequePayableTo ?? brandOfCompany(company).name, mailTo: s.chequeMailingAddress ?? str(company?.business_address) } : null,
     cash: s.acceptCash,

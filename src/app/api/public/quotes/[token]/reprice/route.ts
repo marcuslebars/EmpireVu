@@ -15,7 +15,7 @@ import { z } from "zod";
 import { handleRoute } from "@/server/api/route";
 import { enforceRateLimit } from "@/server/services/rate-limit";
 import { getQuotesConfig } from "@/server/services/quotes/config";
-import { getPublicQuote, isApprovable, repriceForSelection } from "@/server/services/quotes/public-service";
+import { getPublicQuote, isApprovable, priceForSelection, QuotePricesChangedError } from "@/server/services/quotes/public-service";
 
 export const dynamic = "force-dynamic";
 
@@ -54,8 +54,15 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     }
 
     const parsed = bodySchema.parse(await request.json().catch(() => ({})));
-    const pricing = await repriceForSelection(token, parsed.selected);
-    if (!pricing) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    const result = await priceForSelection(token, parsed.selected);
+    if (!result) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    // The price list moved since the quote was sent: a toggled total would be a number
+    // the customer was never quoted. Say so (the page stops offering Approve).
+    if (result.kind === "prices_changed") {
+      const err = new QuotePricesChangedError(quote.brand.name);
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
+    const pricing = result.pricing;
 
     return NextResponse.json({
       data: {

@@ -28,7 +28,10 @@ import { parseInvoiceSettings } from "./settings";
  */
 export function hasUnpricedJobLine(invoice: Pick<Tables<"invoices">, "line_items">, jobTitle: string): boolean {
   const lines = Array.isArray(invoice.line_items) ? (invoice.line_items as Array<{ label?: unknown; unitPriceCents?: unknown }>) : [];
-  return lines.some((l) => l.label === jobTitle.trim() && l.unitPriceCents === 0);
+  const title = jobTitle.trim();
+  // The line's label is the booking title as stored (possibly with stray spaces), so
+  // compare trimmed on both sides.
+  return lines.some((l) => typeof l.label === "string" && l.label.trim() === title && l.unitPriceCents === 0);
 }
 
 export type AutoInvoiceOutcome =

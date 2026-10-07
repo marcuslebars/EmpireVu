@@ -24,6 +24,7 @@ import { ErrorState } from "@/components/ui/StateViews";
 import { toast } from "@/components/ui/sonner";
 import { createQuote, sendQuote, updateQuote, type QuoteWritePayload } from "@/lib/api-client";
 import { useCompanies, useContactDetail } from "@/lib/api-hooks";
+import { formatCents } from "@/lib/invoices-api";
 import { useInvalidateQuotes, useQuoteCatalog, useQuoteDetail } from "@/lib/quote-hooks";
 import { useOrgId } from "@/lib/org-context";
 import { cn } from "@/lib/utils";
@@ -40,9 +41,10 @@ import {
   type ServiceDraft,
 } from "./builder-model";
 import { AddCustomLineButton, CustomLineRow, ServicePicker, ServiceRow } from "./QuoteLineEditors";
+import { QuoteConfirmDialog } from "./QuoteConfirmDialog";
 import { QuoteCustomerField } from "./QuoteCustomerField";
 import { QuotePricingPanel } from "./QuotePricingPanel";
-import { EDITABLE_STATUSES, QUOTE_STATUS_LABELS, asQuoteStatus, errorBoxCls, parseLineItems, toastQuoteSent } from "./quote-ui";
+import { EDITABLE_STATUSES, QUOTE_STATUS_LABELS, asQuoteStatus, errorBoxCls, parseLineItems, toastQuoteSent, totalChangeFrom } from "./quote-ui";
 import { useLivePreview } from "./use-live-preview";
 
 // ─── Shell ───────────────────────────────────────────────────────────────────
@@ -136,7 +138,7 @@ export function QuoteBuilderDialog({
           <p className="text-sm font-medium text-foreground">This quote is {QUOTE_STATUS_LABELS[status].toLowerCase()} and can't be edited.</p>
           <p className="text-xs text-muted-foreground max-w-sm">
             {status === "approved" || status === "expired"
-              ? "The customer has already seen these prices. Use Revise on the quote to send them a replacement."
+              ? "The customer has already seen these prices. Use Make a new version on the quote to prepare a replacement."
               : "Only drafts and quotes still waiting on the customer can be changed."}
           </p>
           <button type="button" onClick={onClose} className={secondaryBtnCls}>
@@ -212,6 +214,8 @@ function QuoteBuilderForm({ existing, onClose, onSaved }: { existing?: ExistingQ
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState<"draft" | "send" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Set when saving would change the total the customer sees; asks before re-saving.
+  const [totalChange, setTotalChange] = useState<{ oldTotalCents: number; newTotalCents: number; send: boolean } | null>(null);
 
   // Fill in the contact's name when editing a quote opened without one.
   const { data: contactDetail } = useContactDetail(orgId, !contactLabel && contactId ? contactId : null);
@@ -244,7 +248,7 @@ function QuoteBuilderForm({ existing, onClose, onSaved }: { existing?: ExistingQ
   };
 
   const requestClose = () => {
-    if (saving) return;
+    if (saving || totalChange) return;
     if (dirty && !window.confirm("Discard your changes to this quote?")) return;
     onClose();
   };
@@ -259,7 +263,7 @@ function QuoteBuilderForm({ existing, onClose, onSaved }: { existing?: ExistingQ
     setBundleId("");
   }
 
-  async function submit(send: boolean) {
+  async function submit(send: boolean, confirmTotalChange = false) {
     setAttempted(true);
     setError(null);
     if (!companyId) return setError("Choose the company this quote is from.");
@@ -275,6 +279,7 @@ function QuoteBuilderForm({ existing, onClose, onSaved }: { existing?: ExistingQ
       title: title.trim() || (isEdit ? "" : undefined),
       introMessage: intro.trim() || (isEdit ? "" : undefined),
       notes: notes.trim() || (isEdit ? "" : undefined),
+      ...(confirmTotalChange ? { confirmTotalChange: true } : {}),
     };
 
     setSaving(send ? "send" : "draft");
@@ -291,6 +296,12 @@ function QuoteBuilderForm({ existing, onClose, onSaved }: { existing?: ExistingQ
       void invalidate();
       onSaved(saved.id);
     } catch (err) {
+      const change = !savedId ? totalChangeFrom(err) : null;
+      if (change) {
+        // Nothing was saved. Ask, with both numbers, before changing what they owe.
+        setTotalChange({ ...change, send });
+        return;
+      }
       const msg = errorMessage(err, "Couldn't save the quote.");
       if (savedId) {
         // Saved, but the send step failed — keep the work and say so.
@@ -306,6 +317,13 @@ function QuoteBuilderForm({ existing, onClose, onSaved }: { existing?: ExistingQ
     }
   }
 
+  async function confirmTotalChangeAndSave() {
+    if (!totalChange) return;
+    const { send } = totalChange;
+    await submit(send, true);
+    setTotalChange(null);
+  }
+
   const companyName = companies?.find((c) => c.id === companyId)?.name;
   const previewLines = live.preview ? parseLineItems(live.preview.lineItems) : null;
   const notConfigured = catalog && !catalog.configured;
@@ -314,7 +332,7 @@ function QuoteBuilderForm({ existing, onClose, onSaved }: { existing?: ExistingQ
     ? "Pick services from the price list — totals update as you go."
     : existing.status === "draft"
       ? "Draft — the customer hasn't seen this yet."
-      : "This quote is with the customer. Saving reprices it and updates their link.";
+      : "This quote is with the customer. Saving updates the quote on their link.";
 
   return (
     <BuilderShell title={existing ? `Edit ${existing.number ?? "draft quote"}` : "New quote"} subtitle={subtitle} onClose={requestClose}>
@@ -598,7 +616,7 @@ function QuoteBuilderForm({ existing, onClose, onSaved }: { existing?: ExistingQ
             </button>
             <button type="submit" disabled={saving !== null} className={secondaryBtnCls}>
               {saving === "draft" && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              {!existing || existing.status === "draft" ? "Save draft" : "Save changes"}
+              {!existing || existing.status === "draft" ? "Save draft" : "Save — customer's link updates"}
             </button>
             {canSend && (
               <button type="button" disabled={saving !== null} onClick={() => void submit(true)} className={primaryBtnCls}>
@@ -609,6 +627,18 @@ function QuoteBuilderForm({ existing, onClose, onSaved }: { existing?: ExistingQ
           </div>
         </div>
       </form>
+      {totalChange && (
+        <QuoteConfirmDialog
+          title="The quote total will change"
+          description={`The total changes from ${formatCents(totalChange.oldTotalCents)} to ${formatCents(totalChange.newTotalCents)} because prices in your price list changed. The customer's link will show the new total. Save anyway?`}
+          confirmLabel="Save with the new total"
+          cancelLabel="Don't save"
+          pending={saving !== null}
+          error={error}
+          onConfirm={() => void confirmTotalChangeAndSave()}
+          onClose={() => setTotalChange(null)}
+        />
+      )}
     </BuilderShell>
   );
 }

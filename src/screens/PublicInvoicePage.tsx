@@ -21,6 +21,7 @@ import { useParams } from "react-router-dom";
 import { AlertCircle, Check, CheckCircle2, Copy, Download, FileText, Loader2 } from "lucide-react";
 
 import { ApiError } from "@/lib/api-client";
+import { customerSafeMessage } from "@/lib/public-errors";
 import {
   fetchPublicInvoice,
   formatCents,
@@ -111,9 +112,12 @@ function isDueOnReceipt(inv: PublicInvoice): boolean {
   return inv.paymentTermsDays === 0 && (!inv.dueDate || inv.dueDate === inv.issueDate);
 }
 
+const PAY_FALLBACK = "Something went wrong starting your payment. Please try again, or use one of the other ways to pay below.";
+
+/** Never raw server text: only a message written for the customer, else our own. */
 function errorMessage(err: unknown): string {
-  if (err instanceof ApiError && err.message && !/^API error \d+/.test(err.message)) return err.message;
-  return "Something went wrong starting your payment. Please try again.";
+  if (err instanceof ApiError) return customerSafeMessage(err.status, err.body, PAY_FALLBACK);
+  return PAY_FALLBACK;
 }
 
 // ─── Page ────────────────────────────────────────────────────────────────────

@@ -102,7 +102,7 @@ export async function resolveBillTo(
 export const COMPANY_INVOICE_COLUMNS =
   "id, organization_id, name, timezone, brand_logo_url, brand_primary_color, brand_accent_color, brand_from_name, " +
   "brand_reply_email, brand_reply_phone, brand_website_url, tax_registration_number, business_address, " +
-  "invoice_settings, quote_public_base_url, stripe_connected_account_id, stripe_charges_enabled";
+  "invoice_settings, quote_public_base_url, stripe_connected_account_id, stripe_charges_enabled, stripe_acss_debit_enabled";
 
 export type CompanyForInvoice = Pick<
   Tables<"companies">,
@@ -123,6 +123,7 @@ export type CompanyForInvoice = Pick<
   | "quote_public_base_url"
   | "stripe_connected_account_id"
   | "stripe_charges_enabled"
+  | "stripe_acss_debit_enabled"
 >;
 
 export async function loadCompanyForInvoice(db: Db, organizationId: string, companyId: string): Promise<CompanyForInvoice | null> {

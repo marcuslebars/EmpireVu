@@ -18,6 +18,7 @@
 import type Stripe from "stripe";
 
 import { getCompanyStripeConfig, getPlatformStripe, onAccount, requireChargeableCompany } from "@/server/services/quotes/company-stripe";
+import { UserFacingError } from "@/server/errors";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import {
   emitInvoiceTrigger,
@@ -84,15 +85,23 @@ export async function getPublicInvoicePdf(token: string): Promise<{ bytes: Uint8
 
 export type OnlineMethod = "card" | "bank_debit";
 
-export class InvoiceCheckoutError extends Error {
+/**
+ * A payment the customer can't start, with a message written for them (it is shown
+ * on the public pay page as-is). → 404 for not_found, 409 otherwise.
+ */
+export class InvoiceCheckoutError extends UserFacingError {
   constructor(
     message: string,
-    readonly code: "not_found" | "not_payable" | "nothing_owing" | "method_unavailable",
+    override readonly code: "not_found" | "not_payable" | "nothing_owing" | "method_unavailable",
   ) {
-    super(message);
+    super(message, { status: code === "not_found" ? 404 : 409, code });
     this.name = "InvoiceCheckoutError";
   }
 }
+
+/** What a customer sees when bank debit can't be started for any reason. */
+export const BANK_DEBIT_UNAVAILABLE_MESSAGE =
+  "Bank debit isn't available for this invoice right now. Please pay by card or e-Transfer.";
 
 /**
  * Stripe Customer for the payer, on the BRAND's account. Uses the same
@@ -181,7 +190,11 @@ export async function createInvoiceCheckout(token: string, method: OnlineMethod)
 
   const company = await loadCompanyForInvoice(db, invoice.organization_id, invoice.company_id);
   const doc = buildInvoiceDocument(invoice, company);
-  if ((method === "card" && !doc.payment.card) || (method === "bank_debit" && !doc.payment.bankDebit)) {
+  if (method === "bank_debit" && !doc.payment.bankDebit) {
+    // Off in settings, or Stripe hasn't approved this brand's account for ACSS debits.
+    throw new InvoiceCheckoutError(BANK_DEBIT_UNAVAILABLE_MESSAGE, "method_unavailable");
+  }
+  if (method === "card" && !doc.payment.card) {
     throw new InvoiceCheckoutError("That payment method isn't available for this invoice.", "method_unavailable");
   }
 
@@ -224,56 +237,68 @@ export async function createInvoiceCheckout(token: string, method: OnlineMethod)
   const meta = { org_id: invoice.organization_id, company_id: invoice.company_id, invoice_id: invoice.id, method };
   const isBusiness = Boolean(invoice.customer_account_id);
 
-  const session = await stripe.checkout.sessions.create(
-    {
-      mode: "payment",
-      customer: customerId,
-      payment_method_types: method === "card" ? ["card"] : ["acss_debit"],
-      ...(method === "bank_debit"
-        ? {
-            payment_method_options: {
-              acss_debit: {
-                // No `currency` here: Stripe only accepts it in setup mode; the
-                // currency comes from the line item.
-                mandate_options: {
-                  payment_schedule: "sporadic",
-                  transaction_type: isBusiness ? "business" : "personal",
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await stripe.checkout.sessions.create(
+      {
+        mode: "payment",
+        customer: customerId,
+        payment_method_types: method === "card" ? ["card"] : ["acss_debit"],
+        ...(method === "bank_debit"
+          ? {
+              payment_method_options: {
+                acss_debit: {
+                  // No `currency` here: Stripe only accepts it in setup mode; the
+                  // currency comes from the line item.
+                  mandate_options: {
+                    payment_schedule: "sporadic",
+                    transaction_type: isBusiness ? "business" : "personal",
+                  },
+                  verification_method: "automatic",
                 },
-                verification_method: "automatic",
+              },
+            }
+          : {}),
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: invoice.currency.toLowerCase(),
+              unit_amount: amount,
+              product_data: {
+                name: `${doc.brand.name} — Invoice ${invoice.invoice_number ?? ""}`.trim(),
+                description: invoice.title ?? undefined,
               },
             },
-          }
-        : {}),
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: invoice.currency.toLowerCase(),
-            unit_amount: amount,
-            product_data: {
-              name: `${doc.brand.name} — Invoice ${invoice.invoice_number ?? ""}`.trim(),
-              description: invoice.title ?? undefined,
-            },
           },
+        ],
+        payment_intent_data: {
+          description: `Invoice ${invoice.invoice_number ?? invoice.id}`,
+          // The descriptor suffix is a card concept; bank debits use the account's own.
+          ...(method === "card" && brand.statementDescriptorSuffix ? { statement_descriptor_suffix: brand.statementDescriptorSuffix } : {}),
+          metadata: meta,
         },
-      ],
-      payment_intent_data: {
-        description: `Invoice ${invoice.invoice_number ?? invoice.id}`,
-        // The descriptor suffix is a card concept; bank debits use the account's own.
-        ...(method === "card" && brand.statementDescriptorSuffix ? { statement_descriptor_suffix: brand.statementDescriptorSuffix } : {}),
         metadata: meta,
+        client_reference_id: invoice.id,
+        success_url: `${pageUrl}?paid=1`,
+        cancel_url: pageUrl,
       },
-      metadata: meta,
-      client_reference_id: invoice.id,
-      success_url: `${pageUrl}?paid=1`,
-      cancel_url: pageUrl,
-    },
-    // Keyed to what is being paid AND to the attempt (the session it replaces): a
-    // double-tap returns the same session, but switching method, retrying after a
-    // bounced debit, or paying again after a refund always gets a fresh one —
-    // never a replayed expired/completed session.
-    { ...acct, idempotencyKey: `invoice-pay-${invoice.id}-${method}-${amount}-${invoice.amount_paid_cents}-${previousSessionId ?? "first"}` },
-  );
+      // Keyed to what is being paid AND to the attempt (the session it replaces): a
+      // double-tap returns the same session, but switching method, retrying after a
+      // bounced debit, or paying again after a refund always gets a fresh one —
+      // never a replayed expired/completed session.
+      { ...acct, idempotencyKey: `invoice-pay-${invoice.id}-${method}-${amount}-${invoice.amount_paid_cents}-${previousSessionId ?? "first"}` },
+    );
+  } catch (err) {
+    // Our mirror of the account's capabilities can lag Stripe (a capability pulled,
+    // a webhook not yet delivered). If Stripe refuses an ACSS debit, steer the
+    // customer to another method instead of showing them an error page.
+    if (method === "bank_debit") {
+      console.error(`[invoices] bank debit checkout refused for invoice ${invoice.id}:`, err instanceof Error ? err.message : err);
+      throw new InvoiceCheckoutError(BANK_DEBIT_UNAVAILABLE_MESSAGE, "method_unavailable");
+    }
+    throw err;
+  }
   if (session.status !== "open" || !session.url) {
     throw new InvoiceCheckoutError("Couldn't start the payment — please try again.", "not_payable");
   }

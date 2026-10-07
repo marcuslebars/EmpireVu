@@ -14,6 +14,7 @@
  * Money is integer cents throughout. Rounding happens in the named helpers below
  * and nowhere else — scattered Math.round is how cent drift gets in.
  */
+import { UserFacingError } from "@/server/errors";
 
 export type PricingType =
   | "flat"
@@ -166,12 +167,12 @@ export interface CatalogPricing {
   subtotalCents: number;
 }
 
-export class CatalogError extends Error {
+export class CatalogError extends UserFacingError {
   constructor(
     message: string,
-    readonly code: "unknown_service" | "bad_input" | "unknown_bundle" | "empty" | "requires_review",
+    override readonly code: "unknown_service" | "bad_input" | "unknown_bundle" | "empty" | "requires_review",
   ) {
-    super(message);
+    super(message, { status: 400, code });
     this.name = "CatalogError";
   }
 }

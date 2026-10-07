@@ -67,7 +67,8 @@ export async function placeRetellCall(
 ): Promise<PlaceRetellCallResult> {
   if (!config) {
     throw new OutboundNotConfiguredError(
-      "Retell outbound calling is not configured. Set RETELL_API_KEY and RETELL_FROM_NUMBER.",
+      "Calling isn't set up yet, so no call was placed. Please contact support.",
+      "RETELL_API_KEY / RETELL_FROM_NUMBER missing",
     );
   }
 
@@ -83,6 +84,7 @@ export async function placeRetellCall(
     });
   } catch (error) {
     throw new OutboundSendError(
+      "The call couldn't be placed because the calling service didn't respond. Please try again.",
       `Retell call request failed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
@@ -90,6 +92,7 @@ export async function placeRetellCall(
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     throw new OutboundSendError(
+      "The call couldn't be placed. Please try again in a few minutes.",
       `Retell returned ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`,
     );
   }

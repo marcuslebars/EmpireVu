@@ -12,9 +12,11 @@
  * result. So a customer editing this page can change their selection (theirs to
  * choose) but never a price.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useCustomerFavicon } from "@/lib/brand-context";
+
+import { customerSafeMessage } from "@/lib/public-errors";
 
 interface PublicLine {
   serviceId: string;
@@ -70,6 +72,7 @@ interface Totals {
 }
 
 const DEFAULT_PRIMARY = "#1f2937";
+const APPROVE_FALLBACK = "Something went wrong. Please try again — if it keeps happening, contact us.";
 
 function money(cents: number, currency: string) {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency }).format(cents / 100);
@@ -80,9 +83,14 @@ function longDate(iso: string | null) {
   return new Date(iso).toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" });
 }
 
-/** Stable key for a line — `custom:{i}` for hand-priced lines, service id otherwise. */
-function lineKey(line: PublicLine, index: number) {
-  return line.custom ? `custom:${index}` : line.serviceId;
+/**
+ * Stable key for a line — `custom:{i}` for hand-priced lines (i = its position among
+ * the CUSTOM lines, which is how the server numbers them), service id otherwise.
+ */
+function lineKey(line: PublicLine, index: number, all: PublicLine[]) {
+  if (!line.custom) return line.serviceId;
+  const customIndex = all.slice(0, index).filter((l) => l.custom).length;
+  return `custom:${customIndex}`;
 }
 
 export default function PublicQuotePage() {
@@ -96,6 +104,11 @@ export default function PublicQuotePage() {
   const [terms, setTerms] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // True while a new total is being worked out, or when the last one couldn't be:
+  // Approve waits, so the customer only ever approves the total on screen.
+  const [repricing, setRepricing] = useState(false);
+  const [pricesChanged, setPricesChanged] = useState(false);
+  const repriceSeq = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,7 +124,7 @@ export default function PublicQuotePage() {
         setQuote(data as PublicQuote);
         const initial = new Set<string>(
           (data.lineItems as PublicLine[])
-            .map((l, i) => (l.optional && l.selected ? lineKey(l, i) : null))
+            .map((l, i, all) => (l.optional && l.selected ? lineKey(l, i, all) : null))
             .filter((v): v is string => v !== null),
         );
         setSelected(initial);
@@ -130,17 +143,28 @@ export default function PublicQuotePage() {
   // selection costs.
   const reprice = useCallback(
     async (next: Set<string>) => {
+      const seq = ++repriceSeq.current;
+      setRepricing(true);
       try {
         const res = await fetch(`/api/public/quotes/${encodeURIComponent(token)}/reprice`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ selected: [...next] }),
         });
-        if (!res.ok) return;
-        const { data } = await res.json();
-        setTotals(data as Totals);
+        const body = await res.json().catch(() => ({}));
+        if (seq !== repriceSeq.current) return; // a newer toggle superseded this one
+        if (!res.ok) {
+          if (body?.code === "prices_changed") setPricesChanged(true);
+          setError(customerSafeMessage(res.status, body, "We couldn't update the total. Please refresh the page and try again."));
+          return;
+        }
+        setError(null);
+        setTotals(body.data as Totals);
+        setRepricing(false);
       } catch {
-        // Leave the last known totals on screen rather than flashing a wrong number.
+        // Leave the last known totals on screen rather than flashing a wrong number,
+        // but don't let Approve go ahead on a total that may not match the selection.
+        if (seq === repriceSeq.current) setError("We couldn't update the total. Please check your connection and try again.");
       }
     },
     [token],
@@ -175,6 +199,7 @@ export default function PublicQuotePage() {
   const view = totals ?? quote;
   const lines = (totals?.lineItems ?? quote?.lineItems ?? []) as PublicLine[];
   const canApprove = quote?.state === "active";
+  const approveBlocked = submitting || repricing || pricesChanged || name.trim().length < 2 || !terms;
   const depositPct = useMemo(
     () => Math.round((quote?.depositRateBps ?? 2500) / 100),
     [quote?.depositRateBps],
@@ -195,18 +220,27 @@ export default function PublicQuotePage() {
       const res = await fetch(`/api/public/quotes/${encodeURIComponent(token)}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fullName: name.trim(), termsAccepted: terms, selected: [...selected] }),
+        // The total on screen goes too: the server refuses (rather than charges) a
+        // different number.
+        body: JSON.stringify({
+          fullName: name.trim(),
+          termsAccepted: terms,
+          selected: [...selected],
+          expectedTotalCents: view?.totalCents,
+        }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(body.error ?? "Something went wrong. Please try again.");
+        if (body?.code === "prices_changed") setPricesChanged(true);
+        // Never raw server text on a customer's page — only a message written for them.
+        setError(customerSafeMessage(res.status, body, APPROVE_FALLBACK));
         return;
       }
       // Straight to Stripe — no interstitial. The customer taps Approve and the
       // next thing they see is the card form.
       window.location.href = body.data.checkoutUrl;
     } catch {
-      setError("Something went wrong. Please try again.");
+      setError(APPROVE_FALLBACK);
     } finally {
       setSubmitting(false);
     }
@@ -259,7 +293,7 @@ export default function PublicQuotePage() {
 
       <section style={{ borderTop: "1px solid #e5e7eb" }}>
         {lines.map((line, i) => {
-          const key = lineKey(line, i);
+          const key = lineKey(line, i, lines);
           const isOn = line.optional ? selected.has(key) : true;
           return (
             <div
@@ -357,11 +391,11 @@ export default function PublicQuotePage() {
           <button
             type="button"
             onClick={approve}
-            disabled={submitting || name.trim().length < 2 || !terms}
+            disabled={approveBlocked}
             style={{
               width: "100%", padding: "16px", fontSize: 17, fontWeight: 700, color: "#fff",
               background: primary, border: "none", borderRadius: 10,
-              opacity: submitting || name.trim().length < 2 || !terms ? 0.5 : 1,
+              opacity: approveBlocked ? 0.5 : 1,
               cursor: submitting ? "wait" : "pointer",
             }}
           >

@@ -137,6 +137,9 @@ export async function syncConnectedAccountState(account: Stripe.Account): Promis
     .from("companies")
     .update({
       stripe_charges_enabled: account.charges_enabled === true,
+      // Bank debit (ACSS / PAD) is its own capability: cards can work while it is
+      // still pending or was never requested. Only 'active' means a debit will go through.
+      stripe_acss_debit_enabled: account.capabilities?.acss_debit_payments === "active",
       stripe_payouts_enabled: account.payouts_enabled === true,
       stripe_details_submitted: account.details_submitted === true,
       stripe_requirements: toJson(account.requirements ?? null),
@@ -164,6 +167,50 @@ export async function refreshConnectedAccount(companyId: string): Promise<Stripe
   const account = await getPlatformStripe().accounts.retrieve(accountId);
   await syncConnectedAccountState(account);
   return account;
+}
+
+export interface CapabilityBackfillResult {
+  checked: number;
+  /** Companies whose bank-debit flag would change (or did, with apply). */
+  changed: Array<{ companyId: string; name: string | null; acssDebit: boolean }>;
+  failed: Array<{ companyId: string; name: string | null; reason: string }>;
+}
+
+/**
+ * Re-read every connected account from Stripe and report — or, with `apply`, write —
+ * its capability state (charges, payouts, bank debit…) onto the company row.
+ *
+ * Run once right after the stripe_acss_debit_enabled migration: that column starts
+ * false, so brands already taking bank debit would lose the option until Stripe's
+ * next account.updated. Idempotent: it mirrors Stripe, so re-running changes nothing.
+ * Read-only against Stripe (accounts.retrieve).
+ */
+export async function backfillConnectedAccountCapabilities(
+  opts: { apply: boolean; stripe?: Pick<Stripe, "accounts"> } = { apply: false },
+): Promise<CapabilityBackfillResult> {
+  const db = createSupabaseAdminClient();
+  const stripe = opts.stripe ?? getPlatformStripe();
+  const { data, error } = await db
+    .from("companies")
+    .select("id, name, stripe_connected_account_id, stripe_acss_debit_enabled")
+    .not("stripe_connected_account_id", "is", null);
+  if (error) throw error;
+
+  const result: CapabilityBackfillResult = { checked: 0, changed: [], failed: [] };
+  for (const company of (data ?? []) as Array<{ id: string; name: string | null; stripe_connected_account_id: string; stripe_acss_debit_enabled: boolean | null }>) {
+    result.checked += 1;
+    try {
+      const account = await stripe.accounts.retrieve(company.stripe_connected_account_id);
+      const acssDebit = account.capabilities?.acss_debit_payments === "active";
+      if (acssDebit !== (company.stripe_acss_debit_enabled === true)) {
+        result.changed.push({ companyId: company.id, name: company.name, acssDebit });
+      }
+      if (opts.apply) await syncConnectedAccountState(account);
+    } catch (err) {
+      result.failed.push({ companyId: company.id, name: company.name, reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return result;
 }
 
 /**

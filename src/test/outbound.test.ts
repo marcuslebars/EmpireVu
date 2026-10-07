@@ -5,6 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { UserFacingError } from "@/server/errors";
 import {
   OutboundNotConfiguredError,
   OutboundSendError,
@@ -97,9 +98,12 @@ describe("outbound email", () => {
       text: async () => "domain not verified",
     });
 
-    await expect(sendEmail({ to: "a@b.com", subject: "s", body: "b" })).rejects.toThrow(
-      /422.*domain not verified/,
-    );
+    const err = (await sendEmail({ to: "a@b.com", subject: "s", body: "b" }).catch((e: unknown) => e)) as InstanceType<typeof OutboundSendError>;
+    expect(err).toBeInstanceOf(OutboundSendError);
+    // The owner sees a plain sentence; the provider's status and body stay in the log detail.
+    expect(err.message).toBe("The email service refused this email — check the email address and try again.");
+    expect(err.status).toBe(502);
+    expect(err.detail).toMatch(/422.*domain not verified/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -155,7 +159,10 @@ describe("outbound SMS", () => {
       json: async () => ({ message: "The 'To' number is not a valid phone number" }),
     });
 
-    await expect(sendSms({ to: "nope", body: "b" })).rejects.toThrow(/400.*not a valid phone number/);
+    const err = (await sendSms({ to: "nope", body: "b" }).catch((e: unknown) => e)) as InstanceType<typeof OutboundSendError>;
+    expect(err.message).toBe("The text couldn't be sent — check that the customer's mobile number is right and can receive texts.");
+    expect(err.message).not.toContain("{");
+    expect(err.detail).toMatch(/400.*not a valid phone number/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -170,5 +177,28 @@ describe("outbound SMS", () => {
     });
 
     await expect(sendSms({ to: "+15550002222", body: "b" })).rejects.toBeInstanceOf(OutboundSendError);
+  });
+});
+
+describe("outbound errors reach the owner in plain words", () => {
+  it("not configured → 503 with no env var names in the message", async () => {
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "");
+    vi.stubEnv("TWILIO_FROM_NUMBER", "");
+    const err = (await sendSms({ to: "+15550002222", body: "hi" }).catch((e: unknown) => e)) as InstanceType<typeof OutboundNotConfiguredError>;
+    expect(err).toBeInstanceOf(UserFacingError);
+    expect(err.status).toBe(503);
+    expect(err.message).not.toMatch(/TWILIO|env|server/i);
+  });
+
+  it("a network failure → 502 with a retry hint, not the socket error", async () => {
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    vi.stubEnv("OUTBOUND_FROM_EMAIL", "a@b.c");
+    fetchMock.mockRejectedValue(new Error("ECONNRESET"));
+    const err = (await sendEmail({ to: "a@b.com", subject: "s", body: "b" }).catch((e: unknown) => e)) as InstanceType<typeof OutboundSendError>;
+    expect(err).toBeInstanceOf(UserFacingError);
+    expect(err.status).toBe(502);
+    expect(err.message).not.toContain("ECONNRESET");
+    expect(err.detail).toContain("ECONNRESET");
   });
 });

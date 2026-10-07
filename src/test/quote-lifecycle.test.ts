@@ -94,8 +94,9 @@ describe("quote lifecycle — the edges that must NOT exist", () => {
       const e = err as QuoteTransitionError;
       expect(e.from).toBe("expired");
       expect(e.to).toBe("deposit_paid");
-      expect(e.message).toContain("expired");
-      expect(e.message).toContain("deposit_paid");
+      // Shown to the owner as-is, so it reads as a sentence, not status enums.
+      expect(e.message).toBe("This quote is expired, so it can't take a deposit.");
+      expect(e.message).not.toContain("deposit_paid");
     }
   });
 });

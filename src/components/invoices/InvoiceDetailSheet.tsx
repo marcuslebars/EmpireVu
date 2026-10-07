@@ -211,7 +211,7 @@ function VoidInvoiceDialog({ invoice, onClose }: { invoice: Invoice; onClose: ()
         )}
         <div className="flex gap-2">
           <button type="button" onClick={onClose} className={cn(secondaryBtnCls, "flex-1")}>
-            Keep it
+            Don&apos;t void
           </button>
           <button
             type="button"
@@ -661,7 +661,7 @@ export function InvoiceDetailSheet({
                   {sendInvoice.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MessageSquare className="w-3.5 h-3.5" />} Text link
                 </button>
                 <button type="button" onClick={() => openPdf(true)} className={actionBtnCls}>
-                  <Download className="w-3.5 h-3.5" /> PDF
+                  <Download className="w-3.5 h-3.5" /> Download PDF
                 </button>
               </div>
               {(canEdit || canVoid) && (
@@ -698,8 +698,8 @@ export function InvoiceDetailSheet({
               <p className="text-[11px] text-muted-foreground flex-1">
                 Voided{invoice.voided_at ? ` ${relativeTime(invoice.voided_at)}` : ""}. Create a new invoice to bill again.
               </p>
-              <button type="button" onClick={() => openPdf(false)} className={actionBtnCls}>
-                <ExternalLink className="w-3.5 h-3.5" /> PDF
+              <button type="button" onClick={() => openPdf(true)} className={actionBtnCls}>
+                <Download className="w-3.5 h-3.5" /> Download PDF
               </button>
             </div>
           )}

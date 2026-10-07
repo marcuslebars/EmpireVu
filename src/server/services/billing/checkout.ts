@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 
 import type { Tables } from "@/server/db/database.types";
+import { UserFacingError } from "@/server/errors";
 import type { PurchasablePlan } from "@/server/services/billing/config";
 import {
   getAppBaseUrl,
@@ -158,9 +159,8 @@ export async function createBillingPortalSession(
   const org = await loadOrganization(supabase, params.organizationId);
 
   if (!org.stripe_customer_id) {
-    throw new Error(
-      `Organization ${params.organizationId} has no Stripe customer; run checkout first.`,
-    );
+    // No subscription yet, so there's no billing portal to open.
+    throw new UserFacingError("Choose a plan first.", { status: 409, code: "no_billing_customer" });
   }
 
   // The billing portal has no per-session branding (its look is the Stripe account's

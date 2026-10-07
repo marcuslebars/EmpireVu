@@ -49,7 +49,8 @@ export async function placeOutboundCall(
 ): Promise<PlaceCallResult> {
   if (!config) {
     throw new OutboundNotConfiguredError(
-      "Voice calling is not configured. Set CARTESIA_API_KEY, CARTESIA_AGENT_ID, and CARTESIA_FROM_NUMBER_ID.",
+      "Calling isn't set up yet, so no call was placed. Please contact support.",
+      "CARTESIA_API_KEY / CARTESIA_AGENT_ID / CARTESIA_FROM_NUMBER_ID missing",
     );
   }
 
@@ -71,6 +72,7 @@ export async function placeOutboundCall(
     });
   } catch (error) {
     throw new OutboundSendError(
+      "The call couldn't be placed because the calling service didn't respond. Please try again.",
       `Cartesia call request failed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
@@ -78,6 +80,7 @@ export async function placeOutboundCall(
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     throw new OutboundSendError(
+      "The call couldn't be placed. Please try again in a few minutes.",
       `Cartesia returned ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`,
     );
   }
@@ -108,7 +111,7 @@ export async function fetchCallDetails(
   config: VoiceConfig | null = readVoiceConfig(),
 ): Promise<CallDetails> {
   if (!config) {
-    throw new OutboundNotConfiguredError("Voice calling is not configured.");
+    throw new OutboundNotConfiguredError("Calling isn't set up yet. Please contact support.", "Cartesia not configured");
   }
 
   let response: Response;
@@ -125,6 +128,7 @@ export async function fetchCallDetails(
     });
   } catch (error) {
     throw new OutboundSendError(
+      "Couldn't look up that call right now. Please try again.",
       `Cartesia call lookup failed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
@@ -132,6 +136,7 @@ export async function fetchCallDetails(
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     throw new OutboundSendError(
+      "Couldn't look up that call right now. Please try again.",
       `Cartesia returned ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`,
     );
   }

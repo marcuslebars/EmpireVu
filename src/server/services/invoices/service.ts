@@ -41,6 +41,7 @@ import {
   type InvoicePaymentRow,
   type InvoiceRow,
 } from "./common";
+import { bankDebitReadyFor, stripeReadyFor } from "./document";
 import { InvoiceConflictError, InvoiceNotFoundError, InvoiceValidationError } from "./errors";
 import {
   addDays,
@@ -337,6 +338,24 @@ async function liveInvoiceFor(
   return data?.id ?? null;
 }
 
+/** The message for invoicing a quote the customer hasn't approved. */
+export const QUOTE_NOT_APPROVED_MESSAGE =
+  "This quote hasn't been approved by the customer yet. Send it to them so they can approve it, then create the invoice.";
+
+/**
+ * A quote may be invoiced only once the customer has approved it: status approved
+ * (or later — deposit paid, completed) AND a frozen approval snapshot to bill from.
+ */
+export function isQuoteApprovedForInvoicing(quote: {
+  status: string;
+  approved_at: string | null;
+  approved_line_items: unknown;
+}): boolean {
+  const approvedStatus = quote.status === "approved" || quote.status === "deposit_paid" || quote.status === "completed";
+  const hasSnapshot = Array.isArray(quote.approved_line_items) && quote.approved_line_items.length > 0;
+  return approvedStatus && Boolean(quote.approved_at) && hasSnapshot;
+}
+
 /**
  * Quote → draft invoice: the lines the customer approved, the quote's tax rate,
  * and the deposit already paid as a credit so only the balance is asked for. Also
@@ -355,8 +374,18 @@ export async function createInvoiceFromQuote(
     .maybeSingle();
   if (error) throw error;
   if (!quote) throw new InvoiceNotFoundError("Quote not found.");
+  // Only what the customer agreed to can be billed. An unapproved quote has no
+  // frozen selection, and its live lines re-price whenever the price list changes —
+  // invoicing those would bill a number nobody accepted.
   if (quote.status === "cancelled" || quote.status === "expired") {
-    throw new InvoiceConflictError(`This quote is ${quote.status} — reissue it before invoicing.`);
+    throw new InvoiceConflictError(
+      `This quote is ${quote.status === "cancelled" ? "void" : "expired"}. Make a new version and have the customer approve it before invoicing.`,
+      null,
+      "quote_not_approved",
+    );
+  }
+  if (!isQuoteApprovedForInvoicing(quote)) {
+    throw new InvoiceConflictError(QUOTE_NOT_APPROVED_MESSAGE, null, "quote_not_approved");
   }
   if (!quote.company_id) throw new InvoiceValidationError("This quote has no company to invoice from.");
   if (!quote.contact_id) throw new InvoiceValidationError("This quote has no customer to invoice.");
@@ -381,9 +410,7 @@ export async function createInvoiceFromQuote(
   const draft = quoteToInvoiceDraft({
     title: quote.title,
     quote_number: quote.quote_number,
-    line_items: quote.line_items,
     approved_line_items: quote.approved_line_items,
-    subtotal_cents: quote.subtotal_cents,
     approved_subtotal_cents: quote.approved_subtotal_cents,
     tax_rate_bps: quote.tax_rate_bps,
     approved_deposit_cents: quote.approved_deposit_cents,
@@ -432,13 +459,32 @@ export async function createInvoiceFromBooking(ctx: TenantServiceContext, bookin
   const existing = await liveInvoiceFor(ctx, { bookingId });
   if (existing) throw new InvoiceConflictError("This booking is already invoiced.", existing);
 
+  // Set when the job's quote was never approved: its prices weren't agreed, so the
+  // job is invoiced as an unpriced $0 draft for the owner to price — never from the
+  // quote's live (re-pricing) lines, and never auto-sent (see invoices/auto.ts).
+  let unapprovedQuote = false;
   if (booking.quote_id) {
     const quoteInvoice = await liveInvoiceFor(ctx, { quoteId: booking.quote_id });
     if (quoteInvoice) throw new InvoiceConflictError("The quote for this booking is already invoiced.", quoteInvoice);
-    return createInvoiceFromQuote(ctx, booking.quote_id, { bookingId });
+    try {
+      return await createInvoiceFromQuote(ctx, booking.quote_id, { bookingId });
+    } catch (err) {
+      if (!(err instanceof InvoiceConflictError && err.code === "quote_not_approved")) throw err;
+      unapprovedQuote = true;
+    }
   }
   if (!booking.company_id) throw new InvoiceValidationError("This booking has no company to invoice from.");
   if (!booking.contact_id) throw new InvoiceValidationError("This booking has no customer to invoice.");
+  if (unapprovedQuote) {
+    return createInvoiceWithJobExpenses(ctx, {
+      companyId: booking.company_id,
+      contactId: booking.contact_id,
+      title: booking.title,
+      lines: [{ label: booking.title, description: booking.description ?? null, quantity: 1, unitPriceCents: 0 }],
+      creditCents: 0,
+      bookingId,
+    });
+  }
 
   // A visit of a recurring job invoices the series' price; a service booked online invoices
   // the price it was booked at, crediting a paid deposit; anything else starts at $0.
@@ -806,12 +852,12 @@ export async function getInvoiceDetail(ctx: TenantServiceContext, invoiceId: str
       .limit(100),
   ]);
   const settings = parseInvoiceSettings(company?.invoice_settings ?? null);
-  const stripeReady = Boolean(company?.stripe_connected_account_id && company?.stripe_charges_enabled);
+  const stripeReady = stripeReadyFor(company);
   return {
     invoice: { ...invoice, overdue: isOverdue(invoice, todayFor(company)) },
     payments: payments ?? [],
     events: events ?? [],
     publicUrl: invoicePublicUrl(company, invoice.public_token),
-    online: { card: stripeReady && settings.acceptCard, bankDebit: stripeReady && settings.acceptBankDebit, stripeReady },
+    online: { card: stripeReady && settings.acceptCard, bankDebit: bankDebitReadyFor(company) && settings.acceptBankDebit, stripeReady },
   };
 }
