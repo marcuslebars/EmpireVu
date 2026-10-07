@@ -152,7 +152,11 @@ defense-in-depth, not a licence to scale past one instance.
 Jobber uses OAuth2 authorization-code with **refresh-token rotation ON**: each refresh
 returns a *new* refresh token and invalidates the old one. `ensureAccessToken()` persists the
 new refresh token **before** using the access token, and serializes refreshes behind
-`refresh_lock_at`.
+`refresh_lock_at`, taken by the SQL function `claim_jobber_token_refresh` (migration
+`20261006150000_jobber_refresh_lock.sql`). The lock must be taken in SQL: a PostgREST PATCH
+filtered on `refresh_lock_at` re-applies the filter to the returned row, so a won lock comes
+back empty — before this fix every refresh "timed out waiting" and sync stopped an hour after
+connecting.
 
 To connect the A1 Jobber account (once, by an admin):
 

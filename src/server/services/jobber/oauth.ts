@@ -102,9 +102,10 @@ export async function exchangeCodeAndStore(
 /**
  * Return a valid access token, refreshing with rotation if needed. The new refresh
  * token is persisted BEFORE the access token is returned; refreshes are serialized by
- * the refresh_lock_at DB mutex (Postgres serializes the conditional UPDATE, so only
- * one caller wins the lock). A persistence failure after a refresh is CRITICAL — the
- * old refresh token is now invalid and the connection needs manual re-authorization.
+ * the refresh_lock_at DB mutex, taken by claim_jobber_token_refresh (Postgres
+ * serializes the conditional UPDATE, so only one caller wins the lock). A persistence
+ * failure after a refresh is CRITICAL — the old refresh token is now invalid and the
+ * connection needs manual re-authorization.
  */
 export async function ensureAccessToken(
   admin: AdminClient,
@@ -118,20 +119,17 @@ export async function ensureAccessToken(
   }
   if (tokenFresh(conn)) return conn.access_token as string;
 
-  // Acquire the refresh lock: set refresh_lock_at only if null or stale. Concurrent
-  // callers block on the row lock and re-evaluate the WHERE, so exactly one wins.
-  const staleBefore = new Date(Date.now() - REFRESH_LOCK_TTL_MS).toISOString();
-  const nowIso = new Date().toISOString();
-  const { data: locked, error: lockErr } = await admin.from("jobber_connections")
-    .update({ refresh_lock_at: nowIso })
-    .eq("organization_id", organizationId)
-    .or(`refresh_lock_at.is.null,refresh_lock_at.lt.${staleBefore}`)
-    .select("*");
+  // Acquire the refresh lock in SQL (claim_jobber_token_refresh): it sets
+  // refresh_lock_at only if null or stale and reports whether THIS caller won.
+  // (A PostgREST PATCH with an or= filter can't be used for this — PostgREST re-applies
+  // the filter to the returned row, so a successful lock looked like a lost one.)
+  const { data: won, error: lockErr } = await admin.rpc("claim_jobber_token_refresh", {
+    p_organization_id: organizationId,
+    p_stale_after_seconds: Math.round(REFRESH_LOCK_TTL_MS / 1000),
+  });
   if (lockErr) throw lockErr;
-  const rows = locked ?? [];
-  const gotLock = rows.length > 0;
 
-  if (!gotLock) {
+  if (won !== true) {
     // Another refresh is in progress — wait for it to publish a fresh token.
     for (let i = 0; i < REFRESH_WAIT_TRIES; i++) {
       await sleep(REFRESH_WAIT_MS);
@@ -141,7 +139,28 @@ export async function ensureAccessToken(
     throw new Error("Timed out waiting for a concurrent Jobber token refresh.");
   }
 
-  const current = rows[0];
+  const releaseLock = async () => {
+    await admin.from("jobber_connections").update({ refresh_lock_at: null }).eq("organization_id", organizationId);
+  };
+
+  // Re-read under the lock: another worker may have just finished a refresh (rotating
+  // the refresh token) between our first read and winning the lock.
+  let current: JobberConnectionRow | null;
+  try {
+    current = await loadConnection(admin, organizationId);
+  } catch (err) {
+    await releaseLock();
+    throw err;
+  }
+  if (!current || !current.refresh_token) {
+    await releaseLock();
+    throw new Error("Jobber is not connected for this organization — run the OAuth connect flow.");
+  }
+  if (tokenFresh(current)) {
+    await releaseLock();
+    return current.access_token as string;
+  }
+
   let token: TokenResponse;
   try {
     token = await requestToken(cfg, {
@@ -150,7 +169,7 @@ export async function ensureAccessToken(
     });
   } catch (err) {
     // Refresh failed — release the lock so a later attempt can retry.
-    await admin.from("jobber_connections").update({ refresh_lock_at: null }).eq("organization_id", organizationId);
+    await releaseLock();
     throw err;
   }
 
