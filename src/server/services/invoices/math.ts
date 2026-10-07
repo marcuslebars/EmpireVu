@@ -160,9 +160,7 @@ export function agingBucket(dueDate: string | null, today: string): AgingBucket 
 export interface QuoteForInvoice {
   title: string | null;
   quote_number: string | null;
-  line_items: unknown;
   approved_line_items: unknown;
-  subtotal_cents: number;
   approved_subtotal_cents: number | null;
   tax_rate_bps: number;
   approved_deposit_cents: number | null;
@@ -184,9 +182,11 @@ function asQuoteLines(raw: unknown): QuoteLineLike[] {
 }
 
 /**
- * Turn a quote into invoice lines. Uses the FROZEN approved selection when the
- * customer approved (that's what they agreed to pay for), else the quote's
- * currently-selected lines. A bundle discount is applied at the subtotal level in
+ * Turn an APPROVED quote into invoice lines, from the FROZEN approved selection —
+ * that is what the customer agreed to pay for. There is deliberately no fallback to
+ * the live line_items: those re-price with the price list and were never accepted.
+ * Callers check approval first (isQuoteApprovedForInvoicing); a quote with no
+ * approved lines throws here as a backstop. A bundle discount is applied at the subtotal level in
  * the quote engine, so it is carried over as an explicit discount line — the
  * invoice must total exactly what the quote did.
  *
@@ -200,8 +200,11 @@ export function quoteToInvoiceDraft(quote: QuoteForInvoice): {
   creditCents: number;
 } {
   const approved = asQuoteLines(quote.approved_line_items);
-  const source = approved.length > 0 ? approved : asQuoteLines(quote.line_items);
-  const chosen = source.filter((l) => l.optional !== true || l.selected === true);
+  if (approved.length === 0) {
+    // Internal invariant (the service checks approval first), so a plain Error.
+    throw new Error("quoteToInvoiceDraft: quote has no approved line items.");
+  }
+  const chosen = approved.filter((l) => l.optional !== true || l.selected === true);
 
   const lines: InvoiceLineInput[] = chosen.map((l) => {
     const amount = Number(l.amountCents ?? 0);
@@ -220,9 +223,7 @@ export function quoteToInvoiceDraft(quote: QuoteForInvoice): {
   });
 
   const linesTotal = lines.reduce((s, l) => s + lineAmountCents(l.quantity, l.unitPriceCents), 0);
-  const quoteSubtotal = approved.length > 0 && quote.approved_subtotal_cents != null
-    ? quote.approved_subtotal_cents
-    : quote.subtotal_cents;
+  const quoteSubtotal = quote.approved_subtotal_cents ?? linesTotal;
   const discount = quoteSubtotal - linesTotal;
   if (discount !== 0) {
     lines.push({
