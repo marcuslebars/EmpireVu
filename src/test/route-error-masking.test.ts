@@ -15,6 +15,7 @@ import { AuthorizationError, TooManyRequestsError, ValidationError } from "@/ser
 import { InvoiceConflictError, InvoiceNotFoundError } from "@/server/services/invoices/errors";
 import { InvoiceCheckoutError } from "@/server/services/invoices/public";
 import { QuoteTransitionError } from "@/server/services/quotes/lifecycle";
+import { QuoteTotalChangedError } from "@/server/services/quotes/service";
 import { customerSafeMessage } from "@/lib/public-errors";
 
 async function run(err: unknown) {
@@ -87,6 +88,12 @@ describe("handleRoute passes user-facing errors through", () => {
     const { status, headers } = await run(new TooManyRequestsError("Slow down.", 12.2));
     expect(status).toBe(429);
     expect(headers.get("Retry-After")).toBe("13");
+  });
+
+  it("sends the total-change details the quote builder needs to ask", async () => {
+    const { status, body } = await run(new QuoteTotalChangedError(56500, 61020));
+    expect(status).toBe(409);
+    expect(body).toMatchObject({ code: "total_changed", oldTotalCents: 56500, newTotalCents: 61020 });
   });
 
   it("explains a quote transition in words, not status enums", async () => {

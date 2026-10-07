@@ -12,6 +12,7 @@ export function QuoteConfirmDialog({
   title,
   description,
   confirmLabel,
+  cancelLabel = "Cancel",
   destructive,
   askReason,
   reasonPlaceholder,
@@ -24,6 +25,8 @@ export function QuoteConfirmDialog({
   title: string;
   description: string;
   confirmLabel: string;
+  /** The button that backs out. Say what it keeps, e.g. "Don't void". */
+  cancelLabel?: string;
   destructive?: boolean;
   askReason?: boolean;
   reasonPlaceholder?: string;
@@ -65,7 +68,7 @@ export function QuoteConfirmDialog({
         )}
         <div className="flex gap-2">
           <button type="button" onClick={onClose} disabled={pending} className={cn(secondaryBtnCls, "flex-1")}>
-            Keep it
+            {cancelLabel}
           </button>
           <button
             type="button"
