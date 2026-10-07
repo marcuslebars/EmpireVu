@@ -257,6 +257,9 @@ describe("auto-invoice with billed expenses", () => {
     ];
     expect(hasUnpricedJobLine({ line_items: lines as never }, "Shrink wrap — 28ft Sea Ray")).toBe(true);
     expect(hasUnpricedJobLine({ line_items: [{ label: "Shrink wrap — 28ft Sea Ray", unitPriceCents: 45000 }] as never }, "Shrink wrap — 28ft Sea Ray")).toBe(false);
+    // A booking title with stray spaces is stored untrimmed on the line; still the same job.
+    expect(hasUnpricedJobLine({ line_items: [{ label: "  Shrink wrap — 28ft Sea Ray ", unitPriceCents: 0 }] as never }, "  Shrink wrap — 28ft Sea Ray ")).toBe(true);
+    expect(hasUnpricedJobLine({ line_items: [{ label: "Shrink wrap — 28ft Sea Ray ", unitPriceCents: 0 }] as never }, "Shrink wrap — 28ft Sea Ray")).toBe(true);
   });
 });
 
