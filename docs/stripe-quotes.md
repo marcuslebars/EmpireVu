@@ -2,8 +2,8 @@
 
 EmpireVu is replacing Jobber's client-hub checkout for NEW quotes with a Stripe-native flow:
 price a quote → customer approves online → pays a 25% deposit → balance invoice on
-completion. This makes the A1 stack independent of Jobber (which stays live for in-flight
-jobs and winds down naturally).
+completion. This made the A1 stack independent of Jobber, which has since been removed
+(Oct 2026).
 
 Rolled out in four phases. **The whole feature is inert unless `STRIPE_QUOTES_ENABLED=1`.**
 

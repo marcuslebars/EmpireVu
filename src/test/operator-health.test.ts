@@ -166,7 +166,7 @@ function supportFact(over: Partial<SupportFact> = {}): SupportFact {
 function queueFact(over: Partial<QueueFact> = {}): QueueFact {
   return {
     key: "inbound_webhooks",
-    label: "Inbound webhooks (calls, texts, Jobber)",
+    label: "Inbound webhooks (calls, texts)",
     table: "inbound_webhook_jobs",
     service: "worker (npm run worker:workflow-events)",
     failedStatuses: ["failed"],
@@ -693,7 +693,7 @@ describe("loadOperatorHealthFacts (fake DB) → report", () => {
       provisioning: ["Delta Decks"],
       forwarding: ["Live & Quiet"], // vn-a never worked and org-a is not live → setup problem, not here
       setup: ["Alpha Plumbing"], // Gamma is cancelled
-      queues: ["Inbound webhooks (calls, texts, Jobber)"],
+      queues: ["Inbound webhooks (calls, texts)"],
       payments: ["Beta Roofing"], // House is internal
       support: ["Alpha Plumbing"],
       silent: ["Live & Quiet"],

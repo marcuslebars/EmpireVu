@@ -1,12 +1,11 @@
 // Durable-first inbound webhook queue (Task 4).
 //
-// The Retell/Jobber webhook routes persist the raw payload here (service-role) BEFORE
+// The inbound webhook routes (Retell, Twilio, Telnyx) persist the raw payload here (service-role) BEFORE
 // they ACK, so nothing is lost between the 200 and processing. The workflow-event
 // worker drains this queue each tick (same process/service) and dispatches by provider
 // back into the existing handlers — no business logic here beyond enqueue/claim/retry.
 import type { Inserts, Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
-import { handleJobberWebhook } from "@/server/services/jobber/webhook";
 import { ingestRetellCall } from "@/server/services/retell/lead-adapter";
 import { FORWARDING_TEST_JOB_PROVIDER, handleForwardingTestJob } from "@/server/services/twilio/forwarding-test";
 import { handleInboundSms } from "@/server/services/twilio/inbound-sms";
@@ -26,7 +25,7 @@ const MAX_BACKOFF_MS = 5 * 60 * 1000;
 
 export interface EnqueueInboundWebhookJobInput {
   provider: string;
-  /** Provider event/call id (Retell call_id, or sha256 of the raw Jobber body). */
+  /** Provider event/call id (e.g. Retell call_id). */
   externalId: string;
   payload: unknown;
   organizationId?: string | null;
@@ -129,18 +128,13 @@ export async function failInboundWebhookJob(
 
 /**
  * Dispatch a claimed job to its provider handler. Retell → the full ingest path (same
- * lead the old synchronous webhook produced); Jobber → the existing handler (which
- * re-parses the raw body). An unknown provider is a hard error → the job dead-letters.
+ * lead the old synchronous webhook produced). An unknown provider (including the retired
+ * "jobber") is a hard error → the job dead-letters.
  */
 export async function dispatchInboundWebhookJob(job: InboundWebhookJob): Promise<void> {
   switch (job.provider) {
     case "retell":
       await ingestRetellCall(job.payload);
-      return;
-    case "jobber":
-      await handleJobberWebhook(
-        typeof job.payload === "string" ? job.payload : JSON.stringify(job.payload),
-      );
       return;
     case "twilio":
       await handleInboundSms(job.payload);

@@ -21,7 +21,6 @@
     "gen:types:remote": "node --env-file=.env.local scripts/gen-types.mjs",
     "worker:workflow-events": "tsx src/server/workers/workflow-event-worker.ts",
     "worker:billing-events": "tsx src/server/workers/billing-event-worker.ts",
-    "worker:jobber-sync": "tsx src/server/workers/jobber-sync-worker.ts",
     "job:billing-reconcile": "tsx src/server/jobs/billing-reconcile.ts",
     "job:quote-maintenance": "tsx src/server/jobs/quote-maintenance.ts",
     "job:monthly-scorecard": "tsx src/server/jobs/monthly-scorecard.ts",

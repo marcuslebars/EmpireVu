@@ -123,7 +123,7 @@ export default function PrivacyPolicyPage() {
             <li>Resend — transactional email</li>
             <li>Cloudflare — bot protection on public forms</li>
             <li>Apple and Google — delivery of push notifications to your device</li>
-            <li>Jobber — only if a business connects its Jobber account</li>
+            <li>QuickBooks and Xero — only if a business connects its accounting</li>
           </ul>
         </Section>
 

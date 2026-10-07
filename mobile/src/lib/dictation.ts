@@ -26,7 +26,6 @@ const CONTEXTUAL_STRINGS = [
   "travel lift",
   "slip",
   "marina",
-  "Jobber",
   "Marina",
 ];
 

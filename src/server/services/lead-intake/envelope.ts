@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * The canonical lead envelope, schemaVersion 1. This is the contract every spoke
- * emits and the winter Jobber adapter is written against. See docs/LEAD_SCHEMA.md.
+ * emits. See docs/LEAD_SCHEMA.md.
  */
 export const LEAD_SCHEMA_VERSION = 1 as const;
 
@@ -16,8 +16,8 @@ export const leadEnvelopeSchema = z.object({
   schemaVersion: z.literal(LEAD_SCHEMA_VERSION),
   source: z.string().min(1).max(120),
   sourceSite: z.string().min(1).max(80),
-  // "winter-storage-quote": A1 Marine Storage locality / ad lead-capture (feeds the
-  // Jobber sync worker). Additive — existing spokes are unaffected.
+  // "winter-storage-quote": A1 Marine Storage locality / ad lead-capture. Additive —
+  // existing spokes are unaffected.
   // "phone-lead": a call handled by the Retell voice receptionist, mapped onto this
   // same envelope so a phone lead flows through the identical intake / dedup / notify
   // path as a web form. Additive.
