@@ -11,7 +11,7 @@ This is a **per-account switch, not a rename** (the full rename in PR #127 was r
 
 | Piece | Where |
 |---|---|
-| The switch | `organizations.platform_brand` (`'empirevu'` default, `'crankleads'`). Migration `20261006140000_platform_brand.sql` backfills it from `crankleads_tier`. CrankLeads provisioning writes `'crankleads'` (`crankleads/provision.ts` → `organizations.ts createOrganization`). |
+| The switch | `organizations.platform_brand` (`'empirevu'` default, `'crankleads'`). Migration `20261006150000_platform_brand.sql` backfills it from `crankleads_tier`. CrankLeads provisioning writes `'crankleads'` (`crankleads/provision.ts` → `organizations.ts createOrganization`). |
 | One source of truth | `src/lib/platform-brand.ts`: brand configs (name, logo, mark, favicon, PNG icons, support email, default app host, theme hex) plus `brandForOrg(org)`, `brandForHost(hostname)` and `withProductName()`. Shared by the SPA and the server. `brandForOrg` also treats a non-null `crankleads_tier` as CrankLeads, so a buyer is never shown EmpireVu, even from a row read before the migration. |
 | Server links | `src/server/services/platform-brand.ts`: `appBaseUrlFor(brand)` (EmpireVu → `APP_BASE_URL` exactly as before; CrankLeads → `CRANKLEADS_APP_BASE_URL`, default `https://app.crankleads.com`) and `loadOrganizationBrand()`. |
 | SPA | `src/lib/brand-context.tsx` `BrandProvider`. **Signed out:** the brand comes from the hostname (`app.crankleads.com`, `*.crankleads.com`, `crankleads.localhost` → CrankLeads). **Signed in:** it comes from the active org's `platformBrand` (sent in `/api/session/context`). It sets `data-brand="crankleads"` on `<html>` (`index.css` swaps the colour tokens to lime on near-black, with dark text on lime), and sets the tab title and favicon. `index.html` runs the same host check inline, so the CrankLeads host never flashes EmpireVu before React loads. |
@@ -59,7 +59,7 @@ This is a **per-account switch, not a rename** (the full rename in PR #127 was r
    Cloud OAuth client's *Authorized JavaScript origins*. (The redirect URI is Supabase's, so it is
    unchanged.)
 6. **Supabase email templates.** Replace them with the brand-neutral copy below.
-7. **Run the migration** (`20261006140000_platform_brand.sql`).
+7. **Run the migration** (`20261006150000_platform_brand.sql`).
 
 ### Brand-neutral Supabase Auth templates
 

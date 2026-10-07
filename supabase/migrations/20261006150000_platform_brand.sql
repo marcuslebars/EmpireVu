@@ -6,7 +6,7 @@
 -- existing and self-serve org; CrankLeads provisioning writes 'crankleads'
 -- (src/server/services/crankleads/provision.ts → organizations.ts createOrganization).
 --
--- Additive only. Rollback: supabase/rollback/20261006140000_platform_brand.down.sql.
+-- Additive only. Rollback: supabase/rollback/20261006150000_platform_brand.down.sql.
 
 alter table public.organizations
   add column if not exists platform_brand text not null default 'empirevu';
