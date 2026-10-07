@@ -168,7 +168,7 @@ export async function refreshConnectedAccount(companyId: string): Promise<Stripe
 
 /**
  * Where Stripe sends the tenant back to after onboarding — their own app host
- * (app.crankleads.com for a CrankLeads org; APP_BASE_URL as before otherwise).
+ * (appBaseUrlFor: CRANKLEADS_APP_BASE_URL for a CrankLeads org once set; APP_BASE_URL otherwise).
  */
 export function onboardingUrls(
   companyId: string,

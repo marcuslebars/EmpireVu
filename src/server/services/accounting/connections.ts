@@ -174,7 +174,7 @@ export async function startConnect(ctx: TenantServiceContext, role: string, comp
  * The provider sent the owner back. The signed `state` says who started it, for which
  * company; that person must still be an owner/admin there. Returns the company id.
  */
-export async function completeConnect(provider: ProviderId, params: URLSearchParams, f: typeof fetch = fetch): Promise<{ companyId: string; remoteName: string | null }> {
+export async function completeConnect(provider: ProviderId, params: URLSearchParams, f: typeof fetch = fetch): Promise<{ companyId: string; organizationId: string; remoteName: string | null }> {
   const state = verifyState(params.get("state"));
   if (!state || state.provider !== provider) throw new ValidationError("That sign-in link expired or wasn't started here — try connecting again.");
   const providerError = params.get("error");
@@ -227,7 +227,7 @@ export async function completeConnect(provider: ProviderId, params: URLSearchPar
     // A different file: queued work was meant for the old one.
     await admin.from("accounting_sync_jobs").update({ status: "skipped", detail: "Connected to a different file.", done_at: new Date().toISOString() }).eq("company_id", state.companyId).eq("status", "pending");
   }
-  return { companyId: state.companyId, remoteName: file.name };
+  return { companyId: state.companyId, organizationId: state.organizationId, remoteName: file.name };
 }
 
 export async function disconnect(ctx: TenantServiceContext, role: string, companyId: string): Promise<void> {

@@ -6,7 +6,7 @@ import type { SendEmailInput, SendEmailResult } from "@/server/outbound/email";
 import { describeAccount, type HelpAccountContext } from "@/server/services/help/account-context";
 import { MAX_TURN_CHARS, chatTurnSchema, type ChatTurn } from "@/server/services/help/assistant";
 import type { TenantServiceContext } from "@/server/services/shared";
-import { appBaseUrlFor, platformBrand } from "@/server/services/platform-brand";
+import { configuredAppBaseUrlFor, platformBrand } from "@/server/services/platform-brand";
 
 /**
  * "Contact support" (docs/help-assistant.md): persist a support_requests row on the
@@ -151,10 +151,7 @@ export async function createSupportRequest(
       transcript,
       account: input.account,
       reason: input.body.reason,
-      appBaseUrl:
-        platformBrand(input.account.platformBrand).key === "empirevu"
-          ? process.env.APP_BASE_URL?.trim() || null
-          : appBaseUrlFor(platformBrand(input.account.platformBrand)),
+      appBaseUrl: configuredAppBaseUrlFor(platformBrand(input.account.platformBrand)),
     });
     try {
       await deps.sendEmail({

@@ -10,8 +10,8 @@
  * Customer-facing pages (quotes, invoices, forms, booking) are branded from the COMPANY, not
  * from this — a tenant's customers see neither platform name.
  *
- * Browser-safe: no `process.env` here. Server-side origins (app base URL per brand) live in
- * src/server/services/platform-brand.ts.
+ * Browser-safe: no `process.env` here, and no hard-coded app hosts. Server-side origins (app
+ * base URL per brand, from env) live in src/server/services/platform-brand.ts.
  */
 
 export const PLATFORM_BRAND_KEYS = ["empirevu", "crankleads"] as const;
@@ -47,10 +47,6 @@ export interface PlatformBrand {
   appleTouchIconHref: string;
   /** Where owners write in for help (shown in copy; replies come from a person). */
   supportEmail: string;
-  /** Production app origin when no env override is set (server resolves the live value). */
-  defaultAppBaseUrl: string;
-  /** Bare host of defaultAppBaseUrl, for copy like "log in at app.crankleads.com". */
-  appHost: string;
   theme: PlatformBrandTheme;
 }
 
@@ -67,8 +63,6 @@ export const PLATFORM_BRANDS: Record<PlatformBrandKey, PlatformBrand> = {
     faviconPngHref: "/empirevu-favicon.png",
     appleTouchIconHref: "/empirevu-favicon.png",
     supportEmail: "hello@empirevu.com",
-    defaultAppBaseUrl: "https://app.empirevu.com",
-    appHost: "app.empirevu.com",
     theme: { accentHex: "#1a75ff", onAccentHex: "#ffffff", backgroundHex: "#0c0f14" },
   },
   crankleads: {
@@ -83,8 +77,6 @@ export const PLATFORM_BRANDS: Record<PlatformBrandKey, PlatformBrand> = {
     faviconPngHref: "/brand/crankleads-favicon-32.png",
     appleTouchIconHref: "/brand/crankleads-apple-touch-icon.png",
     supportEmail: "hello@crankleads.com",
-    defaultAppBaseUrl: "https://app.crankleads.com",
-    appHost: "app.crankleads.com",
     theme: { accentHex: "#a6ee2b", onAccentHex: "#0c0e12", backgroundHex: "#0c0f13" },
   },
 };

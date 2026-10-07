@@ -3,7 +3,6 @@ import { Link, useSearchParams } from "react-router-dom";
 import { AlertCircle, CheckCircle2, Loader2, Mail } from "lucide-react";
 
 import { useBrandOverride } from "@/lib/brand-context";
-import { PLATFORM_BRANDS } from "@/lib/platform-brand";
 import { useDocumentFavicon } from "@/lib/use-document-favicon";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import {
@@ -34,9 +33,8 @@ const openAppClass =
   "flex-1 flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90";
 
 /**
- * "Open CrankLeads": sign in on THIS host. Stripe's success URL puts the buyer on the
- * CrankLeads app host (CRANKLEADS_APP_BASE_URL), so this is the CrankLeads app; if that env
- * points elsewhere during a domain cut-over, staying on the same host still works.
+ * "Open CrankLeads": sign in on THIS host — the one Stripe's success URL used
+ * (appBaseUrlFor("crankleads")). Signed in, a CrankLeads org is branded CrankLeads on any host.
  */
 function crankleadsSignInHref(): string {
   return "/signin";
@@ -170,11 +168,8 @@ export default function CrankleadsWelcomePage() {
                 </p>
               ) : null}
               <p className="text-xs text-muted-foreground">
-                Log in to {APP_NAME} at{" "}
-                {typeof window !== "undefined" && window.location.hostname.endsWith("crankleads.com")
-                  ? window.location.host
-                  : PLATFORM_BRANDS.crankleads.appHost}{" "}
-                with the email above.
+                Log in to {APP_NAME} at {typeof window !== "undefined" ? window.location.host : "this site"} with the
+                email above.
               </p>
             </div>
           ) : view.data.status === "failed" || view.timedOut ? (

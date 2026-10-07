@@ -10,13 +10,14 @@ import { brandForHost, brandForOrg, platformBrand, PLATFORM_BRANDS, withProductN
 import { helpSystemPrompt, HELP_SYSTEM_PROMPT } from "@/server/ai/help-assistant";
 import { depositPaymentDoc, expenseDoc, paymentDoc } from "@/server/services/accounting/mapping";
 import { checkoutBrandingFor } from "@/server/services/billing/checkout";
+import { renderWelcomeEmail } from "@/server/services/crankleads/emails";
 import { renderReminderEmail, renderLiveEmail, renderReminderSms } from "@/server/services/crankleads/followup-messages";
 import { handoffAnswer, HANDOFF_ANSWER } from "@/server/services/help/assistant";
 import { buildSupportEmail } from "@/server/services/help/support";
 import { EMPTY_ACCOUNT_CONTEXT } from "@/server/services/help/account-context";
 import { scorecardPlatformBrandName } from "@/server/services/monthly-scorecard/platform-brand";
 import { invitationUrl, renderInvitationEmail } from "@/server/services/organization-invitations";
-import { appBaseUrlFor, appHostFor } from "@/server/services/platform-brand";
+import { appBaseUrlFor, appHostFor, configuredAppBaseUrlFor } from "@/server/services/platform-brand";
 import { appLinkForMissedCall, buildVoicemailOwnerAlert } from "@/server/services/twilio/missed-call";
 
 const EMPIRE = /empire\s*vu/i;
@@ -60,27 +61,54 @@ describe("brandForOrg", () => {
   it("CrankLeads config uses CrankLeads assets only", () => {
     const c = PLATFORM_BRANDS.crankleads;
     expect(c.name).toBe("CrankLeads");
-    for (const v of [c.logoSrc, c.markSrc, c.faviconHref, c.faviconPngHref, c.appleTouchIconHref, c.supportEmail, c.defaultAppBaseUrl]) {
+    for (const v of [c.logoSrc, c.markSrc, c.faviconHref, c.faviconPngHref, c.appleTouchIconHref, c.supportEmail]) {
       expect(v).not.toMatch(EMPIRE);
     }
-    expect(c.defaultAppBaseUrl).toBe("https://app.crankleads.com");
     expect(withProductName("Set up {{product}} — {{product}}", c)).toBe("Set up CrankLeads — CrankLeads");
   });
 });
 
 describe("appBaseUrlFor", () => {
-  it("EmpireVu keeps APP_BASE_URL (and its localhost default); CrankLeads has its own env + default", () => {
+  it("EmpireVu keeps APP_BASE_URL (and its localhost default); CrankLeads uses its env once set", () => {
     vi.stubEnv("APP_BASE_URL", "https://hub.example/");
     vi.stubEnv("CRANKLEADS_APP_BASE_URL", "");
     expect(appBaseUrlFor("empirevu")).toBe("https://hub.example");
     expect(appBaseUrlFor(PLATFORM_BRANDS.empirevu)).toBe("https://hub.example");
-    expect(appBaseUrlFor("crankleads")).toBe("https://app.crankleads.com");
-    expect(appHostFor("crankleads")).toBe("app.crankleads.com");
+    // Unset → the same live origin as EmpireVu, never a not-yet-existing CrankLeads host.
+    expect(appBaseUrlFor("crankleads")).toBe("https://hub.example");
+    expect(appHostFor("crankleads")).toBe("hub.example");
+    expect(configuredAppBaseUrlFor("crankleads")).toBe("https://hub.example");
     vi.stubEnv("CRANKLEADS_APP_BASE_URL", "https://cl.example/");
     expect(appBaseUrlFor("crankleads")).toBe("https://cl.example");
+    expect(appHostFor("crankleads")).toBe("cl.example");
     vi.stubEnv("APP_BASE_URL", undefined as unknown as string);
     delete process.env.APP_BASE_URL;
     expect(appBaseUrlFor("empirevu")).toBe("http://localhost:3000");
+    expect(configuredAppBaseUrlFor("empirevu")).toBeNull();
+    expect(configuredAppBaseUrlFor("crankleads")).toBe("https://cl.example");
+  });
+
+  it("with CRANKLEADS_APP_BASE_URL unset, every CrankLeads link uses APP_BASE_URL (safe before the domain exists)", () => {
+    vi.stubEnv("APP_BASE_URL", "https://app.empirevu.test");
+    vi.stubEnv("CRANKLEADS_APP_BASE_URL", "");
+    const cl = PLATFORM_BRANDS.crankleads;
+    expect(invitationUrl("tok", cl)).toBe("https://app.empirevu.test/invite/tok");
+    expect(appLinkForMissedCall({ contact_id: "c1" }, cl)).toBe("https://app.empirevu.test/crm/c1");
+    const email = renderWelcomeEmail({
+      ownerName: "Jane",
+      businessName: "Jane's Roofing",
+      tier: "catch",
+      setPasswordUrl: `${appBaseUrlFor(cl)}/update-password?token_hash=x`,
+      appUrl: appBaseUrlFor(cl),
+      formUrl: null,
+      packName: null,
+      servicesNeedingPrices: 0,
+    });
+    // The host printed is the link's real host — no dead app.crankleads.com.
+    expect(email.body).toContain("log in to CrankLeads at app.empirevu.test");
+    expect(email.body).not.toContain("crankleads.com");
+    // Until the domain is live the link host is the EmpireVu one; the product name never is.
+    expect(`${email.subject}${email.body}`.split("app.empirevu.test").join("")).not.toMatch(EMPIRE);
   });
 });
 

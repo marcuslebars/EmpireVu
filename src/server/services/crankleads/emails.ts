@@ -3,7 +3,8 @@
  *
  * The buyer bought CrankLeads, and CrankLeads is what they log into: their account is a
  * CrankLeads-branded org (organizations.platform_brand = 'crankleads') on the CrankLeads app
- * host (CRANKLEADS_APP_BASE_URL, default https://app.crankleads.com). These emails never say
+ * host (appBaseUrlFor("crankleads"): CRANKLEADS_APP_BASE_URL once set, else APP_BASE_URL). Copy
+ * names the host of the actual link (appHostOf), never a hard-coded one. These emails never say
  * "EmpireVu" (docs/crankleads-branding.md). No prices in here (Working Protocol #4).
  */
 import { PLATFORM_BRANDS } from "@/lib/platform-brand";
@@ -12,7 +13,7 @@ import { CRANKLEADS_OFFER_NAME, CRANKLEADS_TIER_LABELS, type CrankleadsTier } fr
 /** The app the buyer logs into. */
 export const APP_PRODUCT_NAME = PLATFORM_BRANDS.crankleads.name;
 
-/** "app.crankleads.com" from the app URL, for copy ("log in at …"). */
+/** The host of the app URL, for copy ("log in at <host>"). */
 export function appHostOf(appUrl: string): string {
   try {
     return new URL(appUrl).host;

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { completeConnect } from "@/server/services/accounting/connections";
 import { getAppBaseUrl } from "@/server/services/ai";
+import { configuredAppBaseUrlFor, loadOrganizationBrand } from "@/server/services/platform-brand";
+import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +18,7 @@ interface RouteContext {
  */
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   const url = new URL(request.url);
-  const base = getAppBaseUrl() ?? url.origin;
-  const back = new URL(`${base}/settings`);
+  let back = new URL(`${getAppBaseUrl() ?? url.origin}/settings`);
   back.searchParams.set("section", "accounting");
   const provider = context.params.provider;
   if (provider !== "quickbooks" && provider !== "xero") {
@@ -25,7 +26,11 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     return NextResponse.redirect(back, 303);
   }
   try {
-    const { companyId } = await completeConnect(provider, url.searchParams);
+    const { companyId, organizationId } = await completeConnect(provider, url.searchParams);
+    // Back to the owner's own app host (the CrankLeads host for a CrankLeads org, once configured).
+    const ownBase = configuredAppBaseUrlFor(await loadOrganizationBrand(createSupabaseAdminClient(), organizationId));
+    if (ownBase) back = new URL(`${ownBase}/settings`);
+    back.searchParams.set("section", "accounting");
     back.searchParams.set("accounting", "connected");
     back.searchParams.set("company", companyId);
   } catch (err) {

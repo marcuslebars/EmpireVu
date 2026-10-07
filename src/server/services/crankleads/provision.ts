@@ -66,8 +66,8 @@ const defaultDeps: ProvisionDeps = { sendEmail: defaultSendEmail };
 type StripeObject = Record<string, any>;
 
 /**
- * The buyer's app origin — the CrankLeads host (CRANKLEADS_APP_BASE_URL, default
- * https://app.crankleads.com). Every link a buyer gets (set-password, sign-in, form) uses it.
+ * The buyer's app origin — appBaseUrlFor("crankleads"): CRANKLEADS_APP_BASE_URL once set, else
+ * APP_BASE_URL. Every link a buyer gets (set-password, sign-in, form) uses it.
  */
 function appUrl(): string {
   return appBaseUrlFor("crankleads");

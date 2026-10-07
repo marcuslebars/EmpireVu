@@ -439,7 +439,7 @@ async function renderAndDeliver(
   data: DigestData,
 ): Promise<{ smsStatus: string | null; emailStatus: string | null; channelsSent: string[] }> {
   const owner = await resolveOwnerContacts(context, company);
-  // The owner's own app host (app.crankleads.com for a CrankLeads org).
+  // The owner's own app host (appBaseUrlFor: the CrankLeads host for a CrankLeads org, once configured).
   const brand = await loadOrganizationBrand(context.supabase, context.organizationId);
   const deepLink = `${appBaseUrlFor(brand)}/inbox`;
   const channelsSent: string[] = [];

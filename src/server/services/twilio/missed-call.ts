@@ -27,7 +27,7 @@ import { textBackWindowMinutes, transcriptionEnabled } from "@/server/services/t
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import { deliverMessage, resolveOwnerContacts } from "@/server/services/workflow-engine/messaging";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { appBaseUrlFor, loadOrganizationBrand, platformBrand, type PlatformBrand } from "@/server/services/platform-brand";
+import { configuredAppBaseUrlFor, loadOrganizationBrand, platformBrand, type PlatformBrand } from "@/server/services/platform-brand";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 type MissedCallRow = Tables<"missed_calls">;
@@ -507,8 +507,8 @@ export function appLinkForMissedCall(
   row: Pick<MissedCallRow, "contact_id">,
   brand: PlatformBrand = platformBrand(null),
 ): string | null {
-  // EmpireVu keeps its old behaviour (no link when APP_BASE_URL is unset); CrankLeads has a default host.
-  const base = brand.key === "empirevu" && !process.env.APP_BASE_URL?.trim() ? null : appBaseUrlFor(brand);
+  // No link when no app origin is configured (unchanged behaviour); the org's own host otherwise.
+  const base = configuredAppBaseUrlFor(brand);
   if (!base) return null;
   return row.contact_id ? `${base}/crm/${row.contact_id}` : `${base}/`;
 }

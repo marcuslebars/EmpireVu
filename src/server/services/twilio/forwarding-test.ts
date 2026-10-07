@@ -66,7 +66,7 @@ import {
 import { buildForwardingTestAnsweredTwiml } from "@/server/services/twilio/voice-twiml";
 import { deliverMessage, resolveOwnerContacts } from "@/server/services/workflow-engine/messaging";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { appBaseUrlFor, loadOrganizationBrand } from "@/server/services/platform-brand";
+import { configuredAppBaseUrlFor, loadOrganizationBrand } from "@/server/services/platform-brand";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 type ForwardingTestRow = Tables<"forwarding_tests">;
@@ -500,13 +500,9 @@ async function markOnboardingTestStep(admin: AdminClient, test: ForwardingTestRo
   }
 }
 
-/**
- * App origin for the owner's "test again" link: the CrankLeads host for a CrankLeads org;
- * APP_BASE_URL (or no link when unset) for everyone else, as before.
- */
+/** App origin for the owner's "test again" link — the org's own host; null when unconfigured (as before). */
 async function ownerAppBaseUrl(admin: AdminClient, organizationId: string): Promise<string | null> {
-  const brand = await loadOrganizationBrand(admin, organizationId);
-  return brand.key === "empirevu" ? process.env.APP_BASE_URL ?? null : appBaseUrlFor(brand);
+  return configuredAppBaseUrlFor(await loadOrganizationBrand(admin, organizationId));
 }
 
 /** SMS to the owner's mobile (email when there is no mobile). Claimed once; best-effort. */

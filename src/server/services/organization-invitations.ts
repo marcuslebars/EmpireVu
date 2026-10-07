@@ -30,7 +30,7 @@ export interface InvitationSummary {
   token: string;
 }
 
-/** Invite link on the org's own app host (app.crankleads.com for a CrankLeads org). */
+/** Invite link on the org's own app host (appBaseUrlFor the org's brand). */
 export function invitationUrl(token: string, brand: PlatformBrand | PlatformBrandKey = "empirevu"): string {
   return `${appBaseUrlFor(brand)}/invite/${token}`;
 }

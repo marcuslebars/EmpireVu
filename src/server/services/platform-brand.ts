@@ -3,7 +3,11 @@
  *
  * appBaseUrlFor(brand) is the ONE place an owner-/staff-facing link's origin comes from:
  *   - EmpireVu orgs: APP_BASE_URL (unchanged behaviour; http://localhost:3000 when unset).
- *   - CrankLeads orgs: CRANKLEADS_APP_BASE_URL, default https://app.crankleads.com.
+ *   - CrankLeads orgs: CRANKLEADS_APP_BASE_URL once it is set; until then the SAME origin as
+ *     EmpireVu (APP_BASE_URL). So deploying this before app.crankleads.com exists never sends
+ *     anyone to a dead host — CrankLeads users on the EmpireVu host still see CrankLeads
+ *     (BrandProvider brands signed-in users by org, and the welcome page pins CrankLeads).
+ *   Copy that names a host derives it from the link (never a hard-coded "app.crankleads.com").
  * Webhook/callback origins (Twilio, Retell, accounting OAuth) are NOT brand-dependent and
  * keep using APP_BASE_URL directly.
  *
@@ -31,12 +35,23 @@ export function appBaseUrlFor(brand: PlatformBrand | PlatformBrandKey | null | u
   const key = typeof brand === "string" ? brand : brand?.key ?? "empirevu";
   const raw =
     key === "crankleads"
-      ? trimmed("CRANKLEADS_APP_BASE_URL") ?? PLATFORM_BRANDS.crankleads.defaultAppBaseUrl
+      ? trimmed("CRANKLEADS_APP_BASE_URL") ?? process.env.APP_BASE_URL ?? "http://localhost:3000"
       : process.env.APP_BASE_URL ?? "http://localhost:3000";
   return raw.replace(/\/+$/, "");
 }
 
-/** Host part of appBaseUrlFor(brand), for copy ("log in at app.crankleads.com"). */
+/**
+ * Like appBaseUrlFor, but null when no origin is configured for that brand (neither
+ * CRANKLEADS_APP_BASE_URL for CrankLeads nor APP_BASE_URL) — for links that were simply
+ * omitted when APP_BASE_URL was unset.
+ */
+export function configuredAppBaseUrlFor(brand: PlatformBrand | PlatformBrandKey | null | undefined): string | null {
+  const key = typeof brand === "string" ? brand : brand?.key ?? "empirevu";
+  const configured = (key === "crankleads" && trimmed("CRANKLEADS_APP_BASE_URL")) || process.env.APP_BASE_URL?.trim();
+  return configured ? appBaseUrlFor(key) : null;
+}
+
+/** Host part of appBaseUrlFor(brand), for copy ("log in at <host>"). */
 export function appHostFor(brand: PlatformBrand | PlatformBrandKey): string {
   const base = appBaseUrlFor(brand);
   try {

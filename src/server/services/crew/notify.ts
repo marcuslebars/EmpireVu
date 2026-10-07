@@ -4,7 +4,7 @@
  */
 import type { Tables } from "@/server/db/database.types";
 import { isEmailSendConfigured, sendEmail } from "@/server/outbound/email";
-import { getAppBaseUrl } from "@/server/services/ai";
+import { configuredAppBaseUrlFor, loadOrganizationBrand } from "@/server/services/platform-brand";
 import { notifyJobAssigned } from "@/server/services/push/notify";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { formatJobWhen } from "./logic";
@@ -57,7 +57,8 @@ export async function notifyCrewAssigned(ctx: TenantServiceContext, booking: Tab
         ? ctx.supabase.from("profiles").select("full_name, email").eq("id", ctx.actorProfileId).maybeSingle()
         : Promise.resolve({ data: null }),
     ]);
-    const base = getAppBaseUrl();
+    // The crew's own app host (the CrankLeads host for a CrankLeads org).
+    const base = configuredAppBaseUrlFor(await loadOrganizationBrand(ctx.supabase, ctx.organizationId));
     const message = renderAssignmentMessage({
       title: booking.title,
       when: formatJobWhen(booking.scheduled_for, company?.timezone ?? null),
