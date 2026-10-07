@@ -1,4 +1,5 @@
 import type { PostgrestError } from "@supabase/supabase-js";
+import { brandForOrg, type PlatformBrandKey } from "@/lib/platform-brand";
 import type { Tables } from "@/server/db/database.types";
 import {
   getAuthenticatedUser,
@@ -14,6 +15,8 @@ export interface SessionOrganizationSummary {
   membershipRole: Tables<"organization_memberships">["role"];
   name: string;
   slug: string;
+  /** Brand this org's people see (docs/crankleads-branding.md). */
+  platformBrand: PlatformBrandKey;
 }
 
 export interface SessionCompanySummary {
@@ -140,6 +143,7 @@ export async function getSessionContext(
       membershipRole: context.membership.role,
       name: organizationMap.get(context.organizationId)?.name ?? context.organizationId,
       slug: organizationMap.get(context.organizationId)?.slug ?? context.organizationId,
+      platformBrand: brandForOrg(organizationMap.get(context.organizationId)).key,
     })),
     profile: active?.profile
       ? {

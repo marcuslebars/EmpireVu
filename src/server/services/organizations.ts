@@ -6,6 +6,7 @@ import { ValidationError } from "@/server/organizations/context";
 import type { PurchasablePlan } from "@/server/services/billing/config";
 import { newOrgTrialFields } from "@/server/services/billing/env";
 import type { CrankleadsTier } from "@/server/services/crankleads/config";
+import type { PlatformBrandKey } from "@/lib/platform-brand";
 import type { createSupabaseServerClient } from "@/server/supabase/server";
 
 type AppSupabaseClient = ReturnType<typeof createSupabaseServerClient>;
@@ -28,6 +29,8 @@ export interface PaidOrganizationBilling {
   stripeCustomerId: string;
   billingEmail: string | null;
   crankleadsTier: CrankleadsTier | null;
+  /** Brand the org's own people see (docs/crankleads-branding.md). CrankLeads purchases → "crankleads". */
+  platformBrand: PlatformBrandKey;
   /** Make it the owner's default org. False when grafting onto an EXISTING user. */
   setAsDefaultOrganization: boolean;
 }
@@ -72,6 +75,7 @@ export async function createOrganization(
         stripe_customer_id: paid.stripeCustomerId,
         billing_email: paid.billingEmail,
         crankleads_tier: paid.crankleadsTier,
+        platform_brand: paid.platformBrand,
       }
     : {
         created_by: userId,
