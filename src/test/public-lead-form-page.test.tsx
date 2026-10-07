@@ -1,6 +1,6 @@
 /**
  * Hosted lead page (/f/:formKey): renders the company + catalog labels from the public
- * GET, credits the platform from the central platform brand, hides the header in
+ * GET, never credits the platform (no "Powered by"), hides the header in
  * embed mode, and submits to the public endpoint with phone-or-email + consent.
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -8,7 +8,6 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import PublicLeadFormPage from "@/screens/PublicLeadFormPage";
-const POWERED_BY_NAME = "EmpireVu";
 
 const KEY = `evpk_${"c".repeat(48)}`;
 const config = {
@@ -44,13 +43,13 @@ afterEach(() => {
 });
 
 describe("PublicLeadFormPage", () => {
-  it("shows the company, its services + Other, and the Powered-by footer from the constant", async () => {
+  it("shows the company and its services + Other, with no platform credit", async () => {
     renderAt();
     expect(await screen.findByText("Kirk Snow Removal")).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Driveway clearing" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Other" })).toBeInTheDocument();
-    expect(POWERED_BY_NAME).toBe("EmpireVu");
-    expect(screen.getByText(`Powered by ${POWERED_BY_NAME}`)).toBeInTheDocument();
+    expect(screen.queryByText(/Powered by/i)).toBeNull();
+    expect(document.body.textContent ?? "").not.toMatch(/EmpireVu|CrankLeads/i);
   });
 
   it("embed mode hides the header", async () => {

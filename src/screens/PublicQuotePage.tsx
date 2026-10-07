@@ -14,6 +14,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+import { useCustomerFavicon } from "@/lib/brand-context";
 
 interface PublicLine {
   serviceId: string;
@@ -148,6 +149,7 @@ export default function PublicQuotePage() {
   const brand = quote?.brand;
   const primary = brand?.primaryColor || DEFAULT_PRIMARY;
 
+  useCustomerFavicon(brand?.logoUrl);
   /**
    * The tab says the COMPANY's name, not the platform's.
    *

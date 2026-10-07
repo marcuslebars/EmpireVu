@@ -12,6 +12,7 @@ import { AlertCircle, CalendarDays, CalendarX2, CheckCircle2, Clock, Loader2, Ma
 import { ApiError } from "@/lib/api-client";
 import { inkOnWhite, textOn } from "@/lib/brand-colors";
 import { cancelVisit, confirmVisit, fetchOpenTimes, fetchVisit, rescheduleVisit, type OpenTime, type Visit } from "@/lib/visits-api";
+import { useCustomerFavicon } from "@/lib/brand-context";
 
 const DEFAULT_PRIMARY = "#1f2937";
 const INK = "#111827";
@@ -66,6 +67,7 @@ export default function PublicVisitPage() {
     };
   }, [token]);
 
+  useCustomerFavicon(visit?.brand.logoUrl);
   useEffect(() => {
     if (!visit) return;
     const previous = document.title;
