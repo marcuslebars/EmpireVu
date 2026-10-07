@@ -174,6 +174,7 @@ beforeEach(() => {
   eventSeq = 0;
   sendEmail.mockClear();
   vi.stubEnv("APP_BASE_URL", "https://app.empirevu.test");
+  vi.stubEnv("CRANKLEADS_APP_BASE_URL", "https://app.crankleads.test");
   vi.stubEnv("OWNER_EMAIL", "ops@empirevu.test");
   vi.stubEnv("STRIPE_PRICE_CL_CATCH", "price_cl_catch");
   vi.stubEnv("STRIPE_PRICE_CL_CLOSE", "price_cl_close");
@@ -212,6 +213,8 @@ describe("checkout.session.completed (CrankLeads) → provisioned account", () =
       trial_ends_at: null,
       stripe_customer_id: CUSTOMER,
       crankleads_tier: "catch",
+      // A CrankLeads buyer sees CrankLeads, never EmpireVu (docs/crankleads-branding.md).
+      platform_brand: "crankleads",
       billing_email: BUYER,
     });
     expect(p.organization_id).toBe(org.id);
@@ -266,10 +269,16 @@ describe("checkout.session.completed (CrankLeads) → provisioned account", () =
     const welcome = sendEmail.mock.calls.find(([m]) => m.to === BUYER)?.[0];
     expect(welcome?.subject).toBe("Your CrankLeads system is ready — finish setup (10 min)");
     expect(welcome?.body).toContain(
-      "https://app.empirevu.test/update-password?token_hash=hashed_tok_123&type=recovery&next=%2Fonboarding%3Fstep%3Dresume",
+      "https://app.crankleads.test/update-password?token_hash=hashed_tok_123&type=recovery&next=%2Fonboarding%3Fstep%3Dresume",
     );
-    expect(welcome?.body).toContain(`https://app.empirevu.test/f/${formKey}`);
-    expect(welcome?.body).toContain("Set your password and log in to EmpireVu");
+    expect(welcome?.body).toContain(`https://app.crankleads.test/f/${formKey}`);
+    expect(welcome?.body).toContain("Set your password and log in to CrankLeads at app.crankleads.test");
+    // Nothing a buyer reads names the platform, and no link points at the EmpireVu host.
+    expect(`${welcome?.subject}\n${welcome?.body}\n${welcome?.html}`).not.toMatch(/empire\s*vu/i);
+    // The recovery link Supabase builds redirects to the CrankLeads host too.
+    expect(generateLink).toHaveBeenCalledWith(
+      expect.objectContaining({ options: { redirectTo: "https://app.crankleads.test/update-password" } }),
+    );
     expect(welcome?.body).not.toMatch(/\$\s?\d/);
     expect(generateLink).toHaveBeenCalledWith(expect.objectContaining({ type: "recovery", email: BUYER }));
     const operator = sendEmail.mock.calls.find(([m]) => m.to === "ops@empirevu.test")?.[0];
@@ -315,8 +324,9 @@ describe("checkout.session.completed (CrankLeads) → provisioned account", () =
     ]);
     const welcome = sendEmail.mock.calls.find(([m]) => m.to === BUYER)?.[0];
     expect(welcome?.body).not.toContain("update-password");
-    expect(welcome?.body).toContain("https://app.empirevu.test/onboarding");
-    expect(welcome?.body).toContain("existing account");
+    expect(welcome?.body).toContain("https://app.crankleads.test/onboarding");
+    expect(welcome?.body).toContain("existing login");
+    expect(welcome?.body).not.toMatch(/empire\s*vu/i);
     expect(db.tables.profiles[0].default_organization_id).toBe("their-own-org");
     expect(updateUserById).not.toHaveBeenCalled();
   });

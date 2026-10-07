@@ -7,6 +7,7 @@ import { ValidationError } from "@/server/organizations/context";
 import { sendEmail } from "@/server/outbound/email";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { appBaseUrlFor, loadOrganizationBrand, type PlatformBrand, type PlatformBrandKey } from "@/server/services/platform-brand";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -29,12 +30,25 @@ export interface InvitationSummary {
   token: string;
 }
 
-function appBaseUrl(): string {
-  return (process.env.APP_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+/** Invite link on the org's own app host (appBaseUrlFor the org's brand). */
+export function invitationUrl(token: string, brand: PlatformBrand | PlatformBrandKey = "empirevu"): string {
+  return `${appBaseUrlFor(brand)}/invite/${token}`;
 }
 
-export function invitationUrl(token: string): string {
-  return `${appBaseUrl()}/invite/${token}`;
+/** The invitation email, named for the org's platform brand (pure). */
+export function renderInvitationEmail(input: { brand: PlatformBrand; role: string; inviteUrl: string }): {
+  subject: string;
+  fromName: string;
+  body: string;
+} {
+  const name = input.brand.name;
+  return {
+    subject: `You've been invited to join a team on ${name}`,
+    // Brand the From display name even though the address is the shared, Resend-verified
+    // OUTBOUND_FROM_EMAIL (which may sit on a tenant domain).
+    fromName: name,
+    body: `You've been invited to join a team on ${name} as ${input.role}.\n\nAccept your invitation:\n${input.inviteUrl}\n\nThis link expires in 7 days.`,
+  };
 }
 
 function toInvitationSummary(row: Tables<"organization_invitations">): InvitationSummary {
@@ -132,20 +146,14 @@ export async function createInvitation(
     throw new Error("Invitation creation failed.");
   }
 
-  const inviteUrl = invitationUrl(token);
+  const brand = await loadOrganizationBrand(context.supabase, context.organizationId);
+  const inviteUrl = invitationUrl(token, brand);
 
   // Best-effort email — the admin always gets a copyable link back regardless, so a
   // missing RESEND config or a transient send failure never blocks the invitation.
   let emailSent = false;
   try {
-    await sendEmail({
-      to: email,
-      subject: "You've been invited to join a team on EmpireVu",
-      // Brand the From display name as EmpireVu even though the address is the shared,
-      // Resend-verified OUTBOUND_FROM_EMAIL (which may sit on a tenant domain).
-      fromName: "EmpireVu",
-      body: `You've been invited to join a team on EmpireVu as ${input.role}.\n\nAccept your invitation:\n${inviteUrl}\n\nThis link expires in 7 days.`,
-    });
+    await sendEmail({ to: email, ...renderInvitationEmail({ brand, role: input.role, inviteUrl }) });
     emailSent = true;
   } catch {
     emailSent = false;

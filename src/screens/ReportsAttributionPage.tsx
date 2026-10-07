@@ -18,6 +18,7 @@ import { useOrg } from "@/lib/org-context";
 import { useAttribution } from "@/lib/api-hooks";
 import { formatCents, formatDate, formatSeconds } from "@/lib/format";
 import type { AttributionRow } from "@/lib/api-client";
+import { useBrand } from "@/lib/brand-context";
 
 const SOURCE_COLORS = [
   "hsl(var(--primary))",
@@ -103,6 +104,7 @@ function SummaryTile({
 }
 
 export default function ReportsAttributionPage() {
+  const brand = useBrand();
   const { organizationId, companyId, isValid } = useOrg();
   const params = useMemo(() => ({ companyId: companyId ?? undefined, rows: true }), [companyId]);
   const { data, isLoading, isError, refetch } = useAttribution(organizationId, params);
@@ -137,9 +139,9 @@ export default function ReportsAttributionPage() {
       {/* Header */}
       <div className="flex items-center justify-between gap-4 opacity-0 animate-fade-in">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Captured by EmpireVu</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Captured by {brand.name}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Revenue attributed to EmpireVu · {rangeLabel}
+            Revenue attributed to {brand.name} · {rangeLabel}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -292,7 +294,7 @@ export default function ReportsAttributionPage() {
 
       <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
         <Sparkles className="w-3 h-3 text-primary" />
-        "Collected" counts deposits paid through EmpireVu's Stripe checkout. See docs/attribution.md for how each column is defined.
+        "Collected" counts deposits paid through {brand.name}'s Stripe checkout.
       </p>
     </div>
   );

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AlertCircle, CheckCircle2, Loader2, Mail } from "lucide-react";
 
+import { useBrandOverride } from "@/lib/brand-context";
 import { useDocumentFavicon } from "@/lib/use-document-favicon";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import {
@@ -28,6 +29,17 @@ const RESEND_COOLDOWN_MS = 30_000;
 const CRANKLEADS_LOGO_URL = "/brand/crankleads-logo.svg";
 const CRANKLEADS_FAVICON_URL = "/brand/crankleads-favicon.svg";
 
+const openAppClass =
+  "flex-1 flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90";
+
+/**
+ * "Open CrankLeads": sign in on THIS host — the one Stripe's success URL used
+ * (appBaseUrlFor("crankleads")). Signed in, a CrankLeads org is branded CrankLeads on any host.
+ */
+function crankleadsSignInHref(): string {
+  return "/signin";
+}
+
 type View =
   | { kind: "loading" }
   | { kind: "missing" }
@@ -42,6 +54,7 @@ export default function CrankleadsWelcomePage() {
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [, rerender] = useState(0);
   const polls = useRef(0);
+  const signInHref = crankleadsSignInHref();
 
   // Re-enable the resend button when its cooldown ends.
   useEffect(() => {
@@ -51,8 +64,9 @@ export default function CrankleadsWelcomePage() {
     return () => clearTimeout(timer);
   }, [cooldownUntil]);
 
-  // The buyer just paid for CrankLeads on crankleads.com: this page carries CrankLeads'
-  // logo, tab title and icon. The app they log into afterwards stays EmpireVu.
+  // The buyer just paid for CrankLeads on crankleads.com: this page — and the app they log
+  // into afterwards — is CrankLeads (logo, tab title, icon, theme).
+  useBrandOverride("crankleads");
   useDocumentTitle(`Welcome — ${PURCHASED_OFFER_NAME}`);
   useDocumentFavicon(CRANKLEADS_FAVICON_URL);
 
@@ -135,10 +149,7 @@ export default function CrankleadsWelcomePage() {
                 last few steps — about 10 minutes.
               </p>
               <div className="flex flex-col sm:flex-row gap-3">
-                <Link
-                  to="/signin"
-                  className="flex-1 flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90"
-                >
+                <Link to={signInHref} className={openAppClass}>
                   Open {APP_NAME}
                 </Link>
                 <button
@@ -157,7 +168,8 @@ export default function CrankleadsWelcomePage() {
                 </p>
               ) : null}
               <p className="text-xs text-muted-foreground">
-                Your {PURCHASED_OFFER_NAME} system runs on {APP_NAME} — that's where you'll log in.
+                Log in to {APP_NAME} at {typeof window !== "undefined" ? window.location.host : "this site"} with the
+                email above.
               </p>
             </div>
           ) : view.data.status === "failed" || view.timedOut ? (

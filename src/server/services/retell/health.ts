@@ -175,7 +175,7 @@ export async function receptionistHealth(input: HealthInput): Promise<HealthRepo
       add(
         `${label} returning callers`,
         lookupOk,
-        lookupOk ? "inbound webhook → EmpireVu" : `inbound webhook is ${num.inbound_webhook_url || "not set"} — returning callers won't be recognised`,
+        lookupOk ? "inbound webhook → this app" : `inbound webhook is ${num.inbound_webhook_url || "not set"} — returning callers won't be recognised`,
       );
     }
 
@@ -192,7 +192,7 @@ export async function receptionistHealth(input: HealthInput): Promise<HealthRepo
     add(
       `${label} post-call webhook`,
       hookOk,
-      hookOk ? "→ EmpireVu" : `goes to ${agent.webhook_url || "nowhere"} — EmpireVu only sees calls if that forwards them`,
+      hookOk ? "→ this app" : `goes to ${agent.webhook_url || "nowhere"} — this app only sees calls if that forwards them`,
     );
 
     const llmId = agent.response_engine?.llm_id;
@@ -211,8 +211,8 @@ export async function receptionistHealth(input: HealthInput): Promise<HealthRepo
           `${label} tools`,
           elsewhere.length === 0,
           elsewhere.length === 0
-            ? `${tools.length} tool${tools.length === 1 ? "" : "s"} → EmpireVu`
-            : `${elsewhere.map((t) => `${t.name ?? "tool"} → ${parse(t.url)?.host ?? t.url}`).join(", ")} — not EmpireVu`,
+            ? `${tools.length} tool${tools.length === 1 ? "" : "s"} → this app`
+            : `${elsewhere.map((t) => `${t.name ?? "tool"} → ${parse(t.url)?.host ?? t.url}`).join(", ")} — not this app`,
         );
       }
     }

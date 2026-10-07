@@ -50,11 +50,11 @@ function input(over: Partial<HealthInput> = {}): HealthInput {
 }
 
 describe("receptionist health", () => {
-  it("is all green when everything points at EmpireVu", async () => {
+  it("is all green when everything points at this app", async () => {
     const r = await receptionistHealth(input());
     expect(r.warnings).toEqual([]);
     expect(r.ok).toBe(true);
-    expect(r.checks.find((c) => c.name.endsWith("tools"))?.detail).toBe("4 tools → EmpireVu");
+    expect(r.checks.find((c) => c.name.endsWith("tools"))?.detail).toBe("4 tools → this app");
   });
 
   it("names every tool still pointing at the Care site (before cutover)", async () => {
@@ -75,8 +75,8 @@ describe("receptionist health", () => {
     expect(r.ok).toBe(false);
     expect(r.warnings).toEqual([
       "+17059961010 returning callers: inbound webhook is https://a1marinecare.ca/api/retell/inbound — returning callers won't be recognised",
-      "+17059961010 post-call webhook: goes to https://a1marinecare.ca/api/retell/webhook — EmpireVu only sees calls if that forwards them",
-      "+17059961010 tools: quote_shrink_wrap → a1marinecare.ca — not EmpireVu",
+      "+17059961010 post-call webhook: goes to https://a1marinecare.ca/api/retell/webhook — this app only sees calls if that forwards them",
+      "+17059961010 tools: quote_shrink_wrap → a1marinecare.ca — not this app",
     ]);
   });
 

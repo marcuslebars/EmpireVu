@@ -14,6 +14,7 @@ import {
   useCreateVoiceNumber,
   useDeactivateVoiceNumber,
 } from "@/lib/api-hooks";
+import { useBrand } from "@/lib/brand-context";
 
 const inputCls =
   "w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring";
@@ -41,6 +42,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export function IntegrationsSettings() {
+  const brand = useBrand();
   const { organizationId } = useOrg();
   const companies = useCompanies(organizationId);
   const companyName = useMemo(() => {
@@ -121,7 +123,7 @@ export function IntegrationsSettings() {
           <h3 className="text-sm font-semibold text-foreground">Lead intake keys (advanced: server-to-server)</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-3">
-          A key lets a website post leads to EmpireVu, pinned to a company. The full key is shown once — store it in the site's server env.
+          A key lets a website post leads to {brand.name}, pinned to a company. The full key is shown once — store it in the site's server env.
         </p>
 
         {freshKey && (

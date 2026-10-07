@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, BookOpen, CheckCircle2, HelpCircle, LifeBuoy, Loader2, MessageCircleQuestion, Search, Send } from "lucide-react";
 
-import { HELP_ARTICLES, findHelpArticle } from "@/content/help/articles";
+import { HELP_ARTICLES, brandHelpArticle, findHelpArticle } from "@/content/help/articles";
 import { getHelpIndex, searchHelpArticles } from "@/content/help/search";
 import type { HelpArticle } from "@/content/help/types";
 import { HelpArticleBody } from "@/components/help/HelpArticleBody";
@@ -15,6 +15,7 @@ import {
   type HelpAnswerStatus,
   type HelpChatTurn,
 } from "@/lib/help-api";
+import { useBrand } from "@/lib/brand-context";
 import { useOrg } from "@/lib/org-context";
 import { cn } from "@/lib/utils";
 
@@ -75,13 +76,16 @@ function ArticlesTab({
   setOpenArticleId: (id: string | null) => void;
   onAsk: (question: string) => void;
 }) {
+  const brand = useBrand();
   const [query, setQuery] = useState("");
   const results = useMemo(() => {
     const q = query.trim();
-    return q ? searchHelpArticles(getHelpIndex(), q).map((r) => r.article) : [...HELP_ARTICLES];
-  }, [query]);
+    const found = q ? searchHelpArticles(getHelpIndex(), q).map((r) => r.article) : [...HELP_ARTICLES];
+    return found.map((article) => brandHelpArticle(article, brand));
+  }, [query, brand]);
 
-  const open = openArticleId ? findHelpArticle(openArticleId) : undefined;
+  const found = openArticleId ? findHelpArticle(openArticleId) : undefined;
+  const open = found ? brandHelpArticle(found, brand) : undefined;
   if (open) return <ArticleView article={open} onBack={() => setOpenArticleId(null)} />;
 
   return (
@@ -140,6 +144,7 @@ function SupportForm({
   messages: ChatMessage[];
   onCancel: () => void;
 }) {
+  const brand = useBrand();
   const lastQuestion = [...messages].reverse().find((m) => m.role === "user")?.text ?? "";
   const lastAnswer = [...messages].reverse().find((m) => m.role === "assistant");
   const [question, setQuestion] = useState(lastQuestion);
@@ -188,7 +193,7 @@ function SupportForm({
         Contact support
       </label>
       <p className="text-xs text-muted-foreground">
-        A person on the EmpireVu team will read this and reply by email. We include this conversation so you don't have to repeat yourself.
+        A person on the {brand.name} team will read this and reply by email. We include this conversation so you don't have to repeat yourself.
       </p>
       <textarea
         id="help-support-question"
@@ -230,6 +235,7 @@ function AskTab({
   setMessages: (update: (prev: ChatMessage[]) => ChatMessage[]) => void;
   onOpenArticle: (id: string) => void;
 }) {
+  const brand = useBrand();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [supportOpen, setSupportOpen] = useState(false);
@@ -264,7 +270,7 @@ function AskTab({
       <div role="log" aria-live="polite" aria-label="Help conversation" className="space-y-3">
         {messages.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            Ask about setup, your phone number, call forwarding, your website form, quotes, billing and more. Answers come from the EmpireVu help articles.
+            Ask about setup, your phone number, call forwarding, your website form, quotes, billing and more. Answers come from the {brand.name} help articles.
           </p>
         )}
         {messages.map((m, i) =>
@@ -357,6 +363,7 @@ export function HelpPanel({ open, onOpenChange }: { open: boolean; onOpenChange:
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const sessionId = useMemo(() => newHelpSessionId(), []);
   const canAsk = Boolean(organizationId);
+  const brand = useBrand();
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -365,7 +372,7 @@ export function HelpPanel({ open, onOpenChange }: { open: boolean; onOpenChange:
           <SheetTitle className="flex items-center gap-2">
             <HelpCircle className="w-5 h-5 text-primary" aria-hidden="true" /> Help
           </SheetTitle>
-          <SheetDescription>Guides for EmpireVu, and answers to your questions.</SheetDescription>
+          <SheetDescription>Guides for {brand.name}, and answers to your questions.</SheetDescription>
         </SheetHeader>
         <Tabs value={tab} onValueChange={(v) => setTab(v === "ask" ? "ask" : "articles")} className="flex-1 flex flex-col min-h-0">
           <TabsList className="mx-5 mt-3 grid grid-cols-2">

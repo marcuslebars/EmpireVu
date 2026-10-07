@@ -218,10 +218,10 @@ describe("startOwnerForwardingTest", () => {
     h.db = seed({ company: { owner_phone_e164: null } });
     await expect(startTest()).rejects.toBeInstanceOf(ValidationError);
     h.db = seed({ company: { owner_phone_e164: CATCHER } });
-    await expect(startTest()).rejects.toThrow(/EmpireVu number/);
+    await expect(startTest()).rejects.toThrow(/missed-call number/);
     h.db = seed();
     db().tables.voice_numbers.push({ id: "other", organization_id: "org-2", company_id: "co-2", phone_e164: BUSINESS, provider: "retell", mode: "ai_receptionist", active: true });
-    await expect(startTest()).rejects.toThrow(/EmpireVu number/);
+    await expect(startTest()).rejects.toThrow(/missed-call number/);
   });
 
   it("refuses without a catcher number, and for another org's company", async () => {

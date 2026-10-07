@@ -14,6 +14,7 @@ import { ApiError } from "@/lib/api-client";
 import { inkOnWhite, textOn } from "@/lib/brand-colors";
 import { formatCents, formatYmd } from "@/lib/invoices-api";
 import { fetchPortal, requestPortalWork, type Portal, type PortalInvoice, type PortalQuote, type PortalVisit } from "@/lib/portal-api";
+import { useCustomerFavicon } from "@/lib/brand-context";
 
 const DEFAULT_PRIMARY = "#1f2937";
 const INK = "#111827";
@@ -155,6 +156,7 @@ export default function PublicPortalPage() {
     };
   }, [token]);
 
+  useCustomerFavicon(portal?.brand.logoUrl);
   // The tab names the company, never the platform.
   useEffect(() => {
     if (!portal) return;

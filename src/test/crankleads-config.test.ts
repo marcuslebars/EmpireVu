@@ -118,10 +118,16 @@ describe("welcome email", () => {
     servicesNeedingPrices: 7,
   };
 
-  it("names CrankLeads as the purchase and EmpireVu as the app; lists done + 3 steps; no prices", () => {
+  it("names CrankLeads as the purchase AND the app (log in at its host); lists done + 3 steps; no prices", () => {
     const email = renderWelcomeEmail({ ...base, tier: "catch" });
     expect(email.subject).toBe("Your CrankLeads system is ready — finish setup (10 min)");
-    expect(email.body).toContain("Set your password and log in to EmpireVu");
+    expect(email.body).toContain("Set your password and log in to CrankLeads at app.test");
+    for (const tier of ["catch", "close", "front_desk"] as const) {
+      for (const setPasswordUrl of [base.setPasswordUrl, null]) {
+        const e = renderWelcomeEmail({ ...base, tier, setPasswordUrl });
+        expect(`${e.subject}\n${e.body}\n${e.html}\n${e.fromName}`).not.toMatch(/empire\s*vu/i);
+      }
+    }
     expect(email.body).toContain(base.setPasswordUrl);
     expect(email.body).toContain("Already done for you:");
     expect(email.body).toContain("Add your prices (7 services are waiting for one)");

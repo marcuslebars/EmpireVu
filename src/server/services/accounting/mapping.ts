@@ -99,9 +99,18 @@ interface RawLine {
   amountCents?: unknown;
 }
 
+/** Memo platform name when the caller doesn't pass the org's brand. */
+export const DEFAULT_PRODUCT_NAME = "EmpireVu";
+
 export function invoiceDoc(
   inv: InvoiceRowLike,
-  opts: { timeZone: string; depositAsLine: boolean; depositInvoiceNumber?: string | null },
+  opts: {
+    timeZone: string;
+    depositAsLine: boolean;
+    depositInvoiceNumber?: string | null;
+    /** Platform name in memos ("EmpireVu" / "CrankLeads" — the org's platform brand). */
+    productName?: string;
+  },
 ): InvoiceDoc {
   let raw = Array.isArray(inv.line_items) ? (inv.line_items as RawLine[]) : [];
   // An invoice with a total but no lines (e.g. imported) still needs a line in the books.
@@ -148,7 +157,7 @@ export function invoiceDoc(
     taxCents: taxed ? inv.tax_cents : 0,
     totalCents: total,
     voided: inv.status === "void",
-    memo: ["From EmpireVu", inv.invoice_number, clean(inv.title, 120)].filter(Boolean).join(" · "),
+    memo: [`From ${opts.productName ?? DEFAULT_PRODUCT_NAME}`, inv.invoice_number, clean(inv.title, 120)].filter(Boolean).join(" · "),
   };
 }
 
@@ -164,6 +173,7 @@ const METHOD_LABELS: Record<string, string> = {
 export function paymentDoc(
   p: { id: string; invoice_id: string; amount_cents: number; method: string; reference: string | null; received_at: string },
   timeZone: string,
+  productName: string = DEFAULT_PRODUCT_NAME,
 ): PaymentDoc {
   const method = METHOD_LABELS[p.method] ?? "Payment";
   return {
@@ -173,12 +183,17 @@ export function paymentDoc(
     date: localYmd(p.received_at, timeZone),
     method: p.method,
     reference: clean(p.reference, 21),
-    memo: `${method} via EmpireVu${p.reference ? ` (${clean(p.reference, 60)})` : ""}`,
+    memo: `${method} via ${productName}${p.reference ? ` (${clean(p.reference, 60)})` : ""}`,
   };
 }
 
 /** A quote deposit taken before the invoice existed, booked as a payment on it. */
-export function depositPaymentDoc(inv: Pick<InvoiceRowLike, "id" | "credit_cents" | "issue_date">, paidAt: string | null, timeZone: string): PaymentDoc {
+export function depositPaymentDoc(
+  inv: Pick<InvoiceRowLike, "id" | "credit_cents" | "issue_date">,
+  paidAt: string | null,
+  timeZone: string,
+  productName: string = DEFAULT_PRODUCT_NAME,
+): PaymentDoc {
   return {
     localKey: `deposit:${inv.id}`,
     invoiceLocalId: inv.id,
@@ -186,7 +201,7 @@ export function depositPaymentDoc(inv: Pick<InvoiceRowLike, "id" | "credit_cents
     date: paidAt ? localYmd(paidAt, timeZone) : (inv.issue_date ?? localYmd(new Date().toISOString(), timeZone)),
     method: "card",
     reference: null,
-    memo: "Deposit paid on the quote, via EmpireVu",
+    memo: `Deposit paid on the quote, via ${productName}`,
   };
 }
 
@@ -199,7 +214,7 @@ export function expenseDoc(e: {
   amount_cents: number;
   tax_cents: number;
   paid_with: string;
-}): ExpenseDoc {
+}, productName: string = DEFAULT_PRODUCT_NAME): ExpenseDoc {
   const vendor = clean(e.vendor, 90);
   const description = clean(e.description, 400) ?? vendor ?? categoryLabel(e.category);
   return {
@@ -212,7 +227,7 @@ export function expenseDoc(e: {
     taxCents: e.tax_cents,
     totalCents: e.amount_cents,
     personal: e.paid_with === "personal",
-    memo: `${e.paid_with === "personal" ? "Paid out of pocket" : "Paid by the business"} · from EmpireVu`,
+    memo: `${e.paid_with === "personal" ? "Paid out of pocket" : "Paid by the business"} · from ${productName}`,
   };
 }
 

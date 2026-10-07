@@ -14,6 +14,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
+import { useCustomerFavicon } from "@/lib/brand-context";
 
 import { customerSafeMessage } from "@/lib/public-errors";
 
@@ -172,6 +173,7 @@ export default function PublicQuotePage() {
   const brand = quote?.brand;
   const primary = brand?.primaryColor || DEFAULT_PRIMARY;
 
+  useCustomerFavicon(brand?.logoUrl);
   /**
    * The tab says the COMPANY's name, not the platform's.
    *

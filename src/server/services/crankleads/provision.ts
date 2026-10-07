@@ -50,6 +50,7 @@ import { getPack } from "@/server/services/packs";
 import { applyIndustryPack, listIndustryPacks } from "@/server/services/packs/apply";
 import { toE164 } from "@/server/services/retell/payload";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { appBaseUrlFor } from "@/server/services/platform-brand";
 
 /** The timezone every CrankLeads company starts in (Ontario). Editable in Settings. */
 export const CRANKLEADS_DEFAULT_TIMEZONE = "America/Toronto";
@@ -64,7 +65,16 @@ const defaultDeps: ProvisionDeps = { sendEmail: defaultSendEmail };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type StripeObject = Record<string, any>;
 
+/**
+ * The buyer's app origin — appBaseUrlFor("crankleads"): CRANKLEADS_APP_BASE_URL once set, else
+ * APP_BASE_URL. Every link a buyer gets (set-password, sign-in, form) uses it.
+ */
 function appUrl(): string {
+  return appBaseUrlFor("crankleads");
+}
+
+/** Operator-only links (/internal/ops) stay on the house app origin. */
+function operatorAppUrl(): string {
   return getAppBaseUrl().replace(/\/+$/, "");
 }
 
@@ -350,6 +360,8 @@ async function ensureOrganization(
     stripeCustomerId: customerId,
     billingEmail: purchase.owner_email,
     crankleadsTier: tier,
+    // A CrankLeads buyer sees CrankLeads everywhere, never EmpireVu (docs/crankleads-branding.md).
+    platformBrand: "crankleads",
     // Never move an existing user's default org out from under them.
     setAsDefaultOrganization: !existingUser,
   });
@@ -603,7 +615,7 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
           existingUser,
           packId: pack?.id ?? null,
           welcomeEmailError: welcomeError,
-          appUrl: appUrl(),
+          appUrl: operatorAppUrl(),
         }),
       );
       await updatePurchase(admin, purchase.id, { operator_notified_at: new Date().toISOString() });

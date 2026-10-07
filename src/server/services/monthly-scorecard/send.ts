@@ -10,6 +10,7 @@ import {
   previousMonthKey,
 } from "@/server/services/monthly-scorecard/months";
 import { scorecardPlatformBrandName } from "@/server/services/monthly-scorecard/platform-brand";
+import { appBaseUrlFor, brandForOrg, platformBrand, type PlatformBrand } from "@/server/services/platform-brand";
 import {
   buildMonthlyScorecard,
   companyTimeZone,
@@ -89,12 +90,8 @@ function ctxFor(admin: Admin, organizationId: string): TenantServiceContext {
   return { organizationId, actorProfileId: null, supabase: admin };
 }
 
-function appBaseUrl(): string {
-  return (process.env.APP_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-}
-
-export function scorecardReportUrl(): string {
-  return `${appBaseUrl()}/reports/monthly`;
+export function scorecardReportUrl(brand: PlatformBrand = platformBrand(null)): string {
+  return `${appBaseUrlFor(brand)}/reports/monthly`;
 }
 
 /** The month a scheduled run reports on: the last COMPLETE month in the company's timezone. */
@@ -187,6 +184,7 @@ async function processCompany(
   admin: Admin,
   company: ScorecardRunCompany,
   orgSubscriptionStatus: string | null,
+  brand: PlatformBrand,
   options: Required<Pick<ScorecardRunOptions, "nowMs" | "dryRun" | "force">> & { month: string | null },
 ): Promise<ScorecardRunOutcome> {
   const timeZone = companyTimeZone(company);
@@ -201,8 +199,8 @@ async function processCompany(
     // Preview: compute + render regardless, report what a real run would do. Writes nothing.
     const card = await buildMonthlyScorecard(context, company, month, options.nowMs);
     const email = renderScorecardEmail(card, {
-      platformBrand: scorecardPlatformBrandName(),
-      reportUrl: scorecardReportUrl(),
+      platformBrand: scorecardPlatformBrandName(brand),
+      reportUrl: scorecardReportUrl(brand),
       primaryColor: company.brand_primary_color,
     });
     const owner = await resolveOwnerContacts(context, company, { allowPlatformFallback: false });
@@ -237,8 +235,8 @@ async function processCompany(
 
   const card = await buildMonthlyScorecard(context, company, month, options.nowMs);
   const email = renderScorecardEmail(card, {
-    platformBrand: scorecardPlatformBrandName(),
-    reportUrl: scorecardReportUrl(),
+    platformBrand: scorecardPlatformBrandName(brand),
+    reportUrl: scorecardReportUrl(brand),
     primaryColor: company.brand_primary_color,
   });
 
@@ -258,7 +256,7 @@ async function processCompany(
       companyId: company.id,
       contactId: null,
       consentContact: null,
-      fromName: scorecardPlatformBrandName(),
+      fromName: scorecardPlatformBrandName(brand),
     });
     emailStatus = result.status;
     if (result.status !== "sent") failure = result.reason ?? result.status;
@@ -313,20 +311,24 @@ export async function runMonthlyScorecards(admin: Admin, options: ScorecardRunOp
 
   const orgIds = [...new Set((companies ?? []).map((company) => company.organization_id))];
   const orgStatus = new Map<string, string>();
+  const orgBrand = new Map<string, PlatformBrand>();
   if (orgIds.length > 0) {
     const { data: orgs, error: orgError } = await admin
       .from("organizations")
-      .select("id, subscription_status")
+      .select("id, subscription_status, platform_brand, crankleads_tier")
       .in("id", orgIds);
     if (orgError) throw orgError;
-    for (const org of orgs ?? []) orgStatus.set(org.id, org.subscription_status);
+    for (const org of orgs ?? []) {
+      orgStatus.set(org.id, org.subscription_status);
+      orgBrand.set(org.id, brandForOrg(org));
+    }
   }
 
   const outcomes: ScorecardRunOutcome[] = [];
   for (const company of companies ?? []) {
     try {
       outcomes.push(
-        await processCompany(admin, company, orgStatus.get(company.organization_id) ?? null, {
+        await processCompany(admin, company, orgStatus.get(company.organization_id) ?? null, orgBrand.get(company.organization_id) ?? platformBrand(null), {
           nowMs,
           month: options.month ?? null,
           dryRun: options.dryRun === true,

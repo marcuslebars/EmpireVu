@@ -27,6 +27,7 @@ import { textBackWindowMinutes, transcriptionEnabled } from "@/server/services/t
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import { deliverMessage, resolveOwnerContacts } from "@/server/services/workflow-engine/messaging";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
+import { configuredAppBaseUrlFor, loadOrganizationBrand, platformBrand, type PlatformBrand } from "@/server/services/platform-brand";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 type MissedCallRow = Tables<"missed_calls">;
@@ -502,8 +503,12 @@ export function playableRecordingUrl(recordingUrl: string | null): string | null
  * raw Twilio recording URL is a bearer link (anyone holding it can listen), so it is never
  * put in an email.
  */
-export function appLinkForMissedCall(row: Pick<MissedCallRow, "contact_id">): string | null {
-  const base = process.env.APP_BASE_URL?.trim().replace(/\/+$/, "");
+export function appLinkForMissedCall(
+  row: Pick<MissedCallRow, "contact_id">,
+  brand: PlatformBrand = platformBrand(null),
+): string | null {
+  // No link when no app origin is configured (unchanged behaviour); the org's own host otherwise.
+  const base = configuredAppBaseUrlFor(brand);
   if (!base) return null;
   return row.contact_id ? `${base}/crm/${row.contact_id}` : `${base}/`;
 }
@@ -518,6 +523,8 @@ export function buildVoicemailOwnerAlert(args: {
   textBackStatus: string;
   /** An SMS to the caller was actually sent (message_log), not just an event emitted. */
   textedBack: boolean;
+  /** Product name the owner knows the app by (EmpireVu / CrankLeads). */
+  productName?: string;
 }): { subject: string; body: string } {
   const who = args.callerNumber ?? "a private number";
   const textLine =
@@ -531,7 +538,7 @@ export function buildVoicemailOwnerAlert(args: {
   const lines = [
     `New voicemail from ${who}${args.companyName ? ` for ${args.companyName}` : ""}${args.durationSeconds ? ` (${args.durationSeconds}s)` : ""}.`,
     "",
-    args.transcript ? `"${args.transcript}"` : "(No transcript — open the call in EmpireVu to listen.)",
+    args.transcript ? `"${args.transcript}"` : `(No transcript — open the call in ${args.productName ?? platformBrand(null).name} to listen.)`,
     "",
     args.appUrl ? `Listen and call back: ${args.appUrl}` : null,
     textLine,
@@ -586,10 +593,12 @@ async function alertOwnerOfVoicemail(admin: AdminClient, rowId: string, callSid:
       .maybeSingle();
     const companyRow = company as Pick<Tables<"companies">, "name" | "owner_email" | "owner_phone_e164"> | null;
     const owner = await resolveOwnerContacts(context, companyRow);
+    const brand = await loadOrganizationBrand(admin, row.organization_id);
     const alert = buildVoicemailOwnerAlert({
+      productName: brand.name,
       companyName: companyRow?.name ?? null,
       callerNumber: row.from_number,
-      appUrl: appLinkForMissedCall(row),
+      appUrl: appLinkForMissedCall(row, brand),
       durationSeconds: row.recording_duration_seconds,
       transcript: row.transcription_text,
       textBackStatus: row.text_back_status,

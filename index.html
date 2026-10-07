@@ -12,6 +12,27 @@
     <meta property="og:title" content="EmpireVu" />
     <meta property="og:description" content="EmpireVu - Your business operations platform" />
     <meta property="og:type" content="website" />
+    <script>
+      // CrankLeads host (app.crankleads.com, *.crankleads.com, crankleads.localhost): brand the
+      // page before React loads so a buyer never sees an EmpireVu tab or blue flash. Mirrors
+      // brandForHost() in src/lib/platform-brand.ts; BrandProvider takes over once mounted.
+      (function () {
+        var h = location.hostname.toLowerCase();
+        if (!/(^|\.)crankleads\.(com|localhost)$/.test(h)) return;
+        document.documentElement.setAttribute("data-brand", "crankleads");
+        document.title = "CrankLeads";
+        var links = document.querySelectorAll('link[rel~="icon"]');
+        for (var i = 0; i < links.length; i++) {
+          links[i].setAttribute("href", "/brand/crankleads-favicon.svg");
+          links[i].setAttribute("type", "image/svg+xml");
+        }
+        var metas = document.querySelectorAll('meta[name="description"], meta[name="author"], meta[property^="og:"]');
+        for (var j = 0; j < metas.length; j++) {
+          var c = metas[j].getAttribute("content") || "";
+          metas[j].setAttribute("content", c.replace(/EmpireVu/g, "CrankLeads"));
+        }
+      })();
+    </script>
   </head>
 
   <body>

@@ -1,3 +1,4 @@
+import { brandForOrg, type PlatformBrandKey } from "@/lib/platform-brand";
 import { ONBOARDING_STEPS, getOnboardingProgress } from "@/server/services/onboarding";
 import { listCompanies } from "@/server/services/companies";
 import type { TenantServiceContext } from "@/server/services/shared";
@@ -15,6 +16,8 @@ export interface HelpAccountContext {
   plan: string | null;
   subscriptionStatus: string | null;
   crankleadsTier: string | null;
+  /** Product name the asker knows the app by (docs/crankleads-branding.md). Absent = EmpireVu. */
+  platformBrand?: PlatformBrandKey;
   role: string | null;
   companyName: string | null;
   setup: { done: string[]; remaining: string[] } | null;
@@ -49,6 +52,7 @@ export const EMPTY_ACCOUNT_CONTEXT: HelpAccountContext = {
   plan: null,
   subscriptionStatus: null,
   crankleadsTier: null,
+  platformBrand: "empirevu",
   role: null,
   companyName: null,
   setup: null,
@@ -64,7 +68,7 @@ export async function loadHelpAccountContext(
   try {
     const { data: org, error } = await context.supabase
       .from("organizations")
-      .select("name, plan, subscription_status, crankleads_tier")
+      .select("name, plan, subscription_status, crankleads_tier, platform_brand")
       .eq("id", context.organizationId)
       .maybeSingle();
     if (error) throw error;
@@ -73,6 +77,7 @@ export async function loadHelpAccountContext(
       result.plan = org.plan;
       result.subscriptionStatus = org.subscription_status;
       result.crankleadsTier = org.crankleads_tier;
+      result.platformBrand = brandForOrg(org).key;
     }
   } catch (err) {
     console.warn("[help] account context: organization read failed:", err instanceof Error ? err.message : err);

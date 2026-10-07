@@ -14,10 +14,18 @@ import { extractAiUsage, parseModelJson, type AiUsageMeta } from "@/server/ai/cl
  * given, no dollar amounts) before it is shown.
  */
 
-export const HELP_SYSTEM_PROMPT = `You are the Help assistant inside EmpireVu, the app small trades businesses (plumbers, roofers, landscapers, snow removal, marine services…) use to catch calls and leads, send quotes and texts, and take bookings. The person asking is a business owner or one of their staff, usually not technical.
+/**
+ * The rules, naming the product the asker knows (EmpireVu or CrankLeads — the org's platform
+ * brand). Only the name differs, so each brand's prompt is still cached.
+ */
+export function helpSystemPrompt(productName: string): string {
+  return HELP_SYSTEM_PROMPT_TEMPLATE.replace(/\{\{product\}\}/g, productName);
+}
+
+const HELP_SYSTEM_PROMPT_TEMPLATE = `You are the Help assistant inside {{product}}, the app small trades businesses (plumbers, roofers, landscapers, snow removal, marine services…) use to catch calls and leads, send quotes and texts, and take bookings. The person asking is a business owner or one of their staff, usually not technical.
 
 Rules — follow all of them:
-1. Answer ONLY from the help article sections inside <help_articles>. Do not use outside knowledge about EmpireVu, phone carriers, Stripe or anything else to fill gaps.
+1. Answer ONLY from the help article sections inside <help_articles>. Do not use outside knowledge about {{product}}, phone carriers, Stripe or anything else to fill gaps.
 2. Never invent features, buttons, menu paths, settings, timelines or policies that the articles don't state.
 3. Never state a price, fee or dollar amount. For anything about cost, say to see their plan in Settings → Billing & Plans.
 4. If the articles don't clearly answer the question, set status to "not_sure", say "I'm not sure" in one short sentence, and suggest Contact support so a person can help. Do the same if they ask for something only a person can do (refunds, account changes, fixing something broken).
@@ -28,6 +36,9 @@ Rules — follow all of them:
 9. You can't see or change anything in their account and can't take actions. Never claim you did something.
 
 The response shape is fixed by a schema — fill in every field it asks for.`;
+
+/** The EmpireVu prompt (house accounts). */
+export const HELP_SYSTEM_PROMPT = helpSystemPrompt("EmpireVu");
 
 export const helpAnswerSchema = z.object({
   status: z.enum(["answered", "not_sure"]),
@@ -59,6 +70,7 @@ const HELP_ANSWER_JSON_SCHEMA: Record<string, unknown> = {
 /** One call to the model with an already-assembled user message (see services/help/assistant.ts). */
 export async function callHelpModel(
   userMessage: string,
+  productName = "EmpireVu",
 ): Promise<{ answer: HelpModelAnswer; usage: AiUsageMeta }> {
   // The zero-arg client reads ANTHROPIC_API_KEY from the environment.
   const client = new Anthropic();
@@ -72,7 +84,7 @@ export async function callHelpModel(
     // the panel responsive and the cost per question low.
     thinking: { type: "disabled" },
     // The rules are identical on every question: cache them.
-    system: [{ type: "text", text: HELP_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+    system: [{ type: "text", text: helpSystemPrompt(productName), cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: userMessage }],
     output_config: { format: { type: "json_schema", schema: HELP_ANSWER_JSON_SCHEMA } },
   });

@@ -10,10 +10,12 @@ import { Loader2, AlertCircle, CheckCircle, Chrome } from "lucide-react";
 import { supabase, getSupabaseConfigDiagnostic } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { Logo } from "@/components/brand/Logo";
+import { useBrand } from "@/lib/brand-context";
 
 export default function SignUpPage() {
   const navigate = useNavigate();
   const { status, signInWithOAuth } = useAuth();
+  const brand = useBrand();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -144,7 +146,7 @@ export default function SignUpPage() {
           <CardHeader className="pb-4">
             <CardTitle className="text-xl font-semibold tracking-tight">Create your account</CardTitle>
             <CardDescription className="text-muted-foreground">
-              Get started with EmpireVu
+              Get started with {brand.name}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">

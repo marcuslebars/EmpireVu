@@ -1,14 +1,26 @@
 /**
  * CrankLeads purchase emails — PURE renderers (golden-tested in src/test/crankleads-purchase.test.ts).
  *
- * The buyer bought the CrankLeads offer; the app they log into is EmpireVu. So these emails
- * name CrankLeads only as the thing purchased ("Your CrankLeads system is ready") and send
- * the buyer to EmpireVu to log in. No prices in here (Working Protocol #4).
+ * The buyer bought CrankLeads, and CrankLeads is what they log into: their account is a
+ * CrankLeads-branded org (organizations.platform_brand = 'crankleads') on the CrankLeads app
+ * host (appBaseUrlFor("crankleads"): CRANKLEADS_APP_BASE_URL once set, else APP_BASE_URL). Copy
+ * names the host of the actual link (appHostOf), never a hard-coded one. These emails never say
+ * "EmpireVu" (docs/crankleads-branding.md). No prices in here (Working Protocol #4).
  */
+import { PLATFORM_BRANDS } from "@/lib/platform-brand";
 import { CRANKLEADS_OFFER_NAME, CRANKLEADS_TIER_LABELS, type CrankleadsTier } from "@/server/services/crankleads/config";
 
 /** The app the buyer logs into. */
-export const APP_PRODUCT_NAME = "EmpireVu";
+export const APP_PRODUCT_NAME = PLATFORM_BRANDS.crankleads.name;
+
+/** The host of the app URL, for copy ("log in at <host>"). */
+export function appHostOf(appUrl: string): string {
+  try {
+    return new URL(appUrl).host;
+  } catch {
+    return appUrl.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  }
+}
 
 export interface RenderedEmail {
   subject: string;
@@ -21,7 +33,7 @@ export interface WelcomeEmailInput {
   ownerName: string;
   businessName: string;
   tier: CrankleadsTier;
-  /** Set-password link (new user) — null for an existing EmpireVu user. */
+  /** Set-password link (new user) — null for someone who already had a login. */
   setPasswordUrl: string | null;
   /** Sign-in / onboarding link. */
   appUrl: string;
@@ -74,14 +86,15 @@ export function renderWelcomeEmail(input: WelcomeEmailInput): RenderedEmail {
   const subject = `Your ${CRANKLEADS_OFFER_NAME} system is ready — finish setup (10 min)`;
   const done = doneList(input);
   const steps = remainingSteps(input);
+  const host = appHostOf(input.appUrl);
   const loginLine = input.setPasswordUrl
-    ? `1) Set your password and log in to ${APP_PRODUCT_NAME}:\n${input.setPasswordUrl}\n(This link works once and expires — if it has, use "Forgot password" at ${input.appUrl}/forgot-password with this email address.)`
-    : `1) Log in to ${APP_PRODUCT_NAME} with your existing account — ${input.businessName} is now in your account list:\n${input.appUrl}/onboarding`;
+    ? `1) Set your password and log in to ${APP_PRODUCT_NAME} at ${host}:\n${input.setPasswordUrl}\n(This link works once and expires — if it has, use "Forgot password" at ${input.appUrl}/forgot-password with this email address.)`
+    : `1) Log in to ${APP_PRODUCT_NAME} at ${host} with your existing login — ${input.businessName} is now in your account list:\n${input.appUrl}/onboarding`;
 
   const body = [
     `Hi ${firstName(input.ownerName)},`,
     "",
-    `Thanks for buying ${CRANKLEADS_OFFER_NAME} ${tierLabel}. Your system for ${input.businessName} is set up and runs on ${APP_PRODUCT_NAME}.`,
+    `Thanks for buying ${CRANKLEADS_OFFER_NAME} ${tierLabel}. Your ${APP_PRODUCT_NAME} system for ${input.businessName} is set up — you log in at ${host}.`,
     "",
     "Already done for you:",
     ...done.map((line) => `  • ${line}`),
@@ -102,11 +115,11 @@ export function renderWelcomeEmail(input: WelcomeEmailInput): RenderedEmail {
     `<p><a href="${escapeHtml(href)}" style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600">${escapeHtml(label)}</a></p>`;
   const html = [
     `<p>Hi ${escapeHtml(firstName(input.ownerName))},</p>`,
-    `<p>Thanks for buying ${CRANKLEADS_OFFER_NAME} ${escapeHtml(tierLabel)}. Your system for <strong>${escapeHtml(input.businessName)}</strong> is set up and runs on ${APP_PRODUCT_NAME}.</p>`,
+    `<p>Thanks for buying ${CRANKLEADS_OFFER_NAME} ${escapeHtml(tierLabel)}. Your ${APP_PRODUCT_NAME} system for <strong>${escapeHtml(input.businessName)}</strong> is set up — you log in at <a href="${escapeHtml(input.appUrl)}">${escapeHtml(host)}</a>.</p>`,
     `<p><strong>Already done for you:</strong></p><ul>${li(done)}</ul>`,
     input.setPasswordUrl
       ? `${button(input.setPasswordUrl, `Set your password and log in to ${APP_PRODUCT_NAME}`)}<p style="font-size:12px;color:#6b7280">This link works once and expires. If it has, use “Forgot password” at ${escapeHtml(input.appUrl)}/forgot-password with this email address.</p>`
-      : `${button(`${input.appUrl}/onboarding`, `Log in to ${APP_PRODUCT_NAME}`)}<p style="font-size:12px;color:#6b7280">Use your existing ${APP_PRODUCT_NAME} login — ${escapeHtml(input.businessName)} is now in your account list.</p>`,
+      : `${button(`${input.appUrl}/onboarding`, `Log in to ${APP_PRODUCT_NAME}`)}<p style="font-size:12px;color:#6b7280">Use your existing login at ${escapeHtml(host)} — ${escapeHtml(input.businessName)} is now in your account list.</p>`,
     `<p><strong>Then finish these ${steps.length} steps (about 10 minutes):</strong></p><ol>${li(steps)}</ol>`,
     input.formUrl
       ? `<p>Your website lead form: <a href="${escapeHtml(input.formUrl)}">${escapeHtml(input.formUrl)}</a><br><span style="font-size:12px;color:#6b7280">Share it on Google, Facebook or by text — leads land in your inbox right away.</span></p>`

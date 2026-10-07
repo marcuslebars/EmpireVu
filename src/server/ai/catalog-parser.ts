@@ -84,7 +84,7 @@ export async function fetchWebsiteText(rawUrl: string): Promise<string> {
     const response = await fetch(url.toString(), {
       signal: controller.signal,
       redirect: "follow",
-      headers: { "User-Agent": "EmpireVu-Onboarding/1.0", Accept: "text/html" },
+      headers: { "User-Agent": "WebsiteImport/1.0", Accept: "text/html" },
     });
     if (!response.ok) throw new ValidationError(`Couldn't fetch the site (${response.status}).`);
     const html = (await response.text()).slice(0, MAX_BYTES * 4);

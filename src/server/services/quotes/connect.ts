@@ -21,6 +21,7 @@ import type { createSupabaseServerClient } from "@/server/supabase/server";
 import { fromJson, toJson } from "@/server/db/json";
 import { getPlatformStripe } from "./company-stripe";
 import { getQuotesConfig } from "./config";
+import { appBaseUrlFor, type PlatformBrand, type PlatformBrandKey } from "@/server/services/platform-brand";
 
 /** The RLS-scoped request client. Reads below use it so a member only ever sees
  *  their own org's companies — it is the authorization boundary for the routes
@@ -212,9 +213,16 @@ export async function backfillConnectedAccountCapabilities(
   return result;
 }
 
-/** Where Stripe sends the tenant back to after onboarding. */
-export function onboardingUrls(companyId: string): { returnUrl: string; refreshUrl: string } {
-  const base = (process.env.APP_BASE_URL ?? getQuotesConfig().publicBaseUrl).replace(/\/$/, "");
+/**
+ * Where Stripe sends the tenant back to after onboarding — their own app host
+ * (appBaseUrlFor: CRANKLEADS_APP_BASE_URL for a CrankLeads org once set; APP_BASE_URL otherwise).
+ */
+export function onboardingUrls(
+  companyId: string,
+  brand: PlatformBrand | PlatformBrandKey = "empirevu",
+): { returnUrl: string; refreshUrl: string } {
+  const key = typeof brand === "string" ? brand : brand.key;
+  const base = (key === "empirevu" ? process.env.APP_BASE_URL ?? getQuotesConfig().publicBaseUrl : appBaseUrlFor(key)).replace(/\/$/, "");
   return {
     returnUrl: `${base}/settings/payments?company=${encodeURIComponent(companyId)}&connected=1`,
     // Account Links expire; Stripe calls refresh_url to get a fresh one.

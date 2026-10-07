@@ -10,6 +10,7 @@ import {
   startConnectOnboarding,
 } from "@/server/services/quotes/connect";
 import { createSupabaseServerClient } from "@/server/supabase/server";
+import { loadOrganizationBrand } from "@/server/services/platform-brand";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,7 @@ export async function POST(_request: Request, context: RouteContext): Promise<Ne
 
     const link = await startConnectOnboarding(
       context.params.companyId,
-      onboardingUrls(context.params.companyId),
+      onboardingUrls(context.params.companyId, await loadOrganizationBrand(supabase, context.params.organizationId)),
     );
     return NextResponse.json({ data: { url: link.url } });
   });

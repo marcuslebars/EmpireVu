@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { OrgProvider } from "@/lib/org-context";
+import { BrandProvider } from "@/lib/brand-context";
 import { rememberPostAuthPath } from "@/lib/public-routes";
 import { ErrorBoundary, GlobalErrorHandler } from "@/components/system/ErrorBoundary";
 import { ProtectedRoute, AuthRedirect } from "@/components/system/ProtectedRoute";
@@ -62,7 +63,7 @@ const queryClient = new QueryClient({
   },
 });
 
-function LoadingScreen({ message = "Loading EmpireVu..." }: { message?: string }) {
+function LoadingScreen({ message = "Loading…" }: { message?: string }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-muted/50 gap-4">
       <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -194,7 +195,7 @@ function ImpossibleStateFallback({ phase }: { phase: string }) {
               <AlertTriangle className="w-6 h-6 text-destructive" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-foreground mb-1">EmpireVu failed to load</h1>
+              <h1 className="text-xl font-semibold text-foreground mb-1">The app failed to load</h1>
               <p className="text-sm text-muted-foreground">
                 An unexpected bootstrap state was reached: {phase}
               </p>
@@ -528,7 +529,7 @@ function AppBootstrap() {
                   <AlertTriangle className="w-6 h-6 text-destructive" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-semibold text-foreground mb-1">EmpireVu failed to load</h1>
+                  <h1 className="text-xl font-semibold text-foreground mb-1">The app failed to load</h1>
                   <p className="text-sm text-muted-foreground">
                     An error occurred during bootstrap. Try reloading.
                   </p>
@@ -554,11 +555,13 @@ function App() {
       <GlobalErrorHandler>
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
-            <TooltipProvider>
-              <Toaster />
-              <Sonner />
-              <AppBootstrap />
-            </TooltipProvider>
+            <BrandProvider>
+              <TooltipProvider>
+                <Toaster />
+                <Sonner />
+                <AppBootstrap />
+              </TooltipProvider>
+            </BrandProvider>
           </AuthProvider>
         </QueryClientProvider>
       </GlobalErrorHandler>

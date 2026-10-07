@@ -14,6 +14,7 @@ import TurnstileWidget from "@/components/TurnstileWidget";
 import { inkOnWhite, textOn } from "@/lib/brand-colors";
 import type { PortalBrand } from "@/lib/portal-api";
 import { useDocumentTitle } from "@/lib/use-document-title";
+import { useCustomerFavicon } from "@/lib/brand-context";
 
 const DEFAULT_PRIMARY = "#1f2937";
 const INK = "#111827";
@@ -107,6 +108,8 @@ export default function PublicBookingPage() {
     });
   }, [load]);
 
+  // Tab icon: the company's logo, else a neutral icon — never a platform mark.
+  useCustomerFavicon(page?.brand.logoUrl);
   useDocumentTitle(page?.brand.name ? `Book with ${page.brand.name}` : page ? `Book with ${page.company.name}` : null);
 
   const days = useMemo(() => {

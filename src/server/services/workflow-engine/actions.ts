@@ -5,6 +5,7 @@ import { createActivityEvent } from "@/server/services/activity-events";
 import { updateBookingStatus } from "@/server/services/bookings";
 import { assignContactOwner, updateContactStage } from "@/server/services/contacts";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { loadOrganizationBrand } from "@/server/services/platform-brand";
 import { assignTaskUser, createTask, updateTaskStatus } from "@/server/services/tasks";
 import { createDraftForContact } from "@/server/services/ai-drafts";
 import { callContactWithMarina } from "@/server/services/voice";
@@ -370,7 +371,10 @@ export async function executeWorkflowActions(
       case "notify_owner": {
         const data = await getTemplateData();
         const owner = await getOwnerContacts();
-        const subject = action.subject ? renderTemplate(action.subject, data) : "EmpireVu alert";
+        // Default subject names the org's platform brand ("CrankLeads alert" for a CrankLeads org).
+        const subject = action.subject
+          ? renderTemplate(action.subject, data)
+          : `${(await loadOrganizationBrand(context.supabase, context.organizationId)).name} alert`;
         const body = renderTemplate(action.body, data);
         const wantSms = action.channel === "sms" || action.channel === "both";
         const wantEmail = action.channel === "email" || action.channel === "both";

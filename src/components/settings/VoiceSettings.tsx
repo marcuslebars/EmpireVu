@@ -6,6 +6,7 @@ import { toast } from "@/components/ui/sonner";
 import { useOrg } from "@/lib/org-context";
 import { useCompanies, useUpsertVoiceProfile, useVoiceProfiles } from "@/lib/api-hooks";
 import { UpgradeNudge, useCanUseFeature } from "@/components/billing/UpgradeNudge";
+import { useBrand } from "@/lib/brand-context";
 
 /** A ready-to-use outbound prompt. The owner can edit it, or start from scratch. */
 const STARTER_PROMPT = `# Identity
@@ -64,6 +65,7 @@ function renderPreview(template: string, vars: Record<string, string>): string {
 }
 
 export function VoiceSettings() {
+  const brand = useBrand();
   const { organizationId } = useOrg();
   const { data: companies, isLoading: companiesLoading } = useCompanies(organizationId);
   const { data: profiles } = useVoiceProfiles(organizationId);
@@ -340,7 +342,7 @@ export function VoiceSettings() {
             />
             <p className="text-xs text-muted-foreground mt-1">
               Variables like <code className="font-mono">{"{{customer_name}}"}</code> are filled in
-              per call. EmpireVu is the source of truth — this text is injected into the call.
+              per call. {brand.name} is the source of truth — this text is injected into the call.
             </p>
 
             {showPreview && (

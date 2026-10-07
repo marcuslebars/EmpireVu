@@ -790,6 +790,7 @@ export interface Database {
           id: string;
           name: string;
           plan: string;
+          platform_brand: string;
           slug: string;
           stripe_customer_id: string | null;
           subscription_status: string;
@@ -804,6 +805,7 @@ export interface Database {
           id?: string;
           name: string;
           plan?: string;
+          platform_brand?: string;
           slug: string;
           stripe_customer_id?: string | null;
           subscription_status?: string;
@@ -818,6 +820,7 @@ export interface Database {
           id?: string;
           name?: string;
           plan?: string;
+          platform_brand?: string;
           slug?: string;
           stripe_customer_id?: string | null;
           subscription_status?: string;

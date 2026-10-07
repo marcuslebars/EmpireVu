@@ -23,7 +23,14 @@ interface User {
 interface SessionContextResponse {
   activeOrganizationId: string | null;
   companies: Array<{ id: string; name: string; stage: string }>;
-  organizations: Array<{ id: string; name: string; slug: string; membershipRole: string }>;
+  organizations: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    membershipRole: string;
+    /** "empirevu" | "crankleads" — absent from an older server (treated as EmpireVu). */
+    platformBrand?: string;
+  }>;
   profile: { id: string; email: string; fullName: string | null } | null;
   user: { id: string; email?: string };
 }

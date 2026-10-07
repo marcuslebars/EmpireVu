@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { CheckCircle2, Loader2, Phone } from "lucide-react";
 import { useDocumentTitle } from "@/lib/use-document-title";
+import { useCustomerFavicon } from "@/lib/brand-context";
 
 import TurnstileWidget from "@/components/TurnstileWidget";
 import { fetchPublicFormConfig, submitPublicForm, type PublicFormConfig } from "@/lib/website-forms-api";
@@ -12,11 +13,10 @@ import { fetchPublicFormConfig, submitPublicForm, type PublicFormConfig } from "
  *   2. inside the iframe /embed/v1.js renders on the owner's website (`?embed=1` hides
  *      the header and reports its height to the parent so the iframe auto-resizes);
  *   3. the "Send a test lead" button in Settings posts to the same endpoint.
- * Shows only display-safe company info (name, logo, public phone, service labels).
+ * Shows only display-safe company info (name, logo, public phone, service labels). The
+ * page is the COMPANY's: no platform credit (a CrankLeads tenant's customers must not see
+ * "EmpireVu"), and the tab icon is the company's logo or a neutral one.
  */
-
-/** Platform credit in the footer. Single constant — branding is centralized later. */
-const POWERED_BY_NAME = "EmpireVu";
 
 const OTHER = "__other__";
 const RESIZE_MESSAGE = "evform:resize";
@@ -137,6 +137,7 @@ export default function PublicLeadFormPage() {
     };
   }, [ctx.embed, formKey, status, done]);
 
+  useCustomerFavicon(config?.company.logoUrl);
   useDocumentTitle(config?.company.name ? `${config.company.name} — ${config.form.formType === "contact" ? "Contact us" : "Get a quote"}` : null);
 
   const accent = config?.company.primaryColor ?? "#0f172a";
@@ -328,7 +329,6 @@ export default function PublicLeadFormPage() {
           </div>
         )}
 
-        <p className="text-center text-[11px] text-slate-400 mt-3 mb-1">Powered by {POWERED_BY_NAME}</p>
       </div>
     </div>
   );

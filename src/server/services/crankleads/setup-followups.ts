@@ -39,6 +39,7 @@ import {
   type DeliverMessageInput,
   type DeliverMessageResult,
 } from "@/server/services/workflow-engine/messaging";
+import { appBaseUrlFor } from "@/server/services/platform-brand";
 
 /** Live detection keeps checking a not-yet-live buyer this long after provisioning. */
 export const LIVE_DETECTION_LOOKBACK_DAYS = 90;
@@ -81,7 +82,13 @@ export interface FollowupOutcome {
   reason?: string;
 }
 
+/** The buyer's app origin: the CrankLeads host (setup reminders go only to CrankLeads buyers). */
 function appUrl(): string {
+  return appBaseUrlFor("crankleads");
+}
+
+/** Operator-only links (/internal/ops) stay on the house app origin. */
+function operatorAppUrl(): string {
   return (process.env.APP_BASE_URL ?? "http://localhost:3000").replace(/\/+$/, "");
 }
 
@@ -378,7 +385,7 @@ async function sendReminder(
         organizationId: checklist.organizationId,
         provisionedAt: purchase.provisioned_at ?? "-",
         steps: checklist.steps.map((s) => ({ title: s.title, done: s.done })),
-        appUrl: base,
+        appUrl: operatorAppUrl(),
       });
       try {
         await deps.sendEmail({ to: operator, subject: email.subject, body: email.body, html: email.html, fromName: email.fromName });

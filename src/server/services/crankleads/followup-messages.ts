@@ -1,14 +1,15 @@
 /**
  * CrankLeads setup follow-up messages — PURE renderers (golden-tested in
  * src/test/crankleads-setup-followups.test.ts). Purchase-context, so they are sent as
- * CrankLeads (sender name CRANKLEADS_OFFER_NAME); the app the owner logs into stays EmpireVu.
+ * CrankLeads (sender name CRANKLEADS_OFFER_NAME), and the app the owner logs into is CrankLeads
+ * too (appUrl = the CrankLeads app host). Never "EmpireVu" (docs/crankleads-branding.md).
  * No prices (Working Protocol #4). No employee names (Protocol #16) — "your AI receptionist".
  *
  * Short, friendly, specific: every reminder names the exact unfinished steps and links
  * straight to the next one.
  */
 import { CRANKLEADS_OFFER_NAME, CRANKLEADS_TIER_LABELS, type CrankleadsTier } from "@/server/services/crankleads/config";
-import { APP_PRODUCT_NAME, type RenderedEmail } from "@/server/services/crankleads/emails";
+import { APP_PRODUCT_NAME, appHostOf, type RenderedEmail } from "@/server/services/crankleads/emails";
 import type { ReminderStage } from "@/server/services/crankleads/followup-schedule";
 import type { PhonePath } from "@/server/services/crankleads/setup-checklist";
 
@@ -81,7 +82,7 @@ export function renderReminderEmail(input: ReminderMessageInput): RenderedEmail 
   const loginNote = input.setPasswordUrl
     ? [
         "",
-        `You haven't set your ${APP_PRODUCT_NAME} password yet — this link sets it and takes you straight to the next step:`,
+        `You haven't set your ${APP_PRODUCT_NAME} password yet (you log in at ${appHostOf(input.appUrl)}) — this link sets it and takes you straight to the next step:`,
         input.setPasswordUrl,
         `(It works once and expires. If it has, use "Forgot password" at ${input.appUrl}/forgot-password.)`,
       ]

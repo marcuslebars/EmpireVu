@@ -24,6 +24,8 @@ import { createCheckoutSession } from "@/server/services/billing/checkout";
 
 type OrgRow = {
   billing_email: string | null;
+  platform_brand?: string;
+  crankleads_tier?: string | null;
   id: string;
   name: string;
   plan: string;
@@ -130,5 +132,29 @@ describe("createCheckoutSession", () => {
 
     expect(customersCreate).not.toHaveBeenCalled();
     expect(sessionsCreate.mock.calls[0][0].customer).toBe("cus_existing");
+  });
+
+  it("an EmpireVu org keeps the account branding and APP_BASE_URL return links", async () => {
+    const { client } = makeSupabase(org());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await createCheckoutSession(client as any, { organizationId: "org-1", plan: "launch" });
+    const params = sessionsCreate.mock.calls[0][0];
+    expect(params.branding_settings).toBeUndefined();
+    expect(params.success_url).toBe("https://app.test/settings/billing?checkout=success");
+  });
+
+  it("a CrankLeads org gets CrankLeads Checkout branding and returns to the CrankLeads host", async () => {
+    process.env.CRANKLEADS_APP_BASE_URL = "https://app.crankleads.test";
+    try {
+      const { client } = makeSupabase(org({ platform_brand: "crankleads", crankleads_tier: "catch" }));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await createCheckoutSession(client as any, { organizationId: "org-1", plan: "launch" });
+      const params = sessionsCreate.mock.calls[0][0];
+      expect(params.branding_settings).toMatchObject({ display_name: "CrankLeads", button_color: "#a6ee2b" });
+      expect(params.success_url).toBe("https://app.crankleads.test/settings/billing?checkout=success");
+      expect(params.cancel_url).toBe("https://app.crankleads.test/settings/billing?checkout=cancelled");
+    } finally {
+      delete process.env.CRANKLEADS_APP_BASE_URL;
+    }
   });
 });

@@ -30,6 +30,7 @@ import {
   startInvoicePayment,
   type PublicInvoice,
 } from "@/lib/invoices-api";
+import { useCustomerFavicon } from "@/lib/brand-context";
 
 const DEFAULT_PRIMARY = "#1f2937";
 const INK = "#111827";
@@ -191,6 +192,7 @@ export default function PublicInvoicePage() {
   const onPrimary = textOn(primary);
   const accentText = inkOnWhite(primary);
 
+  useCustomerFavicon(invoice?.brand.logoUrl);
   /**
    * The tab names the COMPANY, never the platform. Restored on unmount so the
    * operator's tab doesn't keep a customer's company name after navigating back.
