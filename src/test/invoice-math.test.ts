@@ -112,14 +112,12 @@ describe("quote → invoice conversion", () => {
   const quote: QuoteForInvoice = {
     title: "Winter storage",
     quote_number: "Q-2026-0042",
-    line_items: [],
     approved_line_items: [
       { label: "Outdoor storage", description: "24 ft", quantity: 1, unitPriceCents: 60000, amountCents: 60000, optional: false, selected: true },
       { label: "Shrink wrap", description: "Shrink wrap", quantity: 1, unitPriceCents: 52000, amountCents: 52000, optional: false, selected: true },
       { label: "Battery storage", description: "", quantity: 2, unitPriceCents: 2500, amountCents: 5000, optional: true, selected: true },
       { label: "Bottom paint", description: "", quantity: 1, unitPriceCents: 40000, amountCents: 40000, optional: true, selected: false },
     ],
-    subtotal_cents: 0,
     approved_subtotal_cents: 107000, // bundle saved $100
     tax_rate_bps: 1300,
     approved_deposit_cents: 25000,
@@ -146,17 +144,10 @@ describe("quote → invoice conversion", () => {
     expect(d.title).toBe("Winter storage (Q-2026-0042)");
   });
 
-  it("falls back to the live selection for an unapproved quote", () => {
-    const d = quoteToInvoiceDraft({
-      ...quote,
-      approved_line_items: null,
-      approved_subtotal_cents: null,
-      line_items: quote.approved_line_items,
-      subtotal_cents: 117000,
-      deposit_paid_at: null,
-    });
-    expect(d.lines.map((l) => l.label)).toEqual(["Outdoor storage", "Shrink wrap", "Battery storage"]);
-    expect(d.creditCents).toBe(0);
+  it("never bills an unapproved quote's live lines — there is no fallback", () => {
+    // Live lines re-price with the price list and were never accepted by anyone.
+    expect(() => quoteToInvoiceDraft({ ...quote, approved_line_items: null, approved_subtotal_cents: null, deposit_paid_at: null })).toThrow();
+    expect(() => quoteToInvoiceDraft({ ...quote, approved_line_items: [] })).toThrow();
   });
 
   it("invoices a whole-priced engine line as one line of its amount", () => {

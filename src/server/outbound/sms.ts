@@ -54,7 +54,8 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
 
   if (!config) {
     throw new OutboundNotConfiguredError(
-      "SMS sending is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM_NUMBER on the server.",
+      "Text messaging isn't set up yet, so nothing was sent. Please contact support.",
+      "TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER missing",
     );
   }
 
@@ -80,7 +81,8 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
     });
   } catch (error) {
     throw new OutboundSendError(
-      `Could not reach Twilio: ${error instanceof Error ? error.message : String(error)}`,
+      "The text couldn't be sent because the messaging service didn't respond. Please try again in a few minutes.",
+      `Twilio unreachable: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
@@ -96,6 +98,9 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
       .catch(() => "");
 
     throw new OutboundSendError(
+      response.status === 400
+        ? "The text couldn't be sent — check that the customer's mobile number is right and can receive texts."
+        : "The text couldn't be sent. Please try again in a few minutes.",
       `Twilio rejected the message (${response.status})${detail ? `: ${detail}` : ""}`,
     );
   }

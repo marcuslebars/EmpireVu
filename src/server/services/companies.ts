@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { Inserts, Json, Tables, Updates } from "@/server/db/database.types";
 import { slugify } from "@/server/db/helpers";
+import { ValidationError } from "@/server/organizations/context";
 import { createActivityEvent } from "@/server/services/activity-events";
 import {
   assertCompanyInOrganization,
@@ -66,7 +67,17 @@ export async function createCompany(
     ...(input.stage ? { stage: input.stage } : {}),
   } satisfies Inserts<"companies">;
 
-  const data = await insertRow(context, "companies", payload);
+  let data: Tables<"companies">;
+  try {
+    data = await insertRow(context, "companies", payload);
+  } catch (error) {
+    // The slug is unique per organization; a second company with the same name (or
+    // slug) hits the constraint. Say so in words instead of a raw 500.
+    if ((error as { code?: unknown } | null)?.code === "23505") {
+      throw new ValidationError("You already have a company with that name. Use a different name, or edit the existing company.");
+    }
+    throw error;
+  }
 
   await createActivityEvent(context, {
     companyId: data.id,

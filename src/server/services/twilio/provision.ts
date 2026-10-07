@@ -22,6 +22,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Tables } from "@/server/db/database.types";
 import { buildForwardingInstructions, prettyPhone, type ForwardingInstructions } from "@/lib/carrier-forwarding";
+import { UserFacingError } from "@/server/errors";
 import { ValidationError } from "@/server/organizations/context";
 import { toE164 } from "@/server/services/retell/payload";
 import { assertCompanyInOrganization, type TenantServiceContext } from "@/server/services/shared";
@@ -67,6 +68,42 @@ export function getTwilioCredentials(): { accountSid: string; authToken: string 
   return accountSid && authToken ? { accountSid, authToken } : null;
 }
 
+/**
+ * Twilio error codes that mean "that number can't be had" (taken between search and
+ * buy, or not offered any more): 21422 not available, 21452 none found, 21404 not found.
+ */
+const NUMBER_UNAVAILABLE_CODES = new Set([21422, 21452, 21404]);
+
+/**
+ * A Twilio call failed. The message is for the owner setting up their number — short,
+ * plain, no Twilio JSON; the raw status/body stay in `detail` for the logs.
+ */
+export class TwilioProvisionError extends UserFacingError {
+  constructor(
+    readonly twilioStatus: number,
+    readonly twilioCode: number | null,
+    readonly detail: string,
+  ) {
+    super(
+      twilioCode !== null && NUMBER_UNAVAILABLE_CODES.has(twilioCode)
+        ? "That number was just taken — pick another."
+        : "Couldn't set up that number. Try another or contact support.",
+      { status: 502, code: twilioCode !== null && NUMBER_UNAVAILABLE_CODES.has(twilioCode) ? "number_unavailable" : "number_setup_failed" },
+    );
+    this.name = "TwilioProvisionError";
+  }
+}
+
+/** Twilio's JSON error body carries a numeric `code`; null when it's not JSON. */
+export function twilioErrorCode(body: string): number | null {
+  try {
+    const code = (JSON.parse(body) as { code?: unknown }).code;
+    return typeof code === "number" ? code : typeof code === "string" && /^\d+$/.test(code) ? Number(code) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Real fetch-backed client (Basic auth, form-encoded — same as outbound/sms.ts). */
 export function createTwilioNumbersClient(creds: { accountSid: string; authToken: string }): TwilioNumbersClient {
   const auth = `Basic ${Buffer.from(`${creds.accountSid}:${creds.authToken}`).toString("base64")}`;
@@ -79,8 +116,10 @@ export function createTwilioNumbersClient(creds: { accountSid: string; authToken
       ...(form ? { body: new URLSearchParams(form).toString() } : {}),
     });
     if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      throw new Error(`Twilio ${method} ${url.replace(account, "")} failed (${response.status})${detail ? `: ${detail.slice(0, 300)}` : ""}`);
+      const body = await response.text().catch(() => "");
+      const detail = `Twilio ${method} ${url.replace(account, "")} failed (${response.status})${body ? `: ${body.slice(0, 300)}` : ""}`;
+      console.error(`[twilio] ${detail}`);
+      throw new TwilioProvisionError(response.status, twilioErrorCode(body), detail);
     }
     return response.json().catch(() => ({}));
   };

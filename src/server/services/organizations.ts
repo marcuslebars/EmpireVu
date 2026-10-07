@@ -60,7 +60,7 @@ export async function createOrganization(
   }
 
   if (existingOrg) {
-    throw new Error("An organization with this slug already exists.");
+    throw new ValidationError("An organization with this slug already exists.");
   }
 
   // A brand-new self-serve org starts on a time-boxed trial — NOT the `internal`

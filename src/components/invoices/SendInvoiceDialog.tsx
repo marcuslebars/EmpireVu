@@ -105,7 +105,7 @@ export function SendInvoiceDialog({
             className={cn(primaryBtnCls, "flex-1")}
           >
             {send.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-            {isDraft ? (email || sms ? "Send invoice" : "Issue without sending") : "Resend"}
+            {isDraft ? (email || sms ? "Send invoice" : "Save as final, don't send") : "Resend"}
           </button>
         </div>
       </div>

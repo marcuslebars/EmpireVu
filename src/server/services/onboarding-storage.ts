@@ -4,6 +4,7 @@
 // writes must go through here — always behind the authed org-member check in the calling
 // route, to a path prefixed by the org id. No other route may import createSupabaseAdminClient.
 // ─────────────────────────────────────────────────────────────────────────────
+import { ValidationError } from "@/server/organizations/context";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 const ALLOWED = new Map<string, string>([
@@ -23,9 +24,9 @@ export interface UploadBrandingLogoInput {
 
 export async function uploadBrandingLogo(input: UploadBrandingLogoInput): Promise<{ url: string }> {
   const ext = ALLOWED.get(input.contentType);
-  if (!ext) throw new Error("Logo must be a PNG, JPEG, WebP, or SVG image.");
-  if (input.bytes.byteLength === 0) throw new Error("The uploaded file was empty.");
-  if (input.bytes.byteLength > MAX_BYTES) throw new Error("Logo must be 2 MB or smaller.");
+  if (!ext) throw new ValidationError("Logo must be a PNG, JPEG, WebP, or SVG image.");
+  if (input.bytes.byteLength === 0) throw new ValidationError("The uploaded file was empty.");
+  if (input.bytes.byteLength > MAX_BYTES) throw new ValidationError("Logo must be 2 MB or smaller.");
 
   const admin = createSupabaseAdminClient();
   const path = `${input.organizationId}/${input.companyId}/logo-${Date.now()}.${ext}`;

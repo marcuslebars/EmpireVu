@@ -45,6 +45,8 @@ const updateSchema = z
     title: z.string().max(200).optional(),
     introMessage: z.string().max(5000).optional(),
     notes: z.string().max(5000).optional(),
+    /** Set after the owner confirmed a total change on a quote the customer already has. */
+    confirmTotalChange: z.boolean().optional(),
   })
   .refine((v) => v.services.length + v.customLines.length > 0, {
     message: "A quote needs at least one service or custom line.",
@@ -75,7 +77,13 @@ export async function GET(_request: Request, context: RouteContext): Promise<Nex
   });
 }
 
-/** Re-price and edit. Refused once the quote is approved — see updateQuote. */
+/**
+ * Re-price and edit. Refused once the quote is approved — see updateQuote.
+ *
+ * On a sent / viewed quote, an edit that would change the total the customer sees
+ * is NOT saved unless `confirmTotalChange: true` is sent: the answer is
+ * 409 { code: "total_changed", oldTotalCents, newTotalCents } so the app can ask.
+ */
 export async function PATCH(request: Request, context: RouteContext): Promise<NextResponse> {
   return handleRoute(async () => {
     const off = disabledResponse();
@@ -114,6 +122,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
         title: parsed.title,
         introMessage: parsed.introMessage,
         notes: parsed.notes,
+        confirmTotalChange: parsed.confirmTotalChange,
       },
     );
     return NextResponse.json({ data: quote });

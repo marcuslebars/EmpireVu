@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { handleRoute } from "@/server/api/route";
-import { InvoiceCheckoutError, createInvoiceCheckout } from "@/server/services/invoices/public";
+import { BANK_DEBIT_UNAVAILABLE_MESSAGE, InvoiceCheckoutError, createInvoiceCheckout } from "@/server/services/invoices/public";
 import { CompanyStripeError } from "@/server/services/quotes/company-stripe";
 import { enforceRateLimit } from "@/server/services/rate-limit";
 
@@ -42,6 +42,12 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
         const status = err.code === "not_found" ? 404 : 409;
         return NextResponse.json({ error: err.message, code: err.code }, { status });
       }
+      if (parsed.data.method === "bank_debit" && isStripeError(err)) {
+        // Stripe refused the debit somewhere we didn't anticipate. The customer can
+        // still pay another way — say so instead of showing an error page.
+        console.error("[invoices/pay] bank debit failed at Stripe:", err instanceof Error ? err.message : err);
+        return NextResponse.json({ error: BANK_DEBIT_UNAVAILABLE_MESSAGE, code: "method_unavailable" }, { status: 409 });
+      }
       if (err instanceof CompanyStripeError) {
         // The brand hasn't finished Stripe setup — the customer can't fix that.
         console.error("[invoices/pay] brand cannot take payments:", err.message);
@@ -52,5 +58,11 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
       }
       throw err;
     }
-  });
+  }, request);
+}
+
+/** Errors thrown by the Stripe SDK carry a `type` like "StripeInvalidRequestError". */
+function isStripeError(err: unknown): boolean {
+  const type = (err as { type?: unknown } | null)?.type;
+  return typeof type === "string" && type.startsWith("Stripe");
 }

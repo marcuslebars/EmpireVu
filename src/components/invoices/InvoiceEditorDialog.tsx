@@ -716,7 +716,7 @@ export function InvoiceEditorDialog({
           </button>
           <button type="button" disabled={isPending} onClick={() => void submit(true)} className={cn(primaryBtnCls, "sm:flex-1")}>
             {isPending && sendIntent ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-            {isDraft ? "Save & send" : "Save & resend"}
+            {isDraft ? "Save & send" : "Save, then resend…"}
           </button>
         </div>
       </form>

@@ -5,6 +5,7 @@
 import { toJson } from "@/server/db/json";
 import { assertCompanyInOrganization, type TenantServiceContext } from "@/server/services/shared";
 import { loadCompanyForInvoice } from "./common";
+import { bankDebitReadyFor, stripeReadyFor } from "./document";
 import { InvoiceValidationError } from "./errors";
 import { invoiceSettingsSchema, parseInvoiceSettings, type InvoiceSettings, type InvoiceSettingsInput } from "./settings";
 
@@ -16,6 +17,11 @@ export interface CompanyInvoiceSettings {
   settings: InvoiceSettings;
   /** Online payments need the brand's Stripe account connected and able to charge. */
   stripeReady: boolean;
+  /**
+   * Stripe has approved this brand for Canadian bank debit (the acss_debit_payments
+   * capability is active). Customers only see "Bank debit" when this is true.
+   */
+  bankDebitReady: boolean;
 }
 
 export async function getCompanyInvoiceSettings(ctx: TenantServiceContext, companyId: string): Promise<CompanyInvoiceSettings> {
@@ -28,7 +34,8 @@ export async function getCompanyInvoiceSettings(ctx: TenantServiceContext, compa
     taxRegistrationNumber: company.tax_registration_number,
     businessAddress: company.business_address,
     settings: parseInvoiceSettings(company.invoice_settings),
-    stripeReady: Boolean(company.stripe_connected_account_id && company.stripe_charges_enabled),
+    stripeReady: stripeReadyFor(company),
+    bankDebitReady: bankDebitReadyFor(company),
   };
 }
 

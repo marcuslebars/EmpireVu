@@ -222,7 +222,17 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "Expired quotes",
         body:
-          "Each quote is valid until its expiry date. After that the customer's page says it has expired; send a new quote if they still want the work.",
+          "Each quote is valid until its expiry date. After that the customer's page says it has expired; use Make a new version on the quote (or start a new one) if they still want the work.",
+      },
+      {
+        heading: "Changing a quote the customer already has",
+        body:
+          "While the customer hasn't approved it yet, Edit the quote and press Save — customer's link updates. If saving would change the total (for example because you changed prices in your price list since it was sent), you're shown the old and new totals and asked before anything is saved. To replace a quote instead, use Make a new version: it voids the old one and opens an unsent draft copy for you to change — nothing goes to the customer until you send it.",
+      },
+      {
+        heading: "Invoicing a quote",
+        body:
+          "Create invoice appears once the customer has approved the quote, and the invoice uses exactly the lines and prices they approved, with any deposit they paid taken off. A quote that hasn't been approved yet can't be turned into an invoice — send it to the customer so they can approve it first.",
       },
     ],
   },
@@ -258,7 +268,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "Sending",
         body:
-          "Save & send (or Send invoice on a draft) checks the invoice first and tells you exactly what's still missing, for example \"choose who it's for\" or \"give line 2 a description\". Once it's sent it gets its number and payment terms start.",
+          "Save & send (or Send invoice on a draft) checks the invoice first and tells you exactly what's still missing, for example \"choose who it's for\" or \"give line 2 a description\". Once it's sent it gets its number and payment terms start. To issue it without emailing or texting anyone, untick both options and press Save as final, don't send — it gets its number and you share the pay link yourself.",
       },
       {
         heading: "Getting a copy of what you send",

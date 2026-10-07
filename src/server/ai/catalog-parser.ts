@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { getWorkflowsModel } from "@/server/ai/config";
 import { extractAiUsage, extractJsonObject, isAIConfigured, parseModelJson, type AiUsageMeta } from "@/server/ai/claude";
+import { ValidationError } from "@/server/organizations/context";
 import { PRICING_TYPES } from "@/server/services/quotes/catalog-items";
 
 /**
@@ -56,10 +57,10 @@ function assertFetchableUrl(raw: string): URL {
   try {
     url = new URL(raw);
   } catch {
-    throw new Error("Enter a valid website URL (including https://).");
+    throw new ValidationError("Enter a valid website URL (including https://).");
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("Only http(s) URLs are supported.");
+    throw new ValidationError("Only http(s) URLs are supported.");
   }
   const host = url.hostname.toLowerCase();
   const blocked =
@@ -70,7 +71,7 @@ function assertFetchableUrl(raw: string): URL {
     /^192\.168\./.test(host) ||
     /^169\.254\./.test(host) ||
     /^172\.(1[6-9]|2\d|3[01])\./.test(host);
-  if (blocked) throw new Error("That host isn't reachable.");
+  if (blocked) throw new ValidationError("That host isn't reachable.");
   return url;
 }
 
@@ -85,11 +86,11 @@ export async function fetchWebsiteText(rawUrl: string): Promise<string> {
       redirect: "follow",
       headers: { "User-Agent": "EmpireVu-Onboarding/1.0", Accept: "text/html" },
     });
-    if (!response.ok) throw new Error(`Couldn't fetch the site (${response.status}).`);
+    if (!response.ok) throw new ValidationError(`Couldn't fetch the site (${response.status}).`);
     const html = (await response.text()).slice(0, MAX_BYTES * 4);
     return extractReadableText(html);
   } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") throw new Error("The site took too long to respond.");
+    if (err instanceof Error && err.name === "AbortError") throw new ValidationError("The site took too long to respond.");
     throw err instanceof Error ? err : new Error("Couldn't fetch the site.");
   } finally {
     clearTimeout(timer);
@@ -142,7 +143,7 @@ export async function draftCatalogFromWebsite(
   }
   const text = await fetchWebsiteText(rawUrl);
   if (text.length < 40) {
-    throw new Error("That page didn't have enough readable text to work from.");
+    throw new ValidationError("That page didn't have enough readable text to work from.");
   }
 
   const client = new Anthropic();

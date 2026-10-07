@@ -14,6 +14,7 @@
  * Uses fetch rather than the resend SDK to match the existing house pattern (notify.ts)
  * and to avoid adding a dependency.
  */
+import { UserFacingError } from "@/server/errors";
 
 export interface SendEmailInput {
   to: string;
@@ -46,9 +47,36 @@ export interface OutboundEmailConfig {
   replyTo: string | null;
 }
 
-export class OutboundNotConfiguredError extends Error {}
+/**
+ * Sending (email / SMS / calls) isn't set up on this server. The message is shown to
+ * the owner as-is, so it says what happened in plain words; which env var is missing
+ * goes in `detail`, for the logs only. → 503
+ */
+export class OutboundNotConfiguredError extends UserFacingError {
+  constructor(
+    message: string,
+    readonly detail: string | null = null,
+  ) {
+    super(message, { status: 503, code: "outbound_not_configured" });
+    this.name = "OutboundNotConfiguredError";
+    if (detail) console.error(`[outbound] ${message} (${detail})`);
+  }
+}
 
-export class OutboundSendError extends Error {}
+/**
+ * The provider refused or couldn't be reached. Plain message for the owner; the
+ * provider's own status and body (JSON, ids) stay in `detail` for the logs. → 502
+ */
+export class OutboundSendError extends UserFacingError {
+  constructor(
+    message: string,
+    readonly detail: string | null = null,
+  ) {
+    super(message, { status: 502, code: "outbound_send_failed" });
+    this.name = "OutboundSendError";
+    if (detail) console.error(`[outbound] ${message} (${detail.slice(0, 500)})`);
+  }
+}
 
 export function readEmailConfig(): OutboundEmailConfig | null {
   const apiKey = process.env.RESEND_API_KEY;
@@ -77,7 +105,8 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
 
   if (!config) {
     throw new OutboundNotConfiguredError(
-      "Email sending is not configured. Set RESEND_API_KEY and OUTBOUND_FROM_EMAIL on the server.",
+      "Email sending isn't set up yet, so nothing was sent. Please contact support.",
+      "RESEND_API_KEY / OUTBOUND_FROM_EMAIL missing",
     );
   }
 
@@ -105,13 +134,17 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
     });
   } catch (error) {
     throw new OutboundSendError(
-      `Could not reach Resend: ${error instanceof Error ? error.message : String(error)}`,
+      "The email couldn't be sent because the email service didn't respond. Please try again in a few minutes.",
+      `Resend unreachable: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     throw new OutboundSendError(
+      response.status === 422 || response.status === 400
+        ? "The email service refused this email — check the email address and try again."
+        : "The email couldn't be sent. Please try again in a few minutes.",
       `Resend rejected the email (${response.status})${detail ? `: ${detail}` : ""}`,
     );
   }

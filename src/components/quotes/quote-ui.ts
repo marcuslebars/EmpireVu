@@ -3,7 +3,7 @@
  * the send-outcome toast. Form classes and money parsing come from the invoice screens.
  */
 import { toast } from "@/components/ui/sonner";
-import type { EmailOutcome } from "@/lib/api-client";
+import { ApiError, type EmailOutcome } from "@/lib/api-client";
 import { formatCents } from "@/lib/invoices-api";
 import type { CatalogItemSummary, QuotePreviewLine } from "@/lib/quotes-api";
 
@@ -106,3 +106,15 @@ export function toastQuoteSent(quoteNumber: string | null, email: EmailOutcome, 
 
 /** Matches InvoiceEditorDialog's error box. */
 export const errorBoxCls = "rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive";
+
+/**
+ * The server refused to save because the edit would change the total on a quote the
+ * customer already has (409 code "total_changed"). Returns both totals, else null.
+ */
+export function totalChangeFrom(err: unknown): { oldTotalCents: number; newTotalCents: number } | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null;
+  const body = err.body as { code?: unknown; oldTotalCents?: unknown; newTotalCents?: unknown } | undefined;
+  if (!body || body.code !== "total_changed") return null;
+  if (typeof body.oldTotalCents !== "number" || typeof body.newTotalCents !== "number") return null;
+  return { oldTotalCents: body.oldTotalCents, newTotalCents: body.newTotalCents };
+}

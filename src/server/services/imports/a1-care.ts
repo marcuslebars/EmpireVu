@@ -22,6 +22,29 @@ import { DEFAULT_WINDOWS, zonedInstant, type BookingWindowDef } from "@/server/s
 
 export const IMPORT_SOURCE = "import:a1marinecare";
 
+/**
+ * The approval snapshot for a quote whose deposit was paid on the Care site. Paying the
+ * deposit there WAS the customer's acceptance, but it happened outside EmpireVu's
+ * approve step, so nothing froze approved_*. Invoicing (and the public page) bill only
+ * from that snapshot, so an imported paid quote gets one built from its own stored
+ * lines and totals — the amounts it was imported at. Pure.
+ */
+export function importedApprovalSnapshot(
+  quote: { line_items: unknown; subtotal_cents: number; tax_cents: number; total_cents: number; deposit_cents: number },
+  paidAt: string,
+  customerName: string | null,
+): Record<string, unknown> {
+  return {
+    approved_at: paidAt,
+    approved_by_name: customerName ? `${customerName} (paid deposit on the previous site)` : "Paid deposit on the previous site",
+    approved_line_items: quote.line_items,
+    approved_subtotal_cents: quote.subtotal_cents,
+    approved_tax_cents: quote.tax_cents,
+    approved_total_cents: quote.total_cents,
+    approved_deposit_cents: quote.deposit_cents,
+  };
+}
+
 const depositSchema = z
   .object({ paidAt: z.string(), stripeSessionId: z.string().nullable().optional(), amountCents: z.number().nullable().optional() })
   .nullable();
