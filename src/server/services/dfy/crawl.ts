@@ -8,7 +8,7 @@
  * parser reads services + stated prices from.
  */
 import { extractReadableText } from "@/server/ai/catalog-parser";
-import { safeFetchText, type SafeFetchOptions } from "@/server/net/safe-fetch";
+import { isPageContentType, safeFetchText, type SafeFetchOptions } from "@/server/net/safe-fetch";
 
 export const MAX_EXTRA_PAGES = 5;
 const PAGE_MAX_BYTES = 400_000;
@@ -285,6 +285,7 @@ export async function crawlWebsite(rawUrl: string, businessName: string | null, 
   const fetchOpts: SafeFetchOptions = { ...deps, maxBytes: PAGE_MAX_BYTES, userAgent: "Mozilla/5.0 (compatible; SiteSetup/1.0)" };
   const home = await safeFetchText(rawUrl, fetchOpts);
   if (home.status < 200 || home.status >= 300) throw new Error(`The website answered ${home.status}.`);
+  if (!isPageContentType(home.contentType)) throw new Error(`The website's homepage isn't a web page (${home.contentType}).`);
   const pages: CrawledPage[] = [{ url: home.url, text: extractReadableText(home.body) }];
   const htmls: string[] = [home.body];
   const failures: CrawlResult["failures"] = [];
@@ -292,8 +293,8 @@ export async function crawlWebsite(rawUrl: string, businessName: string | null, 
   for (const url of selectCrawlLinks(extractLinks(home.body, home.url), home.url)) {
     try {
       const page = await safeFetchText(url, fetchOpts);
-      if (page.status < 200 || page.status >= 300 || !/html|text\/plain|^$/i.test(page.contentType)) {
-        failures.push({ url, reason: `status ${page.status}` });
+      if (page.status < 200 || page.status >= 300 || !isPageContentType(page.contentType)) {
+        failures.push({ url, reason: page.status < 200 || page.status >= 300 ? `status ${page.status}` : `not a page (${page.contentType})` });
         continue;
       }
       pages.push({ url: page.url, text: extractReadableText(page.body) });

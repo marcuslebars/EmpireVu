@@ -1,8 +1,9 @@
 // Preloaded (NODE_OPTIONS=--require) into Next dev and the e2e driver. Redirects fetch() calls
 // for the third-party hosts the app talks to — and the fake buyer's website — to the local
 // fakes server (fakes.mjs), keeping the original host in `x-e2e-host`. DNS for the fake
-// website resolves to a public TEST-NET address so the SSRF guard (safe-fetch.ts) treats it
-// like any real site; the request itself still lands on the fakes server.
+// website resolves to a public (non-reserved) address so the SSRF guard (safe-fetch.ts) treats
+// it like any real site; the request itself still lands on the fakes server. The guard's pinned
+// dispatcher is dropped on redirected calls (the fakes server is on loopback by design).
 "use strict";
 const dns = require("node:dns");
 const { syncBuiltinESMExports } = require("node:module");
@@ -18,7 +19,7 @@ const HOSTS = new Set([
   "www.northshoresnow.ca",
 ]);
 const WEBSITE_HOSTS = new Set(["northshoresnow.ca", "www.northshoresnow.ca"]);
-const FAKE_PUBLIC_IP = "203.0.113.42";
+const FAKE_PUBLIC_IP = "93.184.215.14";
 
 const realFetch = globalThis.fetch;
 if (realFetch && !realFetch.__e2ePatched) {
@@ -37,7 +38,8 @@ if (realFetch && !realFetch.__e2ePatched) {
     const method = init?.method ?? (input instanceof Request ? input.method : "GET");
     let body = init?.body;
     if (body === undefined && input instanceof Request && method !== "GET" && method !== "HEAD") body = await input.arrayBuffer();
-    return realFetch(target, { ...init, method, headers, body, redirect: init?.redirect ?? "follow" });
+    const { dispatcher: _pinned, ...rest } = init ?? {};
+    return realFetch(target, { ...rest, method, headers, body, redirect: init?.redirect ?? "follow" });
   };
   patched.__e2ePatched = true;
   globalThis.fetch = patched;

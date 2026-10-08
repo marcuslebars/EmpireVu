@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { getWorkflowsModel } from "@/server/ai/config";
 import { extractAiUsage, extractJsonObject, isAIConfigured, parseModelJson, type AiUsageMeta } from "@/server/ai/claude";
-import { safeFetchText, type SafeFetchOptions } from "@/server/net/safe-fetch";
+import { isPageContentType, safeFetchText, type SafeFetchOptions } from "@/server/net/safe-fetch";
 import { ValidationError } from "@/server/organizations/context";
 import { PRICING_TYPES } from "@/server/services/quotes/catalog-items";
 
@@ -56,6 +56,7 @@ export function parseCatalogResponse(raw: string): CatalogDraft[] {
 export async function fetchWebsiteText(rawUrl: string, options: SafeFetchOptions = {}): Promise<string> {
   const page = await safeFetchText(rawUrl, { maxBytes: MAX_BYTES * 4, timeoutMs: FETCH_TIMEOUT_MS, ...options });
   if (page.status < 200 || page.status >= 300) throw new ValidationError(`Couldn't fetch the site (${page.status}).`);
+  if (!isPageContentType(page.contentType)) throw new ValidationError("That link isn't a web page.");
   return extractReadableText(page.body);
 }
 
