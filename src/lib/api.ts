@@ -6,6 +6,8 @@ export interface ApiEnvelope<T> {
 export interface SessionContextResponse {
   activeOrganizationId: string | null;
   companies?: CompanyOption[];
+  /** Concierge operator (OPERATOR_EMAILS) — absent from an older server. */
+  isOperator?: boolean;
   organizations: Array<{
     id: string;
     membershipRole: string;
