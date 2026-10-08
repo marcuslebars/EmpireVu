@@ -17,8 +17,9 @@
  *
  *   catch / close              phone (text-back number active) · forwarding (verified) ·
  *                              automations (missed-call text-back active)
- *   front_desk (AI)            phone (AI number active) · forwarding (verified, OR a real call
- *                              has reached the AI receptionist)
+ *   front_desk (AI)            phone (AI number active) · forwarding (verified, OR a call to the
+ *                              AI receptionist that shows forwarding from the business line —
+ *                              dfy/front-desk-forwarding.ts; a call alone doesn't count)
  *   front_desk (catcher chosen instead of the AI) — as catch / close
  *
  * Prices, payments (Stripe), the website form and the team are NOT required: they are
@@ -31,6 +32,7 @@ import { prettyPhone } from "@/lib/carrier-forwarding";
 import type { Tables } from "@/server/db/database.types";
 import { isCrankleadsTier, type CrankleadsTier } from "@/server/services/crankleads/config";
 import type { OnboardingStep } from "@/server/services/onboarding";
+import { businessLineOf, hasFrontDeskForwardingEvidence } from "@/server/services/dfy/front-desk-forwarding";
 import { needsPrice } from "@/server/services/packs/apply";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { appBaseUrlFor } from "@/server/services/platform-brand";
@@ -60,6 +62,12 @@ export interface SetupFacts {
   aiForwardingVerified?: boolean;
   /** At least one call answered by the AI receptionist (retell_calls) for the company. */
   receptionistCallReceived: boolean;
+  /**
+   * A call to the AI receptionist that shows the business line forwards to it (diversion from
+   * the business line, or a call after the forwarding tap from someone other than the business
+   * line — dfy/front-desk-forwarding.ts). Optional (defaults false). A call alone is NOT enough.
+   */
+  receptionistForwardedCall?: boolean;
   /** companies.stripe_charges_enabled (Stripe Connect ready). */
   paymentsConnected: boolean;
   /** A lead has arrived through the website form (public form key or intake key used). */
@@ -141,7 +149,7 @@ function stepDone(key: SetupStepKey, facts: SetupFacts, phonePath: PhonePath): b
     case "forwarding":
       return phonePath === "missed_call_catcher"
         ? Boolean(facts.catcherNumber) && facts.forwardingVerified
-        : Boolean(facts.aiNumber) && (Boolean(facts.aiForwardingVerified) || facts.receptionistCallReceived);
+        : Boolean(facts.aiNumber) && (Boolean(facts.aiForwardingVerified) || Boolean(facts.receptionistForwardedCall));
     case "test_call":
       return Boolean(facts.aiNumber) && facts.receptionistCallReceived;
     case "payments":
@@ -271,7 +279,12 @@ export async function loadSetupFacts(ctx: TenantServiceContext, companyId: strin
       .eq("company_id", companyId)
       .eq("active", true),
     db.from("retell_calls").select("id").eq("organization_id", org).eq("company_id", companyId).limit(1),
-    db.from("companies").select("stripe_charges_enabled").eq("organization_id", org).eq("id", companyId).maybeSingle(),
+    db
+      .from("companies")
+      .select("stripe_charges_enabled, brand_reply_phone, owner_phone_e164")
+      .eq("organization_id", org)
+      .eq("id", companyId)
+      .maybeSingle(),
     db
       .from("public_form_keys")
       .select("id")
@@ -309,6 +322,17 @@ export async function loadSetupFacts(ctx: TenantServiceContext, companyId: strin
   const catcher = voiceRows.find((row) => row.provider === "twilio" && row.mode === "missed_call_catcher") ?? null;
   const ai = voiceRows.find((row) => row.mode === "ai_receptionist") ?? null;
 
+  const companyRow = company.data as { stripe_charges_enabled: boolean; brand_reply_phone: string | null; owner_phone_e164: string | null } | null;
+  const receptionistForwardedCall =
+    ai && (calls.data ?? []).length > 0 && !ai.forwarding_verified_at
+      ? await hasFrontDeskForwardingEvidence(db, {
+          organizationId: org,
+          companyId,
+          aiNumber: ai.phone_e164,
+          businessLine: businessLineOf(companyRow),
+        })
+      : false;
+
   return {
     pricedServices: items.length - unpriced,
     servicesNeedingPrices: unpriced,
@@ -317,7 +341,8 @@ export async function loadSetupFacts(ctx: TenantServiceContext, companyId: strin
     aiNumber: ai?.phone_e164 ?? null,
     aiForwardingVerified: Boolean(ai?.forwarding_verified_at),
     receptionistCallReceived: (calls.data ?? []).length > 0,
-    paymentsConnected: Boolean((company.data as { stripe_charges_enabled: boolean } | null)?.stripe_charges_enabled),
+    receptionistForwardedCall,
+    paymentsConnected: Boolean(companyRow?.stripe_charges_enabled),
     websiteLeadReceived: (forms.data ?? []).length > 0 || (!intakeKeys.error && (intakeKeys.data ?? []).length > 0),
     textBackActive: (textBack.data ?? []).length > 0,
   };

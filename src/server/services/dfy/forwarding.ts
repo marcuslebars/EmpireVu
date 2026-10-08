@@ -13,6 +13,7 @@ import type { Tables } from "@/server/db/database.types";
 import { isCrankleadsTier, type CrankleadsTier } from "@/server/services/crankleads/config";
 import type { AdminClient } from "@/server/services/crankleads/purchases";
 import { phonePathFor, type PhonePath } from "@/server/services/crankleads/setup-checklist";
+import { hasFrontDeskForwardingEvidence } from "@/server/services/dfy/front-desk-forwarding";
 import { errorMessage, findProgressByForwardToken, patchProgress, type DfyProgress } from "@/server/services/dfy/progress";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { resolveBusinessLine, startOwnerForwardingTest } from "@/server/services/twilio/forwarding-test";
@@ -69,7 +70,18 @@ export async function loadForwardTarget(admin: AdminClient, row: Pick<DfyProgres
   const phonePath = phonePathFor(tierRaw, { catcherNumber: catcher?.phone_e164 ?? null, aiNumber: ai?.phone_e164 ?? null });
   const forwardTo = phonePath === "ai_receptionist" ? ai : catcher;
   const aiCallSeen = !calls.error && (calls.data ?? []).length > 0;
-  const verified = Boolean(forwardTo?.forwarding_verified_at) || (phonePath === "ai_receptionist" && Boolean(ai) && aiCallSeen);
+  // Front Desk: a call that reached the AI number is not enough — it must show forwarding from
+  // the business line (dfy/front-desk-forwarding.ts has the exact rule).
+  const aiForwarded =
+    phonePath === "ai_receptionist" && ai && aiCallSeen && !ai.forwarding_verified_at
+      ? await hasFrontDeskForwardingEvidence(admin, {
+          organizationId: org,
+          companyId: row.company_id,
+          aiNumber: ai.phone_e164,
+          businessLine: resolveBusinessLine(companyRow),
+        })
+      : false;
+  const verified = Boolean(forwardTo?.forwarding_verified_at) || aiForwarded;
   return { company: companyRow, tier: tierRaw, phonePath, forwardTo, verified };
 }
 

@@ -618,7 +618,7 @@ describe("one-tap forwarding page", () => {
     expect(view?.helpRequested).toBe(true);
   });
 
-  it("Front Desk: forwards to the AI number; verified by a call reaching the AI; never auto-test-called", async () => {
+  it("Front Desk: forwards to the AI number; verified only by a call that shows forwarding; never auto-test-called", async () => {
     db = createFakeDb(
       pageTables({
         organizations: [{ id: ORG, crankleads_tier: "front_desk", subscription_status: "active" }],
@@ -631,8 +631,29 @@ describe("one-tap forwarding page", () => {
     expect(view?.plan?.code).toBe("**004*+14165550123#");
     expect(view?.statusMessage).toContain("your AI receptionist should pick up");
     expect(startTest).not.toHaveBeenCalled();
-    db.tables.retell_calls.push({ id: "call-1", organization_id: ORG, company_id: COMPANY });
+    const call = (id: string, overrides: Row) => ({ id, organization_id: ORG, company_id: COMPANY, direction: "inbound", to_number: "+14165550123", raw_payload: {}, ...overrides });
+    // Before the tap: a customer call straight to the AI number proves nothing.
+    db.tables.retell_calls.push(call("call-0", { from_number: "+16475550199", created_at: "2026-10-05T14:00:00Z" }));
+    expect((await pollForwardPage(db.client, TOKEN))?.status).not.toBe("verified");
+    // After the tap, but FROM the business line itself (owner dialled the AI number directly): no.
+    db.tables.retell_calls.push(call("call-1", { from_number: "+14165550101", created_at: "2026-10-05T15:10:00Z" }));
+    expect((await pollForwardPage(db.client, TOKEN))?.status).not.toBe("verified");
+    // After the tap, from another phone → the business line forwarded it.
+    db.tables.retell_calls.push(call("call-2", { from_number: "+16475550199", created_at: "2026-10-05T15:12:00Z" }));
     expect((await pollForwardPage(db.client, TOKEN))?.status).toBe("verified");
+  });
+
+  it("Front Desk evidence rule (pure): diversion header from the business line counts without a tap", async () => {
+    const { isForwardedReceptionistCall, diversionNumbers } = await import("@/server/services/dfy/front-desk-forwarding");
+    const ctx = { businessLine: "+14165550101", aiNumber: "+14165550123", forwardTappedAt: null };
+    const base = { from_number: "+16475550199", to_number: "+14165550123", direction: "inbound", created_at: "2026-10-05T15:00:00Z" };
+    expect(diversionNumbers({ call: { sip_headers: { Diversion: "<sip:+14165550101@carrier.ca>;reason=no-answer" } } })).toEqual(["+14165550101"]);
+    expect(isForwardedReceptionistCall({ ...base, raw_payload: { forwarded_from: "+1 (416) 555-0101" } }, ctx)).toBe(true);
+    expect(isForwardedReceptionistCall({ ...base, raw_payload: { forwarded_from: "+19055550000" } }, ctx)).toBe(false);
+    expect(isForwardedReceptionistCall({ ...base, raw_payload: {} }, ctx)).toBe(false);
+    expect(isForwardedReceptionistCall({ ...base, direction: "outbound", raw_payload: {} }, { ...ctx, forwardTappedAt: "2026-10-05T14:00:00Z" })).toBe(false);
+    expect(isForwardedReceptionistCall({ ...base, to_number: "+19995550000", raw_payload: {} }, { ...ctx, forwardTappedAt: "2026-10-05T14:00:00Z" })).toBe(false);
+    expect(isForwardedReceptionistCall({ ...base, raw_payload: {} }, { ...ctx, forwardTappedAt: "2026-10-05T14:00:00Z" })).toBe(true);
   });
 
   it("status lines", () => {

@@ -138,7 +138,7 @@ after buying, an operator gets a task to call them.
 ### "Live" (new definition — `crankleads/setup-checklist.ts`)
 
 - **Catch / Close** (and Front Desk that chose the catcher): text-back number active **+** forwarding verified (`voice_numbers.forwarding_verified_at`: a passing test or a real forwarded call) **+** the missed-call text-back automation active.
-- **Front Desk**: AI number active **+** forwarding verified on that number **or** a real call has reached the AI receptionist (`retell_calls`).
+- **Front Desk**: AI number active **+** forwarding verified on that number **or** a call to the AI receptionist that shows forwarding from the business line (rule under "Front Desk" below — a call alone doesn't count).
 - Prices, payments (Stripe), the website form, the team and the test call are **not** required. They are `extras` on the checklist (shown in the app as "Optional"), never chased. Nothing asks for Stripe: an owner meets the existing "connect Stripe" explanation the first time they try a deposit or card payment.
 
 Everything reading the checklist follows: the follow-ups, the operator health email (setup stalled / guarantee), the dashboard card, the onboarding API.
@@ -183,7 +183,13 @@ Before relying on a "verify" row: on a real phone on that carrier, dial the code
 
 ### Front Desk
 
-Forwarded calls go to the Retell number, which our Twilio forwarding test can't observe, so Front Desk is verified by the first call that reaches the AI receptionist (the page tells the owner to call their business line from another phone and let it ring). No automatic test call is placed for Front Desk.
+Forwarded calls go to the Retell number, which our Twilio forwarding test can't observe. No automatic test call is placed for Front Desk; the page tells the owner to call their business line from another phone and let it ring. A call that merely reaches the AI number is **not** proof (the owner may have dialled the AI number directly). The exact rule (`dfy/front-desk-forwarding.ts`, used by the checklist and the forwarding page):
+
+Forwarding is verified when the AI number's `voice_numbers.forwarding_verified_at` is set, or a `retell_calls` row for the company — inbound, to its active AI number — is either
+1. **marked forwarded from the business line**: a `forwarded_from` / `diversion` / `redirecting_number` value (top level, under `call`, or inside `sip_headers` / `custom_sip_headers` / `telephony_identifier` of the stored payload) whose last 10 digits equal the business line (`brand_reply_phone ?? owner_phone_e164`). Retell's call webhook today gives `from_number` / `to_number` / `direction` and no standard diversion field, so this is used only if a carrier's diversion info shows up; or
+2. **received after the owner said they turned forwarding on** (`dfy_progress.forward_tapped_at`) from a caller that is neither the business line itself nor the AI number.
+
+A call before the tap, or from the business line, never counts.
 
 ### Data
 

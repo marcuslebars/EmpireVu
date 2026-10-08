@@ -136,12 +136,15 @@ describe("setup checklist — required steps per tier (done-for-you live rules)"
     expect(c.doneCount).toBe(2);
   });
 
-  it("front desk: AI number + (forwarding verified OR a received call) = live; catcher-only front desk switches to the catcher path", () => {
+  it("front desk: AI number + (forwarding verified OR a call that shows forwarding) = live; catcher-only front desk switches to the catcher path", () => {
     const ai = checklist("front_desk", { ...NONE, aiNumber: "+17055550001" });
     expect(ai.phonePath).toBe("ai_receptionist");
     expect(ai.isLive).toBe(false);
     expect(ai.nextStep?.key).toBe("forwarding");
-    expect(checklist("front_desk", { ...NONE, aiNumber: "+17055550001", receptionistCallReceived: true }).isLive).toBe(true);
+    // Any call reaching the AI number is not enough on its own…
+    expect(checklist("front_desk", { ...NONE, aiNumber: "+17055550001", receptionistCallReceived: true }).isLive).toBe(false);
+    // …it has to show forwarding from the business line (dfy/front-desk-forwarding.ts).
+    expect(checklist("front_desk", { ...NONE, aiNumber: "+17055550001", receptionistCallReceived: true, receptionistForwardedCall: true }).isLive).toBe(true);
     expect(checklist("front_desk", { ...NONE, aiNumber: "+17055550001", aiForwardingVerified: true }).isLive).toBe(true);
     // a received call without an AI number never counts
     expect(checklist("front_desk", { ...NONE, receptionistCallReceived: true }).isLive).toBe(false);
