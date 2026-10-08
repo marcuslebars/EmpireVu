@@ -81,3 +81,49 @@ export async function restrictAutomationsToTier(
   }
   return { deactivated: outside.map((w) => w.slug) };
 }
+
+// ── One-off repair for orgs provisioned before this rule ─────────────────────
+
+export interface RepairTierAutomationsItem {
+  organizationId: string;
+  companyId: string;
+  tier: CrankleadsTier;
+  deactivated: string[];
+}
+
+/**
+ * Every CrankLeads org (platform_brand 'crankleads' with a tier): list — and with `apply`, set to
+ * draft — the active catalog recipes outside the tier. Dry-run by default. Idempotent (a second
+ * run finds nothing). Each company is handled with a context pinned to its own organization.
+ */
+export async function repairTierAutomations(
+  admin: TenantServiceContext["supabase"],
+  options: { apply?: boolean; pageSize?: number } = {},
+): Promise<RepairTierAutomationsItem[]> {
+  const pageSize = options.pageSize ?? 200;
+  const out: RepairTierAutomationsItem[] = [];
+  for (let page = 0; ; page++) {
+    const { data, error } = await admin
+      .from("organizations")
+      .select("id, crankleads_tier")
+      .eq("platform_brand", "crankleads")
+      .not("crankleads_tier", "is", null)
+      .order("id", { ascending: true })
+      .range(page * pageSize, page * pageSize + pageSize - 1);
+    if (error) throw new Error(`org list failed: ${error.message}`);
+    const orgs = (data ?? []) as Array<{ id: string; crankleads_tier: string | null }>;
+    for (const org of orgs) {
+      const tier = org.crankleads_tier as CrankleadsTier;
+      if (!["catch", "close", "front_desk"].includes(tier)) continue;
+      const ctx: TenantServiceContext = { organizationId: org.id, actorProfileId: null, supabase: admin };
+      const { data: companies, error: companiesError } = await admin.from("companies").select("id").eq("organization_id", org.id);
+      if (companiesError) throw new Error(`company list failed: ${companiesError.message}`);
+      for (const company of (companies ?? []) as Array<{ id: string }>) {
+        const { deactivated } = await restrictAutomationsToTier(ctx, company.id, tier, { dryRun: !options.apply });
+        if (deactivated.length) out.push({ organizationId: org.id, companyId: company.id, tier, deactivated });
+      }
+    }
+    if (orgs.length < pageSize) break;
+  }
+  return out;
+}

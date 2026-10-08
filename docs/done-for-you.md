@@ -52,6 +52,15 @@ live"), or the page link twice.
   recipe outside `packRecipesForTier(tier) ∪ dfyRecipeSlugs(tier)` is draft
   (`crankleads/tier-automations.ts`). Existing orgs: see "Repair: tier automations" below.
 
+### Repair: tier automations (one-off, existing CrankLeads orgs)
+
+Orgs provisioned before the tier rule may have Close / Front Desk automations running.
+`npm run job:crankleads-repair-automations` lists, per CrankLeads company, every ACTIVE catalog
+recipe outside its tier (dry run — changes nothing). `npm run job:crankleads-repair-automations -- --apply`
+sets those to draft. Idempotent; custom workflows and house orgs are never touched; nothing is
+turned on. Needs `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`. Run the dry run first
+and read the list before applying.
+
 ## Intake & enrichment
 
 **What the buyer sees.** Right after provisioning (`provisionClaimed`, just after the welcome
