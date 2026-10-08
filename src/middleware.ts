@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 import { corsHeadersFor } from "@/server/api/cors";
+import { pagesRewritePath, requestHost } from "@/server/services/dfy/site-host";
 
 /**
  * Session-refresh middleware, plus CORS for the native mobile app.
@@ -18,11 +19,21 @@ import { corsHeadersFor } from "@/server/api/cors";
  * a Bearer token from the mobile app, or the shared intake secret).
  */
 export async function middleware(request: NextRequest) {
+  // Generated sites on the pages host (PAGES_BASE_URL): /<slug> → the /s/<slug> route.
+  // Checked first so nothing else on that host (app, API) is reachable except the lead form.
+  const sitePath = pagesRewritePath(requestHost(request.headers), request.nextUrl.pathname, process.env.PAGES_BASE_URL);
+  if (sitePath) {
+    return NextResponse.rewrite(new URL(sitePath, request.url));
+  }
   if (request.nextUrl.pathname.startsWith("/api/")) {
     return withApiCors(request);
   }
   // Customer review links (/r/{token}) are a bare redirect; there's no session to refresh.
   if (request.nextUrl.pathname.startsWith("/r/")) {
+    return NextResponse.next();
+  }
+  // Generated sites (/s/{slug}) are public pages; no session to refresh.
+  if (request.nextUrl.pathname.startsWith("/s/")) {
     return NextResponse.next();
   }
 

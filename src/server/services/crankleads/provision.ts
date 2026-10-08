@@ -43,6 +43,7 @@ import {
   type AdminClient,
   type CrankleadsPurchase,
 } from "@/server/services/crankleads/purchases";
+import { provisionDoneForYouNumber } from "@/server/services/dfy/orchestrator";
 import { createPublicFormKey, listPublicFormKeys } from "@/server/services/lead-intake/public-form-keys";
 import { upsertOnboardingStep } from "@/server/services/onboarding";
 import { createOrganization } from "@/server/services/organizations";
@@ -50,6 +51,8 @@ import { getPack } from "@/server/services/packs";
 import { applyIndustryPack, listIndustryPacks } from "@/server/services/packs/apply";
 import { toE164 } from "@/server/services/retell/payload";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { createAndSendSetupIntake, ensureSetupIntake } from "@/server/services/dfy/intake";
+import { restrictAutomationsToTier } from "@/server/services/crankleads/tier-automations";
 import { appBaseUrlFor } from "@/server/services/platform-brand";
 
 /** The timezone every CrankLeads company starts in (Ontario). Editable in Settings. */
@@ -447,11 +450,16 @@ async function sendWelcome(
 ): Promise<void> {
   const facts = await welcomeFacts(ctx, purchase, companyId);
   const setPasswordUrl = existingUser ? null : await createSetPasswordUrl(admin, purchase.owner_email);
+  // The 60-second quick-setup link (same link the text carries) — docs/done-for-you.md.
+  const setupUrl = await ensureSetupIntake(admin, { organizationId: ctx.organizationId, companyId })
+    .then((r) => r.url)
+    .catch(() => null);
   const email = renderWelcomeEmail({
     ownerName: purchase.owner_name,
     businessName: purchase.business_name,
     tier,
     setPasswordUrl,
+    setupUrl,
     appUrl: appUrl(),
     ...facts,
   });
@@ -562,6 +570,11 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
     await updatePurchase(admin, purchase.id, { company_id: companyId });
   }
 
+  // 3b) Done-for-you: every new purchase gets its quick-setup intake row now. It is what marks
+  // the company as "done-for-you" for every sweep (legacy companies never have one) — so it
+  // must exist even if the text later fails. Idempotent (one per company).
+  await ensureSetupIntake(admin, { organizationId: org.id, companyId });
+
   // 4) Industry pack for the trade, with the tier's automations.
   const packId = packIdForBusinessType(purchase.business_type);
   const pack = packId ? getPack(packId) : null;
@@ -571,6 +584,9 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
       recipes: packRecipesForTier(tier, pack.recipes.map((r) => r.slug)),
     });
   }
+  // 4b) Only the tier's automations may be active: createCompany installed the whole recipe
+  // catalog at default status (a Catch buyer must not get stale-lead nudges texting leads).
+  await restrictAutomationsToTier(ctx, companyId, tier, { packRecipeSlugs: pack ? pack.recipes.map((r) => r.slug) : [] });
 
   // 5) Website form (the hosted link works the moment they log in).
   await ensureFormUrl(ctx, companyId);
@@ -584,6 +600,11 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
     await upsertOnboardingStep(ctx, companyId, "services", { completed: true, data: { packId: pack.id } });
   }
 
+  // 6b) Done-for-you: buy the tier's number now (text-back number for Catch / Close, the AI
+  // receptionist's for Front Desk; area code from the checkout phone). Never fails provisioning —
+  // a failure is recorded and the done-for-you sweep retries it (docs/done-for-you.md).
+  await provisionDoneForYouNumber(admin, { organizationId: org.id, companyId, tier, ownerPhone: purchase.owner_phone });
+
   // 7) Emails — never fail a provisioned purchase over an email; record and alert instead.
   let welcomeError: string | null = null;
   if (!purchase.welcome_email_sent_at) {
@@ -595,6 +616,12 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
       console.error(`[crankleads/provision] WELCOME EMAIL FAILED for purchase ${purchase.id}: ${welcomeError}`);
       await updatePurchase(admin, purchase.id, { welcome_email_error: welcomeError.slice(0, 1000) });
     }
+  }
+  // Done-for-you: text the quick-setup link (idempotent; never fails provisioning).
+  try {
+    await createAndSendSetupIntake(admin, { organizationId: org.id, companyId, emailBackup: welcomeError ? "always" : "if_sms_fails" });
+  } catch (err) {
+    console.error(`[crankleads/provision] setup intake send failed for purchase ${purchase.id}: ${errorMessage(err)}`);
   }
 
   const operator = operatorEmailAddress();

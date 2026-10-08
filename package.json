@@ -29,6 +29,7 @@
     "job:backfill-stripe-capabilities": "tsx src/server/jobs/backfill-stripe-capabilities.ts",
     "job:seed-demo": "tsx src/server/jobs/seed-demo-org.ts",
     "job:crankleads-provision": "tsx src/server/jobs/crankleads-provision.ts",
+    "job:crankleads-repair-automations": "tsx src/server/jobs/crankleads-repair-tier-automations.ts",
     "job:accounting-sync": "tsx src/server/jobs/accounting-sync.ts",
     "job:operator-health": "tsx src/server/jobs/operator-health.ts",
     "stripe:setup-crankleads": "node scripts/stripe/setup-crankleads.mjs"
@@ -88,6 +89,7 @@
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "tsx": "^4.21.0",
+    "undici": "6.23.0",
     "vaul": "^0.9.9",
     "zod": "^3.25.76"
   },

@@ -174,6 +174,12 @@ export interface ProvisionInput {
   attachNumber?: string | null;
   /** Previously-provisioned ids for an idempotent re-run (update, don't create). */
   existing?: { llmId?: string | null; agentId?: string | null; phoneNumber?: string | null };
+  /**
+   * Called right after each Retell object is CREATED (LLM, agent, purchased number) so the
+   * caller can persist its id before the next step — a retry after a later failure then
+   * updates / reuses it instead of creating a duplicate.
+   */
+  onCreated?: (ids: { llmId?: string; agentId?: string; phoneNumber?: string }) => Promise<void>;
 }
 
 export interface ProvisionResult {
@@ -191,9 +197,13 @@ export async function provisionRetellAgent(client: RetellClient, input: Provisio
 
   // 1) Retell LLM — update if we made one before, else create.
   const llmBody = { general_prompt: input.prompt, begin_message: beginMessage, model };
-  const llmId = existing.llmId
-    ? (await client.updateLlm(existing.llmId, llmBody)).llm_id
-    : (await client.createLlm(llmBody)).llm_id;
+  let llmId: string;
+  if (existing.llmId) {
+    llmId = (await client.updateLlm(existing.llmId, llmBody)).llm_id;
+  } else {
+    llmId = (await client.createLlm(llmBody)).llm_id;
+    await input.onCreated?.({ llmId });
+  }
 
   // 2) Agent bound to that LLM.
   const agentBody: Record<string, unknown> = {
@@ -202,9 +212,13 @@ export async function provisionRetellAgent(client: RetellClient, input: Provisio
     agent_name: `${input.companyName} — Marina`,
     ...(input.webhookUrl ? { webhook_url: input.webhookUrl } : {}),
   };
-  const agentId = existing.agentId
-    ? (await client.updateAgent(existing.agentId, agentBody)).agent_id
-    : (await client.createAgent(agentBody)).agent_id;
+  let agentId: string;
+  if (existing.agentId) {
+    agentId = (await client.updateAgent(existing.agentId, agentBody)).agent_id;
+  } else {
+    agentId = (await client.createAgent(agentBody)).agent_id;
+    await input.onCreated?.({ llmId, agentId });
+  }
 
   // 3) Phone number — reuse the existing one (rebind), attach a supplied one, or purchase.
   const inboundAgents = [{ agent_id: agentId, agent_version: "latest", weight: 1 }];
@@ -238,6 +252,7 @@ export async function provisionRetellAgent(client: RetellClient, input: Provisio
     ...(input.areaCode ? { area_code: input.areaCode } : {}),
     ...bindBody,
   });
+  await input.onCreated?.({ llmId, agentId, phoneNumber: purchased.phone_number });
   return {
     llmId,
     agentId,

@@ -200,17 +200,18 @@ describe("owner-facing copy follows the org's brand", () => {
       stage: "day1" as const,
       ownerName: "Jane",
       businessName: "Jane's Roofing",
-      remaining: [{ title: "Add your prices", action: "add prices" }],
-      nextStepUrl: "https://app.crankleads.com/onboarding?step=services",
-      setPasswordUrl: "https://app.crankleads.com/update-password?token_hash=x",
+      remaining: [{ title: "Turn on call forwarding", action: "turn on call forwarding" }],
+      action: "forwarding" as const,
+      actionUrl: "https://app.crankleads.com/forward/t",
+      phonePath: "missed_call_catcher" as const,
       appUrl: "https://app.crankleads.com",
       stopUrl: "https://app.crankleads.com/api/public/crankleads/setup-reminders?token=t",
     };
     const email = renderReminderEmail(input);
     expect(`${email.subject}${email.body}${email.html}`).not.toMatch(EMPIRE);
-    expect(email.body).toContain("you log in at app.crankleads.com");
+    expect(email.body).toContain("https://app.crankleads.com/forward/t");
     expect(renderReminderSms(input)).not.toMatch(EMPIRE);
-    const live = renderLiveEmail({ ownerName: "Jane", businessName: "J", phonePath: "missed_call_catcher", appUrl: input.appUrl });
+    const live = renderLiveEmail({ ownerName: "Jane", businessName: "J", phonePath: "missed_call_catcher", appUrl: input.appUrl, number: null, siteUrl: null, setPasswordUrl: null });
     expect(`${live.subject}${live.body}${live.html}`).not.toMatch(EMPIRE);
   });
 

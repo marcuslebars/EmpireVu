@@ -26,8 +26,8 @@ const nextConfig = {
       afterFiles: [
         // /r/{token} (customer review links) is a dynamic route handler, and dynamic routes
         // are matched AFTER afterFiles rewrites — so it must be excluded here or the SPA
-        // fallback swallows it.
-        { source: "/((?!api/|r/).*)", destination: "/index.html" },
+        // fallback swallows it. The same goes for /s/{slug} (generated company sites).
+        { source: "/((?!api/|r/|s/).*)", destination: "/index.html" },
       ],
     };
   },

@@ -35,6 +35,8 @@ export interface WelcomeEmailInput {
   tier: CrankleadsTier;
   /** Set-password link (new user) — null for someone who already had a login. */
   setPasswordUrl: string | null;
+  /** The 60-second quick-setup link (/setup/:token) — null if it couldn't be made. */
+  setupUrl?: string | null;
   /** Sign-in / onboarding link. */
   appUrl: string;
   /** Hosted website-form link, when the form key exists. */
@@ -60,7 +62,6 @@ function firstName(name: string): string {
 function doneList(input: WelcomeEmailInput): string[] {
   const done = [
     `Your ${APP_PRODUCT_NAME} account and business profile for ${input.businessName}`,
-    "Your lead automations: new-lead alerts, missed-call text-back and booking reminders",
   ];
   if (input.packName) {
     done.push(`Your ${input.packName} starter pack: services and messages written for your trade`);
@@ -69,40 +70,50 @@ function doneList(input: WelcomeEmailInput): string[] {
   return done;
 }
 
-function remainingSteps(input: WelcomeEmailInput): string[] {
-  const prices =
-    input.servicesNeedingPrices > 0
-      ? `Add your prices (${input.servicesNeedingPrices} services are waiting for one)`
-      : "Add your services and prices";
-  const phone =
+/** What we build for them once they answer the quick setup (no DIY steps). */
+function buildList(input: WelcomeEmailInput): string[] {
+  return [
+    "Your hours, service area, logo and Google review link",
+    "Your services and prices (only the ones you give us or that are on your website — nothing made up)",
     input.tier === "front_desk"
-      ? "Set up your phone: pick a number for your AI receptionist, or forward missed calls"
-      : "Set up your phone: turn on missed-call forwarding so every missed caller gets a text";
-  return [prices, phone, "Put the form on your website and send yourself a test lead"];
+      ? "Your text-back number, missed-call text-back and your AI receptionist"
+      : "Your text-back number and missed-call text-back",
+    "A web page for your business with your services, any prices you give us and a quote form",
+  ];
 }
 
 export function renderWelcomeEmail(input: WelcomeEmailInput): RenderedEmail {
   const tierLabel = CRANKLEADS_TIER_LABELS[input.tier];
-  const subject = `Your ${CRANKLEADS_OFFER_NAME} system is ready — finish setup (10 min)`;
+  const subject = `You're in — we're setting up ${CRANKLEADS_OFFER_NAME} for you`;
   const done = doneList(input);
-  const steps = remainingSteps(input);
+  const build = buildList(input);
   const host = appHostOf(input.appUrl);
+  const setupLines = input.setupUrl
+    ? [
+        "Check your texts: we just sent you a link to a 60-second quick setup — 3 questions, no login. Here it is too:",
+        input.setupUrl,
+      ]
+    : ["Check your texts: we're sending you a link to a 60-second quick setup — 3 questions, no login."];
   const loginLine = input.setPasswordUrl
-    ? `1) Set your password and log in to ${APP_PRODUCT_NAME} at ${host}:\n${input.setPasswordUrl}\n(This link works once and expires — if it has, use "Forgot password" at ${input.appUrl}/forgot-password with this email address.)`
-    : `1) Log in to ${APP_PRODUCT_NAME} at ${host} with your existing login — ${input.businessName} is now in your account list:\n${input.appUrl}/onboarding`;
+    ? `You can still log in to ${APP_PRODUCT_NAME} at ${host} any time — set your password here:\n${input.setPasswordUrl}\n(This link works once and expires — if it has, use "Forgot password" at ${input.appUrl}/forgot-password with this email address.)`
+    : `You can still log in to ${APP_PRODUCT_NAME} at ${host} with your existing login — ${input.businessName} is now in your account list:\n${input.appUrl}/onboarding`;
 
   const body = [
     `Hi ${firstName(input.ownerName)},`,
     "",
-    `Thanks for buying ${CRANKLEADS_OFFER_NAME} ${tierLabel}. Your ${APP_PRODUCT_NAME} system for ${input.businessName} is set up — you log in at ${host}.`,
+    `Thanks for buying ${CRANKLEADS_OFFER_NAME} ${tierLabel}. You don't have to set anything up — we're setting up ${input.businessName} for you.`,
     "",
-    "Already done for you:",
+    ...setupLines,
+    "",
+    "Once you answer, we build the rest:",
+    ...build.map((line) => `  • ${line}`),
+    "",
+    "Then we text you one link to turn on call forwarding on your business phone. We test it and text you when you're live.",
+    "",
+    "Already done:",
     ...done.map((line) => `  • ${line}`),
     "",
     loginLine,
-    "",
-    `2) Finish these ${steps.length} steps (about 10 minutes — the setup screen walks you through them):`,
-    ...steps.map((line, i) => `  ${String.fromCharCode(97 + i)}. ${line}`),
     ...(input.formUrl ? ["", `Your website lead form: ${input.formUrl}`, "(Share it on Google, Facebook or by text — leads land in your inbox right away.)"] : []),
     "",
     "Questions? Just reply to this email.",
@@ -115,12 +126,16 @@ export function renderWelcomeEmail(input: WelcomeEmailInput): RenderedEmail {
     `<p><a href="${escapeHtml(href)}" style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600">${escapeHtml(label)}</a></p>`;
   const html = [
     `<p>Hi ${escapeHtml(firstName(input.ownerName))},</p>`,
-    `<p>Thanks for buying ${CRANKLEADS_OFFER_NAME} ${escapeHtml(tierLabel)}. Your ${APP_PRODUCT_NAME} system for <strong>${escapeHtml(input.businessName)}</strong> is set up — you log in at <a href="${escapeHtml(input.appUrl)}">${escapeHtml(host)}</a>.</p>`,
-    `<p><strong>Already done for you:</strong></p><ul>${li(done)}</ul>`,
+    `<p>Thanks for buying ${CRANKLEADS_OFFER_NAME} ${escapeHtml(tierLabel)}. You don't have to set anything up — we're setting up <strong>${escapeHtml(input.businessName)}</strong> for you.</p>`,
+    input.setupUrl
+      ? `<p><strong>Check your texts:</strong> we just sent you a link to a 60-second quick setup — 3 questions, no login. Here it is too:</p>${button(input.setupUrl, "Start the 60-second setup")}`
+      : "<p><strong>Check your texts:</strong> we're sending you a link to a 60-second quick setup — 3 questions, no login.</p>",
+    `<p>Once you answer, we build the rest:</p><ul>${li(build)}</ul>`,
+    `<p>Then we text you one link to turn on call forwarding on your business phone. We test it and text you when you're live.</p>`,
+    `<p><strong>Already done:</strong></p><ul>${li(done)}</ul>`,
     input.setPasswordUrl
-      ? `${button(input.setPasswordUrl, `Set your password and log in to ${APP_PRODUCT_NAME}`)}<p style="font-size:12px;color:#6b7280">This link works once and expires. If it has, use “Forgot password” at ${escapeHtml(input.appUrl)}/forgot-password with this email address.</p>`
-      : `${button(`${input.appUrl}/onboarding`, `Log in to ${APP_PRODUCT_NAME}`)}<p style="font-size:12px;color:#6b7280">Use your existing login at ${escapeHtml(host)} — ${escapeHtml(input.businessName)} is now in your account list.</p>`,
-    `<p><strong>Then finish these ${steps.length} steps (about 10 minutes):</strong></p><ol>${li(steps)}</ol>`,
+      ? `<p>You can still log in to ${APP_PRODUCT_NAME} at <a href="${escapeHtml(input.appUrl)}">${escapeHtml(host)}</a> any time: <a href="${escapeHtml(input.setPasswordUrl)}">set your password</a>.</p><p style="font-size:12px;color:#6b7280">That link works once and expires. If it has, use “Forgot password” at ${escapeHtml(input.appUrl)}/forgot-password with this email address.</p>`
+      : `<p>You can still log in to ${APP_PRODUCT_NAME} at <a href="${escapeHtml(`${input.appUrl}/onboarding`)}">${escapeHtml(host)}</a> with your existing login — ${escapeHtml(input.businessName)} is now in your account list.</p>`,
     input.formUrl
       ? `<p>Your website lead form: <a href="${escapeHtml(input.formUrl)}">${escapeHtml(input.formUrl)}</a><br><span style="font-size:12px;color:#6b7280">Share it on Google, Facebook or by text — leads land in your inbox right away.</span></p>`
       : "",

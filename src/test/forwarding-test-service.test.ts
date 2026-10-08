@@ -5,7 +5,7 @@
  * handleMissedCall), voice_numbers column contract, owner notification, onboarding step,
  * passive proof, stale sweep and the scheduled retest pass.
  */
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createFakeDb, fakeTenantContext, type FakeDb } from "./fake-supabase";
 
@@ -417,6 +417,71 @@ describe("outcomes", () => {
     await startTest();
     expect(await sweepStaleForwardingTests(db().client as never, T0 + 6 * 60_000)).toBe(1);
     expect(tests()[0]).toMatchObject({ status: "failed", error_message: "No final call status from Twilio." });
+  });
+});
+
+describe("done-for-you: a forwarding pass sends ONE message, not two", () => {
+  /** A CrankLeads Catch buyer mid-setup: number + text-back automation on, not live yet. */
+  function crankleadsBuyer(purchase: Record<string, unknown> = {}, followups: Array<Record<string, unknown>> = []) {
+    const base = seed({ org: { crankleads_tier: "catch", platform_brand: "crankleads" } });
+    Object.assign(base.tables, {
+      crankleads_purchases: [
+        {
+          id: "purchase-1", status: "provisioned", tier: "catch", organization_id: ORG, company_id: COMPANY, owner_name: "Sam Pipes",
+          owner_email: "owner@muskoka.test", owner_phone: "+17055558888", provisioned_at: new Date(T0 - 3 * 3_600_000).toISOString(),
+          created_at: new Date(T0 - 3 * 3_600_000).toISOString(), live_at: null, ...purchase,
+        },
+      ],
+      workflows: [{ id: "wf", organization_id: ORG, company_id: COMPANY, slug: "missed-call-text-back", status: "active" }],
+      dfy_progress: [{ organization_id: ORG, company_id: COMPANY, forward_token: "F".repeat(32), number_attempts: 0, forward_tests_started: 1 }],
+      crankleads_setup_followups: followups,
+    });
+    return base;
+  }
+
+  beforeEach(() => {
+    process.env.CRANKLEADS_APP_BASE_URL = "https://app.crankleads.test";
+  });
+  afterEach(() => {
+    delete process.env.CRANKLEADS_APP_BASE_URL;
+  });
+
+  it("the pass that makes them live sends the 'You're live' text + email NOW — and no '✅ text-back is live'", async () => {
+    h.db = crankleadsBuyer();
+    await startTest();
+    await forwardedLeg();
+    expect(tests()[0].status).toBe("passed");
+    expect(db().tables.crankleads_purchases[0].live_at).toBeTruthy();
+    const bodies = h.sent.map((m) => String(m.body));
+    expect(bodies.some((b) => b.includes("✅"))).toBe(false);
+    expect(h.sent.map((m) => m.channel).sort()).toEqual(["email", "sms"]);
+    expect(bodies.every((b) => b.includes("You're live"))).toBe(true);
+    expect(db().tables.crankleads_setup_followups.map((r) => r.stage)).toEqual(["live"]);
+  });
+
+  it("reminders stopped (or exempt) → no owner text at all: the stop flags silence every setup text", async () => {
+    h.db = crankleadsBuyer({ setup_reminders_stopped_at: new Date(T0 - 3_600_000).toISOString() });
+    await startTest();
+    await forwardedLeg();
+    expect(h.sent).toEqual([]);
+  });
+
+  it("re-verified after it broke (already told they're live) → the ✅ note, not a second 'You're live'", async () => {
+    h.db = crankleadsBuyer({ live_at: new Date(T0 - 5 * 864e5).toISOString() }, [
+      { organization_id: ORG, purchase_id: "purchase-1", stage: "live", local_date: "2026-10-01" },
+    ]);
+    await startTest();
+    await forwardedLeg();
+    expect(h.sent.map((m) => m.body)).toEqual(["✅ Missed-call text-back is live for Muskoka Plumbing."]);
+  });
+
+  it("not forwarded → the fix text links the no-login one-tap forwarding page, not the wizard", async () => {
+    h.db = crankleadsBuyer();
+    const { view } = await startTest();
+    await job(view.id, "status", { CallStatus: "no-answer" });
+    await job(view.id, "finalize", {}, T0 + 110_000);
+    expect(String(h.sent[0].body)).toContain(`https://app.crankleads.test/forward/${"F".repeat(32)}`);
+    expect(String(h.sent[0].body)).not.toContain("onboarding?step=phone");
   });
 });
 

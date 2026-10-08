@@ -180,6 +180,34 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
     ],
   },
   {
+    id: "your-website",
+    title: "Your website page",
+    summary: "The page {{product}} builds for your business: what's on it, publishing, and changing the wording.",
+    keywords: ["website", "web page", "site", "page", "landing page", "price page", "publish", "unpublish", "regenerate", "headline", "seo", "google", "domain", "link"],
+    sections: [
+      {
+        heading: "What it is",
+        body:
+          "{{product}} can build a fast, phone-friendly page for your business from the details we have: your name, phone, service area, hours, your services and the prices you entered, your Google rating and review link, and your online booking link if it's on. Quote requests sent from the page arrive in {{product}} as new leads, just like your website form.\n- No website yet? The page is your website.\n- Already have one? The page is your services, prices and booking page. Link to it from your site; it has a \"Visit our main site\" link back.",
+      },
+      {
+        heading: "What we never add",
+        body:
+          "The page only says what you've told us or what your own website and Google listing show. We never make up prices, years in business, licences, insurance, guarantees, awards or reviews. Services without a price show \"Get a quote\". Your Google rating is shown with a link to read the reviews on Google; review text isn't copied onto the page.",
+      },
+      {
+        heading: "Preview, publish and take it down",
+        body:
+          "Go to Settings → Your website.\n- Preview opens the page as it will look, even before it's published.\n- Publish puts it live at the link shown. Unpublish takes it down; the link then shows a \"not available\" page.\n- Regenerate rebuilds the page from your latest details, services and prices. Wording you've changed yourself is kept.\nIf you bought through CrankLeads, we build and publish the page for you after quick setup, and text you the link. Only owners and admins can publish or change the page.",
+      },
+      {
+        heading: "Changing the wording and prices",
+        body:
+          "In Settings → Your website you can change the headline, the line under it and the About text, then click \"Save changes\". Clear a box and save to go back to the text we wrote. Turn off \"Show prices\" to show \"Get a quote\" for every service. To change a price, change it in Settings → Industry pack, then click Regenerate. \"Kind of page\" switches between a full website and a services and prices page.",
+      },
+    ],
+  },
+  {
     id: "booking-link",
     title: "Your booking link and reminders",
     summary: "Share your booking page and turn on automatic booking reminders.",
