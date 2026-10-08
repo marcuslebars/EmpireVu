@@ -120,7 +120,11 @@ it round again.
 - **Website crawl** (`dfy/crawl.ts`): the homepage plus up to 5 same-site services / pricing /
   rates / about / contact pages. Every fetch goes through the shared SSRF guard
   (`src/server/net/safe-fetch.ts`: DNS and every redirect hop are checked; size and time are
-  capped). The catalog parser uses the same guard.
+  capped). The catalog parser uses the same guard. Addresses are classified from their bytes
+  (any IPv6 spelling; IPv4-mapped / NAT64 / 6to4 / Teredo and the RFC 6890 IPv4 ranges are
+  refused), and every connection goes through an undici dispatcher whose `connect.lookup`
+  re-checks every resolved address at connect time — a DNS-rebinding answer can't slip in
+  between the check and the fetch. A homepage that isn't HTML / text is refused.
   - From the pages: logo (logo `<img>` > apple-touch-icon > og:image > icon), meta description,
     hours text and phone numbers.
   - Services and stated prices come from the catalog parser, which now reads several pages.
@@ -196,7 +200,7 @@ CrankLeads orgs see **"We're setting you up"** at `/onboarding` instead of the 8
 
 ### The one-tap forwarding page (`/forward/:token`)
 
-Public, no login; the 32-char `dfy_progress.forward_token` is the credential (rate-limited, `noindex`, returns only the business name, the number to forward to, the code and the verification state). API: `GET/POST /api/public/forward/{token}` (`POST {action: "opened" | "tapped" | "help"}`; GET never changes state except starting the one auto-test after a tap, which a link scanner can't do).
+Public, no login; the 32-char `dfy_progress.forward_token` is the credential (rate-limited per IP and per token, `noindex`, returns only the business name, the number to forward to, the code and the verification state). API: `GET/POST /api/public/forward/{token}` (`POST {action: "opened" | "tapped" | "help"}`; GET never changes state except starting the one auto-test after a tap, which a link scanner can't do).
 
 - **Android / other phones**: one big button = `tel:` link with the code, `#` encoded as `%23` (an unencoded `#` is a URL fragment and gets dropped). The dialler opens with the code; they press Call.
 - **iPhone**: iOS refuses to dial `tel:` links containing `*` or `#` (Apple's documented tel-scheme restriction), so: big **Copy code** button + "Open the Phone app → Keypad, touch and hold, Paste, Call" + **I've done it — test it for me**. There is no web link that opens the iOS keypad without dialling a number, so there is no "Open Phone" button (it would either do nothing or call the wrong thing).
@@ -415,7 +419,7 @@ with the exact code / provider words for their line, the text-back automation), 
 | `GET /api/concierge/accounts` | list + setup state per company |
 | `GET /api/concierge/accounts/:orgId[?companyId=]` | detail (facts, services, automations, activity, follow-ups, call script, registered actions) |
 | `GET /api/concierge/accounts/:orgId/actions` | registered actions |
-| `POST /api/concierge/accounts/:orgId/actions` | `{ action, companyId?, input }` |
+| `POST /api/concierge/accounts/:orgId/actions` | `{ action, companyId?, input }` — JSON only (415) and same-origin (`Sec-Fetch-Site` / `Origin` must match, else 403) |
 
 Any org can be opened by explicit id. A `companyId` is honoured only if it belongs to that org
 (else 404 — no write, no audit); by default the org's CrankLeads company is used.
@@ -436,13 +440,13 @@ Done-for-you actions (`concierge/dfy-actions.ts`, confirm-and-run buttons, same 
 
 | Action | Does |
 |---|---|
-| `resend_quick_setup_link` — Resend quick-setup link | `resendSetupIntake`: text + email the same `/setup/<token>` again now (stamps `sms_sent_at`, so reminders keep quiet for 3 h) |
+| `resend_quick_setup_link` — Resend quick-setup link | `resendSetupIntake`: text + email the same `/setup/<token>` again now (stamps `sms_sent_at`, so reminders keep quiet for 3 h). Outside 08:00–21:00 their time only the email goes and the result says so. Refused for legacy accounts and for buyers who stopped setup texts |
 | `rerun_business_lookup` — Re-run business lookup | `enrichCompany` (never overwrites facts set by hand) |
-| `build_website` — Build / rebuild website | `generateSite(…, { publish: true })` |
+| `build_website` — Build / rebuild website | `generateSite(…, { publish: true })` for done-for-you buyers; a legacy account (no quick-setup intake) gets a **draft** only |
 | `unpublish_website` — Unpublish website | `setSiteStatus(…, "unpublished")` |
 | `send_forwarding_text` — Send forwarding text | `resendForwardingText`: the same forwarding text + email, forced (08–21 their time, needs the number, not once verified) |
 | `retry_dfy_number` — Retry text-back number | clears `number_flagged_at` / `number_attempts` and runs `ensureDfyNumber` now (right number type per tier) |
-| `run_switch_on` — Run switch-on now | `advanceDoneForYou(…, { force: true })`: switch on without waiting for the quick setup, build the page, send the forwarding text if it's daytime |
+| `run_switch_on` — Run switch-on now | `advanceDoneForYou(…, { force: true })`: switch on (again, even after a success or 3 failed automatic tries) without waiting for the quick setup, build the page, send the forwarding text if it's daytime. Refused for legacy accounts; a failure is shown |
 
 The routes import `concierge/register-all.ts`, which loads both action modules so every action is
 registered before the first list / run. Add more with
@@ -505,6 +509,10 @@ hostname (if used) → set `PAGES_BASE_URL` on web **and** worker → redeploy.
 2. `20261008110000_setup_intake_delivery.sql` — intake send / enrich attempt columns
 3. `20261008120000_dfy_autolive.sql` — `dfy_progress`
 4. `20261008130000_company_sites_owner_notified.sql` — `company_sites.owner_notified_at`
+5. `20261008150000_dfy_hardening.sql` — `dfy_progress.switch_on_attempts`; token columns
+   (`setup_intakes.token`, `dfy_progress.forward_token`) unreadable by client roles (column
+   grants); anon can't read `company_sites`; composite `(company_id, organization_id)` FKs and
+   `updated_at` triggers on `setup_intakes` / `company_sites`
 
 The wiring added no migration. Rollbacks are in `supabase/rollback/` with the same names
 (`.down.sql`); run them in reverse order.
