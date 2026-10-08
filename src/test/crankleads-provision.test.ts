@@ -285,6 +285,13 @@ describe("checkout.session.completed (CrankLeads) → provisioned account", () =
     expect(operator?.subject).toBe("New CrankLeads purchase: Jane's Roofing (Catch)");
     expect(p.welcome_email_sent_at).toBeTruthy();
     expect(p.operator_notified_at).toBeTruthy();
+
+    // Done-for-you: the tier's number is bought right after the company exists. Twilio isn't
+    // configured here, so the attempt is recorded for the done-for-you sweep to retry — and
+    // provisioning still succeeds (docs/done-for-you.md).
+    expect(db.tables.dfy_progress).toHaveLength(1);
+    expect(db.tables.dfy_progress[0]).toMatchObject({ organization_id: org.id, company_id: p.company_id, number_attempts: 1 });
+    expect(String(db.tables.dfy_progress[0].number_last_error)).toMatch(/Twilio is not configured/);
   });
 
   it("is idempotent: the same session delivered twice → one org, one company, one welcome email", async () => {

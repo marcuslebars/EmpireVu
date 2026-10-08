@@ -54,6 +54,7 @@ import { GET as tasksGET } from "@/app/api/organizations/[organizationId]/ui/tas
 import { GET as dashboardSummaryGET } from "@/app/api/organizations/[organizationId]/ui/dashboard/summary/route";
 import { GET as bareContactsGET } from "@/app/api/organizations/[organizationId]/contacts/route";
 import { GET as setupChecklistGET } from "@/app/api/organizations/[organizationId]/setup-checklist/route";
+import { GET as setupProgressGET } from "@/app/api/organizations/[organizationId]/setup-progress/route";
 
 const ORG = "11111111-1111-1111-1111-111111111111";
 const ctx = { params: { organizationId: ORG } };
@@ -66,6 +67,7 @@ const orgScopedRoutes: Array<[string, () => Promise<Response>]> = [
   ["ui/dashboard/summary", () => dashboardSummaryGET(req(), ctx) as unknown as Promise<Response>],
   ["contacts (bare)", () => bareContactsGET(req(), ctx) as unknown as Promise<Response>],
   ["setup-checklist (CrankLeads)", () => setupChecklistGET(req(), ctx)],
+  ["setup-progress (done-for-you)", () => setupProgressGET(req(), ctx)],
 ];
 
 afterEach(() => {

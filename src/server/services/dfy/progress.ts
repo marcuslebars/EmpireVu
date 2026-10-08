@@ -46,7 +46,10 @@ export async function ensureProgress(admin: AdminClient, organizationId: string,
   if (existing) return existing;
   const { error } = await admin
     .from("dfy_progress")
-    .upsert({ organization_id: organizationId, company_id: companyId }, { onConflict: "company_id", ignoreDuplicates: true });
+    .upsert(
+      { organization_id: organizationId, company_id: companyId, number_attempts: 0, forward_tests_started: 0 },
+      { onConflict: "company_id", ignoreDuplicates: true },
+    );
   if (error) throw new Error(`dfy_progress insert failed: ${error.message}`);
   const created = await loadProgress(admin, organizationId, companyId);
   if (!created) throw new Error("dfy_progress row missing after insert");

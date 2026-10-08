@@ -22,7 +22,7 @@ import { provisionPhoneForCompany } from "@/server/services/onboarding-provision
 import type { RetellClient } from "@/server/services/retell/provision";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { CATCHER_MODE } from "@/server/services/twilio/missed-call";
-import { provisionMissedCallCatcher, type TwilioNumbersClient } from "@/server/services/twilio/provision";
+import { provisionMissedCallCatcher, type ProvisionDeps, type TwilioNumbersClient } from "@/server/services/twilio/provision";
 
 /** Area code used when the checkout phone has none we can buy in (central/northern Ontario). */
 export const FALLBACK_AREA_CODE = 705;
@@ -62,6 +62,8 @@ export function areaCodeForAttempt(ownerAreaCode: number, attempt: number): numb
 
 export interface DfyNumberDeps {
   twilio?: TwilioNumbersClient;
+  /** Cross-org number-owner lookup for the catcher purchase (tests inject it). */
+  lookupOwner?: ProvisionDeps["lookupOwner"];
   retell?: RetellClient;
   /** Operator alert when the number is flagged (sent once). */
   alertOperator?: (input: { organizationId: string; companyId: string; error: string }) => Promise<void>;
@@ -111,7 +113,7 @@ async function purchase(
   const progress = await getOnboardingProgress(ctx, companyId);
   const prior = objectData(progress.find((p) => p.step === "phone")?.data);
   if (kind === "catcher") {
-    const result = await provisionMissedCallCatcher(ctx, { companyId, areaCode }, deps.twilio ? { client: deps.twilio } : {});
+    const result = await provisionMissedCallCatcher(ctx, { companyId, areaCode }, { client: deps.twilio, lookupOwner: deps.lookupOwner });
     await upsertOnboardingStep(ctx, companyId, "phone", {
       completed: true,
       data: {

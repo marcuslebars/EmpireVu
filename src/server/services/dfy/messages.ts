@@ -48,6 +48,12 @@ export function renderForwardingSms(input: ForwardingMessageInput): string {
   );
 }
 
+function checkLine(phonePath: ForwardingMessageInput["phonePath"]): string {
+  return phonePath === "ai_receptionist"
+    ? "Your phone still rings first — only the calls you miss or can't take are forwarded. To check it, call your business line from another phone and let it ring: your AI receptionist should pick up."
+    : "Your phone still rings first — only the calls you miss or can't take are forwarded. We test it automatically and text you when it works.";
+}
+
 export function renderForwardingEmail(input: ForwardingMessageInput): RenderedEmail {
   const subject = `Last step for ${input.businessName}: turn on call forwarding`;
   const body = [
@@ -57,9 +63,9 @@ export function renderForwardingEmail(input: ForwardingMessageInput): RenderedEm
     "",
     `Open this on your business phone: ${input.forwardUrl}`,
     "",
-    "Your phone still rings first — only the calls you miss or can't take are forwarded. We test it automatically and text you when it works.",
+    checkLine(input.phonePath),
     "",
-    "Rather we did it? Open the link and tap \"Have us set it up\" — we'll call you.",
+    "Rather have us do it? Open the link and tap \"Have us set it up\" — we'll call you.",
     "",
     `— The ${CRANKLEADS_OFFER_NAME} team`,
   ].join("\n");
@@ -67,8 +73,8 @@ export function renderForwardingEmail(input: ForwardingMessageInput): RenderedEm
     `<p>Hi ${escapeHtml(firstName(input.ownerName))},</p>`,
     `<p>We've set up ${escapeHtml(input.businessName)}. One thing only you can do: turn on call forwarding on your business phone, ${escapeHtml(forwardingWhy(input.phonePath))}.</p>`,
     button(input.forwardUrl, "Turn on forwarding"),
-    "<p>Open it on your business phone. Your phone still rings first — only the calls you miss or can't take are forwarded. We test it automatically and text you when it works.</p>",
-    "<p>Rather we did it? Open the link and tap “Have us set it up” — we'll call you.</p>",
+    `<p>Open it on your business phone. ${escapeHtml(checkLine(input.phonePath))}</p>`,
+    "<p>Rather have us do it? Open the link and tap “Have us set it up” — we'll call you.</p>",
     `<p>— The ${CRANKLEADS_OFFER_NAME} team</p>`,
   ].join("\n");
   return { subject, body, html, fromName: CRANKLEADS_OFFER_NAME };
