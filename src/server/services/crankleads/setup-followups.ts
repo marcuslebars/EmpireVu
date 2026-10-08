@@ -15,9 +15,9 @@ import { isCrankleadsTier, type CrankleadsTier } from "@/server/services/crankle
 import {
   renderLiveEmail,
   renderLiveSms,
-  renderOperatorStuckEmail,
   renderReminderEmail,
   renderReminderSms,
+  type ReminderAction,
   type ReminderMessageInput,
 } from "@/server/services/crankleads/followup-messages";
 import {
@@ -31,6 +31,8 @@ import {
 import { createSetPasswordUrl as defaultCreateSetPasswordUrl, getAuthUser } from "@/server/services/crankleads/provision";
 import type { AdminClient, CrankleadsPurchase } from "@/server/services/crankleads/purchases";
 import { computeSetupChecklist, loadSetupFacts, type SetupChecklist } from "@/server/services/crankleads/setup-checklist";
+import { companySiteUrl, forwardPageUrl, quickSetupUrl } from "@/server/services/dfy/links";
+import { ensureForwardToken, ensureProgress } from "@/server/services/dfy/progress";
 import { toE164 } from "@/server/services/retell/payload";
 import type { TenantServiceContext } from "@/server/services/shared";
 import {
@@ -85,15 +87,6 @@ export interface FollowupOutcome {
 /** The buyer's app origin: the CrankLeads host (setup reminders go only to CrankLeads buyers). */
 function appUrl(): string {
   return appBaseUrlFor("crankleads");
-}
-
-/** Operator-only links (/internal/ops) stay on the house app origin. */
-function operatorAppUrl(): string {
-  return (process.env.APP_BASE_URL ?? "http://localhost:3000").replace(/\/+$/, "");
-}
-
-function operatorEmail(): string | null {
-  return process.env.OWNER_EMAIL?.trim() || null;
 }
 
 function errorMessage(err: unknown): string {
@@ -297,6 +290,7 @@ async function sendLive(
   timeZone: string,
   nowMs: number,
   sends: FollowupRow[],
+  links: SetupLinks,
   deps: SetupFollowupDeps,
 ): Promise<FollowupOutcome> {
   if (sends.some((row) => row.stage === "live")) return { purchaseId: purchase.id, action: "skipped", reason: "live_already_sent" };
@@ -315,10 +309,40 @@ async function sendLive(
   if (!claimed) return { purchaseId: purchase.id, action: "skipped", reason: "live_claimed_elsewhere" };
 
   const to = await ownerAddress(ctx, company, purchase);
-  const input = { ownerName: purchase.owner_name, businessName: company.name, phonePath: checklist.phonePath, appUrl: appUrl() };
-  const statuses = await deliverPair(deps, ctx, company.id, to, renderLiveEmail(input), renderLiveSms(input));
+  // The set-password link signs in AS the buyer, so it only ever goes to the buyer's own
+  // checkout email, and only when they have never signed in. Texts never carry it.
+  const buyerEmail = purchase.owner_email?.trim() || null;
+  const setPasswordUrl = buyerEmail ? await setPasswordLinkIfNeeded(admin, purchase, buyerEmail, "/", deps) : null;
+  const input = {
+    ownerName: purchase.owner_name,
+    businessName: company.name,
+    phonePath: checklist.phonePath,
+    appUrl: appUrl(),
+    number: links.number,
+    siteUrl: links.siteUrl,
+    setPasswordUrl,
+  };
+  const statuses = await deliverPair(
+    deps,
+    ctx,
+    company.id,
+    setPasswordUrl ? { email: buyerEmail, phone: to.phone } : to,
+    renderLiveEmail(input),
+    renderLiveSms(input),
+  );
   await recordStatuses(admin, checklist.organizationId, purchase.id, "live", statuses);
   return { purchaseId: purchase.id, action: "live_sent", stage: "live" };
+}
+
+/** What a reminder asks for: the quick setup while it's unanswered, else the forwarding tap. */
+export function reminderAction(checklist: SetupChecklist, links: SetupLinks): { action: ReminderAction; url: string } | null {
+  const next = checklist.nextStep;
+  if (!next) return null;
+  if (links.quickSetupUrl) return { action: "quick_setup", url: links.quickSetupUrl };
+  if (next.key === "forwarding" || (next.key === "phone" && links.forwardUrl)) {
+    return { action: "forwarding", url: links.forwardUrl ?? next.deepLink };
+  }
+  return { action: "other", url: next.deepLink };
 }
 
 async function sendReminder(
@@ -326,14 +350,15 @@ async function sendReminder(
   ctx: TenantServiceContext,
   purchase: CrankleadsPurchase,
   company: CompanyRow,
-  tier: CrankleadsTier,
   checklist: SetupChecklist,
+  links: SetupLinks,
   stage: ReminderStage,
   localDate: string,
   deps: SetupFollowupDeps,
 ): Promise<FollowupOutcome> {
   const next = checklist.nextStep;
-  if (!next) return { purchaseId: purchase.id, action: "skipped", reason: "nothing_left" };
+  const ask = reminderAction(checklist, links);
+  if (!next || !ask) return { purchaseId: purchase.id, action: "skipped", reason: "nothing_left" };
   const remaining = checklist.steps.filter((s) => !s.done);
 
   const claimed = await claimStage(admin, {
@@ -342,62 +367,72 @@ async function sendReminder(
     purchaseId: purchase.id,
     stage,
     localDate,
-    nextStep: next.key,
+    nextStep: ask.action === "quick_setup" ? "quick_setup" : next.key,
     stepsLeft: remaining.length,
   });
   if (!claimed) return { purchaseId: purchase.id, action: "skipped", stage, reason: "already_claimed" };
 
   const base = appUrl();
-  const resolved = await ownerAddress(ctx, company, purchase);
+  const to = await ownerAddress(ctx, company, purchase);
   const token = await ensureStopToken(admin, purchase, deps);
-  // A set-password (recovery) link signs in AS the buyer, so an email carrying one goes ONLY to
-  // the buyer's own checkout email (purchase.owner_email) — never to whatever address
-  // resolveOwnerContacts picked (company owner_email, an org admin, or the platform
-  // OWNER_EMAIL for house orgs). The SMS never carries the link (it has the plain deep link).
-  const buyerEmail = purchase.owner_email?.trim() || null;
-  const setPasswordUrl = buyerEmail ? await setPasswordLinkIfNeeded(admin, purchase, buyerEmail, next.path, deps) : null;
-  const to: OwnerAddress = setPasswordUrl ? { email: buyerEmail, phone: resolved.phone } : resolved;
   const input: ReminderMessageInput = {
     stage,
     ownerName: purchase.owner_name,
     businessName: company.name,
+    action: ask.action,
+    actionUrl: ask.url,
+    phonePath: checklist.phonePath,
     remaining: remaining.map((s) => ({ title: s.title, action: s.action })),
-    nextStepUrl: next.deepLink,
-    setPasswordUrl,
     appUrl: base,
     stopUrl: stopRemindersUrl(base, token),
   };
   const statuses = await deliverPair(deps, ctx, company.id, to, renderReminderEmail(input), renderReminderSms(input));
-
-  let operator_status: string | null = null;
-  if (stage === "day10") {
-    const operator = operatorEmail();
-    if (!operator) {
-      operator_status = "skipped:no_owner_email_env";
-      console.error(`[setup-followups] OWNER_EMAIL is not set — no operator note for stuck buyer ${purchase.id}`);
-    } else {
-      const email = renderOperatorStuckEmail({
-        businessName: company.name,
-        tier,
-        ownerName: purchase.owner_name,
-        ownerEmail: purchase.owner_email,
-        ownerPhone: purchase.owner_phone,
-        organizationId: checklist.organizationId,
-        provisionedAt: purchase.provisioned_at ?? "-",
-        steps: checklist.steps.map((s) => ({ title: s.title, done: s.done })),
-        appUrl: operatorAppUrl(),
-      });
-      try {
-        await deps.sendEmail({ to: operator, subject: email.subject, body: email.body, html: email.html, fromName: email.fromName });
-        operator_status = "sent";
-      } catch (err) {
-        operator_status = "failed";
-        console.error(`[setup-followups] operator note failed for ${purchase.id}: ${errorMessage(err)}`);
-      }
-    }
-  }
-  await recordStatuses(admin, checklist.organizationId, purchase.id, stage, { ...statuses, operator_status });
+  // The operator is no longer emailed at day 10: the done-for-you orchestrator escalates 24h
+  // after purchase (services/dfy/orchestrator.ts) and the daily health email lists it.
+  await recordStatuses(admin, checklist.organizationId, purchase.id, stage, { ...statuses, operator_status: null });
   return { purchaseId: purchase.id, action: "reminder_sent", stage };
+}
+
+export interface SetupLinks {
+  /** /setup/<token> while the quick setup is unanswered (pending / sent / opened), else null. */
+  quickSetupUrl: string | null;
+  /** /forward/<token> (minted on first use). */
+  forwardUrl: string | null;
+  /** Active text-back / AI number (E.164). */
+  number: string | null;
+  /** Published generated page (company_sites), if any. */
+  siteUrl: string | null;
+}
+
+const UNANSWERED_INTAKE = ["pending", "sent", "opened"];
+
+/** The no-login links for this company (best-effort: a missing table/row just means no link). */
+async function loadSetupLinks(admin: AdminClient, organizationId: string, companyId: string): Promise<SetupLinks> {
+  const [intake, site] = await Promise.all([
+    admin.from("setup_intakes").select("token, status").eq("organization_id", organizationId).eq("company_id", companyId).maybeSingle(),
+    admin
+      .from("company_sites")
+      .select("slug, status")
+      .eq("organization_id", organizationId)
+      .eq("company_id", companyId)
+      .eq("status", "published")
+      .maybeSingle(),
+  ]);
+  const intakeRow = intake.error ? null : (intake.data as { token: string; status: string } | null);
+  const siteRow = site.error ? null : (site.data as { slug: string } | null);
+  let forwardUrl: string | null = null;
+  try {
+    const progress = await ensureProgress(admin, organizationId, companyId);
+    forwardUrl = forwardPageUrl(await ensureForwardToken(admin, progress));
+  } catch (err) {
+    console.error(`[setup-followups] forward link for ${companyId} failed: ${errorMessage(err)}`);
+  }
+  return {
+    quickSetupUrl: intakeRow && UNANSWERED_INTAKE.includes(intakeRow.status) ? quickSetupUrl(intakeRow.token) : null,
+    forwardUrl,
+    number: null,
+    siteUrl: siteRow?.slug ? companySiteUrl(siteRow.slug) : null,
+  };
 }
 
 async function processPurchase(
@@ -444,7 +479,10 @@ async function processPurchase(
   const ctx: TenantServiceContext = { organizationId, actorProfileId: null, supabase: admin };
   const timeZone = company.timezone?.trim() || FALLBACK_TIMEZONE;
   const facts = await loadSetupFacts(ctx, companyId);
-  const checklist = computeSetupChecklist({ organizationId, companyId, tier, facts, appBaseUrl: appUrl() });
+  const draft = computeSetupChecklist({ organizationId, companyId, tier, facts, appBaseUrl: appUrl() });
+  const links = await loadSetupLinks(admin, organizationId, companyId);
+  links.number = draft.phonePath === "ai_receptionist" ? facts.aiNumber : facts.catcherNumber;
+  const checklist = computeSetupChecklist({ organizationId, companyId, tier, facts, appBaseUrl: appUrl(), forwardUrl: links.forwardUrl });
   const stopped = Boolean(purchase.setup_reminders_stopped_at);
   // Provisioned before follow-ups shipped (backfilled by 20261004130000): never chased, never
   // sent a late "you're live" — live_at is still stamped silently.
@@ -472,7 +510,7 @@ async function processPurchase(
   if (liveAtMs !== null) {
     if (quietReason) return [...outcomes, { purchaseId: purchase.id, action: "skipped", reason: quietReason }];
     const sends = await loadSends(admin, purchase, organizationId);
-    outcomes.push(await sendLive(admin, ctx, purchase, company, checklist, liveAtMs, timeZone, nowMs, sends, deps));
+    outcomes.push(await sendLive(admin, ctx, purchase, company, checklist, liveAtMs, timeZone, nowMs, sends, links, deps));
     return outcomes;
   }
 
@@ -489,7 +527,7 @@ async function processPurchase(
   if (!decision.send || !decision.stage || !decision.localDate) {
     return [{ purchaseId: purchase.id, action: "skipped", reason: decision.reason ?? "nothing_due" }];
   }
-  return [await sendReminder(admin, ctx, purchase, company, tier, checklist, decision.stage, decision.localDate, deps)];
+  return [await sendReminder(admin, ctx, purchase, company, checklist, links, decision.stage, decision.localDate, deps)];
 }
 
 /**

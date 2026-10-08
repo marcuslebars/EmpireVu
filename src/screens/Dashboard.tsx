@@ -38,43 +38,17 @@ import { SkeletonStatCard, SkeletonCard, ErrorBanner, EmptyState, LoadingCards }
 import { relativeTime, formatCentsCompact, formatSeconds, formatPercent } from "@/lib/format";
 import type { DashboardActivityItem } from "@/lib/api-client";
 import { useBrand } from "@/lib/brand-context";
+import { SetupProgressCard } from "@/components/onboarding/SetupProgress";
 
 const ONBOARDING_TOTAL_STEPS = 8;
 
 /**
- * CrankLeads orgs: "Setup: 3 of 5 done" — the same required-steps checklist the setup
- * follow-up reminders use (GET /api/organizations/{orgId}/setup-checklist), linking straight
- * to the next unfinished wizard step. Hidden once live and for non-CrankLeads orgs.
+ * CrankLeads orgs: the done-for-you "We're setting you up" card (what we've done + the one
+ * thing left — forwarding), linking to the full progress view. Hidden once live and for
+ * non-CrankLeads orgs (docs/done-for-you.md).
  */
 function SetupChecklistCard({ orgId }: { orgId: string }) {
-  const navigate = useNavigate();
-  const { data } = useSetupChecklist(orgId);
-  if (!data || data.isLive || !data.nextStep) return null;
-  const next = data.nextStep;
-
-  return (
-    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 opacity-0 animate-fade-in">
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-foreground">Setup: {data.doneCount} of {data.totalCount} done</p>
-        <p className="text-xs text-muted-foreground mt-0.5">Next: {next.title}. Your system starts catching leads once these are done.</p>
-        <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-          {data.steps.map((step) => (
-            <li key={step.key} className={cn("flex items-center gap-1 text-[11px]", step.done ? "text-muted-foreground line-through" : "text-foreground")}>
-              {step.done ? <Check className="w-3 h-3 text-[hsl(var(--success))]" /> : <CircleDot className="w-3 h-3 text-primary" />}
-              {step.title}
-            </li>
-          ))}
-        </ul>
-      </div>
-      <button
-        onClick={() => navigate(next.path)}
-        className="shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors active:scale-[0.97]"
-      >
-        {next.title}
-        <ChevronRight className="w-4 h-4" />
-      </button>
-    </div>
-  );
+  return <SetupProgressCard orgId={orgId} />;
 }
 
 /** Shown until onboarding is complete — nudges the owner back into the wizard (Task 13). */

@@ -27,6 +27,9 @@
  *   support       support_requests still 'open' ≥ 24h after they were sent (high after 72h).
  *   silent        Live CrankLeads account, subscription active/trialing, live ≥ 14 days, and zero
  *                 new contacts, missed calls and AI-receptionist calls in the last 14 days.
+ *   concierge     Done-for-you (docs/done-for-you.md): a not-live account the orchestrator handed to
+ *                 a human — not live 24h after purchase (escalated), the owner tapped "Have us
+ *                 set it up" on the forwarding page, or we couldn't buy their number (flagged).
  *   checks        A section the loader could not read (so a broken query is never mistaken for
  *                 "all clear").
  */
@@ -129,6 +132,24 @@ export interface ForwardingFact extends AccountFact {
   fixLink: string | null;
 }
 
+export type ConciergeReason = "escalated" | "forwarding_help" | "number_flagged";
+
+export interface ConciergeFact extends AccountFact {
+  reasons: ConciergeReason[];
+  /** Earliest of the reasons' timestamps. */
+  since: string;
+  ownerName: string;
+  ownerPhone: string;
+  ownerEmail: string;
+  subscriptionStatus: string;
+  /** The operator concierge console for this org. */
+  conciergeLink: string;
+  numberError: string | null;
+  /** Business line kind/carrier from the quick setup (forwarding help). */
+  phoneKind: string | null;
+  phoneCarrier: string | null;
+}
+
 export interface PaymentFact extends AccountFact {
   plan: string;
   subscriptionStatus: string;
@@ -198,6 +219,8 @@ export interface OperatorHealthFacts {
   stripeDashboardBase: string;
   graceDays: number;
   setup: SetupFact[];
+  /** Optional so older callers/tests that predate done-for-you still build. */
+  concierge?: ConciergeFact[];
   forwarding: ForwardingFact[];
   payments: PaymentFact[];
   provisioning: ProvisioningFact[];
@@ -234,6 +257,7 @@ export interface HealthItem {
 }
 
 export type SectionKey =
+  | "concierge"
   | "provisioning"
   | "forwarding"
   | "setup"
@@ -246,6 +270,7 @@ export type SectionKey =
 
 export const SECTION_ORDER: readonly SectionKey[] = [
   "checks",
+  "concierge",
   "provisioning",
   "forwarding",
   "setup",
@@ -258,6 +283,7 @@ export const SECTION_ORDER: readonly SectionKey[] = [
 
 export const SECTION_TITLES: Record<SectionKey, string> = {
   checks: "Health checks that could not run",
+  concierge: "Finish setup for them (concierge)",
   provisioning: "Provisioning failures",
   forwarding: "Call forwarding broken",
   setup: "Setup stalled",
@@ -396,6 +422,32 @@ export function setupItem(fact: SetupFact, facts: Pick<OperatorHealthFacts, "now
       ...stripeLink(facts.stripeDashboardBase, "customers", fact.stripeCustomerId, "Stripe customer"),
     ],
     guaranteeAtRisk,
+  };
+}
+
+const CONCIERGE_REASON_TEXT: Record<ConciergeReason, string> = {
+  escalated: "Not live 24 hours after purchase",
+  forwarding_help: "Asked us to set up their call forwarding",
+  number_flagged: "We couldn't buy their phone number",
+};
+
+export function conciergeItem(fact: ConciergeFact, facts: Pick<OperatorHealthFacts, "nowMs">): HealthItem | null {
+  if (fact.subscriptionStatus === "canceled" || fact.reasons.length === 0) return null;
+  const parts = fact.reasons.map((r) => CONCIERGE_REASON_TEXT[r]);
+  if (fact.reasons.includes("number_flagged") && fact.numberError) parts.push(`last error: ${truncate(fact.numberError, 120)}`);
+  if (fact.reasons.includes("forwarding_help")) parts.push(`business line: ${fact.phoneKind ?? "kind unknown"}, ${fact.phoneCarrier ?? "carrier unknown"}`);
+  return {
+    severity: fact.reasons.includes("number_flagged") ? "critical" : "high",
+    account: fact.businessName,
+    tierLabel: tierLabel(fact.tier),
+    problem: `${parts.join(" — ")}.`,
+    howLong: `since ${formatDuration(age(facts.nowMs, fact.since))} ago`,
+    ageMs: age(facts.nowMs, fact.since),
+    action: fact.reasons.includes("number_flagged")
+      ? "Fix the number purchase (Twilio / Retell), then finish setup in the concierge console."
+      : `Call ${fact.ownerName} (${prettyPhone(fact.ownerPhone)}, ${fact.ownerEmail}) and finish setup with them in the concierge console.`,
+    links: [{ label: "Concierge console", url: fact.conciergeLink }],
+    guaranteeAtRisk: false,
   };
 }
 
@@ -598,6 +650,7 @@ export function buildOperatorHealthReport(facts: OperatorHealthFacts, options: B
   const cap = options.maxItemsPerSection ?? MAX_ITEMS_PER_SECTION;
   const all: Record<SectionKey, HealthItem[]> = {
     checks: facts.errors.map(checkErrorItem),
+    concierge: compact((facts.concierge ?? []).map((f) => conciergeItem(f, facts))),
     provisioning: compact(facts.provisioning.map((f) => provisioningItem(f, facts))),
     forwarding: compact(facts.forwarding.map((f) => forwardingItem(f, facts))),
     setup: compact(facts.setup.map((f) => setupItem(f, facts))),

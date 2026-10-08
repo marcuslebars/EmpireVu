@@ -1,0 +1,33 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`done-for-you messages (golden) > forwarding text + email 1`] = `
+"Hi Jane,
+
+We've set up Jane's Roofing. One thing only you can do: turn on call forwarding on your business phone, so every call you miss gets a text back in seconds.
+
+Open this on your business phone: https://app.crankleads.test/forward/AbCdEfGhIjKlMnOpQrStUvWxYz012345
+
+Your phone still rings first — only the calls you miss or can't take are forwarded. We test it automatically and text you when it works.
+
+Rather have us do it? Open the link and tap "Have us set it up" — we'll call you.
+
+— The CrankLeads team"
+`;
+
+exports[`done-for-you messages (golden) > operator escalation 1`] = `
+"Call Jane Roofer (416) 555-0101 to finish setup — Jane's Roofing
+
+Not live 24 hours after they bought.
+
+Owner: Jane Roofer  (416) 555-0101  <jane@roofco.example>
+Plan: Close
+
+Done automatically:
+  [x] Text-back number
+Still to do:
+  [ ] Turn on call forwarding
+  [ ] Missed-call text-back on
+
+Finish it for them: https://app.house.test/concierge/org-1
+Organization: org-1"
+`;

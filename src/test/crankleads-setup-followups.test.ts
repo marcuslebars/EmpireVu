@@ -11,6 +11,7 @@ import {
   computeSetupChecklist,
   loadSetupChecklist,
   loadSetupFacts,
+  optionalSetupSteps,
   requiredSetupSteps,
   type SetupFacts,
 } from "@/server/services/crankleads/setup-checklist";
@@ -25,7 +26,6 @@ import {
 import {
   renderLiveEmail,
   renderLiveSms,
-  renderOperatorStuckEmail,
   renderReminderEmail,
   renderReminderSms,
   type ReminderMessageInput,
@@ -75,63 +75,81 @@ function checklist(tier: "catch" | "close" | "front_desk", facts: SetupFacts) {
 
 // ── Checklist (pure) ─────────────────────────────────────────────────────────
 
-describe("setup checklist — required steps per tier", () => {
-  it("catch: services, phone, forwarding, website, automations (no payments)", () => {
-    expect(requiredSetupSteps("catch", "missed_call_catcher")).toEqual(["services", "phone", "forwarding", "website", "automations"]);
+describe("setup checklist — required steps per tier (done-for-you live rules)", () => {
+  it("catch / close: text-back number + forwarding verified + text-back automation", () => {
+    expect(requiredSetupSteps("catch", "missed_call_catcher")).toEqual(["phone", "forwarding", "automations"]);
+    expect(requiredSetupSteps("close", "missed_call_catcher")).toEqual(["phone", "forwarding", "automations"]);
   });
-  it("close: adds payments", () => {
-    expect(requiredSetupSteps("close", "missed_call_catcher")).toEqual(["services", "phone", "forwarding", "payments", "website", "automations"]);
-  });
-  it("front desk on the AI path: test call instead of forwarding, no text-back automation", () => {
-    expect(requiredSetupSteps("front_desk", "ai_receptionist")).toEqual(["services", "phone", "test_call", "payments", "website"]);
+  it("front desk on the AI path: AI number + forwarding (or a real call reached the AI)", () => {
+    expect(requiredSetupSteps("front_desk", "ai_receptionist")).toEqual(["phone", "forwarding"]);
   });
   it("front desk that chose the catcher: same as close", () => {
     expect(requiredSetupSteps("front_desk", "missed_call_catcher")).toEqual(requiredSetupSteps("close", "missed_call_catcher"));
   });
-
-  it("catch with nothing done: 0 of 5, next = prices, deep link straight to the wizard step for this org", () => {
-    const c = checklist("catch", { ...NONE, servicesNeedingPrices: 7 });
-    expect(c.doneCount).toBe(0);
-    expect(c.totalCount).toBe(5);
-    expect(c.isLive).toBe(false);
-    expect(c.nextStep?.key).toBe("services");
-    expect(c.nextStep?.action).toBe("add prices to your 7 services");
-    expect(c.nextStep?.path).toBe(`/onboarding?step=services&org=${ORG}`);
-    expect(c.nextStep?.deepLink).toBe(`${APP}/onboarding?step=services&org=${ORG}`);
-    expect(c.steps.map((s) => s.wizardStep)).toEqual(["services", "phone", "phone", "website", "recipes"]);
+  it("prices, payments and the website form are optional extras (payments only where deposits exist)", () => {
+    expect(optionalSetupSteps("catch", "missed_call_catcher")).toEqual(["services", "website"]);
+    expect(optionalSetupSteps("close", "missed_call_catcher")).toEqual(["services", "payments", "website"]);
+    const c = checklist("close", { ...ALL_CATCHER, pricedServices: 0, paymentsConnected: false, websiteLeadReceived: false });
+    expect(c.isLive).toBe(true);
+    expect(c.extras.map((e) => [e.key, e.done, e.required])).toEqual([
+      ["services", false, false],
+      ["payments", false, false],
+      ["website", false, false],
+    ]);
   });
 
-  it("forwarding counts ONLY when the catcher number's forwarding_verified_at is set", () => {
-    const unverified = checklist("catch", { ...ALL_CATCHER, forwardingVerified: false });
+  it("catch with nothing done: 0 of 3, next = the number (we buy it), deep link to the in-app view for this org", () => {
+    const c = checklist("catch", { ...NONE, servicesNeedingPrices: 7 });
+    expect(c.doneCount).toBe(0);
+    expect(c.totalCount).toBe(3);
+    expect(c.isLive).toBe(false);
+    expect(c.nextStep?.key).toBe("phone");
+    expect(c.nextStep?.path).toBe(`/onboarding?step=phone&org=${ORG}`);
+    expect(c.nextStep?.deepLink).toBe(`${APP}/onboarding?step=phone&org=${ORG}`);
+    expect(c.steps.every((s) => s.required)).toBe(true);
+    expect(c.extras.find((e) => e.key === "services")?.action).toBe("add prices to your 7 services");
+  });
+
+  it("forwarding counts ONLY when the catcher number's forwarding_verified_at is set; links to the one-tap page", () => {
+    const forwardUrl = `${APP}/forward/tok`;
+    const unverified = computeSetupChecklist({
+      organizationId: ORG,
+      companyId: COMPANY,
+      tier: "catch",
+      facts: { ...ALL_CATCHER, forwardingVerified: false },
+      appBaseUrl: APP,
+      forwardUrl,
+    });
     expect(unverified.isLive).toBe(false);
     expect(unverified.nextStep?.key).toBe("forwarding");
-    expect(unverified.nextStep?.action).toBe(`set call forwarding (dial **004*${CATCHER}# from your business phone)`);
+    expect(unverified.nextStep?.action).toBe("turn on call forwarding (one tap from your business phone)");
+    expect(unverified.nextStep?.deepLink).toBe(forwardUrl);
     expect(checklist("catch", ALL_CATCHER).isLive).toBe(true);
     // verified flag without a catcher number never counts
     expect(checklist("catch", { ...ALL_CATCHER, catcherNumber: null }).steps.find((s) => s.key === "forwarding")?.done).toBe(false);
   });
 
-  it("close needs payments; catch doesn't", () => {
-    const facts = { ...ALL_CATCHER, paymentsConnected: false };
-    expect(checklist("catch", facts).isLive).toBe(true);
-    const close = checklist("close", facts);
-    expect(close.isLive).toBe(false);
-    expect(close.nextStep?.key).toBe("payments");
-    expect(close.doneCount).toBe(5);
-    expect(close.totalCount).toBe(6);
+  it("catch / close are not live until the missed-call text-back automation is active", () => {
+    const c = checklist("close", { ...ALL_CATCHER, textBackActive: false });
+    expect(c.isLive).toBe(false);
+    expect(c.nextStep?.key).toBe("automations");
+    expect(c.doneCount).toBe(2);
   });
 
-  it("front desk: AI number + a received call = test done; catcher-only front desk switches to the catcher path", () => {
-    const ai = checklist("front_desk", { ...NONE, pricedServices: 1, aiNumber: "+17055550001", paymentsConnected: true, websiteLeadReceived: true });
+  it("front desk: AI number + (forwarding verified OR a received call) = live; catcher-only front desk switches to the catcher path", () => {
+    const ai = checklist("front_desk", { ...NONE, aiNumber: "+17055550001" });
     expect(ai.phonePath).toBe("ai_receptionist");
-    expect(ai.nextStep?.key).toBe("test_call");
-    expect(ai.nextStep?.action).toBe("call your AI receptionist at (705) 555-0001 to test it");
-    expect(checklist("front_desk", { ...NONE, pricedServices: 1, aiNumber: "+17055550001", receptionistCallReceived: true, paymentsConnected: true, websiteLeadReceived: true }).isLive).toBe(true);
+    expect(ai.isLive).toBe(false);
+    expect(ai.nextStep?.key).toBe("forwarding");
+    expect(checklist("front_desk", { ...NONE, aiNumber: "+17055550001", receptionistCallReceived: true }).isLive).toBe(true);
+    expect(checklist("front_desk", { ...NONE, aiNumber: "+17055550001", aiForwardingVerified: true }).isLive).toBe(true);
+    // a received call without an AI number never counts
+    expect(checklist("front_desk", { ...NONE, receptionistCallReceived: true }).isLive).toBe(false);
     const catcherFd = checklist("front_desk", ALL_CATCHER);
     expect(catcherFd.phonePath).toBe("missed_call_catcher");
     expect(catcherFd.isLive).toBe(true);
     // Nothing chosen yet → front desk defaults to the AI path.
-    expect(checklist("front_desk", NONE).nextStep?.key).toBe("services");
+    expect(checklist("front_desk", NONE).nextStep?.key).toBe("phone");
     expect(checklist("front_desk", NONE).phonePath).toBe("ai_receptionist");
   });
 });
@@ -207,7 +225,7 @@ describe("setup checklist — loader", () => {
     const live = createFakeDb(liveTables());
     const c = await loadSetupChecklist({ organizationId: ORG, actorProfileId: null, supabase: live.client }, { appBaseUrl: APP });
     expect(c?.isLive).toBe(true);
-    expect(c?.doneCount).toBe(5);
+    expect(c?.doneCount).toBe(3);
   });
 });
 
@@ -272,79 +290,84 @@ describe("follow-up schedule", () => {
 
 // ── Templates (golden) ───────────────────────────────────────────────────────
 
+const FORWARD_URL = `${APP}/forward/AbCdEfGhIjKlMnOpQrStUvWxYz012345`;
+const SETUP_URL = `${APP}/setup/intake-token-1`;
+
 const REMINDER: ReminderMessageInput = {
   stage: "day3",
   ownerName: "Jane Roofer",
   businessName: "Jane's Roofing",
-  remaining: [
-    { title: "Turn on call forwarding", action: `set call forwarding (dial **004*${CATCHER}# from your business phone)` },
-    { title: "Add your website form", action: "add your website form and send a test lead" },
-  ],
-  nextStepUrl: `${APP}/onboarding?step=phone&org=${ORG}`,
-  setPasswordUrl: null,
+  action: "forwarding",
+  actionUrl: FORWARD_URL,
+  phonePath: "missed_call_catcher",
+  remaining: [{ title: "Turn on call forwarding", action: "turn on call forwarding (one tap from your business phone)" }],
   appUrl: APP,
   stopUrl: `${APP}/api/public/crankleads/setup-reminders?token=${TOKEN}`,
 };
 
-describe("follow-up templates", () => {
-  it("reminder SMS (golden): names both steps, deep link, STOP line", () => {
+describe("follow-up templates (done-for-you: one action, one no-login link)", () => {
+  it("forwarding reminder SMS (golden)", () => {
     expect(renderReminderSms(REMINDER)).toBe(
-      `CrankLeads: Hi Jane, 2 steps left to get Jane's Roofing live: set call forwarding (dial **004*+17055550000# from your business phone) and add your website form and send a test lead. ${APP}/onboarding?step=phone&org=${ORG}\nReply STOP to stop these texts.`,
+      `CrankLeads: Hi Jane, Jane's Roofing is one tap from live. Turn on call forwarding so every call you miss gets a text back: ${FORWARD_URL}\nReply STOP to stop these texts.`,
+    );
+    expect(renderReminderSms({ ...REMINDER, phonePath: "ai_receptionist" })).toContain("so your AI receptionist picks up the calls you miss");
+  });
+
+  it("quick-setup reminder SMS (golden) and the day-10 variant", () => {
+    const quick = { ...REMINDER, action: "quick_setup" as const, actionUrl: SETUP_URL };
+    expect(renderReminderSms(quick)).toBe(
+      `CrankLeads: Hi Jane, finish your 60-second setup and we'll switch Jane's Roofing on for you: ${SETUP_URL}\nReply STOP to stop these texts.`,
+    );
+    expect(renderReminderSms({ ...REMINDER, stage: "day10" })).toBe(
+      `CrankLeads: Hi Jane, last nudge — Jane's Roofing is one tap from live. Turn on call forwarding so every call you miss gets a text back: ${FORWARD_URL}\nReply STOP to stop these texts.`,
     );
   });
 
-  it("reminder SMS collapses 3+ steps and has a day-10 variant", () => {
-    const three = { ...REMINDER, remaining: [...REMINDER.remaining, { title: "Connect payments", action: "connect Stripe so you can take deposits" }] };
-    expect(renderReminderSms(three)).toContain("3 steps left to get Jane's Roofing live: set call forwarding (dial **004*+17055550000# from your business phone) (+2 more).");
-    expect(renderReminderSms({ ...REMINDER, stage: "day10", remaining: [REMINDER.remaining[1]] })).toBe(
-      `CrankLeads: Hi Jane, last nudge — Jane's Roofing still has 1 step left: add your website form and send a test lead. Reply to our email if you want a hand. ${APP}/onboarding?step=phone&org=${ORG}\nReply STOP to stop these texts.`,
-    );
-  });
-
-  it("reminder email (golden)", () => {
+  it("reminder email (golden) — never asks for Stripe, prices or wizard steps", () => {
     const email = renderReminderEmail(REMINDER);
     expect(email.fromName).toBe("CrankLeads");
-    expect(email.subject).toBe("Jane's Roofing: 2 steps left — next, set call forwarding (dial **004*+17055550000# from your business phone)");
+    expect(email.subject).toBe("Jane's Roofing is one tap from live");
     expect(email.body).toMatchSnapshot();
     expect(email.html).toMatchSnapshot();
     expect(email.body).not.toMatch(/\$\s?\d/);
+    for (const stage of ["day1", "day3", "day5", "day10"] as const) {
+      for (const action of ["quick_setup", "forwarding"] as const) {
+        const rendered = renderReminderEmail({ ...REMINDER, stage, action });
+        expect(`${rendered.subject}\n${rendered.body}\n${renderReminderSms({ ...REMINDER, stage, action })}`).not.toMatch(/stripe|payments|onboarding\?step|wizard|EmpireVu/i);
+      }
+    }
   });
 
-  it("reminder email subjects per stage, set-password variant, HTML escaping", () => {
-    expect(renderReminderEmail({ ...REMINDER, stage: "day1" }).subject).toBe("2 steps left to get Jane's Roofing live");
-    expect(renderReminderEmail({ ...REMINDER, stage: "day5" }).subject).toBe("Your CrankLeads system isn't live yet (2 steps left)");
-    expect(renderReminderEmail({ ...REMINDER, stage: "day10" }).subject).toBe("Need a hand finishing setup? (2 steps left)");
-    const withPassword = renderReminderEmail({ ...REMINDER, setPasswordUrl: `${APP}/update-password?token_hash=t&type=recovery&next=x` });
-    expect(withPassword.body).toContain("You haven't set your CrankLeads password yet");
-    expect(withPassword.html).toContain("Set your password and turn on call forwarding");
+  it("reminder email subjects per action / stage, HTML escaping", () => {
+    expect(renderReminderEmail({ ...REMINDER, action: "quick_setup", actionUrl: SETUP_URL }).subject).toBe("60 seconds to finish setting up Jane's Roofing");
+    expect(renderReminderEmail({ ...REMINDER, stage: "day10" }).subject).toBe("Want us to finish Jane's Roofing's setup with you?");
+    expect(renderReminderEmail({ ...REMINDER, action: "quick_setup", actionUrl: SETUP_URL }).body).toMatchSnapshot();
     expect(renderReminderEmail({ ...REMINDER, businessName: "<b>x</b>" }).html).not.toContain("<b>x</b>");
   });
 
-  it("live + operator templates (golden)", () => {
-    const live = { ownerName: "Jane Roofer", businessName: "Jane's Roofing", phonePath: "missed_call_catcher" as const, appUrl: APP };
+  it("live templates (golden): what works, the number, the page, a login link", () => {
+    const live = {
+      ownerName: "Jane Roofer",
+      businessName: "Jane's Roofing",
+      phonePath: "missed_call_catcher" as const,
+      appUrl: APP,
+      number: CATCHER,
+      siteUrl: `${APP}/s/janes-roofing`,
+      setPasswordUrl: null,
+    };
     expect(renderLiveSms(live)).toBe(
-      `CrankLeads: 🎉 You're live! Jane's Roofing is set up — missed callers get a text back in seconds, and website leads land in your inbox. ${APP}`,
+      `CrankLeads: 🎉 You're live! Jane's Roofing: missed callers now get a text back from (705) 555-0000. Your new page: ${APP}/s/janes-roofing Log in: ${APP}`,
     );
-    expect(renderLiveSms({ ...live, phonePath: "ai_receptionist" })).toContain("your AI receptionist answers every call");
+    expect(renderLiveSms({ ...live, phonePath: "ai_receptionist", siteUrl: null })).toBe(
+      `CrankLeads: 🎉 You're live! Jane's Roofing: calls you miss now go to your AI receptionist (705) 555-0000. Log in: ${APP}`,
+    );
     const email = renderLiveEmail(live);
     expect(email.subject).toBe("🎉 You're live — Jane's Roofing is catching leads");
     expect(email.body).toMatchSnapshot();
-    const op = renderOperatorStuckEmail({
-      businessName: "Jane's Roofing",
-      tier: "close",
-      ownerName: "Jane Roofer",
-      ownerEmail: "jane@roofco.example",
-      ownerPhone: "(705) 555-0101",
-      organizationId: ORG,
-      provisionedAt: "2026-10-02T19:00:00Z",
-      steps: [
-        { title: "Add your prices", done: true },
-        { title: "Turn on call forwarding", done: false },
-      ],
-      appUrl: APP,
-    });
-    expect(op.subject).toBe("CrankLeads buyer stuck: Jane's Roofing (Close) — 1 step left after 10 business days");
-    expect(op.body).toMatchSnapshot();
+    const withPassword = renderLiveEmail({ ...live, setPasswordUrl: `${APP}/update-password?token_hash=t&type=recovery&next=%2F` });
+    expect(withPassword.body).toContain("Set your password and log in (works once)");
+    expect(withPassword.html).toContain("Set your password and log in");
+    expect(renderLiveSms({ ...live, setPasswordUrl: "x-token" })).not.toContain("x-token");
   });
 });
 
@@ -413,58 +436,50 @@ afterEach(() => {
 });
 
 describe("setup follow-up pass", () => {
-  it("day 1 (Mon 09:30 local): one email + one SMS naming the next step, platform SMS sender, stop link, set-password link", async () => {
-    setup(baseTables());
+  it("day 1 (Mon 09:30 local): one email + one SMS with the one-tap forwarding link, platform SMS sender, stop link", async () => {
+    setup(baseTables({ voice_numbers: [{ organization_id: ORG, company_id: COMPANY, provider: "twilio", mode: "missed_call_catcher", phone_e164: CATCHER, active: true, forwarding_verified_at: null }] }));
     const outcomes = await run("2026-10-05T13:30:00Z");
     expect(outcomes).toEqual([{ purchaseId: PURCHASE, action: "reminder_sent", stage: "day1" }]);
     expect(sends()).toEqual([
-      expect.objectContaining({ organization_id: ORG, company_id: COMPANY, purchase_id: PURCHASE, stage: "day1", local_date: "2026-10-05", next_step: "services", steps_left: 5, email_status: "sent", sms_status: "sent", operator_status: null }),
+      expect.objectContaining({ organization_id: ORG, company_id: COMPANY, purchase_id: PURCHASE, stage: "day1", local_date: "2026-10-05", next_step: "forwarding", steps_left: 2, email_status: "sent", sms_status: "sent", operator_status: null }),
     ]);
     const [email] = delivered("email");
     const [sms] = delivered("sms");
+    const token = db.tables.dfy_progress[0].forward_token as string;
+    expect(token).toMatch(/^[A-Za-z0-9_-]{32}$/);
     expect(email.to).toBe("jane@roofco.example");
     expect(email.fromName).toBe("CrankLeads");
-    expect(email.body).toContain(`${APP}/onboarding?step=services&org=${ORG}`);
+    expect(email.body).toContain(`${APP}/forward/${token}`);
     expect(email.body).toContain(`${APP}/api/public/crankleads/setup-reminders?token=${TOKEN}`);
-    expect(email.body).toContain("update-password?token_hash=h");
-    expect(createSetPasswordUrl).toHaveBeenCalledWith(db.client, "jane@roofco.example", `/onboarding?step=services&org=${ORG}`);
+    expect(email.body).not.toContain("update-password");
     expect(sms.to).toBe("+17055550101");
     expect(sms.smsFrom).toBe("platform");
     expect(sms.consentContact).toBeNull();
-    expect(sms.body).toContain("5 steps left to get Jane's Roofing live: add prices to your 2 services (+4 more).");
+    expect(sms.body).toContain(`Jane's Roofing is one tap from live. Turn on call forwarding so every call you miss gets a text back: ${APP}/forward/${token}`);
     expect(db.tables.crankleads_purchases[0].setup_reminders_stop_token).toBe(TOKEN);
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
-  it("the set-password email goes ONLY to the buyer's checkout email, never to a different resolved owner email", async () => {
-    setup(baseTables({ companies: [companyRow({ owner_email: "office@roofco.example", owner_phone_e164: "+17055550199" })] }));
+  it("while the 60-second quick setup is unanswered, the reminder links to it (not forwarding)", async () => {
+    setup(baseTables({ setup_intakes: [{ organization_id: ORG, company_id: COMPANY, token: "intake-token-1", status: "sent" }] }));
     await run("2026-10-05T13:30:00Z");
-    const emails = delivered("email");
-    expect(emails).toHaveLength(1);
-    expect(emails[0].to).toBe("jane@roofco.example");
-    expect(emails[0].body).toContain("update-password?token_hash=h");
-    expect(emails.some((m) => m.to === "office@roofco.example")).toBe(false);
-    expect(createSetPasswordUrl).toHaveBeenCalledWith(db.client, "jane@roofco.example", `/onboarding?step=services&org=${ORG}`);
-    // SMS still goes to the resolved owner phone, and never carries a login token.
-    const [sms] = delivered("sms");
-    expect(sms.to).toBe("+17055550199");
-    expect(sms.body).not.toContain("token_hash");
+    expect(sends()[0]).toMatchObject({ next_step: "quick_setup" });
+    expect(delivered("sms")[0].body).toContain(`finish your 60-second setup and we'll switch Jane's Roofing on for you: ${APP}/setup/intake-token-1`);
+    expect(delivered("email")[0].subject).toBe("60 seconds to finish setting up Jane's Roofing");
   });
 
-  it("without a set-password link (owner signed in) the reminder goes to the resolved owner email", async () => {
+  it("an answered quick setup (enriched) → back to the forwarding link", async () => {
+    setup(baseTables({ setup_intakes: [{ organization_id: ORG, company_id: COMPANY, token: "intake-token-1", status: "enriched" }] }));
+    await run("2026-10-05T13:30:00Z");
+    expect(delivered("sms")[0].body).toContain(`${APP}/forward/`);
+    expect(delivered("sms")[0].body).not.toContain("/setup/");
+  });
+
+  it("reminders go to the resolved owner email (they carry no login link)", async () => {
     setup(baseTables({ companies: [companyRow({ owner_email: "office@roofco.example" })] }));
-    signedIn = true;
     await run("2026-10-05T13:30:00Z");
     expect(delivered("email")[0].to).toBe("office@roofco.example");
-    expect(delivered("email")[0].body).not.toContain("update-password");
-  });
-
-  it("owner who already signed in gets no set-password link", async () => {
-    setup(baseTables());
-    signedIn = true;
-    await run("2026-10-05T13:30:00Z");
     expect(createSetPasswordUrl).not.toHaveBeenCalled();
-    expect(delivered("email")[0].body).not.toContain("update-password");
   });
 
   it("is idempotent: a second pass (retry / double run) the same day sends nothing", async () => {
@@ -492,15 +507,14 @@ describe("setup follow-up pass", () => {
     expect(sends()).toHaveLength(0);
   });
 
-  it("day 10: reminder + operator 'stuck' note (once)", async () => {
+  it("day 10: last-nudge reminder only — the operator was already alerted by the 24h escalation", async () => {
     setup(baseTables({
       crankleads_setup_followups: ["day1", "day3", "day5"].map((stage, i) => ({ id: `s${i}`, organization_id: ORG, company_id: COMPANY, purchase_id: PURCHASE, stage, local_date: ["2026-10-05", "2026-10-07", "2026-10-09"][i] })),
     }));
     await run("2026-10-16T14:00:00Z");
     await run("2026-10-16T15:00:00Z");
-    expect(sendEmail).toHaveBeenCalledTimes(1);
-    expect(sendEmail.mock.calls[0][0]).toMatchObject({ to: "ops@empirevu.test", subject: "CrankLeads buyer stuck: Jane's Roofing (Catch) — 5 steps left after 10 business days" });
-    expect(sends().find((s) => s.stage === "day10")).toMatchObject({ operator_status: "sent", email_status: "sent", sms_status: "sent" });
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(sends().find((s) => s.stage === "day10")).toMatchObject({ operator_status: null, email_status: "sent", sms_status: "sent" });
     expect(delivered("sms")[0].body).toContain("last nudge");
   });
 
@@ -510,7 +524,10 @@ describe("setup follow-up pass", () => {
     expect(first.map((o) => o.action)).toEqual(["live_marked", "live_sent"]);
     expect(db.tables.crankleads_purchases[0].live_at).toBe("2026-10-05T13:30:00.000Z");
     expect(delivered("email")[0].subject).toBe("🎉 You're live — Jane's Roofing is catching leads");
-    expect(delivered("sms")[0].body).toContain("You're live!");
+    // never signed in → the live EMAIL (buyer's own address only) carries the set-password link; the text never does
+    expect(delivered("email")[0].to).toBe("jane@roofco.example");
+    expect(delivered("email")[0].body).toContain("update-password?token_hash=h");
+    expect(delivered("sms")[0].body).toBe(`CrankLeads: 🎉 You're live! Jane's Roofing: missed callers now get a text back from (705) 555-0000. Log in: ${APP}`);
     await run("2026-10-07T14:00:00Z");
     await run("2026-10-16T14:00:00Z");
     expect(deliver).toHaveBeenCalledTimes(2);

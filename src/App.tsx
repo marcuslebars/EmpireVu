@@ -15,6 +15,7 @@ import { OpsPage } from "@/screens/OpsPage";
 import DeleteAccountPage from "@/screens/DeleteAccountPage";
 import PrivacyPolicyPage from "@/screens/PrivacyPolicyPage";
 import PublicBookingPage from "@/screens/PublicBookingPage";
+import ForwardPage from "@/screens/ForwardPage";
 import PublicQuotePage from "@/screens/PublicQuotePage";
 import PublicInvoicePage from "@/screens/PublicInvoicePage";
 import PublicPortalPage from "@/screens/PublicPortalPage";
@@ -337,6 +338,8 @@ function AppRoutes() {
       <Route path="/welcome/crankleads" element={<CrankleadsWelcomePage />} />
       {/* Done-for-you quick setup (texted after purchase). Public: the token is the credential. */}
       <Route path="/setup/:token" element={<SetupIntakePage />} />
+      {/* Done-for-you one-tap call forwarding (docs/done-for-you.md). Public: the token is the credential. */}
+      <Route path="/forward/:token" element={<ForwardPage />} />
       <Route element={<AppLayout />}>
         <Route
           path="/"

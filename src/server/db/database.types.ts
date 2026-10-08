@@ -3514,6 +3514,78 @@ export interface Database {
         };
         Relationships: [];
       };
+      dfy_progress: {
+        Row: {
+          company_id: string;
+          organization_id: string;
+          number_attempts: number;
+          number_last_attempt_at: string | null;
+          number_last_error: string | null;
+          number_ready_at: string | null;
+          number_flagged_at: string | null;
+          switched_on_at: string | null;
+          switch_on_detail: Json;
+          forward_token: string | null;
+          forward_text_sent_at: string | null;
+          forward_opened_at: string | null;
+          forward_tapped_at: string | null;
+          forward_help_requested_at: string | null;
+          forward_tests_started: number;
+          forward_last_test_at: string | null;
+          escalated_at: string | null;
+          last_run_at: string | null;
+          last_error: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          company_id: string;
+          organization_id: string;
+          number_attempts?: number;
+          number_last_attempt_at?: string | null;
+          number_last_error?: string | null;
+          number_ready_at?: string | null;
+          number_flagged_at?: string | null;
+          switched_on_at?: string | null;
+          switch_on_detail?: Json;
+          forward_token?: string | null;
+          forward_text_sent_at?: string | null;
+          forward_opened_at?: string | null;
+          forward_tapped_at?: string | null;
+          forward_help_requested_at?: string | null;
+          forward_tests_started?: number;
+          forward_last_test_at?: string | null;
+          escalated_at?: string | null;
+          last_run_at?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          company_id?: string;
+          organization_id?: string;
+          number_attempts?: number;
+          number_last_attempt_at?: string | null;
+          number_last_error?: string | null;
+          number_ready_at?: string | null;
+          number_flagged_at?: string | null;
+          switched_on_at?: string | null;
+          switch_on_detail?: Json;
+          forward_token?: string | null;
+          forward_text_sent_at?: string | null;
+          forward_opened_at?: string | null;
+          forward_tapped_at?: string | null;
+          forward_help_requested_at?: string | null;
+          forward_tests_started?: number;
+          forward_last_test_at?: string | null;
+          escalated_at?: string | null;
+          last_run_at?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       missed_calls: {
         Row: {
           call_sid: string;
