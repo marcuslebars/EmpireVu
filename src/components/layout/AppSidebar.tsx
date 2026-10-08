@@ -18,10 +18,12 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Headset,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
 import { Logo, LogoMark } from "@/components/brand/Logo";
+import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -43,10 +45,15 @@ const navItems = [
   { title: "Settings", icon: Settings, path: "/settings" },
 ];
 
+/** Only shown to concierge operators (session.isOperator); the routes 404 for everyone else. */
+const operatorNavItem = { title: "Concierge", icon: Headset, path: "/concierge" };
+
 function NavList({ collapsed, onNavigate }: { collapsed?: boolean; onNavigate?: () => void }) {
+  const { session } = useAuth();
+  const items = session?.isOperator ? [...navItems, operatorNavItem] : navItems;
   return (
     <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
-      {navItems.map((item) => (
+      {items.map((item) => (
         <NavLink
           key={item.path}
           to={item.path}

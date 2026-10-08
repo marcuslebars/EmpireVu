@@ -23,6 +23,8 @@ interface User {
 interface SessionContextResponse {
   activeOrganizationId: string | null;
   companies: Array<{ id: string; name: string; stage: string }>;
+  /** Concierge operator (OPERATOR_EMAILS) — absent from an older server. */
+  isOperator?: boolean;
   organizations: Array<{
     id: string;
     name: string;

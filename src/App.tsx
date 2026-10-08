@@ -49,6 +49,8 @@ import ReportsAttributionPage from "./screens/ReportsAttributionPage";
 import ReportsMonthlyPage from "./screens/ReportsMonthlyPage";
 import SettingsPage from "./screens/SettingsPage";
 import NotFound from "./screens/NotFound";
+import ConciergeListPage from "./screens/concierge/ConciergeListPage";
+import ConciergeDetailPage from "./screens/concierge/ConciergeDetailPage";
 import { Loader2, AlertTriangle, Bug, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -334,6 +336,9 @@ function AppRoutes() {
       <Route path="/invite/:token" element={<AcceptInvitePage />} />
       {/* CrankLeads purchase landing (Stripe success_url). Public: the Checkout Session id is the credential. */}
       <Route path="/welcome/crankleads" element={<CrankleadsWelcomePage />} />
+      {/* Operator-only concierge console (OPERATOR_EMAILS); everyone else sees NotFound. */}
+      <Route path="/concierge" element={<ConciergeListPage />} />
+      <Route path="/concierge/:orgId" element={<ConciergeDetailPage />} />
       <Route element={<AppLayout />}>
         <Route
           path="/"

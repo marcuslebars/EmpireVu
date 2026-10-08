@@ -204,3 +204,16 @@ export function formatCents(cents: number): string {
   const dollars = cents / 100;
   return `$${dollars.toLocaleString("en-CA", { minimumFractionDigits: cents % 100 === 0 ? 0 : 2, maximumFractionDigits: 2 })}`;
 }
+
+export function tierLabel(tier: string | null): string {
+  if (tier === "catch") return "Catch";
+  if (tier === "close") return "Close";
+  if (tier === "front_desk") return "Front Desk";
+  return tier ?? "—";
+}
+
+export const STAGE_LABELS: Record<ConciergeStage, string> = {
+  needs_call: "Needs a call",
+  setting_up: "Setting up",
+  live: "Live",
+};
