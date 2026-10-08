@@ -671,6 +671,17 @@ describe("booking hours from companies.hours (fixtures)", () => {
       bookingHoursFromCompanyHours({ weekdayText: ["Monday: 8:00 AM – 5:00 PM", "Tuesday: 8:00 AM – 5:00 PM", "Saturday: 9:00 AM – 1:00 PM", "Sunday: Closed"] }),
     ).toEqual({ startHour: 8, endHour: 17, workingDays: [1, 2, 6] });
   });
+  it("the enrichment's own Google shape ({ summary, periods: [{ day, open, close }] })", () => {
+    const enriched = {
+      summary: "Monday: 7:00 AM – 6:00 PM; Tuesday: 7:00 AM – 6:00 PM; Saturday: 8:00 AM – 12:00 PM; Sunday: Closed",
+      periods: [
+        { day: 1, open: "07:00", close: "18:00" },
+        { day: 2, open: "07:00", close: "18:00" },
+        { day: 6, open: "08:00", close: "12:00" },
+      ],
+    };
+    expect(bookingHoursFromCompanyHours(enriched)).toEqual({ startHour: 7, endHour: 18, workingDays: [1, 2, 6] });
+  });
   it("the wizard's free-text summary", () => {
     expect(bookingHoursFromCompanyHours({ summary: "Mon–Fri 8am–5pm, Sat 9am–1pm" })).toEqual({ startHour: 8, endHour: 17, workingDays: [1, 2, 3, 4, 5, 6] });
     expect(bookingHoursFromCompanyHours({ summary: "Mon-Fri 7-4" })).toEqual({ startHour: 7, endHour: 16, workingDays: [1, 2, 3, 4, 5] });

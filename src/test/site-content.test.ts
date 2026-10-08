@@ -56,6 +56,21 @@ describe("site facts", () => {
     expect(parseHours(null)).toEqual({ lines: [], specs: [] });
   });
 
+  it("reads the enrichment's Google periods (day 0 = Sunday) as per-day lines, not one run-on summary", () => {
+    const enriched = {
+      summary: "Monday: 7:00 AM – 6:00 PM; Tuesday: 7:00 AM – 6:00 PM; Wednesday: 7:00 AM – 6:00 PM; Thursday: 7:00 AM – 6:00 PM; Friday: 7:00 AM – 6:00 PM; Saturday: 8:00 AM – 12:00 PM; Sunday: Closed",
+      periods: [1, 2, 3, 4, 5].map((day) => ({ day, open: "07:00", close: "18:00" })).concat([{ day: 6, open: "08:00", close: "12:00" }]),
+    };
+    const parsed = parseHours(enriched);
+    expect(parsed.lines).toEqual(["Mon–Fri: 7am–6pm", "Sat: 8am–12pm", "Sun: Closed"]);
+    expect(parsed.specs).toEqual([
+      { days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"], opens: "07:00", closes: "18:00" },
+      { days: ["Saturday"], opens: "08:00", closes: "12:00" },
+    ]);
+    // Unreadable periods → the summary, as before.
+    expect(parseHours({ summary: "Mon–Fri 7am–5pm", periods: [{ day: "x" }] }).lines).toEqual(["Mon–Fri 7am–5pm"]);
+  });
+
   it("rejects non-https logos and unsafe review links", () => {
     const f = buildSiteFacts({ ...snowCompany, company: { ...snowCompany.company, brand_logo_url: "javascript:alert(1)", brand_review_url: "http://x.test" } });
     expect(f.logoUrl).toBeNull();

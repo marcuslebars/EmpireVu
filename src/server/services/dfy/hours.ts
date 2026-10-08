@@ -168,7 +168,16 @@ function spansFrom(hours: unknown): DaySpan[] | null {
   if (Array.isArray(record.periods)) {
     const spans = record.periods.map((p) => {
       if (!p || typeof p !== "object") return null;
-      const open = (p as Record<string, unknown>).open as Record<string, unknown> | undefined;
+      const entry = p as Record<string, unknown>;
+      // The enrichment's own shape (places.ts hoursFromPlaces): { day: 1, open: "07:00", close: "18:00" | null }.
+      if (typeof entry.open === "string") {
+        if (entry.close === null || entry.close === undefined) {
+          const day = dayOf(entry.day);
+          return day === null ? null : { day, openMin: 0, closeMin: 24 * 60 };
+        }
+        return span(dayOf(entry.day), entry.open, entry.close);
+      }
+      const open = entry.open as Record<string, unknown> | undefined;
       const close = (p as Record<string, unknown>).close as Record<string, unknown> | undefined;
       if (!open) return null;
       if (!close) return { day: dayOf(open.day) ?? 0, openMin: 0, closeMin: 24 * 60 }; // Google: always open

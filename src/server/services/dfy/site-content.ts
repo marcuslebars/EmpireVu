@@ -264,6 +264,12 @@ export function parseHours(raw: unknown): { lines: string[]; specs: OpeningHours
   for (const key of ["weekdayText", "weekday_text", "lines"]) {
     if (Array.isArray(record[key])) return parseHours(record[key]);
   }
+  // The enrichment's Google shape: { summary, periods: [{ day: 0 (Sun)…6, open: "07:00", close: "18:00" }] }.
+  // Structured periods give per-day lines + JSON-LD specs; days without a period are closed.
+  if (Array.isArray(record.periods) && record.periods.length > 0) {
+    const fromPeriods = parsePeriods(record.periods);
+    if (fromPeriods) return fromPeriods;
+  }
   for (const key of ["summary", "text"]) {
     const line = clean(record[key], 300);
     if (line) return { lines: [line], specs: [] };
@@ -296,6 +302,33 @@ export function parseHours(raw: unknown): { lines: string[]; specs: OpeningHours
       if (open && close) perDay[idx] = { open, close };
     }
   }
+  return groupPerDay(perDay);
+}
+
+type DayHours = { open: string; close: string } | "closed" | null;
+
+/** Flat Google periods (day 0 = Sunday) → per-day hours; null if any entry can't be read. */
+function parsePeriods(periods: unknown[]): { lines: string[]; specs: OpeningHoursSpec[] } | null {
+  const perDay: DayHours[] = Array(7).fill("closed");
+  for (const p of periods) {
+    if (!p || typeof p !== "object") return null;
+    const { day, open, close } = p as Record<string, unknown>;
+    if (typeof day !== "number" || !Number.isInteger(day) || day < 0 || day > 6) return null;
+    const o = hhmm(open);
+    const c = close === null ? "24:00" : hhmm(close);
+    if (!o || !c) return null;
+    const idx = (day + 6) % 7; // Sunday-first → Monday-first
+    const existing = perDay[idx];
+    // Two periods on one day (split shift): keep the overall span, it's what a customer needs.
+    perDay[idx] =
+      existing && existing !== "closed"
+        ? { open: existing.open < o ? existing.open : o, close: existing.close > c ? existing.close : c }
+        : { open: o, close: c };
+  }
+  return groupPerDay(perDay);
+}
+
+function groupPerDay(perDay: DayHours[]): { lines: string[]; specs: OpeningHoursSpec[] } {
   if (perDay.every((d) => d === null)) return { lines: [], specs: [] };
 
   // Group consecutive days with identical hours: "Mon–Fri 8am–5pm", "Sat 9am–1pm", "Sun Closed".
