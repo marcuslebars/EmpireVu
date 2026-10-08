@@ -22,6 +22,7 @@ import PublicVisitPage from "@/screens/PublicVisitPage";
 import PublicLeadFormPage from "@/screens/PublicLeadFormPage";
 import AcceptInvitePage from "@/screens/AcceptInvitePage";
 import CrankleadsWelcomePage from "@/screens/CrankleadsWelcomePage";
+import SetupIntakePage from "@/screens/SetupIntakePage";
 import SignInPage from "./screens/SignInPage";
 import SignUpPage from "./screens/SignUpPage";
 import OAuthCallbackPage from "./screens/OAuthCallbackPage";
@@ -334,6 +335,8 @@ function AppRoutes() {
       <Route path="/invite/:token" element={<AcceptInvitePage />} />
       {/* CrankLeads purchase landing (Stripe success_url). Public: the Checkout Session id is the credential. */}
       <Route path="/welcome/crankleads" element={<CrankleadsWelcomePage />} />
+      {/* Done-for-you quick setup (texted after purchase). Public: the token is the credential. */}
+      <Route path="/setup/:token" element={<SetupIntakePage />} />
       <Route element={<AppLayout />}>
         <Route
           path="/"
