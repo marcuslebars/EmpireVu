@@ -14,8 +14,12 @@ import {
   isSameService,
   MAX_ENRICH_ATTEMPTS,
   planCompanyUpdate,
+  descriptionOnPage,
+  ownerPriceMap,
   planServicePrices,
+  priceStatedNearService,
   processPendingEnrichments,
+  verifyDraftsAgainstPages,
   type EnrichDeps,
 } from "@/server/services/dfy/enrich";
 import type { PlaceDetails } from "@/server/services/dfy/places";
@@ -289,7 +293,71 @@ const intake = () => db.tables.setup_intakes[0];
 const company = () => db.tables.companies[0];
 const items = () => db.tables.service_catalog_items;
 
+describe("site prices + descriptions are checked against the crawled text", () => {
+  it("a price counts only when the amount is written next to the service name", () => {
+    const text = "Our services. Roof inspection $150. Shingle repair from $9/sq ft. Skylight install $1,200. Snow plowing 85$ per visit.";
+    expect(priceStatedNearService(text, "Roof Inspections", 15000)).toBe(true);
+    expect(priceStatedNearService(text, "Skylight installation", 120000)).toBe(true);
+    expect(priceStatedNearService(text, "Snow plowing", 8500)).toBe(true);
+    expect(priceStatedNearService(text, "Gutter cleaning", 20000)).toBe(false); // amount not on the page
+    expect(priceStatedNearService(text, "Gutter cleaning", 15000)).toBe(false); // amount is there, but not by this service
+    expect(priceStatedNearService(text, "Roof inspection", 1500)).toBe(false); // $15 ≠ $150
+    expect(priceStatedNearService("Roof inspection $150.50", "Roof inspection", 15000)).toBe(false);
+    expect(priceStatedNearService("Roof inspection: $150.00", "Roof inspection", 15000)).toBe(true);
+  });
+
+  it("descriptions survive only verbatim; dropped prices are recorded", () => {
+    const text = "Skylight install $1,200 — supply and install, all in.";
+    const { drafts, droppedPrices } = verifyDraftsAgainstPages(
+      [
+        { name: "Skylight installation", description: "Supply and install, all in.", pricingType: "flat", baseCents: 120000 },
+        { name: "Roof inspection", description: "Fully insured, 20 years experience.", pricingType: "flat", baseCents: 15000 },
+      ],
+      text,
+    );
+    expect(drafts[0]).toMatchObject({ baseCents: 120000, description: "Supply and install, all in." });
+    expect(drafts[1]).toMatchObject({ baseCents: null, description: null });
+    expect(droppedPrices).toEqual([{ label: "Roof inspection", cents: 15000, pricingType: "flat", reason: "price not written next to this service on the site" }]);
+    expect(descriptionOnPage(text, "short")).toBe(false);
+  });
+});
+
+describe("re-submit: only owner prices that changed since the last submit are applied", () => {
+  it("an unchanged answer leaves the app's current price alone; a changed one is written", () => {
+    const catalog = [catalogRow(REPAIR, "Shingle repair", "flat", { rate_cents: 1300, active: true }), catalogRow(INSPECT, "Roof inspection")];
+    const owner = answers({ prices: { skipped: false, items: [{ id: REPAIR, label: "Shingle repair", priceCents: 1100 }, { id: INSPECT, label: "Roof inspection", priceCents: 17500 }] } });
+    // Last submit: repair 1100 (since edited to 1300 in the app), inspection 15000.
+    const plan = planServicePrices(catalog as never, owner, [], { [REPAIR]: 1100, [INSPECT]: 15000 });
+    expect(plan.ops).toEqual([{ kind: "price", id: INSPECT, label: "Roof inspection", cents: 17500, source: "owner" }]);
+    expect(ownerPriceMap(owner)).toEqual({ [REPAIR]: 1100, [INSPECT]: 17500 });
+    // First submit (no record): everything applies.
+    expect(planServicePrices(catalog as never, owner, []).ops).toHaveLength(2);
+  });
+});
+
 describe("enrichCompany + processPendingEnrichments", () => {
+  it("retry-exhausted rows never starve new answers (filtered in SQL, oldest first)", async () => {
+    for (let i = 0; i < 60; i++) {
+      db.tables.setup_intakes.push({
+        id: `old-${i}`,
+        organization_id: ORG,
+        company_id: `c-${i}`,
+        token: `${i}`.padEnd(32, "x"),
+        status: "failed",
+        answers: answers(),
+        enrichment: {},
+        enrich_attempts: 3,
+        submitted_at: "2026-09-01T12:00:00.000Z",
+        updated_at: "2026-09-01T12:00:00.000Z",
+      });
+    }
+    const result = await processPendingEnrichments(admin, { nowMs: NOW }, deps);
+    expect(result).toMatchObject({ claimed: 1, enriched: 1 });
+    expect(intake().status).toBe("enriched");
+    const retryQuery = db.queries.find((q) => q.table === "setup_intakes" && q.op === "select" && q.filters.some((f) => f.column === "enrich_attempts"));
+    expect(retryQuery?.filters).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "lt", column: "enrich_attempts", value: 3 })]));
+  });
+
   it("submitted → enriched: company facts, owner + site prices (active), new priced services, structured summary", async () => {
     const result = await processPendingEnrichments(admin, { nowMs: NOW }, deps);
     expect(result).toEqual({ claimed: 1, enriched: 1, failed: 0 });
@@ -323,7 +391,9 @@ describe("enrichCompany + processPendingEnrichments", () => {
           { id: REPAIR, label: "Shingle repair", cents: 1100, source: "owner" },
           { id: INSPECT, label: "Roof inspection", cents: 15000, source: "website" },
         ],
-        unpricedOnSite: ["Chimney flashing"],
+        // "Gutter cleaning $200" came from the parser but isn't written on the page → dropped.
+        unpricedOnSite: ["Chimney flashing", "Gutter cleaning"],
+        notApplied: expect.arrayContaining([expect.objectContaining({ label: "Gutter cleaning", cents: 20000, reason: "price not written next to this service on the site" })]),
         skippedByOwner: false,
       },
       facts: { place: { name: "Jane's Roofing", phone: "(705) 555-0101" } },

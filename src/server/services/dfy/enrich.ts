@@ -242,13 +242,111 @@ export interface ServicePlan {
   notApplied: Array<{ label: string; cents: number; pricingType: string; reason: string }>;
 }
 
+// ── Site text checks (the parser is a model: verify what it says against the page) ─────────
+
+/** Lower-case, unify dashes/quotes/spaces, drop thousands separators. PURE. */
+export function normalizePageText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2010-\u2015]/g, "-")
+    .replace(/(\d),(?=\d{3}\b)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Where `cents` is written as a dollar amount in normalised text ("$250", "$250.00", "250$", "$ 1200"). */
+function priceOffsets(text: string, cents: number): number[] {
+  const dollars = Math.floor(cents / 100);
+  const rest = cents % 100;
+  const amount = rest === 0 ? `${dollars}(?:\\.00)?` : `${dollars}\\.${String(rest).padStart(2, "0")}`;
+  // Not part of a longer number ("$1500", "$150.50"); a sentence-ending period is fine.
+  const re = new RegExp(`\\$\\s?${amount}(?!\\d|\\.\\d)|(?<!\\d)(?<!\\d\\.)${amount}\\s?\\$`, "g");
+  return [...text.matchAll(re)].map((m) => m.index ?? 0);
+}
+
+/** How far (characters) the service name may be from the price to count as "next to it". */
+export const PRICE_NEAR_CHARS = 160;
+
+/**
+ * Does the page literally state this dollar amount next to this service's name? At least
+ * ⌈60%⌉ of the name's words must appear within PRICE_NEAR_CHARS before (or 60 after) a literal
+ * occurrence of the amount. PURE.
+ */
+export function priceStatedNearService(pageText: string, serviceName: string, cents: number): boolean {
+  const text = normalizePageText(pageText);
+  const tokens = [...new Set(serviceTokens(serviceName))];
+  if (tokens.length === 0) return false;
+  const need = Math.max(1, Math.ceil(tokens.length * 0.6));
+  for (const at of priceOffsets(text, cents)) {
+    const window = text.slice(Math.max(0, at - PRICE_NEAR_CHARS), at + 60);
+    const words = [...new Set(serviceTokens(window))];
+    // Same word, or the same 5-letter stem ("install" / "installation").
+    const present = (t: string) => words.some((w) => w === t || (w.length >= 5 && t.length >= 5 && w.slice(0, 5) === t.slice(0, 5)));
+    if (tokens.filter(present).length >= need) return true;
+  }
+  return false;
+}
+
+/** Is this (parser-written) description word-for-word on the page? PURE. */
+export function descriptionOnPage(pageText: string, description: string | null | undefined): boolean {
+  const d = normalizePageText(description ?? "");
+  if (d.length < 8) return false;
+  return normalizePageText(pageText).includes(d);
+}
+
+/**
+ * Keep only what the site actually says: a draft's price survives only when the amount is
+ * written next to the service name in the crawled text; its description only when it is
+ * verbatim on the page. Returns the checked drafts plus what was dropped. PURE.
+ */
+export function verifyDraftsAgainstPages(
+  drafts: CatalogDraft[],
+  pageText: string,
+): { drafts: CatalogDraft[]; droppedPrices: Array<{ label: string; cents: number; pricingType: string; reason: string }> } {
+  const droppedPrices: Array<{ label: string; cents: number; pricingType: string; reason: string }> = [];
+  const checked = drafts.map((draft) => {
+    let next: CatalogDraft = { ...draft };
+    if (typeof draft.baseCents === "number" && draft.baseCents > 0 && !priceStatedNearService(pageText, draft.name, draft.baseCents)) {
+      droppedPrices.push({ label: draft.name, cents: draft.baseCents, pricingType: draft.pricingType, reason: "price not written next to this service on the site" });
+      next = { ...next, baseCents: null };
+    }
+    if (next.description && !descriptionOnPage(pageText, next.description)) next = { ...next, description: null };
+    return next;
+  });
+  return { drafts: checked, droppedPrices };
+}
+
 /**
  * Who sets each price: the owner's intake answer > a price stated on their own site
  * (matched to an existing item by name, conservatively, and only when the unit agrees and
  * the item has no price yet) > nothing. Unmatched priced site services are added (flat
  * prices only — a per-unit price without a known unit could mislead). Never invents. Pure.
  */
-export function planServicePrices(catalog: CatalogRow[], answers: IntakeAnswers | null, drafts: CatalogDraft[]): ServicePlan {
+/** Key of an owner price answer: the catalog item id, or "new:<label>" for a service they added. PURE. */
+export function ownerPriceKey(item: { id?: string | null; label: string }): string {
+  return item.id ? item.id : `new:${item.label.trim().toLowerCase().replace(/\s+/g, " ")}`;
+}
+
+/** The owner's price answers as {key: cents} — what the next re-submit is compared against. PURE. */
+export function ownerPriceMap(answers: IntakeAnswers | null): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const item of answers?.prices.items ?? []) if (item.priceCents > 0) out[ownerPriceKey(item)] = item.priceCents;
+  return out;
+}
+
+export function planServicePrices(
+  catalog: CatalogRow[],
+  answers: IntakeAnswers | null,
+  drafts: CatalogDraft[],
+  /**
+   * The owner prices applied by the previous enrichment (enrichment.ownerPrices). On a
+   * re-submit only prices that CHANGED since then are written, so a price the owner has since
+   * edited in the app isn't overwritten by an unchanged intake answer.
+   */
+  previousOwnerPrices: Record<string, number> | null = null,
+): ServicePlan {
   const ops: ServicePlan["ops"] = [];
   const plan: ServicePlan = { ops, unpricedOnSite: [], notApplied: [] };
   const ownerSet = new Set<string>();
@@ -257,6 +355,16 @@ export function planServicePrices(catalog: CatalogRow[], answers: IntakeAnswers 
   // 1) Owner prices.
   for (const item of answers?.prices.items ?? []) {
     if (!(item.priceCents > 0)) continue;
+    const previousCents = previousOwnerPrices
+      ? previousOwnerPrices[ownerPriceKey(item)] ?? (item.id ? previousOwnerPrices[ownerPriceKey({ label: item.label })] : undefined)
+      : undefined;
+    if (previousCents === item.priceCents) {
+      // Unchanged since the last submit: already applied then — leave whatever is there now.
+      const row = item.id ? catalog.find((c) => c.id === item.id) : catalog.find((c) => isSameService(c.label, item.label));
+      if (row) ownerSet.add(row.id);
+      if (!item.id) claimedLabels.push(item.label);
+      continue;
+    }
     if (item.id) {
       const row = catalog.find((c) => c.id === item.id);
       if (!row) continue;
@@ -339,6 +447,8 @@ export interface EnrichmentSummary {
     notApplied: ServicePlan["notApplied"];
     skippedByOwner: boolean;
   };
+  /** The owner's price answers this run was based on (compared on the next re-submit). */
+  ownerPrices?: Record<string, number>;
   /** Facts the console / site builder can show (no Google review text or photos). */
   facts: {
     place: { name: string | null; address: string | null; phone: string | null; mapsUrl: string | null; primaryType: string | null } | null;
@@ -472,13 +582,16 @@ export async function enrichCompany(
 
   // 3) Services + stated prices from the site text.
   let drafts: CatalogDraft[] = [];
+  let droppedSitePrices: ServicePlan["notApplied"] = [];
   if (crawl && crawl.pages.length > 0) {
     if (!deps.draftCatalog) {
       sources.catalogParser = { used: false, services: 0, error: "AI not configured" };
     } else {
       try {
         const result = await deps.draftCatalog(combinePageTexts(crawl.pages));
-        drafts = result.drafts;
+        const verified = verifyDraftsAgainstPages(result.drafts, crawl.pages.map((p) => p.text).join("\n"));
+        drafts = verified.drafts;
+        droppedSitePrices = verified.droppedPrices;
         sources.catalogParser = { used: true, services: drafts.length };
         if (result.usage) {
           await recordAiUsageSafe({
@@ -514,7 +627,10 @@ export async function enrichCompany(
     .eq("company_id", intake.company_id);
   if (catalogError) throw new Error(`catalog lookup failed: ${catalogError.message}`);
   const catalog = (catalogData ?? []) as CatalogRow[];
-  const servicePlan = planServicePrices(catalog, answers, drafts);
+  const previous = asRecord(intake.enrichment);
+  const previousOwnerPrices =
+    previous.ownerPrices && typeof previous.ownerPrices === "object" ? (previous.ownerPrices as Record<string, number>) : null;
+  const servicePlan = planServicePrices(catalog, answers, drafts, previousOwnerPrices);
   const { priced, added } = await applyServicePlan(admin, intake, catalog, servicePlan);
 
   const summary: EnrichmentSummary = {
@@ -526,9 +642,10 @@ export async function enrichCompany(
       priced,
       added,
       unpricedOnSite: servicePlan.unpricedOnSite,
-      notApplied: servicePlan.notApplied,
+      notApplied: [...droppedSitePrices, ...servicePlan.notApplied],
       skippedByOwner: answers?.prices.skipped ?? false,
     },
+    ownerPrices: ownerPriceMap(answers),
     facts: {
       place: place
         ? { name: place.name, address: place.address, phone: place.phoneNational, mapsUrl: place.mapsUrl, primaryType: place.primaryType }
@@ -586,14 +703,26 @@ export async function processPendingEnrichments(
   const result = { claimed: 0, enriched: 0, failed: 0 };
   try {
     const nowMs = options.nowMs ?? Date.now();
-    const { data, error } = await admin
-      .from("setup_intakes")
-      .select("*")
-      .in("status", ["submitted", "enriching", "failed"])
-      .order("submitted_at", { ascending: true })
-      .limit(50);
-    if (error) throw new Error(error.message);
-    const due = ((data ?? []) as SetupIntake[]).filter((i) => isEnrichmentDue(i, nowMs)).slice(0, options.limit ?? 3);
+    // Filter in SQL so retry-exhausted rows can never fill the page and starve new answers:
+    // status = 'submitted' OR (status in ('enriching','failed') AND enrich_attempts < MAX),
+    // oldest first (two queries — PostgREST's or() with nested and() isn't worth the risk).
+    const [fresh, retries] = await Promise.all([
+      admin.from("setup_intakes").select("*").eq("status", "submitted").order("submitted_at", { ascending: true }).limit(50),
+      admin
+        .from("setup_intakes")
+        .select("*")
+        .in("status", ["enriching", "failed"])
+        .lt("enrich_attempts", MAX_ENRICH_ATTEMPTS)
+        .order("updated_at", { ascending: true })
+        .limit(50),
+    ]);
+    if (fresh.error) throw new Error(fresh.error.message);
+    if (retries.error) throw new Error(retries.error.message);
+    const oldest = (i: SetupIntake) => i.submitted_at ?? i.updated_at ?? "";
+    const due = [...((fresh.data ?? []) as SetupIntake[]), ...((retries.data ?? []) as SetupIntake[])]
+      .filter((i) => isEnrichmentDue(i, nowMs))
+      .sort((a, b) => oldest(a).localeCompare(oldest(b)))
+      .slice(0, options.limit ?? 3);
     for (const intake of due) {
       const claimed = await claimForEnrichment(admin, intake, nowMs).catch((err) => {
         console.error(`[dfy/enrich] claim failed for intake ${intake.id}: ${errorMessage(err)}`);
