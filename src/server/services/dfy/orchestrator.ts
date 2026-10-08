@@ -12,12 +12,18 @@
 //   2. intake enriched (or ≥2h with no answer) and not switched on yet
 //                               → switch everything on ONCE (automations, review requests,
 //                                 booking hours, Front Desk prompt re-push)
+//                               → then build + publish their page inline (from whatever facts
+//                                 we have), so it exists before the forwarding / live texts.
+//                                 The sites sweep stays as the backstop; an intake enriched
+//                                 AFTER the page was built rebuilds it once.
 //   3. switched on + number ready + forwarding not verified
 //                               → send the one-tap forwarding text + email ONCE (08–21 local)
 //   4. owner tapped             → one automatic forwarding test (after a short delay)
-//   5. not live 24h after purchase (operator business hours)
+//   5. forwarding verified      → go live now: live_at + the ONE "You're live" text/email
+//                                 (setup-followups.processSetupFollowupForCompany — the same
+//                                 claims the 5-minute follow-up pass uses, so never twice)
+//   6. not live 24h after purchase (operator business hours)
 //                               → operator escalation ONCE ("Call <name> <phone>")
-// "Live" itself (live_at + the "You're live" text) is stamped by the setup follow-ups pass.
 // ─────────────────────────────────────────────────────────────────────────────
 import { forwardingPlan } from "@/lib/carrier-forwarding";
 import type { Json, Tables } from "@/server/db/database.types";
@@ -52,6 +58,7 @@ import {
   patchProgress,
   type DfyProgress,
 } from "@/server/services/dfy/progress";
+import { generateSite as defaultGenerateSite, loadSiteRow, type GenerateSiteOptions } from "@/server/services/dfy/site-generator";
 import { switchOnEverything, type SwitchOnResult } from "@/server/services/dfy/switch-on";
 import type { RetellClient } from "@/server/services/retell/provision";
 import { toE164 } from "@/server/services/retell/payload";
@@ -88,6 +95,21 @@ export interface DoneForYouDeps extends ForwardingDeps {
   switchOn?: (ctx: TenantServiceContext, companyId: string, tier: CrankleadsTier) => Promise<SwitchOnResult>;
   /** Number purchase (injectable for tests). */
   ensureNumber?: typeof ensureDfyNumber;
+  /** Build / rebuild the generated page (injectable for tests). */
+  generateSite?: (admin: AdminClient, companyId: string, options: GenerateSiteOptions) => Promise<unknown>;
+  /** Forwarding verified → live_at + "You're live" now (injectable for tests). */
+  goLive?: (admin: AdminClient, company: { organizationId: string; companyId: string }, nowMs: number) => Promise<unknown>;
+}
+
+/** Default go-live: the setup follow-ups' per-company live check (lazy: provisioning imports this module). */
+async function defaultGoLive(
+  admin: AdminClient,
+  company: { organizationId: string; companyId: string },
+  nowMs: number,
+  deliver: DoneForYouDeps["deliver"],
+): Promise<unknown> {
+  const { processSetupFollowupForCompany } = await import("@/server/services/crankleads/setup-followups");
+  return processSetupFollowupForCompany(admin, company, nowMs, { deliver });
 }
 
 const defaultDeps: DoneForYouDeps = { deliver: defaultDeliverMessage, sendEmail: defaultSendEmail };
@@ -104,7 +126,7 @@ function operatorTimeZone(): string {
 
 type IntakeRow = Pick<Tables<"setup_intakes">, "status" | "created_at" | "submitted_at" | "enriched_at" | "token">;
 
-export type IntakeReadiness = "enriched" | "waited" | "no_intake" | "waiting";
+export type IntakeReadiness = "enriched" | "waited" | "no_intake" | "waiting" | "operator";
 
 /**
  * Is it time to switch on? Enriched → yes. Otherwise proceed with what we have once the
@@ -210,12 +232,19 @@ async function sendForwardingLink(
   target: ForwardTarget,
   nowMs: number,
   deps: DoneForYouDeps,
+  options: { force?: boolean } = {},
 ): Promise<boolean> {
-  if (!target.forwardTo || target.verified || row.forward_text_sent_at) return false;
+  if (!target.forwardTo || target.verified) return false;
+  if (row.forward_text_sent_at && !options.force) return false;
   const timeZone = state.company.timezone?.trim() || "America/Toronto";
   if (!inLiveWindow(timeZone, nowMs)) return false;
   const token = await ensureForwardToken(admin, row);
-  if (!(await claimOnce(admin, row, "forward_text_sent_at", new Date(nowMs).toISOString()))) return false;
+  if (options.force) {
+    // Operator resend (concierge): no once-only claim, but stamp when it went.
+    await patchProgress(admin, row, { forward_text_sent_at: new Date(nowMs).toISOString() });
+  } else if (!(await claimOnce(admin, row, "forward_text_sent_at", new Date(nowMs).toISOString()))) {
+    return false;
+  }
   const plan = forwardingPlan({
     forwardTo: target.forwardTo.phone_e164,
     kind: target.company.business_phone_kind,
@@ -309,8 +338,48 @@ export function forwardingHelpHandler(admin: AdminClient, deps: Partial<DoneForY
 
 // ── The state machine ────────────────────────────────────────────────────────
 
+// ── The page (generated site) ────────────────────────────────────────────────
+
+/** Build + publish the company's page right after switch-on, unless it already has one. Never throws. */
+async function buildSiteInline(admin: AdminClient, companyId: string, intake: IntakeRow | null, deps: DoneForYouDeps): Promise<boolean> {
+  try {
+    if (await loadSiteRow(admin, companyId)) return rebuildSiteAfterLateEnrichment(admin, companyId, intake, deps);
+    await (deps.generateSite ?? defaultGenerateSite)(admin, companyId, { publish: true });
+    return true;
+  } catch (err) {
+    console.error(`[dfy] page build failed for ${companyId} (the sites sweep retries): ${errorMessage(err)}`);
+    return false;
+  }
+}
+
+/**
+ * The page was built from thin facts (the 2h "no answer" fallback) and the quick setup came back
+ * enriched since: rebuild it once with the new facts. Keeps slug, status, the owner's edits.
+ */
+async function rebuildSiteAfterLateEnrichment(
+  admin: AdminClient,
+  companyId: string,
+  intake: IntakeRow | null,
+  deps: DoneForYouDeps,
+): Promise<boolean> {
+  if (intake?.status !== "enriched" || !intake.enriched_at) return false;
+  try {
+    const site = await loadSiteRow(admin, companyId);
+    if (!site) return false;
+    const enriched = Date.parse(intake.enriched_at);
+    const generated = Date.parse(site.generated_at ?? "");
+    if (!Number.isFinite(enriched) || (Number.isFinite(generated) && generated >= enriched)) return false;
+    await (deps.generateSite ?? defaultGenerateSite)(admin, companyId, {});
+    return true;
+  } catch (err) {
+    console.error(`[dfy] page rebuild failed for ${companyId}: ${errorMessage(err)}`);
+    return false;
+  }
+}
+
 export type DfyStepOutcome =
   | "number_ready"
+  | "site_built"
   | "number_bought"
   | "number_failed"
   | "number_waiting"
@@ -351,6 +420,8 @@ export async function advanceDoneForYou(
   admin: AdminClient,
   companyId: string,
   depsOverride: Partial<DoneForYouDeps> = {},
+  /** force: an operator's "Run switch-on now" — don't wait for the quick setup. */
+  options: { force?: boolean } = {},
 ): Promise<AdvanceResult> {
   const deps: DoneForYouDeps = { ...defaultDeps, ...depsOverride };
   const nowMs = deps.now?.() ?? Date.now();
@@ -392,7 +463,8 @@ export async function advanceDoneForYou(
 
     // 2) Switch on (once).
     const provisionedMs = Date.parse(purchase?.provisioned_at ?? row.created_at);
-    const readiness = intakeReadiness(state.intake, Number.isFinite(provisionedMs) ? provisionedMs : nowMs, nowMs);
+    const waited = intakeReadiness(state.intake, Number.isFinite(provisionedMs) ? provisionedMs : nowMs, nowMs);
+    const readiness: IntakeReadiness = waited === "waiting" && options.force ? "operator" : waited;
     if (!row.switched_on_at) {
       if (readiness === "waiting") {
         steps.push("waiting_for_intake");
@@ -408,7 +480,11 @@ export async function advanceDoneForYou(
         await patchProgress(admin, row, { switch_on_detail: detail });
         steps.push("switched_on");
         row = (await loadProgress(admin, company.organization_id, companyId)) ?? row;
+        // 2b) Their page, right away (the sites sweep is the backstop).
+        if (await buildSiteInline(admin, companyId, state.intake, deps)) steps.push("site_built");
       }
+    } else if (await rebuildSiteAfterLateEnrichment(admin, companyId, state.intake, deps)) {
+      steps.push("site_built");
     }
 
     // 3) Forwarding link (once) and 4) the automatic test after a tap.
@@ -418,7 +494,29 @@ export async function advanceDoneForYou(
       if (await maybeStartAutoForwardingTest(admin, row, target, deps)) steps.push("forwarding_test_started");
     }
 
-    // 5) 24h escalation (once).
+    // 5) Forwarding verified → live now (one "You're live", folded page link) instead of
+    //    waiting for the follow-up pass. Idempotent: live_at + the 'live' follow-up claim.
+    if (target?.verified) {
+      await (deps.goLive ?? ((a, c, n) => defaultGoLive(a, c, n, deps.deliver)))(
+        admin,
+        { organizationId: company.organization_id, companyId },
+        nowMs,
+      ).catch((err: unknown) => console.error(`[dfy] go-live check failed for ${companyId}: ${errorMessage(err)}`));
+      const { data: livePurchase } = await admin
+        .from("crankleads_purchases")
+        .select("live_at")
+        .eq("organization_id", company.organization_id)
+        .eq("company_id", companyId)
+        .not("live_at", "is", null)
+        .limit(1);
+      if ((livePurchase ?? []).length > 0) {
+        steps.push("live");
+        await patchProgress(admin, row, { last_run_at: nowIso, last_error: null });
+        return { companyId, steps };
+      }
+    }
+
+    // 6) 24h escalation (once).
     if (!row.escalated_at && Number.isFinite(provisionedMs) && nowMs >= escalationDueAt(provisionedMs, operatorTimeZone())) {
       const checklist = await loadSetupChecklist(ctx, { companyId, tier });
       if (checklist?.isLive) {
@@ -508,6 +606,32 @@ export async function provisionDoneForYouNumber(
     console.error(`[dfy] number at purchase failed for company ${input.companyId} (the sweep retries): ${errorMessage(err)}`);
     return null;
   }
+}
+
+export type ForwardingTextOutcome = "sent" | "no_number" | "verified" | "not_switched_on" | "quiet_hours" | "not_crankleads";
+
+/**
+ * Concierge "Send forwarding text": the same one-tap forwarding text + email, sent again now
+ * (force — ignores the once-only stamp, then re-stamps it). Still only 08:00–21:00 their time,
+ * only once there is a number, and never after forwarding works.
+ */
+export async function resendForwardingText(
+  admin: AdminClient,
+  companyId: string,
+  depsOverride: Partial<DoneForYouDeps> = {},
+): Promise<ForwardingTextOutcome> {
+  const deps: DoneForYouDeps = { ...defaultDeps, ...depsOverride };
+  const nowMs = deps.now?.() ?? Date.now();
+  const state = await loadState(admin, companyId);
+  if ("skip" in state) return "not_crankleads";
+  const ctx: TenantServiceContext = { organizationId: state.company.organization_id, actorProfileId: null, supabase: admin };
+  const row = await ensureProgress(admin, state.company.organization_id, companyId);
+  if (!row.switched_on_at) return "not_switched_on";
+  const target = await loadForwardTarget(admin, row);
+  if (!target?.forwardTo) return "no_number";
+  if (target.verified) return "verified";
+  if (!inLiveWindow(state.company.timezone?.trim() || "America/Toronto", nowMs)) return "quiet_hours";
+  return (await sendForwardingLink(admin, ctx, state, row, target, nowMs, deps, { force: true })) ? "sent" : "no_number";
 }
 
 /** For the in-app progress view + the forwarding page link. */

@@ -5,14 +5,17 @@
 
 export type ConciergeStage = "needs_call" | "setting_up" | "live";
 export type SlaLevel = "green" | "amber" | "red";
-export type NumberStatus = "active" | "pending" | "failed";
+/**
+ * The text-back / AI number, from the done-for-you number state (dfy_progress):
+ * active (bought) · pending (not tried yet / in progress) · retrying (a purchase failed, the
+ * sweep retries with backoff) · failed (flagged after the last retry — an operator must act).
+ */
+export type NumberStatus = "active" | "pending" | "retrying" | "failed";
 
 export const SLA_AMBER_HOURS = 12;
 export const SLA_RED_HOURS = 24;
 /** A buyer not live this long after purchase needs a call. */
 export const NEEDS_CALL_AFTER_HOURS = 24;
-/** The text-back / AI number is bought at purchase; missing after this long counts as failed. */
-export const NUMBER_EXPECTED_WITHIN_HOURS = 1;
 
 /** green < 12h, amber 12–24h, red > 24h since purchase. */
 export function slaLevel(hoursSincePurchase: number): SlaLevel {
@@ -84,10 +87,25 @@ export interface ConciergeAccountSummary {
     textBackNumber: string | null;
     aiNumber: string | null;
     status: NumberStatus;
+    /** Last purchase error (dfy_progress.number_last_error) while not active. */
+    lastError: string | null;
     forwardingVerifiedAt: string | null;
   };
-  site: { slug: string; status: string; mode: string; publishedAt: string | null } | null;
-  checklist: { doneCount: number; totalCount: number; steps: ConciergeStepDot[]; nextStepTitle: string | null } | null;
+  /** Done-for-you progress (dfy_progress), null before the first sweep touched the account. */
+  setup: {
+    switchedOnAt: string | null;
+    forwardTextSentAt: string | null;
+    forwardOpenedAt: string | null;
+    forwardTappedAt: string | null;
+    forwardTestsStarted: number;
+    forwardLastTestAt: string | null;
+    forwardHelpRequestedAt: string | null;
+    escalatedAt: string | null;
+  } | null;
+  /** The generated page; `url` is its public address (siteUrl — PAGES_BASE_URL or /s/<slug>). */
+  site: { slug: string; url: string; status: string; mode: string; publishedAt: string | null } | null;
+  /** steps = REQUIRED for live; extras = optional (never block live). */
+  checklist: { doneCount: number; totalCount: number; steps: ConciergeStepDot[]; extras: ConciergeStepDot[]; nextStepTitle: string | null } | null;
   isLive: boolean;
   needsCall: boolean;
   needsCallReasons: string[];
@@ -106,7 +124,10 @@ export interface CallScript {
   ownerName: string | null;
   ownerFirstName: string | null;
   ownerPhone: string | null;
+  /** REQUIRED steps still missing before they're live (the setup checklist's live definition). */
   missing: CallScriptItem[];
+  /** One short line of optional extras worth mentioning (prices, payments, quick setup), or null. */
+  niceToHave: string | null;
 }
 
 export interface ConciergeService {

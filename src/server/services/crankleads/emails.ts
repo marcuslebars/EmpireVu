@@ -78,7 +78,7 @@ function buildList(input: WelcomeEmailInput): string[] {
     input.tier === "front_desk"
       ? "Your text-back number, missed-call text-back and your AI receptionist"
       : "Your text-back number and missed-call text-back",
-    "A page for your business with your prices and online booking",
+    "A web page for your business with your services, any prices you give us and a quote form",
   ];
 }
 
@@ -105,8 +105,10 @@ export function renderWelcomeEmail(input: WelcomeEmailInput): RenderedEmail {
     "",
     ...setupLines,
     "",
-    "Once you answer, we build the rest and text you when it's ready:",
+    "Once you answer, we build the rest:",
     ...build.map((line) => `  • ${line}`),
+    "",
+    "Then we text you one link to turn on call forwarding on your business phone. We test it and text you when you're live.",
     "",
     "Already done:",
     ...done.map((line) => `  • ${line}`),
@@ -128,7 +130,8 @@ export function renderWelcomeEmail(input: WelcomeEmailInput): RenderedEmail {
     input.setupUrl
       ? `<p><strong>Check your texts:</strong> we just sent you a link to a 60-second quick setup — 3 questions, no login. Here it is too:</p>${button(input.setupUrl, "Start the 60-second setup")}`
       : "<p><strong>Check your texts:</strong> we're sending you a link to a 60-second quick setup — 3 questions, no login.</p>",
-    `<p>Once you answer, we build the rest and text you when it's ready:</p><ul>${li(build)}</ul>`,
+    `<p>Once you answer, we build the rest:</p><ul>${li(build)}</ul>`,
+    `<p>Then we text you one link to turn on call forwarding on your business phone. We test it and text you when you're live.</p>`,
     `<p><strong>Already done:</strong></p><ul>${li(done)}</ul>`,
     input.setPasswordUrl
       ? `<p>You can still log in to ${APP_PRODUCT_NAME} at <a href="${escapeHtml(input.appUrl)}">${escapeHtml(host)}</a> any time: <a href="${escapeHtml(input.setPasswordUrl)}">set your password</a>.</p><p style="font-size:12px;color:#6b7280">That link works once and expires. If it has, use “Forgot password” at ${escapeHtml(input.appUrl)}/forgot-password with this email address.</p>`

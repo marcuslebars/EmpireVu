@@ -50,6 +50,17 @@ function AccountRow({ account }: { account: ConciergeAccountSummary }) {
           </Link>
           <TierBadge tier={account.tier} />
         </div>
+        {account.site?.status === "published" && (
+          <a
+            href={account.site.url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="mt-0.5 block truncate text-xs text-muted-foreground underline-offset-2 hover:underline"
+          >
+            {account.site.url.replace(/^https?:\/\//, "")}
+          </a>
+        )}
         {account.needsCall ? (
           <div className="mt-1 flex flex-wrap gap-1">
             {account.needsCallReasons.map((r) => (

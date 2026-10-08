@@ -374,6 +374,7 @@ function harness(nowIso: string): Harness {
       ensureNumber: async () => ({ status: "ready", phoneNumber: CATCHER, purchasedNow: false }),
       switchOn,
       startTest,
+      generateSite: async () => undefined,
     },
   };
 }
@@ -417,7 +418,7 @@ describe("advanceDoneForYou — transitions + idempotency", () => {
     db = createFakeDb(tables({ setup_intakes: [{ organization_id: ORG, company_id: COMPANY, token: "it", status: "enriched", created_at: "2026-10-05T13:00:00Z" }], voice_numbers: [catcherRow()] }));
     const h = harness("2026-10-05T14:00:00Z");
     const first = await advanceDoneForYou(db.client, COMPANY, h.deps);
-    expect(first.steps).toEqual(["number_ready", "switched_on", "forwarding_text_sent"]);
+    expect(first.steps).toEqual(["number_ready", "switched_on", "site_built", "forwarding_text_sent"]);
     expect(h.switchOn).toHaveBeenCalledTimes(1);
     expect(h.switchOn.mock.calls[0].slice(1)).toEqual([COMPANY, "catch"]);
     const progress = db.tables.dfy_progress[0];
@@ -446,7 +447,7 @@ describe("advanceDoneForYou — transitions + idempotency", () => {
     db = createFakeDb(tables({ setup_intakes: [{ organization_id: ORG, company_id: COMPANY, token: "it", status: "enriched", created_at: "2026-10-05T13:00:00Z" }] }));
     const h = harness("2026-10-05T14:00:00Z");
     h.deps.ensureNumber = async () => ({ status: "failed", error: "x", attempts: 1 });
-    expect((await advanceDoneForYou(db.client, COMPANY, h.deps)).steps).toEqual(["number_failed", "switched_on"]);
+    expect((await advanceDoneForYou(db.client, COMPANY, h.deps)).steps).toEqual(["number_failed", "switched_on", "site_built"]);
     expect(h.delivered).toHaveLength(0);
     db.tables.voice_numbers.push(catcherRow());
     const night = harness("2026-10-06T02:30:00Z"); // 22:30 Toronto

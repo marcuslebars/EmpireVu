@@ -11,9 +11,9 @@
 //     before → after where useful).
 // Listed in docs/done-for-you.md → "Concierge console".
 //
-// Registry: name → { label, schema, run }. Other parts register more actions with
-// registerConciergeAction(...) (e.g. resend quick-setup link, re-run enrichment, regenerate
-// site) — the route, audit and UI pick them up automatically.
+// Registry: name → { label, schema, run }. The done-for-you actions (resend quick-setup link,
+// re-run business lookup, build / unpublish website, forwarding text, retry number, run
+// switch-on) are registered by dfy-actions.ts; routes import register-all.ts, which loads both.
 // ─────────────────────────────────────────────────────────────────────────────
 import { z } from "zod";
 
@@ -437,7 +437,7 @@ registerConciergeAction({
 
 registerConciergeAction({
   name: "provision_text_back_number",
-  label: "Buy / retry text-back number",
+  label: "Buy text-back number directly (Twilio)",
   schema: provisionNumberSchema,
   async run(ctx, input) {
     const areaCode =

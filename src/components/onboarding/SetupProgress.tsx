@@ -72,6 +72,10 @@ export function SetupProgressPanel({
                   <a href={view.quickSetupUrl} className="block text-xs font-medium text-primary hover:underline">
                     {item.detail}
                   </a>
+                ) : item.key === "page" && item.state === "done" && /^https?:\/\//.test(item.detail) ? (
+                  <a href={item.detail} target="_blank" rel="noreferrer" className="block truncate text-xs font-medium text-primary hover:underline">
+                    {item.detail.replace(/^https?:\/\//, "")}
+                  </a>
                 ) : (
                   <p className="text-xs text-muted-foreground">{item.detail}</p>
                 )

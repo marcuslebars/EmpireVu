@@ -321,18 +321,58 @@ const REVIEW_INTERVAL_MS = 5 * 60 * 1000;
 /** Last operator-health look in this worker process (the daily send is claimed per day in the DB). */
 let lastOperatorHealthRunMs = 0;
 
+/** Run one scheduler step; a failure is logged and never stops the rest of the pass. */
+async function guarded<T>(name: string, fallback: T, step: () => Promise<T>): Promise<T> {
+  try {
+    return await step();
+  } catch (error) {
+    console.error(`[scheduler] ${name} failed`, error instanceof Error ? error.message : error);
+    return fallback;
+  }
+}
+
+/**
+ * Done-for-you CrankLeads (docs/done-for-you.md), in the order a buyer moves through it. Each
+ * step runs once per scheduler tick, is throttled by its owner module, never throws, and is
+ * wrapped again here so one can't stop the others:
+ *   1. quick-setup link retries   — every tick; per row ≥ 10 min apart, 08–21 local, ≤ 3 tries
+ *   2. enrichment                 — every tick, NOT awaited (crawls are slow); in-flight guard
+ *                                   per process + per-row claims across workers
+ *   3. switch-on orchestrator     — ≤ once a minute per process; per-company claims. Builds the
+ *                                   page inline right after switch-on, sends the forwarding
+ *                                   link, and goes live the moment forwarding is verified
+ *   4. generated sites            — ≤ every 5 min: backstop build + "Your new page is live"
+ *                                   (held while it will be folded into "You're live")
+ *   5. setup follow-ups           — ≤ every 5 min: live detection + reminders
+ */
+export async function runDoneForYouPasses(admin: Admin, nowMs: number): Promise<void> {
+  await guarded("quick-setup link retries", null, () => processPendingIntakeSends(admin, { nowMs }));
+  void processPendingEnrichments(admin, { nowMs }).catch((error: unknown) =>
+    console.error("[scheduler] enrichment failed", error instanceof Error ? error.message : error),
+  );
+  await guarded("done-for-you switch-on", undefined, () => runDoneForYouSweep(admin, nowMs));
+  await guarded("generated sites", null, () => runGeneratedSitesPass(admin, nowMs));
+  // CrankLeads setup follow-ups (reminders + "you're live") — throttled to every 5 min,
+  // idempotent per (purchase, stage) and self-guarded (docs/crankleads-purchase.md).
+  if (nowMs - lastSetupFollowupRunMs >= SETUP_FOLLOWUP_INTERVAL_MS) {
+    lastSetupFollowupRunMs = nowMs;
+    await guarded("setup follow-ups", [], () => processSetupFollowups(admin, nowMs));
+  }
+}
+
 /** One scheduler pass — called ~once/minute by the worker. */
 export async function runScheduler(
   admin: Admin,
   options: { workerId: string; nowMs?: number },
 ): Promise<{ ticksMaterialized: number; ticksProcessed: number; entitiesEmitted: number }> {
   const nowMs = options.nowMs ?? Date.now();
-  const ticksMaterialized = await materializeDailyTicks(admin, nowMs);
-  const ticksProcessed = await processDueScheduleTicks(admin, options.workerId);
+  // Each step is guarded: a failing workflow scan must not stop the passes below it.
+  const ticksMaterialized = await guarded("daily ticks", 0, () => materializeDailyTicks(admin, nowMs));
+  const ticksProcessed = await guarded("schedule ticks", 0, () => processDueScheduleTicks(admin, options.workerId));
   const entitiesEmitted =
-    (await scanBookingUpcoming(admin, nowMs)) +
-    (await scanQuoteExpiring(admin, nowMs)) +
-    (await scanContactStale(admin, nowMs));
+    (await guarded("booking.upcoming scan", 0, () => scanBookingUpcoming(admin, nowMs))) +
+    (await guarded("quote.expiring scan", 0, () => scanQuoteExpiring(admin, nowMs))) +
+    (await guarded("contact.stale scan", 0, () => scanContactStale(admin, nowMs)));
   // Mobile morning digest (push). Never lets a push problem break the scheduler pass.
   await sendDailyDigests(admin, nowMs).catch((error) =>
     console.error("[scheduler] digest failed", error instanceof Error ? error.message : error),
@@ -348,15 +388,8 @@ export async function runScheduler(
   await processForwardingRetests(admin, nowMs).catch((error) =>
     console.error("[scheduler] forwarding retests failed", error instanceof Error ? error.message : error),
   );
-  // CrankLeads setup follow-ups (reminders + "you're live") — throttled to every 5 min,
-  // idempotent per (purchase, stage) and self-guarded (docs/crankleads-purchase.md).
-  if (nowMs - lastSetupFollowupRunMs >= SETUP_FOLLOWUP_INTERVAL_MS) {
-    lastSetupFollowupRunMs = nowMs;
-    await processSetupFollowups(admin, nowMs).catch((error) =>
-      console.error("[scheduler] setup follow-ups failed", error instanceof Error ? error.message : error),
-    );
-  }
-  await runDoneForYouSweep(admin, nowMs); // done-for-you switch-on (docs/done-for-you.md): throttled, self-guarded
+  // Done-for-you CrankLeads: quick setup → enrichment → switch-on → page → follow-ups.
+  await runDoneForYouPasses(admin, nowMs);
   // Daily operator health email (docs/operator-health.md) — at/after 07:30 BUSINESS_TIMEZONE,
   // once per day (claimed in operator_health_reports before sending), throttled like the
   // follow-ups and self-guarded.
@@ -396,10 +429,6 @@ export async function runScheduler(
       })
       .catch((error) => console.error("[scheduler] deposit holds failed", error instanceof Error ? error.message : error));
   }
-  // Done-for-you quick setup (docs/done-for-you.md): retry setup-link texts that didn't go out,
-  // and enrich submitted intakes (not awaited — crawls can be slow; claimed per row, self-guarded).
-  await processPendingIntakeSends(admin, { nowMs });
-  void processPendingEnrichments(admin, { nowMs });
   // QuickBooks / Xero sync (docs/accounting-sync.md): push queued invoices, payments and
   // expenses. Every pass (jobs are claimed skip-locked, so overlapping passes are safe);
   // a provider outage only backs off its own jobs.
@@ -408,6 +437,5 @@ export async function runScheduler(
       if (r.claimed) console.log(`[scheduler] accounting: claimed=${r.claimed} done=${r.done} skipped=${r.skipped} retrying=${r.retrying} failed=${r.failed}`);
     })
     .catch((error) => console.error("[scheduler] accounting sync failed", error instanceof Error ? error.message : error));
-  await runGeneratedSitesPass(admin, nowMs); // Done-for-you sites (docs/done-for-you.md): throttled, self-guarded.
   return { ticksMaterialized, ticksProcessed, entitiesEmitted };
 }

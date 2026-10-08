@@ -12,7 +12,6 @@ import {
   carrierLabel,
   hoursToText,
   NEEDS_CALL_AFTER_HOURS,
-  NUMBER_EXPECTED_WITHIN_HOURS,
   phoneKindLabel,
   slaLevel,
   type CallScript,
@@ -30,6 +29,7 @@ import { isCrankleadsTier } from "@/server/services/crankleads/config";
 import type { AdminClient } from "@/server/services/crankleads/purchases";
 import { loadSetupChecklist, type SetupChecklist } from "@/server/services/crankleads/setup-checklist";
 import { ConciergeNotFoundError } from "@/server/services/concierge/auth";
+import { siteUrl } from "@/server/services/dfy/site-url";
 import { needsPrice } from "@/server/services/packs/apply";
 import type { TenantServiceContext } from "@/server/services/shared";
 
@@ -63,6 +63,22 @@ type CompanyRow = Tables<"companies">;
 type IntakeRow = Pick<Tables<"setup_intakes">, "company_id" | "status" | "enrichment" | "submitted_at" | "enriched_at" | "last_error">;
 type VoiceRow = Pick<Tables<"voice_numbers">, "company_id" | "phone_e164" | "mode" | "provider" | "forwarding_verified_at" | "active">;
 type SiteRow = Pick<Tables<"company_sites">, "company_id" | "slug" | "status" | "mode" | "published_at">;
+type ProgressRow = Pick<
+  Tables<"dfy_progress">,
+  | "company_id"
+  | "number_last_error"
+  | "number_flagged_at"
+  | "switched_on_at"
+  | "forward_text_sent_at"
+  | "forward_opened_at"
+  | "forward_tapped_at"
+  | "forward_tests_started"
+  | "forward_last_test_at"
+  | "forward_help_requested_at"
+  | "escalated_at"
+>;
+const PROGRESS_FIELDS =
+  "company_id, number_last_error, number_flagged_at, switched_on_at, forward_text_sent_at, forward_opened_at, forward_tapped_at, forward_tests_started, forward_last_test_at, forward_help_requested_at, escalated_at";
 
 function fail(what: string, error: { message: string } | null): void {
   if (error) throw new Error(`concierge: ${what} failed: ${error.message}`);
@@ -99,10 +115,18 @@ export interface SummarizeInput {
   intake: IntakeRow | null;
   numbers: VoiceRow[];
   site: SiteRow | null;
+  /** The done-for-you number / forwarding state (dfy_progress), if the sweep has touched it. */
+  progress: ProgressRow | null;
   checklist: SetupChecklist | null;
   nowMs: number;
-  /** The operator's last "buy number" attempt failed (detail view only). */
-  lastNumberAttemptFailed?: boolean;
+}
+
+/** Number state from dfy_progress (the purchase runs at checkout and retries with backoff). */
+export function numberStatus(hasNumber: boolean, progress: Pick<ProgressRow, "number_flagged_at" | "number_last_error"> | null): NumberStatus {
+  if (hasNumber) return "active";
+  if (progress?.number_flagged_at) return "failed";
+  if (progress?.number_last_error) return "retrying";
+  return "pending";
 }
 
 export function summarizeAccount(input: SummarizeInput): ConciergeAccountSummary {
@@ -116,17 +140,16 @@ export function summarizeAccount(input: SummarizeInput): ConciergeAccountSummary
   const ai = active.find((n) => n.mode === "ai_receptionist") ?? null;
   const path = checklist?.phonePath ?? (tier === "front_desk" && !catcher ? "ai_receptionist" : "missed_call_catcher");
   const needed = path === "ai_receptionist" ? ai : catcher;
-  let status: NumberStatus = "active";
-  if (!needed) {
-    status = input.lastNumberAttemptFailed || hoursSincePurchase >= NUMBER_EXPECTED_WITHIN_HOURS ? "failed" : "pending";
-  }
+  const progress = input.progress;
+  const status = numberStatus(Boolean(needed), progress);
 
   const isLive = checklist ? checklist.isLive : Boolean(purchase?.live_at);
   const reasons: string[] = [];
   if (!isLive) {
     if (hoursSincePurchase >= NEEDS_CALL_AFTER_HOURS) reasons.push("Not live after 24 hours");
     if (intake?.status === "failed") reasons.push("Quick setup failed");
-    if (status === "failed") reasons.push(path === "ai_receptionist" ? "No AI number" : "No text-back number");
+    if (status === "failed") reasons.push(path === "ai_receptionist" ? "AI number purchase failed" : "Text-back number purchase failed");
+    if (progress?.forward_help_requested_at) reasons.push("Asked us to set up forwarding");
   }
   const needsCall = reasons.length > 0;
 
@@ -156,16 +179,36 @@ export function summarizeAccount(input: SummarizeInput): ConciergeAccountSummary
       textBackNumber: catcher?.phone_e164 ?? null,
       aiNumber: ai?.phone_e164 ?? null,
       status,
-      forwardingVerifiedAt: catcher?.forwarding_verified_at ?? null,
+      lastError: status === "active" ? null : progress?.number_last_error ?? null,
+      forwardingVerifiedAt: needed?.forwarding_verified_at ?? null,
     },
+    setup: progress
+      ? {
+          switchedOnAt: progress.switched_on_at,
+          forwardTextSentAt: progress.forward_text_sent_at,
+          forwardOpenedAt: progress.forward_opened_at,
+          forwardTappedAt: progress.forward_tapped_at,
+          forwardTestsStarted: progress.forward_tests_started ?? 0,
+          forwardLastTestAt: progress.forward_last_test_at,
+          forwardHelpRequestedAt: progress.forward_help_requested_at,
+          escalatedAt: progress.escalated_at,
+        }
+      : null,
     site: input.site
-      ? { slug: input.site.slug, status: input.site.status, mode: input.site.mode, publishedAt: input.site.published_at }
+      ? {
+          slug: input.site.slug,
+          url: siteUrl(input.site.slug, org.platform_brand === "crankleads" ? "crankleads" : "empirevu"),
+          status: input.site.status,
+          mode: input.site.mode,
+          publishedAt: input.site.published_at,
+        }
       : null,
     checklist: checklist
       ? {
           doneCount: checklist.doneCount,
           totalCount: checklist.totalCount,
           steps: checklist.steps.map((s) => ({ key: s.key, title: s.title, done: s.done })),
+          extras: checklist.extras.map((s) => ({ key: s.key, title: s.title, done: s.done })),
           nextStepTitle: checklist.nextStep?.title ?? null,
         }
       : null,
@@ -187,26 +230,30 @@ export interface CallScriptInput {
 }
 
 function forwardingItem(input: CallScriptInput): CallScriptItem {
-  const catcher = input.account.phone.textBackNumber;
-  if (!catcher) {
-    return { key: "forwarding", text: "Forwarding not on yet — buy the text-back number first, then have them forward to it" };
+  const ai = input.account.phone.path === "ai_receptionist";
+  const target = ai ? input.account.phone.aiNumber : input.account.phone.textBackNumber;
+  const what = ai ? "the AI number" : "the text-back number";
+  if (!target) {
+    return { key: "forwarding", text: `Forwarding not on yet — get ${what} first ("Retry text-back number"), then have them forward to it` };
   }
-  const fwd = buildForwardingInstructions(catcher);
+  const fwd = buildForwardingInstructions(target);
   const carrier = carrierLabel(input.phoneCarrier);
   const kind = phoneKindLabel(input.phoneKind);
+  const setup = input.account.setup;
+  const tapped = setup?.forwardTappedAt ? " (they tapped the link but our test didn't see it forward)" : "";
   if (input.phoneKind === "landline" || input.phoneKind === "voip") {
     return {
       key: "forwarding",
-      text: `Forwarding not on yet — ${carrier ? `${carrier} ` : ""}${kind}: they call their phone provider (or use its portal) and ask for "call forward no answer + busy" to`,
+      text: `Forwarding not on yet${tapped} — ${carrier ? `${carrier} ` : ""}${kind}: they call their phone provider (or use its portal) and ask for "call forward no answer + busy" to`,
       code: fwd.pretty,
     };
   }
   if (input.phoneKind === "cell") {
-    return { key: "forwarding", text: `Forwarding not on yet — ${carrier ? `${carrier} ` : ""}cell: have them dial`, code: fwd.recommended.activate };
+    return { key: "forwarding", text: `Forwarding not on yet${tapped} — ${carrier ? `${carrier} ` : ""}cell: have them dial`, code: fwd.recommended.activate };
   }
   return {
     key: "forwarding",
-    text: `Forwarding not on yet — ask if the business line is a cell, landline or VoIP${carrier ? ` (${carrier})` : ""}. Cell: have them dial`,
+    text: `Forwarding not on yet${tapped} — ask if the business line is a cell, landline or VoIP${carrier ? ` (${carrier})` : ""}. Cell: have them dial`,
     code: fwd.recommended.activate,
   };
 }
@@ -215,60 +262,54 @@ function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
-/** "Who do I call and what do I tell them" — the not-done steps in plain words. */
+/** The optional extras, as one short "nice to have" line (never blocks live). */
+function niceToHaveLine(input: CallScriptInput): string | null {
+  const { account } = input;
+  const bits: string[] = [];
+  const intakeStatus = account.intake.status;
+  if (intakeStatus === "failed") bits.push("their website or Google listing (quick setup failed)");
+  else if (intakeStatus && ["pending", "sent", "opened"].includes(intakeStatus)) bits.push("their website or Google listing (quick setup not filled in)");
+  for (const extra of account.checklist?.extras ?? []) {
+    if (extra.done) continue;
+    if (extra.key === "services") {
+      bits.push(input.servicesNeedingPrices > 0 ? `prices for ${plural(input.servicesNeedingPrices, "service")}` : "their prices");
+    } else if (extra.key === "payments") {
+      bits.push("connect payments (they do it in Settings → Payments)");
+    } else if (extra.key === "website") {
+      bits.push("the lead form on their own site");
+    }
+  }
+  return bits.length ? `Nice to have: ${bits.join("; ")}.` : null;
+}
+
+/**
+ * "Who do I call and what do I tell them": ONLY the required steps still missing for live (the
+ * setup checklist's definition), in plain words, plus one short "nice to have" line.
+ */
 export function buildCallScript(input: CallScriptInput): CallScript {
   const { account } = input;
   const missing: CallScriptItem[] = [];
-  const intakeStatus = account.intake.status;
-  if (intakeStatus === "failed") {
-    missing.push({
-      key: "intake",
-      text: `Quick setup failed${account.intake.lastError ? ` (${account.intake.lastError})` : ""} — get their website or Google listing and fill in the facts below`,
-    });
-  } else if (intakeStatus && ["pending", "sent", "opened"].includes(intakeStatus)) {
-    missing.push({ key: "intake", text: "Quick setup not filled in — get their website or Google listing, phone type and carrier" });
-  }
-
   if (!account.isLive) {
     for (const step of account.checklist?.steps ?? []) {
       if (step.done) continue;
       switch (step.key) {
-        case "services":
-          missing.push({
-            key: "services",
-            text:
-              input.servicesNeedingPrices > 0
-                ? `${plural(input.servicesNeedingPrices, "service")} ${input.servicesNeedingPrices === 1 ? "has" : "have"} no price — ask what they charge`
-                : "No priced services yet — ask what they charge",
-          });
-          break;
         case "phone":
           missing.push({
             key: "phone",
-            text:
-              account.phone.path === "ai_receptionist"
-                ? "No AI receptionist number yet"
-                : `No text-back number yet${account.phone.status === "failed" ? " (buy failed)" : ""} — tap "Buy text-back number"`,
+            text: `No ${account.phone.path === "ai_receptionist" ? "AI receptionist" : "text-back"} number yet${
+              account.phone.status === "failed"
+                ? ` (purchase failed${account.phone.lastError ? `: ${account.phone.lastError}` : ""})`
+                : account.phone.status === "retrying"
+                  ? " (retrying)"
+                  : ""
+            } — tap "Retry text-back number"`,
           });
           break;
         case "forwarding":
           missing.push(forwardingItem(input));
           break;
-        case "test_call":
-          missing.push(
-            account.phone.aiNumber
-              ? { key: "test_call", text: "No test call to the AI receptionist yet — have them call", code: prettyPhone(account.phone.aiNumber) }
-              : { key: "test_call", text: "No test call to the AI receptionist yet" },
-          );
-          break;
-        case "payments":
-          missing.push({ key: "payments", text: "Payments not connected — they connect Stripe themselves in Settings → Payments" });
-          break;
-        case "website":
-          missing.push({ key: "website", text: "No website lead yet — get the form on their site, or send a test lead" });
-          break;
         case "automations":
-          missing.push({ key: "automations", text: "Missed-call text-back is off — \"Buy / retry number\" reinstalls it" });
+          missing.push({ key: "automations", text: 'Missed-call text-back is off — tap "Run switch-on now"' });
           break;
         default:
           missing.push({ key: step.key, text: step.title });
@@ -282,6 +323,7 @@ export function buildCallScript(input: CallScriptInput): CallScript {
     ownerFirstName: ownerName ? ownerName.split(/\s+/)[0] : null,
     ownerPhone: account.owner.phone,
     missing,
+    niceToHave: account.isLive ? null : niceToHaveLine(input),
   };
 }
 
@@ -372,7 +414,7 @@ export async function listConciergeAccounts(admin: AdminClient, options: ListOpt
   const picked = new Map(orgs.map((o) => [o.id, pickCompany(o.id, purchases.get(o.id) ?? null, allCompanies)]));
   const companyIds = unique([...picked.values()].map((c) => c?.id));
 
-  const [intakesRes, numbersRes, sitesRes] = companyIds.length
+  const [intakesRes, numbersRes, sitesRes, progressRes] = companyIds.length
     ? await Promise.all([
         admin.from("setup_intakes").select("company_id, status, enrichment, submitted_at, enriched_at, last_error").in("company_id", companyIds),
         admin
@@ -381,8 +423,10 @@ export async function listConciergeAccounts(admin: AdminClient, options: ListOpt
           .in("company_id", companyIds)
           .eq("active", true),
         admin.from("company_sites").select("company_id, slug, status, mode, published_at").in("company_id", companyIds),
+        admin.from("dfy_progress").select(PROGRESS_FIELDS).in("company_id", companyIds),
       ])
     : [
+        { data: [], error: null },
         { data: [], error: null },
         { data: [], error: null },
         { data: [], error: null },
@@ -390,8 +434,11 @@ export async function listConciergeAccounts(admin: AdminClient, options: ListOpt
   fail("intakes lookup", intakesRes.error);
   fail("voice numbers lookup", numbersRes.error);
   fail("sites lookup", sitesRes.error);
+  // dfy_progress is context (number / forwarding state); a failure there shouldn't hide the list.
+  if (progressRes.error) console.error("[concierge] dfy_progress lookup failed:", progressRes.error.message);
   const intakes = new Map(((intakesRes.data ?? []) as IntakeRow[]).map((r) => [r.company_id, r]));
   const sites = new Map(((sitesRes.data ?? []) as SiteRow[]).map((r) => [r.company_id, r]));
+  const progressRows = new Map(((progressRes.error ? [] : progressRes.data ?? []) as ProgressRow[]).map((r) => [r.company_id, r]));
   const numbers = (numbersRes.data ?? []) as VoiceRow[];
 
   return mapWithConcurrency(orgs, CHECKLIST_CONCURRENCY, async (org) => {
@@ -405,6 +452,7 @@ export async function listConciergeAccounts(admin: AdminClient, options: ListOpt
       intake: company ? intakes.get(company.id) ?? null : null,
       numbers: company ? numbers.filter((n) => n.company_id === company.id) : [],
       site: company ? sites.get(company.id) ?? null : null,
+      progress: company ? progressRows.get(company.id) ?? null : null,
       checklist,
       nowMs,
     });
@@ -484,7 +532,7 @@ export async function loadConciergeAccountDetail(
   const org_ = organizationId;
   const co = company.id;
 
-  const [intakeRes, numbersRes, siteRes, servicesRes, workflowsRes, activityRes, followupsRes] = await Promise.all([
+  const [intakeRes, numbersRes, siteRes, servicesRes, workflowsRes, activityRes, followupsRes, progressRes] = await Promise.all([
     admin
       .from("setup_intakes")
       .select("company_id, status, enrichment, submitted_at, enriched_at, last_error")
@@ -517,6 +565,7 @@ export async function loadConciergeAccountDetail(
       .eq("organization_id", org_)
       .order("created_at", { ascending: false })
       .limit(20),
+    admin.from("dfy_progress").select(PROGRESS_FIELDS).eq("organization_id", org_).eq("company_id", co).maybeSingle(),
   ]);
   fail("intake lookup", intakeRes.error);
   fail("voice numbers lookup", numbersRes.error);
@@ -526,6 +575,7 @@ export async function loadConciergeAccountDetail(
   fail("activity lookup", activityRes.error);
   // Follow-ups are nice-to-have context; a failure there shouldn't hide the account.
   if (followupsRes.error) console.error("[concierge] follow-ups lookup failed:", followupsRes.error.message);
+  if (progressRes.error) console.error("[concierge] dfy_progress lookup failed:", progressRes.error.message);
 
   const items = (servicesRes.data ?? []) as Tables<"service_catalog_items">[];
   const services: ConciergeService[] = items.map((i) => ({
@@ -546,7 +596,6 @@ export async function loadConciergeAccountDetail(
     detail: r.detail && typeof r.detail === "object" && !Array.isArray(r.detail) ? (r.detail as Record<string, unknown>) : {},
     createdAt: r.created_at,
   }));
-  const lastNumberAttempt = activity.find((a) => a.action === "provision_text_back_number");
   const followups: ConciergeFollowup[] = (
     (followupsRes.error ? [] : followupsRes.data ?? []) as Array<
       Pick<Tables<"crankleads_setup_followups">, "id" | "stage" | "local_date" | "sms_status" | "email_status" | "created_at">
@@ -568,9 +617,9 @@ export async function loadConciergeAccountDetail(
     intake: (intakeRes.data as IntakeRow | null) ?? null,
     numbers: (numbersRes.data ?? []) as VoiceRow[],
     site: (siteRes.data as SiteRow | null) ?? null,
+    progress: progressRes.error ? null : ((progressRes.data as ProgressRow | null) ?? null),
     checklist,
     nowMs,
-    lastNumberAttemptFailed: lastNumberAttempt?.detail.status === "failed",
   });
 
   return {

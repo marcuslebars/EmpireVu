@@ -5,7 +5,7 @@ import { z } from "zod";
 // (requireOperator → 404 for everyone else). Each action is validated, scoped to the named
 // org + its own company, and audited in operator_actions. See services/concierge/actions.ts.
 import { handleRoute, parseJsonBody } from "@/server/api/route";
-import { actionRequestSchema, listConciergeActions, runConciergeAction } from "@/server/services/concierge/actions";
+import { actionRequestSchema, listConciergeActions, runConciergeAction } from "@/server/services/concierge/register-all";
 import { ConciergeNotFoundError, requireOperator } from "@/server/services/concierge/auth";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 

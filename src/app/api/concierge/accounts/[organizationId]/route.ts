@@ -6,7 +6,7 @@ import { z } from "zod";
 // that org (+ its own company). See services/concierge/accounts.ts.
 import { handleRoute } from "@/server/api/route";
 import { loadConciergeAccountDetail } from "@/server/services/concierge/accounts";
-import { listConciergeActions } from "@/server/services/concierge/actions";
+import { listConciergeActions } from "@/server/services/concierge/register-all";
 import { ConciergeNotFoundError, requireOperator } from "@/server/services/concierge/auth";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 

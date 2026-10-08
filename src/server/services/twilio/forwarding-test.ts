@@ -65,6 +65,7 @@ import {
 } from "@/server/services/twilio/voice-config";
 import { buildForwardingTestAnsweredTwiml } from "@/server/services/twilio/voice-twiml";
 import { deliverMessage, resolveOwnerContacts } from "@/server/services/workflow-engine/messaging";
+import { forwardPageUrl } from "@/server/services/dfy/links";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { configuredAppBaseUrlFor, loadOrganizationBrand } from "@/server/services/platform-brand";
 
@@ -467,9 +468,29 @@ export async function completeForwardingTest(
   const updated: ForwardingTestRow = { ...test, ...extra, status: next, completed_at: nowIso };
   if (finalOutcome === "passed") await markOnboardingTestStep(admin, updated, nowIso);
   if (shouldNotifyOwner({ trigger: test.trigger as ForwardingTestTrigger, outcome: finalOutcome, wasVerified })) {
-    await notifyOwnerOfResult(admin, updated, finalOutcome, nowIso);
+    // Done-for-you: a pass that makes a CrankLeads buyer live sends the ONE "You're live"
+    // message right now (it says text-back works) — the "✅ text-back is live" note would be a
+    // second text for the same moment, so it is skipped when the live message covers it.
+    const coveredByLive = finalOutcome === "passed" && !wasVerified && (await goLiveOnVerification(admin, test, nowMs));
+    if (!coveredByLive) await notifyOwnerOfResult(admin, updated, finalOutcome, nowIso);
   }
   return next;
+}
+
+/**
+ * Forwarding just got verified: run the CrankLeads go-live check for the company now (stamps
+ * crankleads_purchases.live_at + sends the "You're live" text/email once). True when that
+ * message covers this moment. Lazy import: setup-followups → provisioning → the done-for-you
+ * orchestrator → this module. Best-effort — false (send the usual note) on any problem.
+ */
+async function goLiveOnVerification(admin: AdminClient, test: ForwardingTestRow, nowMs: number): Promise<boolean> {
+  try {
+    const { processSetupFollowupForCompany, liveMessageCovers } = await import("@/server/services/crankleads/setup-followups");
+    return liveMessageCovers(await processSetupFollowupForCompany(admin, { organizationId: test.organization_id, companyId: test.company_id }, nowMs));
+  } catch (err) {
+    console.error("[forwarding-test] go-live check failed:", err instanceof Error ? err.message : err);
+    return false;
+  }
 }
 
 /**
@@ -505,6 +526,21 @@ async function ownerAppBaseUrl(admin: AdminClient, organizationId: string): Prom
   return configuredAppBaseUrlFor(await loadOrganizationBrand(admin, organizationId));
 }
 
+/**
+ * A done-for-you (CrankLeads) company has no wizard: "test again" points at its no-login one-tap
+ * forwarding page (/forward/<token>) instead. null when it has none.
+ */
+async function doneForYouForwardLink(admin: AdminClient, test: ForwardingTestRow): Promise<string | null> {
+  const { data, error } = await admin
+    .from("dfy_progress")
+    .select("forward_token")
+    .eq("organization_id", test.organization_id)
+    .eq("company_id", test.company_id)
+    .maybeSingle();
+  const token = error ? null : (data as { forward_token: string | null } | null)?.forward_token;
+  return token ? forwardPageUrl(token) : null;
+}
+
 /** SMS to the owner's mobile (email when there is no mobile). Claimed once; best-effort. */
 async function notifyOwnerOfResult(admin: AdminClient, test: ForwardingTestRow, outcome: ForwardingTestOutcome, nowIso: string): Promise<void> {
   try {
@@ -527,7 +563,7 @@ async function notifyOwnerOfResult(admin: AdminClient, test: ForwardingTestRow, 
       businessLine: test.business_line,
       catcherNumber: test.catcher_number,
       answeredBy: test.outbound_answered_by,
-      link: phoneStepLink(await ownerAppBaseUrl(admin, test.organization_id)),
+      link: (await doneForYouForwardLink(admin, test)) ?? phoneStepLink(await ownerAppBaseUrl(admin, test.organization_id)),
     });
     const useSms = Boolean(owner.phone);
     const result = await deliverMessage({

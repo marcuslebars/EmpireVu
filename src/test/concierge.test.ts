@@ -17,6 +17,15 @@ const h = vi.hoisted(() => ({
   provision: vi.fn(),
   forwardingTest: vi.fn(),
   resend: vi.fn(),
+  dfy: {
+    resendSetupIntake: vi.fn(),
+    enrichCompany: vi.fn(),
+    generateSite: vi.fn(),
+    setSiteStatus: vi.fn(),
+    resendForwardingText: vi.fn(),
+    advanceDoneForYou: vi.fn(),
+    ensureDfyNumber: vi.fn(),
+  },
 }));
 
 vi.mock("@/server/supabase/admin", () => ({ createSupabaseAdminClient: () => h.db?.client }));
@@ -31,13 +40,26 @@ vi.mock("@/server/supabase/server", () => ({
 vi.mock("@/server/services/twilio/provision", () => ({ provisionMissedCallCatcher: (...a: unknown[]) => h.provision(...a) }));
 vi.mock("@/server/services/twilio/forwarding-test", () => ({ startOwnerForwardingTest: (...a: unknown[]) => h.forwardingTest(...a) }));
 vi.mock("@/server/services/crankleads/provision", () => ({ resendWelcomeEmail: (...a: unknown[]) => h.resend(...a) }));
+// The done-for-you actions call into the other parts — stubbed here; their own suites test them.
+vi.mock("@/server/services/dfy/intake", () => ({ resendSetupIntake: (...a: unknown[]) => h.dfy.resendSetupIntake(...a) }));
+vi.mock("@/server/services/dfy/enrich", () => ({ enrichCompany: (...a: unknown[]) => h.dfy.enrichCompany(...a) }));
+vi.mock("@/server/services/dfy/site-generator", () => ({
+  generateSite: (...a: unknown[]) => h.dfy.generateSite(...a),
+  setSiteStatus: (...a: unknown[]) => h.dfy.setSiteStatus(...a),
+}));
+vi.mock("@/server/services/dfy/orchestrator", () => ({
+  resendForwardingText: (...a: unknown[]) => h.dfy.resendForwardingText(...a),
+  advanceDoneForYou: (...a: unknown[]) => h.dfy.advanceDoneForYou(...a),
+}));
+vi.mock("@/server/services/dfy/numbers", () => ({ ensureDfyNumber: (...a: unknown[]) => h.dfy.ensureDfyNumber(...a) }));
 
 import { GET as listGET } from "@/app/api/concierge/accounts/route";
 import { GET as detailGET } from "@/app/api/concierge/accounts/[organizationId]/route";
 import { GET as actionsGET, POST as actionsPOST } from "@/app/api/concierge/accounts/[organizationId]/actions/route";
 import { GET as sessionGET } from "@/app/api/session/context/route";
 import { slaLevel } from "@/lib/concierge";
-import { buildCallScript, summarizeAccount } from "@/server/services/concierge/accounts";
+import { buildCallScript, numberStatus, summarizeAccount } from "@/server/services/concierge/accounts";
+import { DFY_CONCIERGE_ACTIONS } from "@/server/services/concierge/dfy-actions";
 import { areaCodeFor, normalizeUrl, registerConciergeAction } from "@/server/services/concierge/actions";
 import { operatorIdentityFor, parseOperatorEmails } from "@/server/services/concierge/auth";
 import { z } from "zod";
@@ -64,6 +86,7 @@ beforeEach(() => {
   h.provision.mockReset();
   h.forwardingTest.mockReset();
   h.resend.mockReset();
+  for (const fn of Object.values(h.dfy)) fn.mockReset();
   h.db = createFakeDb({
     organizations: [
       { id: ORG, name: "Smith Snow", crankleads_tier: "catch", platform_brand: "crankleads", created_at: hoursAgo(30) },
@@ -94,10 +117,17 @@ beforeEach(() => {
     ],
     voice_numbers: [],
     setup_intakes: [{ id: "i-1", organization_id: ORG, company_id: COMPANY, status: "failed", enrichment: {}, last_error: "site timed out" }],
-    company_sites: [],
+    company_sites: [{ id: "site-1", organization_id: ORG, company_id: COMPANY, slug: "smith-snow", status: "published", mode: "full", published_at: hoursAgo(10) }],
     operator_actions: [],
     workflows: [],
     crankleads_setup_followups: [],
+    dfy_progress: [
+      {
+        organization_id: ORG, company_id: COMPANY, number_attempts: 5, number_last_error: "no numbers in 705",
+        number_flagged_at: hoursAgo(20), switched_on_at: hoursAgo(28), forward_text_sent_at: null, forward_opened_at: null,
+        forward_tapped_at: null, forward_tests_started: 0, forward_last_test_at: null, forward_help_requested_at: null, escalated_at: null,
+      },
+    ],
   });
 });
 
@@ -177,13 +207,14 @@ describe("GET /api/concierge/accounts (operator)", () => {
       tier: "catch",
       owner: { name: "Dave Smith", email: "dave@smithsnow.ca", phone: "+17055551234" },
       intake: { status: "failed", lastError: "site timed out" },
-      phone: { status: "failed", textBackNumber: null },
+      phone: { status: "failed", textBackNumber: null, lastError: "no numbers in 705" },
+      setup: { switchedOnAt: expect.any(String), forwardTextSentAt: null },
       isLive: false,
       needsCall: true,
       stage: "needs_call",
       sla: "red",
     });
-    expect(smith.needsCallReasons).toEqual(["Not live after 24 hours", "Quick setup failed", "No text-back number"]);
+    expect(smith.needsCallReasons).toEqual(["Not live after 24 hours", "Quick setup failed", "Text-back number purchase failed"]);
     expect(smith.checklist.totalCount).toBeGreaterThan(0);
     expect(writes()).toHaveLength(0);
   });
@@ -197,7 +228,10 @@ describe("GET /api/concierge/accounts/:orgId (operator)", () => {
     expect(data.company).toMatchObject({ id: COMPANY, phoneKind: "cell", phoneCarrier: "bell" });
     expect(data.services).toEqual([expect.objectContaining({ id: SERVICE, needsPrice: true })]);
     expect(data.callScript.ownerFirstName).toBe("Dave");
-    expect(data.callScript.missing.map((m: { key: string }) => m.key)).toContain("intake");
+    // Only REQUIRED steps (the live definition) are "missing"; the rest is one nice-to-have line.
+    expect(data.callScript.missing.map((m: { key: string }) => m.key)).toEqual(["phone", "forwarding", "automations"]);
+    expect(data.callScript.missing[0].text).toContain("no numbers in 705");
+    expect(data.callScript.niceToHave).toBe("Nice to have: their website or Google listing (quick setup failed); prices for 1 service; the lead form on their own site.");
     expect(data.actions.map((a: { name: string }) => a.name)).toEqual(
       expect.arrayContaining(["update_business_facts", "set_service_price", "add_service", "provision_text_back_number", "run_forwarding_test", "resend_welcome_email", "add_note"]),
     );
@@ -372,6 +406,7 @@ describe("pure helpers", () => {
       intake: null,
       numbers: [{ company_id: COMPANY, phone_e164: "+17055551234", mode: "missed_call_catcher", provider: "twilio", forwarding_verified_at: null, active: true }],
       site: null,
+      progress: null,
       checklist: {
         organizationId: ORG, companyId: COMPANY, tier: "catch", phonePath: "missed_call_catcher", doneCount: 2, totalCount: 3, isLive: false, nextStep: null, extras: [],
         steps: [
@@ -388,5 +423,96 @@ describe("pure helpers", () => {
     const landline = buildCallScript({ account, phoneKind: "landline", phoneCarrier: "rogers", servicesNeedingPrices: 0, pricedServices: 2 });
     expect(landline.missing[0]).toMatchObject({ code: "(705) 555-1234" });
     expect(landline.missing[0].text).toMatch(/Rogers landline/);
+  });
+});
+
+describe("done-for-you seams in the console", () => {
+  it("number state comes from dfy_progress (no time heuristic): pending → retrying → failed (flagged) → active", () => {
+    expect(numberStatus(false, null)).toBe("pending");
+    expect(numberStatus(false, { number_flagged_at: null, number_last_error: "busy" })).toBe("retrying");
+    expect(numberStatus(false, { number_flagged_at: hoursAgo(1), number_last_error: "busy" })).toBe("failed");
+    expect(numberStatus(true, { number_flagged_at: hoursAgo(1), number_last_error: "busy" })).toBe("active");
+  });
+
+  it("list + detail show the page's PUBLIC url from siteUrl (PAGES_BASE_URL when set)", async () => {
+    process.env.PAGES_BASE_URL = "https://pages.crankleads.test";
+    try {
+      const list = (await (await listGET(listReq())).json()).data;
+      expect(list[1].site).toMatchObject({ slug: "smith-snow", url: "https://pages.crankleads.test/smith-snow", status: "published" });
+      const detail = (await (await detailGET(detailReq(), params())).json()).data;
+      expect(detail.account.site.url).toBe("https://pages.crankleads.test/smith-snow");
+    } finally {
+      delete process.env.PAGES_BASE_URL;
+    }
+    process.env.CRANKLEADS_APP_BASE_URL = "https://app.crankleads.test";
+    try {
+      const list = (await (await listGET(listReq())).json()).data;
+      expect(list[1].site.url).toBe("https://app.crankleads.test/s/smith-snow");
+    } finally {
+      delete process.env.CRANKLEADS_APP_BASE_URL;
+    }
+  });
+
+  it("every done-for-you action is registered where the routes load (detail + actions list)", async () => {
+    const listed = (await (await actionsGET(detailReq(), params())).json()).data.map((a: { name: string }) => a.name);
+    expect(listed).toEqual(expect.arrayContaining([...DFY_CONCIERGE_ACTIONS]));
+    const detail = (await (await detailGET(detailReq(), params())).json()).data;
+    expect(detail.actions.map((a: { name: string }) => a.name)).toEqual(expect.arrayContaining([...DFY_CONCIERGE_ACTIONS]));
+    expect(detail.actions.find((a: { name: string }) => a.name === "resend_quick_setup_link").label).toBe("Resend quick-setup link");
+  });
+
+  it("each runs scoped to the named org's company and is audited (ok + failed)", async () => {
+    h.dfy.resendSetupIntake.mockResolvedValue({ status: "sent", sms: true, email: true, url: "https://x/setup/t" });
+    h.dfy.enrichCompany.mockResolvedValue({ sources: ["website"] });
+    h.dfy.generateSite.mockResolvedValue({ created: false, url: "https://pages.x/smith-snow", site: { slug: "smith-snow" }, content: { copySource: "template" } });
+    h.dfy.setSiteStatus.mockResolvedValue({ slug: "smith-snow" });
+    h.dfy.resendForwardingText.mockResolvedValue("quiet_hours");
+    h.dfy.advanceDoneForYou.mockResolvedValue({ companyId: COMPANY, steps: ["number_ready", "switched_on", "site_built"] });
+    h.dfy.ensureDfyNumber.mockResolvedValue({ status: "ready", phoneNumber: "+17055550100", purchasedNow: true });
+
+    const run = async (action: string) => {
+      const res = await post({ action, input: {} });
+      return { status: res.status, body: await res.json() };
+    };
+    expect((await run("resend_quick_setup_link")).body.data.message).toBe("Quick-setup link sent (text + email).");
+    expect(h.dfy.resendSetupIntake.mock.calls[0][1]).toEqual({ organizationId: ORG, companyId: COMPANY });
+    expect((await run("rerun_business_lookup")).status).toBe(200);
+    expect(h.dfy.enrichCompany.mock.calls[0][1]).toBe(COMPANY);
+    expect(db().tables.setup_intakes[0]).toMatchObject({ status: "enriched", last_error: null });
+    expect((await run("build_website")).body.data.message).toContain("https://pages.x/smith-snow");
+    expect(h.dfy.generateSite.mock.calls[0].slice(1)).toEqual([COMPANY, { publish: true }]);
+    expect((await run("unpublish_website")).status).toBe(200);
+    expect(h.dfy.setSiteStatus.mock.calls[0].slice(1, 3)).toEqual([COMPANY, "unpublished"]);
+    const night = await run("send_forwarding_text");
+    expect(night.status).toBe(400);
+    expect(night.body.error).toMatch(/8am–9pm/);
+    expect((await run("run_switch_on")).body.data.message).toBe("Switch-on ran: number_ready, switched_on, site_built.");
+    expect(h.dfy.advanceDoneForYou.mock.calls[0][1]).toBe(COMPANY);
+    expect(h.dfy.advanceDoneForYou.mock.calls[0][3]).toEqual({ force: true });
+
+    // Retry number: clears the flag + attempts on THIS company's row, then buys.
+    expect((await run("retry_dfy_number")).body.data.message).toBe("Number bought: +17055550100");
+    expect(db().tables.dfy_progress[0]).toMatchObject({ number_flagged_at: null, number_attempts: 0 });
+    expect(h.dfy.ensureDfyNumber.mock.calls[0][1]).toMatchObject({ organizationId: ORG, companyId: COMPANY, tier: "catch" });
+
+    const audit = db().tables.operator_actions;
+    expect(audit.map((a) => a.action)).toEqual([
+      "resend_quick_setup_link",
+      "rerun_business_lookup",
+      "build_website",
+      "unpublish_website",
+      "send_forwarding_text",
+      "run_switch_on",
+      "retry_dfy_number",
+    ]);
+    expect(audit.every((a) => a.organization_id === ORG && a.company_id === COMPANY && a.operator_email === "marcus@tilotto.com")).toBe(true);
+    expect(audit.map((a) => (a.detail as { status: string }).status)).toEqual(["ok", "ok", "ok", "ok", "failed", "ok", "ok"]);
+  });
+
+  it("a companyId from another org never reaches a done-for-you action (404, no audit)", async () => {
+    const res = await post({ action: "build_website", companyId: OTHER_COMPANY, input: {} });
+    expect(res.status).toBe(404);
+    expect(h.dfy.generateSite).not.toHaveBeenCalled();
+    expect(db().tables.operator_actions).toHaveLength(0);
   });
 });

@@ -386,6 +386,22 @@ export async function pendingSiteCompanyIds(admin: AdminClient, limit = SITE_SWE
     if (intake.status === "enriched" && !hasSite.has(intake.company_id)) out.push(intake.company_id);
   }
 
+  // 1b) Switched on by the done-for-you orchestrator (it builds the page inline; this is the
+  //     backstop when that build failed) — including the 2h "no answer" fallback, which builds
+  //     from whatever facts we have.
+  {
+    const { data: progress, error: progressError } = await admin
+      .from("dfy_progress")
+      .select("company_id, organization_id, switched_on_at")
+      .in("organization_id", [...orgs])
+      .not("switched_on_at", "is", null);
+    if (progressError) throw new Error(`progress list failed: ${progressError.message}`);
+    for (const row of (progress ?? []) as Array<{ company_id: string }>) {
+      if (out.length >= limit) return out;
+      if (!hasSite.has(row.company_id) && !out.includes(row.company_id)) out.push(row.company_id);
+    }
+  }
+
   // 2) Older CrankLeads companies (no intake at all) with enough data.
   const { data: companies, error: companiesError } = await admin
     .from("companies")
@@ -429,12 +445,68 @@ export async function generatePendingSites(admin: AdminClient, options: { limit?
   return result;
 }
 
+/**
+ * While a done-for-you buyer is still being set up, the page is announced IN the "You're live"
+ * message (setup-followups.ts stamps owner_notified_at when it sends it) — so the separate
+ * "Your new page is live" text waits. After this long without going live it goes on its own.
+ */
+export const PAGE_TEXT_HOLD_MS = 3 * 24 * 60 * 60 * 1000;
+/** Same as setup-followups LIVE_CONFIRMATION_MAX_AGE_MS: a claimed-but-unsent live message still goes this long after live_at. */
+const LIVE_MESSAGE_PENDING_MS = 3 * 24 * 60 * 60 * 1000;
+
+type HoldPurchase = {
+  id: string;
+  live_at: string | null;
+  provisioned_at: string | null;
+  setup_followups_exempt_at: string | null;
+  setup_reminders_stopped_at: string | null;
+};
+
+/**
+ * Should the standalone page text wait for (be folded into) the "You're live" message?
+ * Yes while the buyer's done-for-you purchase isn't live yet (within PAGE_TEXT_HOLD_MS), or is
+ * live but the live message hasn't gone out yet. Exempt / stopped purchases never get a live
+ * message, so their page text goes as usual. Older buyers with no purchase: no hold.
+ */
+export async function pageTextHeldForLive(
+  admin: AdminClient,
+  site: Pick<CompanySiteRow, "organization_id" | "company_id">,
+  nowMs: number,
+): Promise<boolean> {
+  const { data, error } = await admin
+    .from("crankleads_purchases")
+    .select("id, live_at, provisioned_at, setup_followups_exempt_at, setup_reminders_stopped_at")
+    .eq("organization_id", site.organization_id)
+    .eq("company_id", site.company_id)
+    .eq("status", "provisioned")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(`purchase read failed: ${error.message}`);
+  const purchase = ((data ?? []) as HoldPurchase[])[0];
+  if (!purchase || purchase.setup_followups_exempt_at || purchase.setup_reminders_stopped_at) return false;
+  if (!purchase.live_at) {
+    const since = Date.parse(purchase.provisioned_at ?? "");
+    return Number.isFinite(since) && nowMs - since < PAGE_TEXT_HOLD_MS;
+  }
+  if (nowMs - Date.parse(purchase.live_at) >= LIVE_MESSAGE_PENDING_MS) return false;
+  const { data: live, error: liveError } = await admin
+    .from("crankleads_setup_followups")
+    .select("stage")
+    .eq("organization_id", site.organization_id)
+    .eq("purchase_id", purchase.id)
+    .eq("stage", "live")
+    .limit(1);
+  if (liveError) throw new Error(`follow-up read failed: ${liveError.message}`);
+  return (live ?? []).length === 0;
+}
+
 export function sitePublishedSms(url: string, settingsUrl: string): string {
   return `Your new page is live: ${url}. Want changes? ${settingsUrl}`;
 }
 
 /**
- * Text the owner once per published CrankLeads site ("Your new page is live"). The send is
+ * Text the owner once per published CrankLeads site ("Your new page is live") — unless it is
+ * folded into the done-for-you "You're live" message (pageTextHeldForLive). The send is
  * CLAIMED first (owner_notified_at set where null) so overlapping workers can't double-send;
  * outside 08:00–21:00 company time it waits for the next pass. A landline business number
  * (or no number) gets the email instead.
@@ -464,6 +536,13 @@ export async function notifyPublishedSites(admin: AdminClient, options: { deps?:
     if (!company) continue;
     const clock = localClock(company.timezone?.trim() || FALLBACK_TIMEZONE, nowMs);
     if (clock.hour < LIVE_WINDOW.startHour || clock.hour >= LIVE_WINDOW.endHour) continue;
+    try {
+      if (await pageTextHeldForLive(admin, site, nowMs)) continue;
+    } catch (err) {
+      // Unsure → wait for the next pass rather than risk a second text next to "You're live".
+      console.error(`[sites] hold check failed for ${site.id}: ${err instanceof Error ? err.message : err}`);
+      continue;
+    }
 
     const { data: claimed, error: claimError } = await admin
       .from("company_sites")

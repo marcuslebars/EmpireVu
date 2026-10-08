@@ -309,6 +309,22 @@ export async function createAndSendSetupIntake(
 }
 
 /**
+ * Operator resend (concierge "Resend quick-setup link"): text + email the SAME link again now,
+ * whatever was sent before (stamps sms_sent_at / email_sent_at afresh, so follow-up reminders
+ * keep quiet for a while after it). A pending intake moves to 'sent'; an answered one keeps its
+ * status (re-opening the link lets them update their answers).
+ */
+export async function resendSetupIntake(
+  admin: AdminClient,
+  input: { organizationId: string; companyId: string },
+  depsOverride: Partial<IntakeSendDeps> = {},
+): Promise<IntakeSendOutcome> {
+  const deps: IntakeSendDeps = { ...defaultSendDeps, ...depsOverride };
+  const { intake, url, brand } = await ensureSetupIntake(admin, input);
+  return deliverClaimed(admin, { ...intake, sms_sent_at: null, email_sent_at: null }, url, brand, "always", deps);
+}
+
+/**
  * Scheduler sweep: retry setup links that never went out (status 'pending', fewer than
  * MAX_SEND_ATTEMPTS tries, last try ≥ 10 min ago), daytime only (08:00–21:00 company time).
  * Email goes as a backup when the text can't. Self-guarded: never throws.

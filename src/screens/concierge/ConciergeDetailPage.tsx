@@ -193,9 +193,24 @@ function CallScriptCard({ detail }: { detail: ConciergeAccountDetail }) {
             </ol>
           </>
         )}
+        {callScript.niceToHave && <p className="mt-3 text-sm text-muted-foreground">{callScript.niceToHave}</p>}
       </div>
     </section>
   );
+}
+
+/** Where forwarding stands, from the one-tap link's progress (dfy_progress) + verification. */
+function forwardingState(account: ConciergeAccountDetail["account"]): string {
+  if (account.phone.forwardingVerifiedAt) return `verified ${relativeTime(account.phone.forwardingVerifiedAt)}`;
+  const s = account.setup;
+  if (!s?.forwardTextSentAt) return s?.switchedOnAt ? "link not sent yet" : "waiting for switch-on";
+  if (s.forwardHelpRequestedAt) return `asked us to set it up ${relativeTime(s.forwardHelpRequestedAt)}`;
+  if (s.forwardTappedAt) {
+    const tests = s.forwardTestsStarted ? ` · ${s.forwardTestsStarted} test${s.forwardTestsStarted === 1 ? "" : "s"}` : "";
+    return `tapped ${relativeTime(s.forwardTappedAt)}${tests} · not verified`;
+  }
+  if (s.forwardOpenedAt) return `link opened ${relativeTime(s.forwardOpenedAt)}, not tapped`;
+  return `link sent ${relativeTime(s.forwardTextSentAt)}, not opened`;
 }
 
 function StatusStrip({ detail }: { detail: ConciergeAccountDetail }) {
@@ -207,15 +222,25 @@ function StatusStrip({ detail }: { detail: ConciergeAccountDetail }) {
         Quick setup: {account.intake.status ?? "none"}
       </StatusPill>
       <StatusPill ok={account.phone.status === "active"} warn={account.phone.status === "failed"}>
-        {account.phone.path === "ai_receptionist" ? "AI number" : "Text-back"}: {number ? prettyPhone(number) : account.phone.status}
+        <span title={account.phone.lastError ?? undefined}>
+          {account.phone.path === "ai_receptionist" ? "AI number" : "Text-back"}: {number ? prettyPhone(number) : account.phone.status}
+        </span>
       </StatusPill>
-      {account.phone.path === "missed_call_catcher" && (
-        <StatusPill ok={Boolean(account.phone.forwardingVerifiedAt)}>
-          Forwarding: {account.phone.forwardingVerifiedAt ? `verified ${relativeTime(account.phone.forwardingVerifiedAt)}` : "not verified"}
-        </StatusPill>
-      )}
+      <StatusPill ok={Boolean(account.phone.forwardingVerifiedAt)} warn={Boolean(account.setup?.forwardHelpRequestedAt && !account.phone.forwardingVerifiedAt)}>
+        Forwarding: {forwardingState(account)}
+      </StatusPill>
       <StatusPill ok={account.site?.status === "published"}>
-        Site: {account.site ? `${account.site.status} · /${account.site.slug}` : "none"}
+        Site:{" "}
+        {account.site ? (
+          <>
+            {account.site.status} ·{" "}
+            <a href={account.site.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+              {account.site.url.replace(/^https?:\/\//, "")}
+            </a>
+          </>
+        ) : (
+          "none"
+        )}
       </StatusPill>
       {account.checklist && (
         <span className="ml-1 inline-flex items-center gap-2 text-muted-foreground">
@@ -478,6 +503,47 @@ const ACTION_CONFIRM: Record<string, { title: string; body: (d: ConciergeAccount
     body: (d) =>
       `We'll call their business line${d.company?.businessPhone || d.company?.ownerPhone ? ` (${prettyPhone((d.company.businessPhone ?? d.company.ownerPhone) as string)})` : ""}. Tell them NOT to answer — it should forward to the text-back number. Only 8am–9pm their time.`,
     confirm: "Place test call",
+  },
+  resend_quick_setup_link: {
+    title: "Resend the quick-setup link?",
+    body: (d) => `Texts and emails the 60-second quick-setup link to ${d.account.owner.name ?? "the owner"} again (quick setup: ${d.account.intake.status ?? "none"}).`,
+    confirm: "Send link",
+  },
+  rerun_business_lookup: {
+    title: "Re-run the business lookup?",
+    body: () => "Reads their Google listing and website again from the quick-setup answers. Facts you typed in by hand are never overwritten.",
+    confirm: "Run lookup",
+  },
+  build_website: {
+    title: "Build / rebuild their page?",
+    body: (d) =>
+      d.account.site
+        ? `Rebuilds ${d.account.site.url} from the current facts and publishes it. Keeps the address and any edits the owner made.`
+        : "Builds their page from the facts we have and publishes it.",
+    confirm: "Build and publish",
+  },
+  unpublish_website: {
+    title: "Unpublish their page?",
+    body: (d) => (d.account.site ? `${d.account.site.url} will show "not found" until it's published again.` : "They don't have a page yet."),
+    confirm: "Unpublish",
+  },
+  send_forwarding_text: {
+    title: "Send the forwarding text again?",
+    body: () => "Texts and emails the one-tap forwarding link again (8am–9pm their time only).",
+    confirm: "Send it",
+  },
+  retry_dfy_number: {
+    title: "Retry the number?",
+    body: (d) =>
+      `Clears the failed flag and tries to buy their ${d.account.phone.path === "ai_receptionist" ? "AI receptionist" : "text-back"} number again now.${
+        d.account.phone.lastError ? ` Last error: ${d.account.phone.lastError}` : ""
+      }`,
+    confirm: "Retry",
+  },
+  run_switch_on: {
+    title: "Run switch-on now?",
+    body: () => "Switches their automations on with what we have (doesn't wait for the quick setup), builds their page and sends the forwarding text if it's daytime.",
+    confirm: "Run it",
   },
   resend_welcome_email: {
     title: "Resend the welcome email?",

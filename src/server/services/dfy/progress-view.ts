@@ -9,6 +9,7 @@ import type { AdminClient } from "@/server/services/crankleads/purchases";
 import { loadSetupChecklist, type SetupChecklist } from "@/server/services/crankleads/setup-checklist";
 import { forwardPageUrl, quickSetupUrl } from "@/server/services/dfy/links";
 import { ensureForwardToken, ensureProgress, type DfyProgress } from "@/server/services/dfy/progress";
+import { siteUrl } from "@/server/services/dfy/site-url";
 import type { TenantServiceContext } from "@/server/services/shared";
 
 export type ProgressItemState = "done" | "working" | "todo";
@@ -37,7 +38,7 @@ export interface SetupProgressView {
 interface Inputs {
   checklist: SetupChecklist;
   intake: { status: string; token: string } | null;
-  site: { status: string } | null;
+  site: { status: string; slug?: string | null } | null;
   progress: Pick<DfyProgress, "switched_on_at" | "number_flagged_at"> | null;
   numberPretty: string | null;
   forwardUrl: string | null;
@@ -79,7 +80,7 @@ export function buildSetupProgressView(input: Inputs): SetupProgressView {
       key: "page",
       label: input.site.status === "published" ? "Your page is live" : "Your page",
       state: input.site.status === "published" ? "done" : "working",
-      detail: input.site.status === "published" ? null : "Building your page…",
+      detail: input.site.status === "published" ? (input.site.slug ? siteUrl(input.site.slug, "crankleads") : null) : "Building your page…",
     });
   }
   return {
@@ -105,7 +106,7 @@ export async function loadSetupProgressView(ctx: TenantServiceContext, admin: Ad
   const { organizationId, companyId } = checklist;
   const [intake, site, progress] = await Promise.all([
     ctx.supabase.from("setup_intakes").select("status, token").eq("organization_id", organizationId).eq("company_id", companyId).maybeSingle(),
-    ctx.supabase.from("company_sites").select("status").eq("organization_id", organizationId).eq("company_id", companyId).maybeSingle(),
+    ctx.supabase.from("company_sites").select("status, slug").eq("organization_id", organizationId).eq("company_id", companyId).maybeSingle(),
     ctx.supabase
       .from("dfy_progress")
       .select("switched_on_at, number_flagged_at")
@@ -132,7 +133,7 @@ export async function loadSetupProgressView(ctx: TenantServiceContext, admin: Ad
   return buildSetupProgressView({
     checklist,
     intake: intake.error ? null : ((intake.data as { status: string; token: string } | null) ?? null),
-    site: site.error ? null : ((site.data as { status: string } | null) ?? null),
+    site: site.error ? null : ((site.data as { status: string; slug: string } | null) ?? null),
     progress: progress.error ? null : ((progress.data as Inputs["progress"]) ?? null),
     numberPretty: number ? prettyPhone(number) : null,
     forwardUrl,
