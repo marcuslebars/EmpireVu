@@ -79,7 +79,7 @@ export interface EnsureNumberInput {
 }
 
 export type EnsureNumberOutcome =
-  | { status: "ready"; phoneNumber: string; purchasedNow: boolean }
+  | { status: "ready"; phoneNumber: string; purchasedNow: boolean; kind?: DfyNumberKind }
   | { status: "failed"; error: string; attempts: number }
   | { status: "waiting"; attempts: number }
   | { status: "flagged"; error: string | null };
@@ -100,6 +100,25 @@ export async function currentNumber(ctx: TenantServiceContext, companyId: string
 
 function objectData(value: Json | null | undefined): Record<string, Json | undefined> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, Json | undefined>) : {};
+}
+
+/**
+ * The company's active done-for-you number of EITHER kind — the tier's own kind first. A Front
+ * Desk buyer already on the catcher path (a text-back number, no AI number) is ready as is: we
+ * never buy them an AI number on top. Likewise a Catch / Close company that somehow has an AI
+ * number is not sold a second line.
+ */
+export async function anyActiveNumber(
+  ctx: TenantServiceContext,
+  companyId: string,
+  preferred: DfyNumberKind,
+): Promise<{ phoneNumber: string; kind: DfyNumberKind } | null> {
+  const other: DfyNumberKind = preferred === "ai" ? "catcher" : "ai";
+  for (const kind of [preferred, other]) {
+    const phoneNumber = await currentNumber(ctx, companyId, kind);
+    if (phoneNumber) return { phoneNumber, kind };
+  }
+  return null;
 }
 
 /** Buy (or re-find) the number and record the wizard's Phone step exactly like the org routes do. */
@@ -166,12 +185,14 @@ export async function ensureDfyNumber(
   let row: DfyProgress;
   try {
     row = await ensureProgress(admin, input.organizationId, input.companyId);
-    const existing = await currentNumber(ctx, input.companyId, kind);
+    // An active number of either kind means the buyer has a working line already. Only when
+    // there is none do we buy the tier's kind (Front Desk → AI).
+    const existing = await anyActiveNumber(ctx, input.companyId, kind);
     if (existing) {
       if (!row.number_ready_at || row.number_last_error) {
         await patchProgress(admin, row, { number_ready_at: row.number_ready_at ?? nowIso, number_last_error: null });
       }
-      return { status: "ready", phoneNumber: existing, purchasedNow: false };
+      return { status: "ready", phoneNumber: existing.phoneNumber, purchasedNow: false, kind: existing.kind };
     }
   } catch (err) {
     console.error(`[dfy/number] state read failed for company ${input.companyId}: ${errorMessage(err)}`);
@@ -206,7 +227,7 @@ export async function ensureDfyNumber(
     const phoneNumber = await purchase(ctx, input.companyId, kind, areaCode, deps);
     await patchProgress(admin, row, { number_ready_at: nowIso, number_last_error: null });
     console.log(`[dfy/number] ${kind} number ready for company ${input.companyId} (attempt ${attempt}, area ${areaCode ?? "any"})`);
-    return { status: "ready", phoneNumber, purchasedNow: true };
+    return { status: "ready", phoneNumber, purchasedNow: true, kind };
   } catch (err) {
     const message = errorMessage(err).slice(0, 500);
     console.error(`[dfy/number] ${kind} number attempt ${attempt} failed for company ${input.companyId}: ${message}`);

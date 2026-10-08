@@ -258,14 +258,14 @@ describe("number at purchase (ensureDfyNumber)", () => {
     db = createFakeDb(tables());
     const log: string[] = [];
     const out = await ensureDfyNumber(db.client, input, { twilio: fakeTwilio(log), lookupOwner: async () => null, now: () => at("2026-10-05T13:00:00Z") });
-    expect(out).toEqual({ status: "ready", phoneNumber: "+14165550000", purchasedNow: true });
+    expect(out).toEqual({ status: "ready", phoneNumber: "+14165550000", purchasedNow: true, kind: "catcher" });
     expect(log).toEqual(["search CA 416", "buy +14165550000"]);
     expect(db.tables.voice_numbers[0]).toMatchObject({ organization_id: ORG, company_id: COMPANY, provider: "twilio", mode: "missed_call_catcher", phone_e164: "+14165550000", active: true });
     expect(db.tables.onboarding_progress.find((p) => p.step === "phone")?.data).toMatchObject({ mode: "missed_call_catcher", catcherNumber: "+14165550000", source: "done_for_you" });
     expect(db.tables.dfy_progress[0]).toMatchObject({ number_attempts: 1, number_last_error: null, number_ready_at: "2026-10-05T13:00:00.000Z" });
     // idempotent: a second call records ready, buys nothing
     const again = await ensureDfyNumber(db.client, input, { twilio: fakeTwilio(log), lookupOwner: async () => null });
-    expect(again).toEqual({ status: "ready", phoneNumber: "+14165550000", purchasedNow: false });
+    expect(again).toEqual({ status: "ready", phoneNumber: "+14165550000", purchasedNow: false, kind: "catcher" });
     expect(log.filter((l) => l.startsWith("buy"))).toHaveLength(1);
   });
 
@@ -279,6 +279,34 @@ describe("number at purchase (ensureDfyNumber)", () => {
     expect(twilioLog).toEqual([]);
     expect(db.tables.voice_numbers[0]).toMatchObject({ provider: "retell", provider_agent_id: "agent_1", phone_e164: "+14165550123" });
     expect(db.tables.onboarding_progress.find((p) => p.step === "phone")?.data).toMatchObject({ llmId: "llm_1", agentId: "agent_1", phoneNumber: "+14165550123" });
+  });
+
+  it("Front Desk already on the catcher path: the text-back number counts as ready, no AI number is bought", async () => {
+    db = createFakeDb(
+      tables({
+        organizations: [{ id: ORG, crankleads_tier: "front_desk", subscription_status: "active" }],
+        voice_numbers: [{ id: "vn-c", organization_id: ORG, company_id: COMPANY, provider: "twilio", mode: "missed_call_catcher", phone_e164: "+17055550000", active: true }],
+      }),
+    );
+    const log: string[] = [];
+    const out = await ensureDfyNumber(db.client, { ...input, tier: "front_desk" }, { retell: fakeRetell(log) });
+    expect(out).toEqual({ status: "ready", phoneNumber: "+17055550000", purchasedNow: false, kind: "catcher" });
+    expect(log).toEqual([]);
+    expect(db.tables.voice_numbers).toHaveLength(1);
+    expect(db.tables.dfy_progress[0]).toMatchObject({ number_attempts: 0 });
+  });
+
+  it("an inactive catcher number doesn't count: Front Desk with no active number buys the AI number", async () => {
+    db = createFakeDb(
+      tables({
+        organizations: [{ id: ORG, crankleads_tier: "front_desk", subscription_status: "active" }],
+        voice_numbers: [{ id: "vn-c", organization_id: ORG, company_id: COMPANY, provider: "twilio", mode: "missed_call_catcher", phone_e164: "+17055550000", active: false }],
+      }),
+    );
+    const log: string[] = [];
+    const out = await ensureDfyNumber(db.client, { ...input, tier: "front_desk" }, { retell: fakeRetell(log) });
+    expect(out).toMatchObject({ status: "ready", purchasedNow: true, kind: "ai" });
+    expect(log).toContain("buy 416");
   });
 
   it("never throws: a failure is recorded, retried with backoff, then flagged for an operator ONCE", async () => {
