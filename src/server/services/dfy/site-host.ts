@@ -20,9 +20,15 @@ export function pagesHostOf(pagesBaseUrl: string | null | undefined): string | n
   }
 }
 
-/** The request's host: x-forwarded-host (first value) when present, else Host. */
+/**
+ * The request's host — the Host header only. X-Forwarded-Host is client-controllable wherever
+ * a proxy passes it through, and would let any request on the app host be treated as a pages-
+ * host request (or vice versa). Railway's edge routes by Host and forwards it unchanged to the
+ * service (it also overwrites X-Forwarded-Host with the same value), so Host is the one to
+ * trust behind Railway; locally / in the e2e gateway Host is passed through as well.
+ */
 export function requestHost(headers: { get(name: string): string | null }): string | null {
-  const raw = headers.get("x-forwarded-host") ?? headers.get("host");
+  const raw = headers.get("host");
   const first = raw?.split(",")[0]?.trim().toLowerCase();
   return first || null;
 }

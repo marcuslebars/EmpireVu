@@ -17,7 +17,7 @@ import {
   type SiteContent,
   type SiteFactsInput,
 } from "@/server/services/dfy/site-content";
-import { pagesRewritePath } from "@/server/services/dfy/site-host";
+import { pagesRewritePath, requestHost } from "@/server/services/dfy/site-host";
 import { buildJsonLd, renderSitePage } from "@/server/services/dfy/site-render";
 import { siteUrl } from "@/server/services/dfy/site-url";
 
@@ -191,6 +191,9 @@ describe("host-based routing", () => {
   const base = "https://pages.crankleads.com";
   it("rewrites /<slug> on the pages host only", () => {
     expect(pagesRewritePath("pages.crankleads.com", "/northshore", base)).toBe("/s/northshore");
+    // Host only — a spoofed X-Forwarded-Host never decides which host we're on.
+    expect(requestHost(new Headers({ host: "app.crankleads.com", "x-forwarded-host": "pages.crankleads.com" }))).toBe("app.crankleads.com");
+    expect(requestHost(new Headers({ host: "Pages.Crankleads.com" }))).toBe("pages.crankleads.com");
     expect(pagesRewritePath("pages.crankleads.com", "/northshore/", base)).toBe("/s/northshore");
     expect(pagesRewritePath("PAGES.crankleads.com", "/northshore", base)).toBe("/s/northshore");
     expect(pagesRewritePath("pages.crankleads.com", "/", base)).toBe("/s/_");
