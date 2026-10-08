@@ -6,6 +6,7 @@ import {
   type OrganizationContext,
 } from "@/server/organizations/context";
 import { listCompanies } from "@/server/services/companies";
+import { isOperatorUser } from "@/server/services/concierge/auth";
 import type { createSupabaseServerClient } from "@/server/supabase/server";
 
 type AppSupabaseClient = ReturnType<typeof createSupabaseServerClient>;
@@ -28,6 +29,8 @@ export interface SessionCompanySummary {
 export interface SessionContextResponse {
   activeOrganizationId: string | null;
   companies: SessionCompanySummary[];
+  /** Signed-in user is a concierge operator (OPERATOR_EMAILS) — shows the console nav entry. */
+  isOperator: boolean;
   organizations: SessionOrganizationSummary[];
   profile: {
     email: string;
@@ -119,6 +122,7 @@ export async function getSessionContext(
     throw organizations.error;
   }
 
+  const user = active?.user ?? (await getAuthenticatedUser(supabase));
   const organizationMap = new Map((organizations.data ?? []).map((organization) => [organization.id, organization]));
   const companies = active
     ? await listCompanies(
@@ -138,6 +142,7 @@ export async function getSessionContext(
       name: company.name,
       stage: company.stage,
     })),
+    isOperator: isOperatorUser(user),
     organizations: contexts.map((context) => ({
       id: context.organizationId,
       membershipRole: context.membership.role,
@@ -153,8 +158,8 @@ export async function getSessionContext(
         }
       : null,
     user: {
-      email: active?.user.email,
-      id: active?.user.id ?? (await getAuthenticatedUser(supabase)).id,
+      email: user.email,
+      id: user.id,
     },
   };
 }
