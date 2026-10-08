@@ -11,7 +11,7 @@ export type BusinessPhoneKind = (typeof BUSINESS_PHONE_KINDS)[number];
 export const BUSINESS_PHONE_KIND_LABELS: Record<BusinessPhoneKind, string> = {
   cell: "Cell",
   landline: "Landline",
-  voip: "Internet / VoIP",
+  voip: "VoIP",
 };
 
 export const PHONE_CARRIERS = [

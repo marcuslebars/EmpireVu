@@ -226,7 +226,7 @@ function SetupForm({ token, data, onDone }: { token: string; data: SetupIntakeVi
       <h1 className="text-2xl font-semibold leading-tight">Let's set up {data.businessName}</h1>
       <p className="mt-1 text-base text-muted-foreground">3 quick questions. We do the rest.</p>
 
-      <Section n={1} title="Find your business" done={listingReady}>
+      <Section n={1} title="Find your business" done={mode === "search" ? Boolean(place) : mode === "none" || Boolean(website.trim())}>
         {mode === "search" ? (
           place ? (
             <PickedPlace place={place} onChange={() => setPlace(null)} />
@@ -259,7 +259,7 @@ function SetupForm({ token, data, onDone }: { token: string; data: SetupIntakeVi
             No problem — we'll build you a page with your prices and online booking.
           </div>
         )}
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className={`mt-3 flex flex-wrap gap-2 ${mode === "search" && place ? "hidden" : ""}`}>
           {mode !== "search" && data.placesEnabled ? (
             <Chip onClick={() => setMode("search")}>
               <Search className="h-4 w-4" /> Search Google instead
