@@ -50,6 +50,7 @@ import { getPack } from "@/server/services/packs";
 import { applyIndustryPack, listIndustryPacks } from "@/server/services/packs/apply";
 import { toE164 } from "@/server/services/retell/payload";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { createAndSendSetupIntake, ensureSetupIntake } from "@/server/services/dfy/intake";
 import { appBaseUrlFor } from "@/server/services/platform-brand";
 
 /** The timezone every CrankLeads company starts in (Ontario). Editable in Settings. */
@@ -447,11 +448,16 @@ async function sendWelcome(
 ): Promise<void> {
   const facts = await welcomeFacts(ctx, purchase, companyId);
   const setPasswordUrl = existingUser ? null : await createSetPasswordUrl(admin, purchase.owner_email);
+  // The 60-second quick-setup link (same link the text carries) — docs/done-for-you.md.
+  const setupUrl = await ensureSetupIntake(admin, { organizationId: ctx.organizationId, companyId })
+    .then((r) => r.url)
+    .catch(() => null);
   const email = renderWelcomeEmail({
     ownerName: purchase.owner_name,
     businessName: purchase.business_name,
     tier,
     setPasswordUrl,
+    setupUrl,
     appUrl: appUrl(),
     ...facts,
   });
@@ -595,6 +601,12 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
       console.error(`[crankleads/provision] WELCOME EMAIL FAILED for purchase ${purchase.id}: ${welcomeError}`);
       await updatePurchase(admin, purchase.id, { welcome_email_error: welcomeError.slice(0, 1000) });
     }
+  }
+  // Done-for-you: text the quick-setup link (idempotent; never fails provisioning).
+  try {
+    await createAndSendSetupIntake(admin, { organizationId: org.id, companyId, emailBackup: welcomeError ? "always" : "if_sms_fails" });
+  } catch (err) {
+    console.error(`[crankleads/provision] setup intake send failed for purchase ${purchase.id}: ${errorMessage(err)}`);
   }
 
   const operator = operatorEmailAddress();

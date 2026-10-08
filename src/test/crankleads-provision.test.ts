@@ -15,6 +15,13 @@ vi.mock("@/server/outbound/email", async (importOriginal) => {
   return { ...original, sendEmail: (input: { to: string; subject: string; body: string }) => sendEmail(input) };
 });
 
+// Twilio edge: the done-for-you quick-setup text (src/server/services/dfy/intake.ts).
+const sendSms = vi.fn(async (_input: { to: string; body: string; from?: string }) => ({ sid: "SM_1" }));
+vi.mock("@/server/outbound/sms", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/server/outbound/sms")>();
+  return { ...original, sendSms: (input: { to: string; body: string; from?: string }) => sendSms(input) };
+});
+
 import { processBillingEventJob } from "@/server/services/billing/events";
 import { runCrankleadsProvisionJob } from "@/server/services/crankleads/rerun";
 
@@ -131,7 +138,7 @@ function setup(seed: Record<string, Row[]> = {}) {
       activity_events: [],
       ...seed,
     },
-    { organizations: [["stripe_customer_id"], ["slug"]], profiles: [["email"]] },
+    { organizations: [["stripe_customer_id"], ["slug"]], profiles: [["email"]], setup_intakes: [["company_id"], ["token"]] },
   );
   authUsers = [];
   createUser = vi.fn(async ({ email, user_metadata }: { email: string; user_metadata: { full_name: string } }) => {
@@ -173,6 +180,7 @@ function job(id: string): Row {
 beforeEach(() => {
   eventSeq = 0;
   sendEmail.mockClear();
+  sendSms.mockClear();
   vi.stubEnv("APP_BASE_URL", "https://app.empirevu.test");
   vi.stubEnv("CRANKLEADS_APP_BASE_URL", "https://app.crankleads.test");
   vi.stubEnv("OWNER_EMAIL", "ops@empirevu.test");
@@ -267,12 +275,27 @@ describe("checkout.session.completed (CrankLeads) → provisioned account", () =
     // Emails: buyer welcome (set-password token_hash link + hosted form) and operator note.
     expect(sendEmail).toHaveBeenCalledTimes(2);
     const welcome = sendEmail.mock.calls.find(([m]) => m.to === BUYER)?.[0];
-    expect(welcome?.subject).toBe("Your CrankLeads system is ready — finish setup (10 min)");
+    expect(welcome?.subject).toBe("You're in — we're setting up CrankLeads for you");
     expect(welcome?.body).toContain(
       "https://app.crankleads.test/update-password?token_hash=hashed_tok_123&type=recovery&next=%2Fonboarding%3Fstep%3Dresume",
     );
     expect(welcome?.body).toContain(`https://app.crankleads.test/f/${formKey}`);
-    expect(welcome?.body).toContain("Set your password and log in to CrankLeads at app.crankleads.test");
+    expect(welcome?.body).toContain("You can still log in to CrankLeads at app.crankleads.test");
+
+    // Done for you: one quick-setup intake, its link in the welcome email AND texted to the
+    // owner from the platform number (docs/done-for-you.md).
+    expect(db.tables.setup_intakes).toHaveLength(1);
+    const intake = db.tables.setup_intakes[0];
+    expect(intake).toMatchObject({ organization_id: org.id, company_id: company.id, status: "sent", send_attempts: 1 });
+    expect(intake.token as string).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    const setupUrl = `https://app.crankleads.test/setup/${intake.token as string}`;
+    expect(welcome?.body).toContain(`Check your texts`);
+    expect(welcome?.body).toContain(setupUrl);
+    expect(welcome?.body).not.toMatch(/Finish these|Add your prices/);
+    expect(sendSms).toHaveBeenCalledTimes(1);
+    expect(sendSms.mock.calls[0][0]).toMatchObject({ to: "+17055550101" });
+    expect(sendSms.mock.calls[0][0].from).toBeUndefined(); // TWILIO_FROM_NUMBER, not a company number
+    expect(sendSms.mock.calls[0][0].body).toBe(`CrankLeads: you're in. 60 seconds and we'll set the rest up for you: ${setupUrl}`);
     // Nothing a buyer reads names the platform, and no link points at the EmpireVu host.
     expect(`${welcome?.subject}\n${welcome?.body}\n${welcome?.html}`).not.toMatch(/empire\s*vu/i);
     // The recovery link Supabase builds redirects to the CrankLeads host too.
@@ -298,6 +321,8 @@ describe("checkout.session.completed (CrankLeads) → provisioned account", () =
     expect(db.tables.public_form_keys).toHaveLength(1);
     expect(createUser).toHaveBeenCalledTimes(1);
     expect(sendEmail.mock.calls.filter(([m]) => m.to === BUYER)).toHaveLength(1);
+    expect(db.tables.setup_intakes).toHaveLength(1);
+    expect(sendSms).toHaveBeenCalledTimes(1);
     expect(purchase().provision_attempts).toBe(1);
   });
 
@@ -504,6 +529,28 @@ describe("provisioning failures", () => {
     expect(purchase()).toMatchObject({ status: "provisioned", welcome_email_error: "resend down", welcome_email_sent_at: null });
     const operator = sendEmail.mock.calls.find(([m]) => m.to === "ops@empirevu.test")?.[0];
     expect(operator?.body).toContain("WELCOME EMAIL FAILED");
+  });
+
+  it("a failing setup text never fails provisioning: the intake stays pending for the retry sweep, email backs it up", async () => {
+    sendSms.mockImplementationOnce(async () => {
+      throw new Error("twilio down");
+    });
+    await processBillingEventJob(admin, seedEvent("checkout.session.completed", sessionObject()) as never);
+    expect(purchase()).toMatchObject({ status: "provisioned", last_error: null });
+    const intake = db.tables.setup_intakes[0];
+    expect(intake).toMatchObject({ status: "pending", send_attempts: 1 });
+    expect(intake.sms_sent_at ?? null).toBeNull();
+    expect(intake.last_error).toContain("twilio down");
+    // The email backup with the link went out (welcome email + backup + operator note).
+    const backup = sendEmail.mock.calls.find(([m]) => m.to === BUYER && m.subject === "Your 60-second setup link")?.[0];
+    expect(backup?.body).toContain(`https://app.crankleads.test/setup/${intake.token as string}`);
+  });
+
+  it("an intake that throws outright (DB down) still leaves the purchase provisioned", async () => {
+    db.failNext("setup_intakes", "select", { message: "intake table gone" });
+    db.failNext("setup_intakes", "select", { message: "intake table gone" });
+    await processBillingEventJob(admin, seedEvent("checkout.session.completed", sessionObject()) as never);
+    expect(purchase()).toMatchObject({ status: "provisioned" });
   });
 });
 

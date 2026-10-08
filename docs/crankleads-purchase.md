@@ -74,8 +74,10 @@ What provisioning does (`src/server/services/crankleads/provision.ts`), in order
 5. **Website form key** (`public_form_keys`) — the hosted link `/f/evpk_…` works immediately.
 6. **Onboarding** — `business` (and `services` when a pack applied) marked complete, so
    `/onboarding` resumes at the right step. Left for the owner: prices, phone, website snippet + test.
-7. **Emails** — buyer: *"Your CrankLeads system is ready — finish setup (10 min)"* with what's
-   done, the set-password link, the hosted form link and the 3 remaining steps. Operator
+7. **Emails** — buyer: *"You're in — we're setting up CrankLeads for you"*: check your texts for
+   the 60-second quick-setup link (also in the email), what we build once they answer, what's
+   done, the set-password link and the hosted form link — no DIY steps (docs/done-for-you.md).
+   Right after it, the quick-setup link is texted from the platform number. Operator
    (`OWNER_EMAIL`): *"New CrankLeads purchase: <business> (<tier>)"*. An email failure never
    fails provisioning — it's recorded (`welcome_email_error`) and flagged in the operator note.
 
@@ -233,9 +235,9 @@ is a credential; this public endpoint stops minting them).
 3. You land on `/welcome/crankleads?session_id=cs_test_…`: "Payment received — setting up your
    system…" then "Done! Check your email (y***@yourdomain.com)…" within a few seconds (billing
    worker poll interval).
-4. The email *"Your CrankLeads system is ready — finish setup (10 min)"* arrives; the operator
+4. The email *"You're in — we're setting up CrankLeads for you"* (and the quick-setup text) arrives; the operator
    inbox gets *"New CrankLeads purchase: Test Roofing (Catch)"*.
-5. Click **Set your password and log in to EmpireVu** → set a password → **Continue setup** →
+5. Click **set your password** → set a password → **Continue setup** →
    `/onboarding` resumes at **Phone** (Business + Services done). The Phone step offers only the
    missed-call catcher (Catch).
 6. Check: Settings → Billing shows plan `operate`, status active; `organizations.crankleads_tier = 'catch'`;

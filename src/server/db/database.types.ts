@@ -386,6 +386,10 @@ export interface Database {
           submitted_at: string | null;
           enriched_at: string | null;
           last_error: string | null;
+          send_attempts: number;
+          sms_sent_at: string | null;
+          email_sent_at: string | null;
+          enrich_attempts: number;
           created_at: string;
           updated_at: string;
         };
@@ -402,6 +406,10 @@ export interface Database {
           submitted_at?: string | null;
           enriched_at?: string | null;
           last_error?: string | null;
+          send_attempts?: number;
+          sms_sent_at?: string | null;
+          email_sent_at?: string | null;
+          enrich_attempts?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -418,6 +426,10 @@ export interface Database {
           submitted_at?: string | null;
           enriched_at?: string | null;
           last_error?: string | null;
+          send_attempts?: number;
+          sms_sent_at?: string | null;
+          email_sent_at?: string | null;
+          enrich_attempts?: number;
           created_at?: string;
           updated_at?: string;
         };
