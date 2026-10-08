@@ -72,3 +72,33 @@ export async function requireOperator(_request?: Request, supabase?: ServerClien
   if (!identity) throw new ConciergeNotFoundError();
   return identity;
 }
+
+/**
+ * CSRF guard for concierge writes (cookie-authenticated from the browser): the request must be
+ * JSON, and must come from our own origin. Browsers send Sec-Fetch-Site and Origin on every
+ * POST; when present they must say same-origin / our host. A request with neither (a script
+ * using a Bearer token — not CSRF-able) passes. Throws 415 / 403.
+ */
+export function assertSameOriginJson(request: Request): void {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!/^application\/json\b/i.test(contentType.trim())) {
+    throw new UserFacingError("Send JSON (Content-Type: application/json).", { status: 415, code: "unsupported_media_type" });
+  }
+  const site = request.headers.get("sec-fetch-site");
+  if (site && site !== "same-origin") {
+    throw new UserFacingError("Cross-site request refused.", { status: 403, code: "cross_site" });
+  }
+  const origin = request.headers.get("origin");
+  if (origin) {
+    let originHost: string | null = null;
+    try {
+      originHost = new URL(origin).host.toLowerCase();
+    } catch {
+      originHost = null;
+    }
+    const host = request.headers.get("host")?.toLowerCase() ?? null;
+    if (!originHost || !host || originHost !== host) {
+      throw new UserFacingError("Cross-site request refused.", { status: 403, code: "cross_site" });
+    }
+  }
+}

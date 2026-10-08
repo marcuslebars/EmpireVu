@@ -14,7 +14,7 @@ import { handleRoute, parseJsonBody } from "@/server/api/route";
 import { pollForwardPage, recordForwardAction } from "@/server/services/dfy/forwarding";
 import { forwardingHelpHandler } from "@/server/services/dfy/orchestrator";
 import { isForwardToken } from "@/server/services/dfy/progress";
-import { enforceRateLimit } from "@/server/services/rate-limit";
+import { enforceRateLimit, trustedClientIp } from "@/server/services/rate-limit";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +31,9 @@ function notFound(): NextResponse {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   return handleRoute(async () => {
+    // Per IP first (also covers token guessing with unknown / malformed tokens), then per token.
+    const byIp = await enforceRateLimit(request, { scope: "dfy_forward_view_ip", limit: 300, windowSeconds: 600, keyParts: [trustedClientIp(request)] });
+    if (byIp) return byIp;
     const token = context.params.token;
     if (!isForwardToken(token)) return notFound();
     const limited = await enforceRateLimit(request, { scope: "dfy_forward_view", limit: 240, windowSeconds: 600, keyParts: [token] });
@@ -44,6 +47,8 @@ const bodySchema = z.object({ action: z.enum(["opened", "tapped", "help"]) });
 
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   return handleRoute(async () => {
+    const byIp = await enforceRateLimit(request, { scope: "dfy_forward_action_ip", limit: 60, windowSeconds: 600, keyParts: [trustedClientIp(request)] });
+    if (byIp) return byIp;
     const token = context.params.token;
     if (!isForwardToken(token)) return notFound();
     const limited = await enforceRateLimit(request, { scope: "dfy_forward_action", limit: 30, windowSeconds: 600, keyParts: [token] });

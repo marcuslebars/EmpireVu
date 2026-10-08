@@ -265,6 +265,24 @@ describe("POST actions — scoping, audit, validation", () => {
     });
   });
 
+  it("POSTs must be same-origin JSON (CSRF): cross-site or non-JSON → refused, nothing written", async () => {
+    const send = (headers: Record<string, string>) =>
+      actionsPOST(
+        new Request(`http://test/api/concierge/accounts/${ORG}/actions`, {
+          method: "POST",
+          body: JSON.stringify({ action: "add_note", input: { note: "x" } }),
+          headers: { host: "test", ...headers },
+        }),
+        params(),
+      );
+    expect((await send({ "content-type": "text/plain" })).status).toBe(415);
+    expect((await send({ "content-type": "application/json", "sec-fetch-site": "cross-site" })).status).toBe(403);
+    expect((await send({ "content-type": "application/json", origin: "https://evil.example" })).status).toBe(403);
+    expect(writes()).toHaveLength(0);
+    const ok = await send({ "content-type": "application/json", "sec-fetch-site": "same-origin", origin: "http://test" });
+    expect(ok.status).toBe(200);
+  });
+
   it("a companyId belonging to another org is a 404: no write, no audit row", async () => {
     const res = await post({ action: "update_business_facts", companyId: OTHER_COMPANY, input: { website: "https://evil.example.com" } });
     expect(res.status).toBe(404);

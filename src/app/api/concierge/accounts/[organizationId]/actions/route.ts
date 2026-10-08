@@ -6,7 +6,7 @@ import { z } from "zod";
 // org + its own company, and audited in operator_actions. See services/concierge/actions.ts.
 import { handleRoute, parseJsonBody } from "@/server/api/route";
 import { actionRequestSchema, listConciergeActions, runConciergeAction } from "@/server/services/concierge/register-all";
-import { ConciergeNotFoundError, requireOperator } from "@/server/services/concierge/auth";
+import { assertSameOriginJson, ConciergeNotFoundError, requireOperator } from "@/server/services/concierge/auth";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +29,8 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   return handleRoute(async () => {
     const operator = await requireOperator(request);
     if (!z.string().uuid().safeParse(context.params.organizationId).success) throw new ConciergeNotFoundError();
+    // Same-origin JSON only (the console is cookie-authenticated in the browser).
+    assertSameOriginJson(request);
     const body = await parseJsonBody(request, actionRequestSchema);
     const data = await runConciergeAction(createSupabaseAdminClient(), operator, context.params.organizationId, body);
     return NextResponse.json({ data });
