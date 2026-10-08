@@ -71,7 +71,7 @@ export default function SetupIntakePage() {
     let active = true;
     fetchSetupIntake(token)
       .then((data) => {
-        if (active) setView({ kind: "ready", data, screen: data.state === "submitted" ? "summary" : "form" });
+        if (active) setView({ kind: "ready", data, screen: data.state === "submitted" || data.locked ? "summary" : "form" });
       })
       .catch((err: unknown) => {
         if (active) setView({ kind: "error", message: err instanceof Error ? err.message : "This setup link isn't working." });
@@ -608,7 +608,14 @@ function Thanks({ onEdit }: { onEdit: () => void }) {
 function Summary({ data, onEdit }: { data: SetupIntakeView; onEdit: () => void }) {
   const answers = data.answers;
   const priced = useMemo(() => answers?.prices.items.length ?? 0, [answers]);
-  if (!answers) return null;
+  if (!answers) {
+    return data.locked ? (
+      <div data-testid="setup-locked">
+        <h1 className="text-2xl font-semibold leading-tight">You're live</h1>
+        <p className="mt-2 text-base text-muted-foreground">{data.businessName} is all set up. To change anything, log in to the app.</p>
+      </div>
+    ) : null;
+  }
   const carrier = PHONE_CARRIERS.find((c) => c.key === answers.phone.carrier)?.label ?? answers.phone.carrier;
   const listing =
     answers.listing.kind === "google"
@@ -636,13 +643,19 @@ function Summary({ data, onEdit }: { data: SetupIntakeView; onEdit: () => void }
           value={answers.prices.skipped || priced === 0 ? "Skipped — we'll ask later" : `${priced} service${priced === 1 ? "" : "s"} priced`}
         />
       </dl>
-      <button
-        type="button"
-        onClick={onEdit}
-        className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl border border-border text-base font-semibold hover:bg-secondary"
-      >
-        <Pencil className="h-4 w-4" /> Update my answers
-      </button>
+      {data.locked ? (
+        <p className="mt-6 text-base text-muted-foreground" data-testid="setup-locked">
+          You're live, so this page is read-only now. To change anything, log in to the app.
+        </p>
+      ) : (
+        <button
+          type="button"
+          onClick={onEdit}
+          className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl border border-border text-base font-semibold hover:bg-secondary"
+        >
+          <Pencil className="h-4 w-4" /> Update my answers
+        </button>
+      )}
     </div>
   );
 }

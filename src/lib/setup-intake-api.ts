@@ -23,6 +23,8 @@ export interface SetupIntakeView {
   services: SetupServiceView[];
   answers: IntakeAnswers | null;
   submittedAt: string | null;
+  /** They're live: the page shows a read-only summary (changes happen in the app). */
+  locked?: boolean;
 }
 
 export interface PlaceResult {

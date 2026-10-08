@@ -402,12 +402,50 @@ export async function processPendingIntakeSends(
 
 // ── Public page: view + answers ──────────────────────────────────────────────
 
-/** The intake for a token, or null (bad format / unknown). One answer for every miss. */
-export async function findIntakeByToken(admin: AdminClient, token: string): Promise<SetupIntake | null> {
+/** A setup link works for this long after the purchase (then: "log in to the app"). */
+export const SETUP_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+interface IntakePurchase {
+  provisioned_at: string | null;
+  created_at: string | null;
+  live_at: string | null;
+}
+
+async function loadIntakePurchase(admin: AdminClient, intake: SetupIntake): Promise<IntakePurchase | null> {
+  const { data, error } = await admin
+    .from("crankleads_purchases")
+    .select("provisioned_at, created_at, live_at")
+    .eq("organization_id", intake.organization_id)
+    .eq("company_id", intake.company_id)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(`purchase lookup failed: ${error.message}`);
+  return ((data ?? []) as IntakePurchase[])[0] ?? null;
+}
+
+/** PURE: has this setup link expired (30 days after the purchase, else after the intake was made)? */
+export function isSetupLinkExpired(intake: Pick<SetupIntake, "created_at">, purchase: IntakePurchase | null, nowMs: number): boolean {
+  const from = Date.parse(purchase?.provisioned_at ?? purchase?.created_at ?? intake.created_at);
+  return Number.isFinite(from) && nowMs - from > SETUP_TOKEN_TTL_MS;
+}
+
+/**
+ * The intake for a token, or null (bad format / unknown / expired). One answer for every miss.
+ * `nowMs` given → links older than SETUP_TOKEN_TTL_MS after the purchase are refused too.
+ */
+export async function findIntakeByToken(
+  admin: AdminClient,
+  token: string,
+  nowMs?: number,
+): Promise<(SetupIntake & { purchase?: IntakePurchase | null }) | null> {
   if (!isSetupToken(token)) return null;
   const { data, error } = await admin.from("setup_intakes").select("*").eq("token", token).maybeSingle();
   if (error) throw new Error(`setup_intakes lookup failed: ${error.message}`);
-  return (data as SetupIntake | null) ?? null;
+  const intake = (data as SetupIntake | null) ?? null;
+  if (!intake || nowMs === undefined) return intake;
+  const purchase = await loadIntakePurchase(admin, intake);
+  if (isSetupLinkExpired(intake, purchase, nowMs)) return null;
+  return { ...intake, purchase };
 }
 
 export interface SetupServiceView {
@@ -427,6 +465,8 @@ export interface SetupIntakeView {
   services: SetupServiceView[];
   answers: IntakeAnswers | null;
   submittedAt: string | null;
+  /** The buyer is live: edits are closed (read-only summary; changes happen in the app). */
+  locked: boolean;
 }
 
 /** "+17055550101" → "(705) 555-0101". */
@@ -454,7 +494,7 @@ export function readAnswers(raw: unknown): IntakeAnswers | null {
   return parsed.success ? (parsed.data as IntakeAnswers) : null;
 }
 
-async function buildView(admin: AdminClient, intake: SetupIntake): Promise<SetupIntakeView> {
+async function buildView(admin: AdminClient, intake: SetupIntake, locked = false): Promise<SetupIntakeView> {
   const [company, brand, catalog] = await Promise.all([
     loadCompany(admin, intake.organization_id, intake.company_id),
     loadOrganizationBrand(admin, intake.organization_id),
@@ -480,19 +520,20 @@ async function buildView(admin: AdminClient, intake: SetupIntake): Promise<Setup
     })),
     answers,
     submittedAt: answers ? intake.submitted_at : null,
+    locked,
   };
 }
 
 /** GET /api/public/setup/:token — the page's state; marks the intake opened the first time. */
 export async function getSetupView(admin: AdminClient, token: string, nowMs: number = Date.now()): Promise<SetupIntakeView | null> {
-  const intake = await findIntakeByToken(admin, token);
+  const intake = await findIntakeByToken(admin, token, nowMs);
   if (!intake) return null;
   if (!intake.opened_at) {
     const stamp = nowIso(nowMs);
     await admin.from("setup_intakes").update({ opened_at: stamp, updated_at: stamp }).eq("id", intake.id).is("opened_at", null);
     await admin.from("setup_intakes").update({ status: "opened" }).eq("id", intake.id).in("status", ["pending", "sent"]);
   }
-  return buildView(admin, intake);
+  return buildView(admin, intake, Boolean(intake.purchase?.live_at));
 }
 
 // ── Answer validation ────────────────────────────────────────────────────────
@@ -583,8 +624,10 @@ export async function submitSetupAnswers(
   raw: unknown,
   nowMs: number = Date.now(),
 ): Promise<SetupIntakeView | null> {
-  const intake = await findIntakeByToken(admin, token);
+  const intake = await findIntakeByToken(admin, token, nowMs);
   if (!intake) return null;
+  // Live already: the quick setup is closed (a stale tab can't overwrite what's running now).
+  if (intake.purchase?.live_at) throw new ValidationError("You're already live — make changes in the app (Settings) instead.");
   const answers = parseIntakeAnswers(raw);
 
   const catalog = await loadCatalog(admin, intake);
@@ -616,5 +659,6 @@ export async function submitSetupAnswers(
     .eq("token", token);
   if (error) throw new Error(`setup_intakes answer write failed: ${error.message}`);
   console.log(`[dfy/intake] answers ${intake.submitted_at ? "updated" : "received"} for company ${intake.company_id}`);
-  return buildView(admin, { ...intake, answers: clean as unknown as SetupIntake["answers"], status: "submitted", submitted_at: stamp });
+  const { purchase: _purchase, ...row } = intake;
+  return buildView(admin, { ...row, answers: clean as unknown as SetupIntake["answers"], status: "submitted", submitted_at: stamp });
 }

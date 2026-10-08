@@ -43,7 +43,7 @@ import {
   renderOperatorEscalationEmail,
 } from "@/server/services/dfy/messages";
 import { dfyRecipeSlugs, switchOnAutomations } from "@/server/services/dfy/switch-on";
-import { buildSetupProgressView } from "@/server/services/dfy/progress-view";
+import { buildSetupProgressView, loadSetupProgressView } from "@/server/services/dfy/progress-view";
 import { computeSetupChecklist } from "@/server/services/crankleads/setup-checklist";
 import { conciergeItem } from "@/server/services/operator-health/rules";
 import type { RetellClient } from "@/server/services/retell/provision";
@@ -430,6 +430,28 @@ describe("intake readiness + escalation timing (pure)", () => {
     expect(new Date(escalationDueAt(at("2026-10-07T02:00:00Z"), tz)).toISOString()).toBe("2026-10-08T12:00:00.000Z");
     // Fri 15:00 → Sat 15:00 → Mon 08:00
     expect(new Date(escalationDueAt(at("2026-10-09T19:00:00Z"), tz)).toISOString()).toBe("2026-10-12T12:00:00.000Z");
+  });
+});
+
+describe("setup progress view: links are for owners / admins only", () => {
+  it("members get the status without the no-login links; owners/admins get both links", async () => {
+    db = createFakeDb(
+      tables({
+        setup_intakes: [{ organization_id: ORG, company_id: COMPANY, token: "S".repeat(32), status: "sent", created_at: "2026-10-05T13:00:00Z" }],
+        voice_numbers: [catcherRow()],
+        dfy_progress: [{ organization_id: ORG, company_id: COMPANY, number_attempts: 0, forward_tests_started: 0, forward_token: TOKEN }],
+      }),
+    );
+    const ctx = { organizationId: ORG, actorProfileId: "u1", supabase: db.client } as never;
+    const member = await loadSetupProgressView(ctx, db.client);
+    expect(member?.quickSetupUrl).toBeNull();
+    expect(member?.forwarding.url).toBeNull();
+    expect(member?.items.find((i) => i.key === "details")?.state).toBe("todo");
+    expect(JSON.stringify(member)).not.toContain("S".repeat(32));
+    expect(JSON.stringify(member)).not.toContain(TOKEN);
+    const owner = await loadSetupProgressView(ctx, db.client, { canSeeLinks: true });
+    expect(owner?.quickSetupUrl).toContain(`/setup/${"S".repeat(32)}`);
+    expect(owner?.forwarding.url).toContain(`/forward/${TOKEN}`);
   });
 });
 

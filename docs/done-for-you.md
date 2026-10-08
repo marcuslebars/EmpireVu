@@ -68,7 +68,14 @@ the org): 1) find your business on Google (server proxy), or paste a website, or
 2) business phone (prefilled from checkout), cell / landline / VoIP, carrier; 3) prices for the
 pack's services (optional; "Skip — we'll ask later"; "Add a service"). Submit → "Done. We're
 building everything now — we'll text you in a few minutes." Re-opening shows a summary and lets
-them update their answers (re-submit → re-enrich).
+them update their answers (re-submit → re-enrich; only owner prices that CHANGED since the
+previous submit are written, so a price edited in the app since isn't overwritten). Once they're
+live the page is a read-only summary (answers are refused), and the link stops working 30 days
+after the purchase.
+
+**Who sees the links.** `/setup/<token>` and `/forward/<token>` are no-login credentials. The
+token columns are not readable by any client role (migration `20261008150000`); the in-app
+progress view hands the links to owners and admins only — members see the status.
 
 **API** (`src/app/api/public/setup/[token]/…`). The token is 24 random bytes (base64url) and is
 the only credential. Every read and write is scoped to that token's org + company, and requests

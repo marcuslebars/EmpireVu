@@ -37,7 +37,8 @@ export interface SetupProgressView {
 
 interface Inputs {
   checklist: SetupChecklist;
-  intake: { status: string; token: string } | null;
+  /** token null = the viewer may not see the link (members) or it couldn't be read. */
+  intake: { status: string; token: string | null } | null;
   site: { status: string; slug?: string | null } | null;
   progress: Pick<DfyProgress, "switched_on_at" | "number_flagged_at"> | null;
   numberPretty: string | null;
@@ -89,7 +90,7 @@ export function buildSetupProgressView(input: Inputs): SetupProgressView {
     isLive: checklist.isLive,
     items,
     forwarding: { done: Boolean(step("forwarding")?.done), url: input.forwardUrl },
-    quickSetupUrl: unanswered && input.intake ? quickSetupUrl(input.intake.token) : null,
+    quickSetupUrl: unanswered && input.intake?.token ? quickSetupUrl(input.intake.token) : null,
     extras: [
       { key: "prices", label: "Add your prices", done: Boolean(step("services")?.done), path: "/settings?section=packs" },
       ...(checklist.tier === "catch"
@@ -99,13 +100,24 @@ export function buildSetupProgressView(input: Inputs): SetupProgressView {
   };
 }
 
-/** null for orgs that aren't CrankLeads purchases (or have no company yet). */
-export async function loadSetupProgressView(ctx: TenantServiceContext, admin: AdminClient): Promise<SetupProgressView | null> {
+/**
+ * null for orgs that aren't CrankLeads purchases (or have no company yet).
+ * The no-login links (/setup/<token>, /forward/<token>) are credentials: only owners/admins
+ * get them (`canSeeLinks`); members see the status only. The token columns aren't readable by
+ * any client role (migration 20261008150000), so they are read with the service-role client,
+ * for the company the caller's own RLS read returned.
+ */
+export async function loadSetupProgressView(
+  ctx: TenantServiceContext,
+  admin: AdminClient,
+  options: { canSeeLinks?: boolean } = {},
+): Promise<SetupProgressView | null> {
+  const canSeeLinks = options.canSeeLinks ?? false;
   const checklist = await loadSetupChecklist(ctx);
   if (!checklist) return null;
   const { organizationId, companyId } = checklist;
   const [intake, site, progress] = await Promise.all([
-    ctx.supabase.from("setup_intakes").select("status, token").eq("organization_id", organizationId).eq("company_id", companyId).maybeSingle(),
+    ctx.supabase.from("setup_intakes").select("status").eq("organization_id", organizationId).eq("company_id", companyId).maybeSingle(),
     ctx.supabase.from("company_sites").select("status, slug").eq("organization_id", organizationId).eq("company_id", companyId).maybeSingle(),
     ctx.supabase
       .from("dfy_progress")
@@ -115,12 +127,22 @@ export async function loadSetupProgressView(ctx: TenantServiceContext, admin: Ad
       .maybeSingle(),
   ]);
   let forwardUrl: string | null = null;
-  try {
-    // companyId came from the caller's own (RLS) read above.
-    const row = await ensureProgress(admin, organizationId, companyId);
-    forwardUrl = forwardPageUrl(await ensureForwardToken(admin, row));
-  } catch (err) {
-    console.error("[setup-progress] forward link failed:", err instanceof Error ? err.message : err);
+  let intakeToken: string | null = null;
+  if (canSeeLinks) {
+    try {
+      // companyId came from the caller's own (RLS) read above.
+      const row = await ensureProgress(admin, organizationId, companyId);
+      forwardUrl = forwardPageUrl(await ensureForwardToken(admin, row));
+      const { data: tokenRow } = await admin
+        .from("setup_intakes")
+        .select("token")
+        .eq("organization_id", organizationId)
+        .eq("company_id", companyId)
+        .maybeSingle();
+      intakeToken = (tokenRow as { token: string } | null)?.token ?? null;
+    } catch (err) {
+      console.error("[setup-progress] links failed:", err instanceof Error ? err.message : err);
+    }
   }
   const { data: numbers } = await ctx.supabase
     .from("voice_numbers")
@@ -132,7 +154,7 @@ export async function loadSetupProgressView(ctx: TenantServiceContext, admin: Ad
   const number = ((numbers ?? []) as Array<{ phone_e164: string; mode: string }>).find((n) => n.mode === wanted)?.phone_e164 ?? null;
   return buildSetupProgressView({
     checklist,
-    intake: intake.error ? null : ((intake.data as { status: string; token: string } | null) ?? null),
+    intake: intake.error || !intake.data ? null : { status: (intake.data as { status: string }).status, token: intakeToken },
     site: site.error ? null : ((site.data as { status: string; slug: string } | null) ?? null),
     progress: progress.error ? null : ((progress.data as Inputs["progress"]) ?? null),
     numberPretty: number ? prettyPhone(number) : null,

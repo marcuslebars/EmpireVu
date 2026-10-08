@@ -29,7 +29,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
       (await enforceRateLimit(request, { scope: "public_setup_places_ip", limit: 120, windowSeconds: 3600, keyParts: [trustedClientIp(request)] })) ??
       (await enforceRateLimit(request, { scope: "public_setup_places", limit: 60, windowSeconds: 3600, keyParts: [token] }));
     if (limited) return limited;
-    const intake = await findIntakeByToken(createSupabaseAdminClient(), token);
+    const intake = await findIntakeByToken(createSupabaseAdminClient(), token, Date.now());
     if (!intake) return NextResponse.json({ error: "Not found." }, { status: 404, headers: HEADERS });
 
     const q = (new URL(request.url).searchParams.get("q") ?? "").trim().slice(0, 120);

@@ -337,6 +337,21 @@ describe("public page: view + answers", () => {
     expect((intakes()[0].answers as { prices: unknown }).prices).toEqual({ skipped: true, items: [] });
   });
 
+  it("the link expires 30 days after the purchase", async () => {
+    db.tables.crankleads_purchases = [{ id: "p1", organization_id: ORG, company_id: COMPANY, created_at: "2026-09-01T00:00:00Z", provisioned_at: "2026-09-01T00:00:00Z", live_at: null }];
+    expect(await getSetupView(admin, token, Date.parse("2026-09-30T00:00:00Z"))).not.toBeNull();
+    expect(await getSetupView(admin, token, Date.parse("2026-10-02T00:00:00Z"))).toBeNull();
+    expect(await submitSetupAnswers(admin, token, goodAnswers(), Date.parse("2026-10-02T00:00:00Z"))).toBeNull();
+  });
+
+  it("after go-live the page is a read-only summary and answers are refused", async () => {
+    await submitSetupAnswers(admin, token, goodAnswers(), NOON_MS);
+    db.tables.crankleads_purchases = [{ id: "p1", organization_id: ORG, company_id: COMPANY, created_at: "2026-10-08T12:00:00Z", provisioned_at: "2026-10-08T12:00:00Z", live_at: "2026-10-08T19:00:00Z" }];
+    const view = await getSetupView(admin, token, NOON_MS + 3_600_000);
+    expect(view).toMatchObject({ state: "submitted", locked: true });
+    await expect(submitSetupAnswers(admin, token, goodAnswers(), NOON_MS + 3_600_000)).rejects.toThrow("You're already live");
+  });
+
   it("refuses a service id from another company (token scoping)", async () => {
     const answers = goodAnswers();
     answers.prices.items = [{ id: FOREIGN_ITEM, label: "Theirs", priceCents: 100 }];

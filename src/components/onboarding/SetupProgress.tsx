@@ -121,7 +121,11 @@ export function SetupProgressPanel({
                 Turn on forwarding <ArrowRight className="w-4 h-4" />
               </a>
             ) : null}
-            <p className="text-[11px] text-muted-foreground text-center">On a computer? We texted you this link — open it on your business phone.</p>
+            <p className="text-[11px] text-muted-foreground text-center">
+              {view.forwarding.url
+                ? "On a computer? We texted you this link — open it on your business phone."
+                : "The account owner has the one-tap link — we texted it to them."}
+            </p>
           </div>
         )}
       </div>
