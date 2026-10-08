@@ -311,6 +311,7 @@ export interface Database {
           content: Json;
           generated_at: string | null;
           published_at: string | null;
+          owner_notified_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -324,6 +325,7 @@ export interface Database {
           content?: Json;
           generated_at?: string | null;
           published_at?: string | null;
+          owner_notified_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -337,6 +339,7 @@ export interface Database {
           content?: Json;
           generated_at?: string | null;
           published_at?: string | null;
+          owner_notified_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
