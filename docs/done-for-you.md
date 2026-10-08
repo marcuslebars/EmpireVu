@@ -211,7 +211,7 @@ Built only from facts (nothing is invented):
 | Section | Source |
 |---|---|
 | Name, logo (or a wordmark), colours | `companies.name`, `brand_logo_url` (https only), `brand_primary_color` / `brand_accent_color`, else a palette per trade |
-| Call buttons, sticky mobile bar | `companies.owner_phone_e164` (the business line callers know, not the text-back number) |
+| Call buttons, sticky mobile bar | the business line: `brand_reply_phone ?? owner_phone_e164` (same rule as `resolveBusinessLine`; never the text-back number) |
 | Services and prices (rate sheet) | **active** `service_catalog_items`; price text derived from cents only. Unpriced rows (or "Show prices" off) show "Get a quote" |
 | Service area, hours | `service_area`, `hours` (`{summary}`, per-day `{mon:{open,close}}`, or Google `weekdayText`) |
 | Rating badge + "Read our Google reviews" | `google_rating` + `google_review_count` (both required), `brand_review_url` / Google Maps link. No review text |
@@ -235,7 +235,8 @@ one-line service blurbs and 3–5 FAQs from a facts JSON that contains **no pric
 2. screened field by field (`screenSiteCopy`): years, "since 2009", licences, insurance,
    guarantees, warranties, certifications, awards, "family-owned", dollar amounts, star ratings,
    "24/7", "free estimates", "same-day", "emergency", quoted testimonials… are rejected unless
-   the same words are in the owner's own facts. A rejected field keeps the template version;
+   the same words are in the owner's own facts (service **names** count; service descriptions
+   never do — they can be parser- or pack-written). A rejected field keeps the template version;
 3. passed through a small US → Canadian spelling fix.
 
 Any failure (no `ANTHROPIC_API_KEY`, API error, invalid JSON) falls back to deterministic

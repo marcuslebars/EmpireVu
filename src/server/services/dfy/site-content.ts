@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { toE164 } from "@/server/services/retell/payload";
+
 /**
  * Generated sites — the PURE half (docs/done-for-you.md → "Generated sites").
  *
@@ -387,6 +389,8 @@ export interface SiteFactsInput {
   company: {
     name: string;
     owner_phone_e164: string | null;
+    /** The business line callers know, when it differs from the owner's cell (see resolveBusinessLine). */
+    brand_reply_phone?: string | null;
     service_area: string | null;
     hours: unknown;
     google_rating: number | null;
@@ -419,7 +423,9 @@ export function buildSiteFacts(input: SiteFactsInput): SiteFacts {
   const hours = parseHours(c.hours);
   const rating = typeof c.google_rating === "number" && c.google_rating > 0 && c.google_rating <= 5 ? Math.round(c.google_rating * 10) / 10 : null;
   const reviewCount = typeof c.google_review_count === "number" && c.google_review_count > 0 ? Math.round(c.google_review_count) : null;
-  const phoneE164 = clean(c.owner_phone_e164, 20);
+  // The business line: brand_reply_phone ?? owner_phone_e164 — the same rule as
+  // resolveBusinessLine (twilio/forwarding-test.ts), so the page shows the number forwarding is on.
+  const phoneE164 = clean(toE164(c.brand_reply_phone ?? null) ?? toE164(c.owner_phone_e164) ?? c.owner_phone_e164, 20);
 
   const seen = new Set<string>();
   const services: SiteService[] = [];
@@ -739,7 +745,9 @@ export function factsText(facts: SiteFacts): string {
     ...facts.highlights,
     facts.tradeLabel,
     facts.address,
-    ...facts.services.flatMap((s) => [s.label, s.description]),
+    // Service NAMES only: catalog descriptions can be written by the website parser or a pack
+    // template, so they never vouch for a claim ("fully insured", "24/7"…) in the copy.
+    ...facts.services.map((s) => s.label),
   ]
     .filter(Boolean)
     .join(" \n ")

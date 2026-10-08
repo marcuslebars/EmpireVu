@@ -181,6 +181,21 @@ describe("screening model copy", () => {
     expect(unsupportedClaims("We are fully insured and family-owned since 2009.", facts)).toEqual([]);
   });
 
+  it("a service description (parser- or pack-written) never vouches for a claim", () => {
+    const facts = buildSiteFacts({
+      ...snowCompany,
+      catalog: [{ service_key: "plow", label: "Plowing", description: "Fully insured, 24/7 emergency service.", pricing_type: "flat", rate_cents: 0, minimum_cents: 0, unit_label: null, sort_order: 1 }],
+    } as never);
+    expect(unsupportedClaims("Fully insured, 24/7 emergency plowing.", facts)).toEqual(expect.arrayContaining(["Fully insured", "24/7", "emergency"]));
+  });
+
+  it("the page's phone is the business line (brand_reply_phone ?? owner phone)", () => {
+    const withLine = buildSiteFacts({ ...snowCompany, company: { ...snowCompany.company, owner_phone_e164: "+17055550142", brand_reply_phone: "(705) 555-0199" } });
+    expect(withLine.phoneE164).toBe("+17055550199");
+    const cellOnly = buildSiteFacts({ ...snowCompany, company: { ...snowCompany.company, owner_phone_e164: "+17055550142", brand_reply_phone: null } });
+    expect(cellOnly.phoneE164).toBe("+17055550142");
+  });
+
   it("uses Canadian spelling", () => {
     const out = screenSiteCopy({ ...good, about: "We help every neighbor keep their favorite driveway clear across south Barrie." }, snow, "full");
     expect(out.copy.about).toBe("We help every neighbour keep their favourite driveway clear across south Barrie.");
