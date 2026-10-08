@@ -28,6 +28,8 @@ import {
   SUPPORT_OPEN_HOURS,
   setupBusinessDays,
   type CheckError,
+  type ConciergeFact,
+  type ConciergeReason,
   type ForwardingFact,
   type OperatorHealthFacts,
   type PaymentFact,
@@ -37,6 +39,7 @@ import {
   type SilentFact,
   type SupportFact,
 } from "@/server/services/operator-health/rules";
+import { conciergeUrl } from "@/server/services/dfy/links";
 import { QUEUE_KEYS, QUEUE_TABLES } from "@/server/services/queue-health";
 import type { TenantServiceContext } from "@/server/services/shared";
 
@@ -170,6 +173,70 @@ export async function loadSetupFacts(admin: AdminClient, input: LoadFactsInput, 
       }
     }
     facts.push(fact);
+  }
+  return facts;
+}
+
+// ── Concierge (done-for-you hand-offs) ───────────────────────────────────────
+
+type ProgressRow = Pick<
+  Tables<"dfy_progress">,
+  "organization_id" | "company_id" | "escalated_at" | "forward_help_requested_at" | "number_flagged_at" | "number_last_error"
+>;
+
+/** Not-live accounts the done-for-you orchestrator handed to a human (services/dfy/orchestrator.ts). */
+export async function loadConciergeFacts(admin: AdminClient, input: LoadFactsInput): Promise<ConciergeFact[]> {
+  const { data, error } = await admin
+    .from("dfy_progress")
+    .select("organization_id, company_id, escalated_at, forward_help_requested_at, number_flagged_at, number_last_error")
+    .gt("updated_at", new Date(input.nowMs - SETUP_LOOKBACK_DAYS * DAY).toISOString())
+    .limit(SCAN_LIMIT);
+  fail("done-for-you progress scan failed", error);
+  const rows = ((data ?? []) as ProgressRow[]).filter((r) => r.escalated_at || r.forward_help_requested_at || r.number_flagged_at);
+  if (rows.length === 0) return [];
+  const { data: purchaseData, error: purchaseError } = await admin
+    .from("crankleads_purchases")
+    .select("organization_id, company_id, tier, business_name, owner_name, owner_email, owner_phone, stripe_customer_id, live_at")
+    .in("company_id", unique(rows.map((r) => r.company_id)));
+  fail("purchase lookup failed", purchaseError);
+  type P = Pick<Tables<"crankleads_purchases">, "organization_id" | "company_id" | "tier" | "business_name" | "owner_name" | "owner_email" | "owner_phone" | "stripe_customer_id" | "live_at">;
+  const purchases = new Map(((purchaseData ?? []) as P[]).map((p) => [p.company_id, p]));
+  const orgs = await loadOrgs(admin, unique(rows.map((r) => r.organization_id)));
+  const { data: companyData, error: companyError } = await admin
+    .from("companies")
+    .select("id, organization_id, name, business_phone_kind, business_phone_carrier")
+    .in("id", unique(rows.map((r) => r.company_id)));
+  fail("companies lookup failed", companyError);
+  type C = Pick<Tables<"companies">, "id" | "organization_id" | "name" | "business_phone_kind" | "business_phone_carrier">;
+  const companies = new Map(((companyData ?? []) as C[]).map((c) => [c.id, c]));
+
+  const facts: ConciergeFact[] = [];
+  for (const row of rows) {
+    const purchase = purchases.get(row.company_id);
+    if (!purchase || purchase.live_at || purchase.organization_id !== row.organization_id) continue;
+    const org = orgs.get(row.organization_id);
+    const company = companies.get(row.company_id);
+    const reasons: ConciergeReason[] = [];
+    if (row.number_flagged_at) reasons.push("number_flagged");
+    if (row.forward_help_requested_at) reasons.push("forwarding_help");
+    if (row.escalated_at) reasons.push("escalated");
+    const stamps = [row.number_flagged_at, row.forward_help_requested_at, row.escalated_at].filter((v): v is string => Boolean(v)).sort();
+    facts.push({
+      organizationId: row.organization_id,
+      businessName: company?.name ?? purchase.business_name,
+      tier: org?.crankleads_tier ?? purchase.tier,
+      stripeCustomerId: org?.stripe_customer_id ?? purchase.stripe_customer_id,
+      reasons,
+      since: stamps[0],
+      ownerName: purchase.owner_name,
+      ownerPhone: purchase.owner_phone,
+      ownerEmail: purchase.owner_email,
+      subscriptionStatus: org?.subscription_status ?? "none",
+      conciergeLink: conciergeUrl(row.organization_id),
+      numberError: row.number_last_error,
+      phoneKind: company?.business_phone_kind ?? null,
+      phoneCarrier: company?.business_phone_carrier ?? null,
+    });
   }
   return facts;
 }
@@ -517,6 +584,7 @@ export async function loadOperatorHealthFacts(admin: AdminClient, input: LoadFac
   const provisioning = await guard("provisioning", () => loadProvisioningFacts(admin, input));
   const forwarding = await guard("call forwarding", () => loadForwardingFacts(admin, input));
   const setup = await guard("setup progress", () => loadSetupFacts(admin, input, errors));
+  const concierge = await guard("done-for-you hand-offs", () => loadConciergeFacts(admin, input));
   const payments = await guard("payments", () => loadPaymentFacts(admin));
   const support = await guard("support requests", () => loadSupportFacts(admin, input));
   const silent = await guard("silent accounts", () => loadSilentFacts(admin, input));
@@ -528,6 +596,7 @@ export async function loadOperatorHealthFacts(admin: AdminClient, input: LoadFac
     stripeDashboardBase: input.stripeDashboardBase,
     graceDays: input.graceDays,
     setup,
+    concierge,
     forwarding,
     payments,
     provisioning,

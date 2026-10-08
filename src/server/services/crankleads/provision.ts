@@ -43,6 +43,7 @@ import {
   type AdminClient,
   type CrankleadsPurchase,
 } from "@/server/services/crankleads/purchases";
+import { provisionDoneForYouNumber } from "@/server/services/dfy/orchestrator";
 import { createPublicFormKey, listPublicFormKeys } from "@/server/services/lead-intake/public-form-keys";
 import { upsertOnboardingStep } from "@/server/services/onboarding";
 import { createOrganization } from "@/server/services/organizations";
@@ -583,6 +584,11 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
   if (pack) {
     await upsertOnboardingStep(ctx, companyId, "services", { completed: true, data: { packId: pack.id } });
   }
+
+  // 6b) Done-for-you: buy the tier's number now (text-back number for Catch / Close, the AI
+  // receptionist's for Front Desk; area code from the checkout phone). Never fails provisioning —
+  // a failure is recorded and the done-for-you sweep retries it (docs/done-for-you.md).
+  await provisionDoneForYouNumber(admin, { organizationId: org.id, companyId, tier, ownerPhone: purchase.owner_phone });
 
   // 7) Emails — never fail a provisioned purchase over an email; record and alert instead.
   let welcomeError: string | null = null;

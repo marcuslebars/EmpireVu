@@ -6,6 +6,7 @@ import type { Json, Tables } from "@/server/db/database.types";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { sendDailyDigests } from "@/server/services/push/digest";
 import { processOwnerDigests } from "@/server/services/owner-digest";
+import { runDoneForYouSweep } from "@/server/services/dfy/orchestrator";
 import { processSetupFollowups, SETUP_FOLLOWUP_INTERVAL_MS } from "@/server/services/crankleads/setup-followups";
 import { OPERATOR_HEALTH_INTERVAL_MS, processOperatorHealth } from "@/server/services/operator-health/service";
 import type { TenantServiceContext } from "@/server/services/shared";
@@ -352,6 +353,7 @@ export async function runScheduler(
       console.error("[scheduler] setup follow-ups failed", error instanceof Error ? error.message : error),
     );
   }
+  await runDoneForYouSweep(admin, nowMs); // done-for-you switch-on (docs/done-for-you.md): throttled, self-guarded
   // Daily operator health email (docs/operator-health.md) — at/after 07:30 BUSINESS_TIMEZONE,
   // once per day (claimed in operator_health_reports before sending), throttled like the
   // follow-ups and self-guarded.

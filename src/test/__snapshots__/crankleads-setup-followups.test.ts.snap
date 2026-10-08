@@ -1,44 +1,28 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`follow-up templates > live + operator templates (golden) 1`] = `
+exports[`follow-up templates (done-for-you: one action, one no-login link) > live templates (golden): what works, the number, the page, a login link 1`] = `
 "Hi Jane,
 
-🎉 You're live! Setup is done: missed callers get a text back in seconds, and website leads land in your inbox.
+🎉 You're live! Here's what's working now:
+  • Calls you miss are forwarded to your text-back number at (705) 555-0000. The caller gets a text from you in seconds.
+  • Every new lead lands in your inbox, and the follow-ups and reminders are switched on.
+  • Your new page is live: https://app.crankleads.test/s/janes-roofing
 
-Every new lead shows up in CrankLeads: https://app.crankleads.test
+Log in any time: https://app.crankleads.test
 
-No more setup reminders from us. Questions? Just reply to this email.
+Questions? Just reply to this email.
 
 — The CrankLeads team"
 `;
 
-exports[`follow-up templates > live + operator templates (golden) 2`] = `
-"CrankLeads buyer stuck: Jane's Roofing (Close) — 1 step left after 10 business days
-
-They got the day-1/3/5/10 reminders (email + text) and still haven't finished setup. A personal call usually fixes it.
-
-Owner: Jane Roofer <jane@roofco.example> (705) 555-0101
-Organization: org-1
-Provisioned: 2026-10-02T19:00:00Z
-
-Setup checklist:
-  [x] Add your prices
-  [ ] Turn on call forwarding
-
-Ops: https://app.crankleads.test/internal/ops"
-`;
-
-exports[`follow-up templates > reminder email (golden) 1`] = `
+exports[`follow-up templates (done-for-you: one action, one no-login link) > reminder email (golden) — never asks for Stripe, prices or wizard steps 1`] = `
 "Hi Jane,
 
-Quick nudge: your system isn't catching leads yet because setup isn't finished.
+Quick nudge: Jane's Roofing is one step from live: turn on call forwarding on your business phone so every call you miss gets a text back. It's one tap.
 
-2 steps left:
-  1. Set call forwarding (dial **004*+17055550000# from your business phone)
-  2. Add your website form and send a test lead
+Turn on forwarding: https://app.crankleads.test/forward/AbCdEfGhIjKlMnOpQrStUvWxYz012345
 
-Do the next one now (one click): https://app.crankleads.test/onboarding?step=phone&org=org-1
-
+We've done the rest for you — your number and your automations are ready.
 Questions? Just reply to this email.
 
 — The CrankLeads team
@@ -46,12 +30,26 @@ Questions? Just reply to this email.
 Don't want these setup reminders? Stop them: https://app.crankleads.test/api/public/crankleads/setup-reminders?token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 `;
 
-exports[`follow-up templates > reminder email (golden) 2`] = `
+exports[`follow-up templates (done-for-you: one action, one no-login link) > reminder email (golden) — never asks for Stripe, prices or wizard steps 2`] = `
 "<p>Hi Jane,</p>
-<p>Quick nudge: your system isn't catching leads yet because setup isn't finished.</p>
-<p><strong>2 steps left:</strong></p>
-<ol><li>Set call forwarding (dial **004*+17055550000# from your business phone)</li><li>Add your website form and send a test lead</li></ol>
-<p><a href="https://app.crankleads.test/onboarding?step=phone&amp;org=org-1" style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600">Turn on call forwarding</a></p>
+<p>Quick nudge: Jane's Roofing is one step from live: turn on call forwarding on your business phone so every call you miss gets a text back. It's one tap.</p>
+<p><a href="https://app.crankleads.test/forward/AbCdEfGhIjKlMnOpQrStUvWxYz012345" style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600">Turn on forwarding</a></p>
+<p>We've done the rest for you — your number and your automations are ready.</p>
 <p>Questions? Just reply to this email.</p><p>— The CrankLeads team</p>
 <p style="font-size:12px;color:#6b7280">Don't want these setup reminders? <a href="https://app.crankleads.test/api/public/crankleads/setup-reminders?token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">Stop them</a>.</p>"
+`;
+
+exports[`follow-up templates (done-for-you: one action, one no-login link) > reminder email subjects per action / stage, HTML escaping 1`] = `
+"Hi Jane,
+
+Quick nudge: we're ready to set up Jane's Roofing for you — we just need 60 seconds of info (your website or Google listing, and your business phone).
+
+Finish the 60-second setup: https://app.crankleads.test/setup/intake-token-1
+
+We do the rest for you — your number, your automations and your page.
+Questions? Just reply to this email.
+
+— The CrankLeads team
+
+Don't want these setup reminders? Stop them: https://app.crankleads.test/api/public/crankleads/setup-reminders?token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 `;

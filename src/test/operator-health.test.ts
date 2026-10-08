@@ -698,9 +698,9 @@ describe("loadOperatorHealthFacts (fake DB) → report", () => {
       support: ["Alpha Plumbing"],
       silent: ["Live & Quiet"],
     });
-    // setup reuses loadSetupChecklist (catch: services · phone · forwarding · website · automations)
+    // setup reuses loadSetupChecklist (catch, done-for-you live rules: phone · forwarding · automations)
     const setup = facts.setup.find((f) => f.purchaseId === "p-a");
-    expect(setup?.checklist).toMatchObject({ doneCount: 1, totalCount: 5, isLive: false, nextStepTitle: "Add your prices" });
+    expect(setup?.checklist).toMatchObject({ doneCount: 1, totalCount: 3, isLive: false, nextStepTitle: "Turn on call forwarding" });
     // payments use the latest subscription row
     expect(facts.payments.find((p) => p.organizationId === "org-b")?.stripeSubscriptionId).toBe("sub_b");
     // queue: 1 failed in 24h, a ready job waiting 50 min (the future job doesn't count)
