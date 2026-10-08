@@ -394,7 +394,8 @@ export default function Dashboard() {
             <div className="hidden sm:flex items-center gap-3">
               <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                 <Zap className="w-3 h-3 text-[hsl(var(--accent-violet))]" />
-                <span className="font-semibold text-foreground tabular-nums">{imp.totalWorkflowRuns}</span>
+                {/* Same number as the header badge: workflows switched on (not runs). */}
+                <span className="font-semibold text-foreground tabular-nums">{s ? s.activeWorkflowCount : "–"}</span>
                 <span>Workflows Active</span>
               </div>
               <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">

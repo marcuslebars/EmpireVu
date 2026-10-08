@@ -463,6 +463,8 @@ async function main(): Promise<void> {
     console.log(`   workflows: ${(wfs ?? []).map((w) => `${w.slug}:${w.status}`).join(", ")}`);
     check(active.some((w) => /missed-call|text-back/i.test(`${w.slug} ${w.name}`)), "missed-call text-back automation active");
     check(active.length >= 3, `${active.length} automations active`);
+    const receptionistOn = active.filter((w) => ["call-summary-to-owner", "missed-call-summary-to-owner", "post-call-quote-text", "urgent-call-escalation", "call-started-to-owner", "call-abandoned-recovery-text"].includes(w.slug ?? ""));
+    check(receptionistOn.length === 0, `Close buyer runs no Front Desk automations (${receptionistOn.map((w) => w.slug).join(", ") || "none"})`);
     const { data: booking } = await admin.from("companies").select("online_booking_settings").eq("id", dana.companyId!).single();
     console.log(`   booking settings: ${JSON.stringify(booking?.online_booking_settings).slice(0, 300)}`);
     const detail = progress?.switch_on_detail as Record<string, unknown> | null;
@@ -489,6 +491,11 @@ async function main(): Promise<void> {
       await card.waitFor({ timeout: 30_000 });
       await page.waitForTimeout(1500);
       await shot(page, `04d-owner-dashboard-card-${label}`, false);
+      // Header: the company picker and the search control never overlap (390px included).
+      const picker = await page.locator("header button", { hasText: /Northshore|All Companies|Company/ }).first().boundingBox();
+      const search = await page.locator('header button[aria-label="Search"]').first().boundingBox();
+      const overlap = Boolean(picker && search && picker.x < search.x + search.width && search.x < picker.x + picker.width && picker.y < search.y + search.height && search.y < picker.y + picker.height);
+      check(picker && search && !overlap, `header (${label}): company picker ${JSON.stringify(picker)} and search ${JSON.stringify(search)} don't overlap`);
       check(/One thing left for you: turn on call forwarding/.test(await card.innerText()), `dashboard card (${label}): "${(await card.innerText()).replace(/\s+/g, " ")}"`);
       await card.locator("button").click();
       await page.waitForURL(/\/onboarding/, { timeout: 15_000 });
@@ -541,6 +548,8 @@ async function main(): Promise<void> {
     const alert = messagesFor(dana).filter((x) => /Pat/.test(String(x.body)));
     check(alert.length >= 1, `owner alerted about the new lead (${alert.map((a) => `${a.kind}: ${String(a.body).slice(0, 80)}`).join(" | ")})`);
     for (const a of alert) check(noEmpireVu(`${a.subject ?? ""} ${a.body}`), `lead alert never says EmpireVu`);
+    const leaked = operatorEmails().filter((e) => /Pat Homeowner|pat\.homeowner|555-0199/i.test(`${e.subject ?? ""} ${e.body ?? ""}`));
+    check(leaked.length === 0, `PRIVACY: the CrankLeads lead is NOT copied to the operator mailbox (${leaked.length})`);
     await mctx.close();
     await dctx.close();
   });
@@ -636,6 +645,9 @@ async function main(): Promise<void> {
     await shot(page, "06b-owner-dashboard-1280");
     const dash = await visibleBrandText(page);
     check(noEmpireVu(dash), "dashboard never says EmpireVu");
+    const badge = Number((dash.match(/(\d+) workflows active/i) ?? [])[1]);
+    const strip = Number((dash.match(/(\d+)\s*Workflows Active/) ?? [])[1]);
+    check(Number.isFinite(badge) && badge === strip, `dashboard workflow counts agree (badge ${badge}, activity strip ${strip})`);
     check(/crankleads/i.test(await page.content()), "CrankLeads branding present");
     await ctx.close();
   });
