@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { getWorkflowsModel } from "@/server/ai/config";
 import { extractAiUsage, extractJsonObject, isAIConfigured, parseModelJson, type AiUsageMeta } from "@/server/ai/claude";
+import { safeFetchText, type SafeFetchOptions } from "@/server/net/safe-fetch";
 import { ValidationError } from "@/server/organizations/context";
 import { PRICING_TYPES } from "@/server/services/quotes/catalog-items";
 
@@ -16,7 +17,7 @@ import { PRICING_TYPES } from "@/server/services/quotes/catalog-items";
  * and draftCatalogFromWebsite do the I/O.
  */
 
-const MAX_BYTES = 60_000;
+export const MAX_BYTES = 60_000;
 const FETCH_TIMEOUT_MS = 10_000;
 
 /** Strip scripts/styles/tags to readable text and cap the size. Pure. */
@@ -51,50 +52,30 @@ export function parseCatalogResponse(raw: string): CatalogDraft[] {
   return responseSchema.parse(extractJsonObject(raw)).services;
 }
 
-/** SSRF guard: only public http(s) hosts. */
-function assertFetchableUrl(raw: string): URL {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new ValidationError("Enter a valid website URL (including https://).");
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new ValidationError("Only http(s) URLs are supported.");
-  }
-  const host = url.hostname.toLowerCase();
-  const blocked =
-    host === "localhost" ||
-    host.endsWith(".local") ||
-    /^127\./.test(host) ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^169\.254\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host);
-  if (blocked) throw new ValidationError("That host isn't reachable.");
-  return url;
+/** Fetch a page server-side (SSRF-guarded, 10s timeout, capped) and return its readable text. */
+export async function fetchWebsiteText(rawUrl: string, options: SafeFetchOptions = {}): Promise<string> {
+  const page = await safeFetchText(rawUrl, { maxBytes: MAX_BYTES * 4, timeoutMs: FETCH_TIMEOUT_MS, ...options });
+  if (page.status < 200 || page.status >= 300) throw new ValidationError(`Couldn't fetch the site (${page.status}).`);
+  return extractReadableText(page.body);
 }
 
-/** Fetch a page server-side and return its readable text (10s timeout, capped). */
-export async function fetchWebsiteText(rawUrl: string): Promise<string> {
-  const url = assertFetchableUrl(rawUrl);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const response = await fetch(url.toString(), {
-      signal: controller.signal,
-      redirect: "follow",
-      headers: { "User-Agent": "WebsiteImport/1.0", Accept: "text/html" },
-    });
-    if (!response.ok) throw new ValidationError(`Couldn't fetch the site (${response.status}).`);
-    const html = (await response.text()).slice(0, MAX_BYTES * 4);
-    return extractReadableText(html);
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") throw new ValidationError("The site took too long to respond.");
-    throw err instanceof Error ? err : new Error("Couldn't fetch the site.");
-  } finally {
-    clearTimeout(timer);
+/**
+ * Several pages of one site (homepage, services, pricing…) as one text block for the parser,
+ * each headed by its URL so the model can tell them apart. Pure; capped like a single page.
+ */
+export function combinePageTexts(pages: Array<{ url: string; text: string }>, maxBytes: number = MAX_BYTES): string {
+  const parts: string[] = [];
+  let used = 0;
+  for (const page of pages) {
+    const text = page.text.trim();
+    if (!text) continue;
+    const block = `--- Page: ${page.url} ---\n${text}`;
+    const room = maxBytes - used;
+    if (room <= 200) break;
+    parts.push(block.length > room ? block.slice(0, room) : block);
+    used += Math.min(block.length, room) + 2;
   }
+  return parts.join("\n\n");
 }
 
 const SYSTEM_PROMPT = `You extract a services catalog from a small business's website text. Return ONLY the services this business sells, as a strict JSON object — no markdown, no prose.
@@ -142,6 +123,19 @@ export async function draftCatalogFromWebsite(
     throw new Error("AI is not configured. Set ANTHROPIC_API_KEY on the server to parse a website.");
   }
   const text = await fetchWebsiteText(rawUrl);
+  return draftCatalogFromText(text);
+}
+
+/**
+ * Draft services from text already fetched — one page, or several pages of the same site
+ * joined with combinePageTexts (the done-for-you crawl). Prices only when the text states them.
+ */
+export async function draftCatalogFromText(
+  text: string,
+): Promise<{ drafts: CatalogDraft[]; usage: AiUsageMeta; sourceChars: number }> {
+  if (!isAIConfigured()) {
+    throw new Error("AI is not configured. Set ANTHROPIC_API_KEY on the server to parse a website.");
+  }
   if (text.length < 40) {
     throw new ValidationError("That page didn't have enough readable text to work from.");
   }
