@@ -459,11 +459,11 @@ describe("done-for-you: a forwarding pass sends ONE message, not two", () => {
     expect(db().tables.crankleads_setup_followups.map((r) => r.stage)).toEqual(["live"]);
   });
 
-  it("no 'You're live' coming (reminders stopped) → the usual ✅ note still goes", async () => {
+  it("reminders stopped (or exempt) → no owner text at all: the stop flags silence every setup text", async () => {
     h.db = crankleadsBuyer({ setup_reminders_stopped_at: new Date(T0 - 3_600_000).toISOString() });
     await startTest();
     await forwardedLeg();
-    expect(h.sent.map((m) => m.body)).toEqual(["✅ Missed-call text-back is live for Muskoka Plumbing."]);
+    expect(h.sent).toEqual([]);
   });
 
   it("re-verified after it broke (already told they're live) → the ✅ note, not a second 'You're live'", async () => {

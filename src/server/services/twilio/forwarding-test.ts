@@ -66,6 +66,7 @@ import {
 import { buildForwardingTestAnsweredTwiml } from "@/server/services/twilio/voice-twiml";
 import { deliverMessage, resolveOwnerContacts } from "@/server/services/workflow-engine/messaging";
 import { forwardPageUrl } from "@/server/services/dfy/links";
+import { loadOwnerTextBlock } from "@/server/services/dfy/eligibility";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { configuredAppBaseUrlFor, loadOrganizationBrand } from "@/server/services/platform-brand";
 
@@ -554,6 +555,12 @@ async function notifyOwnerOfResult(admin: AdminClient, test: ForwardingTestRow, 
     if ((claimed ?? []).length === 0) return;
 
     const ctx: TenantServiceContext = { organizationId: test.organization_id, actorProfileId: null, supabase: admin };
+    // A CrankLeads buyer who stopped setup texts (or is exempt) gets no result notice either.
+    const blocked = await loadOwnerTextBlock(admin, test.organization_id, test.company_id).catch(() => null);
+    if (blocked) {
+      console.log(`[forwarding-test] owner notice skipped for company ${test.company_id} (${blocked})`);
+      return;
+    }
     const company = await loadCompany(ctx, test.company_id);
     const owner = await resolveOwnerContacts(ctx, company);
     const message = buildForwardingResultMessage({
