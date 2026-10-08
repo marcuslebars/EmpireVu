@@ -10,6 +10,8 @@ import { processSetupFollowups, SETUP_FOLLOWUP_INTERVAL_MS } from "@/server/serv
 import { OPERATOR_HEALTH_INTERVAL_MS, processOperatorHealth } from "@/server/services/operator-health/service";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { processForwardingRetests } from "@/server/services/twilio/forwarding-test";
+import { processPendingIntakeSends } from "@/server/services/dfy/intake";
+import { processPendingEnrichments } from "@/server/services/dfy/enrich";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import { resumeWorkflowRun, runWorkflowNow } from "@/server/services/workflow-engine/processor";
@@ -391,6 +393,10 @@ export async function runScheduler(
       })
       .catch((error) => console.error("[scheduler] deposit holds failed", error instanceof Error ? error.message : error));
   }
+  // Done-for-you quick setup (docs/done-for-you.md): retry setup-link texts that didn't go out,
+  // and enrich submitted intakes (not awaited — crawls can be slow; claimed per row, self-guarded).
+  await processPendingIntakeSends(admin, { nowMs });
+  void processPendingEnrichments(admin, { nowMs });
   // QuickBooks / Xero sync (docs/accounting-sync.md): push queued invoices, payments and
   // expenses. Every pass (jobs are claimed skip-locked, so overlapping passes are safe);
   // a provider outage only backs off its own jobs.
