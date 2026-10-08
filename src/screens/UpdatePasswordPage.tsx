@@ -44,19 +44,37 @@ export default function UpdatePasswordPage() {
       return;
     }
 
-    // token_hash links (server-generated recovery links) are verified here to start the
-    // session; `code` links are exchanged by the Supabase client on load.
-    if (tokenHash && type === "recovery" && verifiedHash.current !== tokenHash) {
+    // token_hash links (server-generated, e.g. the CrankLeads welcome email) are one-time.
+    // They are NOT verified on load: email security scanners (Outlook Safe Links, Defender,
+    // Proofpoint…) open links in a real browser before the person does, and verifying here
+    // would burn the token so the buyer's own click fails. The hash is verified on submit.
+    // `code` links are exchanged by the Supabase client on load as before.
+  }, [searchParams]);
+
+  /**
+   * Start the recovery session from a token_hash link, once, at the moment the person sets
+   * their password. If verification fails but this browser already holds a session (the
+   * token was used earlier in this same tab — a remount, a double submit), carry on.
+   */
+  const ensureRecoverySession = async (): Promise<boolean> => {
+    const tokenHash = searchParams.get("token_hash");
+    if (!tokenHash || searchParams.get("type") !== "recovery") return true;
+    if (verifiedHash.current === tokenHash) return true;
+    setVerifying(true);
+    const result = await verifyRecoveryLink(tokenHash);
+    setVerifying(false);
+    if (!result.error) {
       verifiedHash.current = tokenHash;
-      setVerifying(true);
-      void verifyRecoveryLink(tokenHash).then((result) => {
-        setVerifying(false);
-        if (result.error) {
-          setTokenError("This link has expired or was already used. Request a new one below.");
-        }
-      });
+      return true;
     }
-  }, [searchParams, verifyRecoveryLink]);
+    console.error("[UpdatePasswordPage] recovery link rejected:", result.error);
+    if (status === "authenticated") {
+      verifiedHash.current = tokenHash;
+      return true;
+    }
+    setTokenError("This link has expired or was already used. Request a new one below.");
+    return false;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,6 +91,10 @@ export default function UpdatePasswordPage() {
     }
 
     setIsLoading(true);
+    if (!(await ensureRecoverySession())) {
+      setIsLoading(false);
+      return;
+    }
     const result = await updatePassword(password);
 
     if (result.error) {
@@ -178,9 +200,11 @@ export default function UpdatePasswordPage() {
 
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-xl shadow-black/10">
           <CardHeader className="pb-4">
-            <CardTitle className="text-xl font-semibold tracking-tight">Create new password</CardTitle>
+            <CardTitle className="text-xl font-semibold tracking-tight">
+              {nextPath ? "Set your password" : "Create new password"}
+            </CardTitle>
             <CardDescription className="text-muted-foreground">
-              Enter your new password below
+              {nextPath ? "Choose a password to finish setting up your account" : "Enter your new password below"}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -226,8 +250,10 @@ export default function UpdatePasswordPage() {
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Updating...
+                    {verifying ? "Checking link..." : "Saving..."}
                   </>
+                ) : nextPath ? (
+                  "Set password"
                 ) : (
                   "Update password"
                 )}
