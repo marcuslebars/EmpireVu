@@ -14,6 +14,7 @@ import {
   newSetupToken,
   parseIntakeAnswers,
   processPendingIntakeSends,
+  resendSetupIntake,
   submitSetupAnswers,
 } from "@/server/services/dfy/intake";
 import type { DeliverMessageInput, DeliverMessageResult } from "@/server/services/workflow-engine/messaging";
@@ -125,8 +126,8 @@ describe("createAndSendSetupIntake", () => {
   });
 
   it("is idempotent: same token, no second text", async () => {
-    const first = await createAndSendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY }, { deliver });
-    const second = await createAndSendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY }, { deliver });
+    const first = await createAndSendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY }, { deliver, now: () => NOON_MS });
+    const second = await createAndSendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY }, { deliver, now: () => NOON_MS });
     expect(second).toEqual({ status: "already_sent", url: first.url });
     expect(intakes()).toHaveLength(1);
     expect(deliver).toHaveBeenCalledTimes(2); // one text + one email, once
@@ -154,7 +155,7 @@ describe("createAndSendSetupIntake", () => {
     deliver.mockImplementation(async (input) =>
       input.channel === "sms" ? { status: "failed", reason: "Twilio rejected", body: input.body } : { status: "sent", body: input.body },
     );
-    const out = await createAndSendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY, emailBackup: "if_sms_fails" }, { deliver });
+    const out = await createAndSendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY, emailBackup: "if_sms_fails" }, { deliver, now: () => NOON_MS });
     expect(out.status).toBe("failed");
     expect(intakes()[0]).toMatchObject({ status: "pending", send_attempts: 1 });
     expect(intakes()[0].last_error).toContain("Twilio rejected");
@@ -164,14 +165,48 @@ describe("createAndSendSetupIntake", () => {
 
   it("never throws for a delivery that throws", async () => {
     deliver.mockRejectedValue(new Error("network"));
-    const out = await createAndSendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY }, { deliver });
+    const out = await createAndSendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY }, { deliver, now: () => NOON_MS });
     expect(out.status).toBe("failed");
+  });
+
+  it("bought at night: no text until 08:00 (the welcome email has the link); an email copy only if the welcome email failed", async () => {
+    const NIGHT = NOON_MS + 12 * 3_600_000; // midnight Toronto
+    const out = await createAndSendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY, emailBackup: "if_sms_fails" }, { deliver, now: () => NIGHT });
+    expect(out).toMatchObject({ status: "queued", email: false });
+    expect(deliver).not.toHaveBeenCalled();
+    expect(intakes()[0]).toMatchObject({ status: "pending", send_attempts: 0 });
+    // Welcome email failed → the email copy goes now, still no text.
+    intakes()[0].created_at = new Date(NIGHT - 3_600_000).toISOString();
+    const backup = await createAndSendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY, emailBackup: "always" }, { deliver, now: () => NIGHT });
+    expect(backup).toMatchObject({ status: "queued", email: true });
+    expect(deliver.mock.calls.map(([m]) => m.channel)).toEqual(["email"]);
+    expect(intakes()[0]).toMatchObject({ status: "pending", last_error: null });
+    // Next morning → the retry sweep texts it.
+    deliver.mockClear();
+    intakes()[0].updated_at = new Date(NIGHT - 3_600_000).toISOString();
+    const morning = NOON_MS + 20 * 3_600_000 + 5 * 60_000;
+    expect(await processPendingIntakeSends(admin, { nowMs: morning }, { deliver })).toEqual({ attempted: 1, sent: 1 });
+    expect(deliver.mock.calls.map(([m]) => m.channel)).toEqual(["sms"]);
+  });
+
+  it("operator resend outside hours sends the email only and says so", async () => {
+    await ensureSetupIntake(admin, { organizationId: ORG, companyId: COMPANY });
+    const out = await resendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY }, { deliver, now: () => NOON_MS + 12 * 3_600_000 });
+    expect(out).toMatchObject({ status: "sent", sms: false, email: true, quietHours: true });
+    expect(deliver.mock.calls.map(([m]) => m.channel)).toEqual(["email"]);
+  });
+
+  it("stopped / exempt purchases get no quick-setup text", async () => {
+    db.tables.crankleads_purchases = [{ id: "p1", organization_id: ORG, company_id: COMPANY, created_at: "2026-10-01T00:00:00Z", setup_reminders_stopped_at: "2026-10-02T00:00:00Z" }];
+    expect((await createAndSendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY }, { deliver, now: () => NOON_MS })).status).toBe("texts_stopped");
+    expect((await resendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY }, { deliver, now: () => NOON_MS })).status).toBe("texts_stopped");
+    expect(deliver).not.toHaveBeenCalled();
   });
 
   it("does not regress an intake the buyer already opened", async () => {
     await ensureSetupIntake(admin, { organizationId: ORG, companyId: COMPANY });
     intakes()[0].status = "opened";
-    const out = await createAndSendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY }, { deliver });
+    const out = await createAndSendSetupIntake(admin, { organizationId: ORG, companyId: COMPANY }, { deliver, now: () => NOON_MS });
     expect(out.status).toBe("already_sent");
     expect(deliver).not.toHaveBeenCalled();
   });

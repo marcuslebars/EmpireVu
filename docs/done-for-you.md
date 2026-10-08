@@ -14,7 +14,7 @@ due at night waits for the morning.
 | When | They get | Sent by |
 | --- | --- | --- |
 | **0 min** — they pay | `/welcome/crankleads` page: *"Check your texts — we'll finish setting things up for you"* and the four steps below. **Welcome email**: we're setting things up, the quick-setup link, the set-password link (no DIY steps, no time estimate). Their number is bought in the background. | billing worker (`crankleads/provision.ts`) |
-| **0 min** | **Quick-setup text**: *"CrankLeads: you're in. 60 seconds and we'll set the rest up for you: …/setup/<token>"*. (An email copy only if the text or the welcome email failed.) Retried up to 3× if it didn't go. | `dfy/intake.ts` |
+| **0 min** (08:00–21:00 their time) | **Quick-setup text**: *"CrankLeads: you're in. 60 seconds and we'll set the rest up for you: …/setup/<token>"*. Bought at night → the text waits for the retry sweep from 08:00 (the welcome email already carries the link; an email copy goes now only if the welcome email failed). Retried up to 3× if it didn't go. The concierge resend outside hours sends the email only and says so. | `dfy/intake.ts` |
 | **~1–5 min after they answer** | Nothing to read — we look up their Google listing + website, switch every automation on and build + publish their page. | enrichment → orchestrator (page built inline) |
 | **right after that** | **Forwarding text + email** (once): *"… is almost live. Last step: turn on call forwarding … It's one tap: …/forward/<token>"*. | orchestrator |
 | **~1 min after they tap** | We place one automatic test call. | orchestrator → forwarding test |
@@ -33,6 +33,24 @@ finishes it from the concierge console.
 What they never get: the 8-step wizard, a "connect Stripe" chase, two texts for the same moment
 (a forwarding pass that makes them live sends only "You're live", not also "✅ text-back is
 live"), or the page link twice.
+
+## Who done-for-you applies to
+
+- **New-flow purchases only.** Every purchase provisioned with this feature gets a
+  `setup_intakes` row at provisioning (step 3b — a required, retried step). That row is the
+  marker: switch-on, number buying, site generation / publishing and the page text run only for
+  companies that have one (`dfy/eligibility.ts`). CrankLeads companies bought before
+  done-for-you ("legacy") are never switched on, sold a number, auto-published or texted. An
+  operator can build a legacy company a **draft** page from the concierge ("Build / rebuild
+  website" publishes only for new-flow companies); "Resend quick-setup link", "Send forwarding
+  text" and "Run switch-on now" refuse legacy accounts with a plain message.
+- **Stop flags silence every owner text.** `crankleads_purchases.setup_followups_exempt_at` /
+  `setup_reminders_stopped_at` stop the quick-setup text (purchase, retries and operator resend),
+  the forwarding text, the page text (the site is marked handled without a send), the
+  forwarding-test result notice and "You're live".
+- **Only the tier's automations run.** After provisioning (and at switch-on) every catalog
+  recipe outside `packRecipesForTier(tier) ∪ dfyRecipeSlugs(tier)` is draft
+  (`crankleads/tier-automations.ts`). Existing orgs: see "Repair: tier automations" below.
 
 ## Intake & enrichment
 
@@ -124,10 +142,10 @@ after buying, an operator gets a task to call them.
 
 | When | What | Where |
 | --- | --- | --- |
-| Purchase provisioned (billing worker) | Buy the tier's number right after the company exists: **Catch / Close** → the missed-call text-back (Twilio catcher) number; **Front Desk** → the AI receptionist's (Retell) number. Area code = the checkout phone's NPA (fallback 705; then any). Never fails provisioning — a failure is recorded and retried. | `crankleads/provision.ts` step 6b → `dfy/numbers.ts` `ensureDfyNumber` |
+| Purchase provisioned (billing worker) | An active number of either kind already there → ready (a Front Desk buyer on the catcher path is never sold an AI number on top). Otherwise buy the tier's number right after the company exists: **Catch / Close** → the missed-call text-back (Twilio catcher) number; **Front Desk** → the AI receptionist's (Retell) number. Area code = the checkout phone's NPA (fallback 705; then any). Never fails provisioning — a failure is recorded and retried. | `crankleads/provision.ts` step 6b → `dfy/numbers.ts` `ensureDfyNumber` |
 | Every minute (worker scheduler, `runDoneForYouSweep`) | `processDoneForYou` advances up to 25 provisioned, not-live CrankLeads companies (least recently advanced first, purchases from the last 30 days). | `dfy/orchestrator.ts` |
 | Number missing | Retry with backoff (1 min, 5 min, 20 min, 1 h; own area code ×2, then 705, then any). After 5 failed attempts: `number_flagged_at` + one operator email; shows in the daily health email. | `ensureDfyNumber` |
-| `setup_intakes.status = 'enriched'` — or the intake is ≥ 2 h old and unanswered, or stuck in submitted/enriching ≥ 6 h, or there is no intake row and the purchase is ≥ 2 h old | **Switch on, once** (`switched_on_at`, details in `switch_on_detail`): install + activate the tier's automations (drafts only; a channel that isn't configured keeps it draft; paused ones are never touched); review requests on when `brand_review_url` exists and the owner never chose; online-booking hours from `companies.hours` while the booking hours are still the defaults; Front Desk: rebuild the AI receptionist prompt (hours, service area, services with any prices) and re-push it to Retell — an update of the same LLM/agent/number, never a new purchase. | `dfy/switch-on.ts` |
+| `setup_intakes.status = 'enriched'` — or the intake is ≥ 2 h old and unanswered, or stuck in submitted/enriching ≥ 6 h (no intake row = legacy: never) | **Switch on, once** (`switched_on_at`, details in `switch_on_detail`). A run that throws or whose automations step fails clears `switched_on_at` and is retried on the next sweeps, at most 3 runs (`switch_on_attempts`, then `switch_on_gave_up` — the 24 h escalation / console picks it up); the console's "Run switch-on now" always runs it again (even after a success): install + activate the tier's automations (drafts only; a channel that isn't configured keeps it draft; paused ones are never touched); review requests on when `brand_review_url` exists and the owner never chose; online-booking hours from `companies.hours` while the booking hours are still the defaults; Front Desk: rebuild the AI receptionist prompt (hours, service area, services with any prices) and re-push it to Retell — an update of the same LLM/agent/number, never a new purchase. | `dfy/switch-on.ts` |
 | Right after switch-on (same pass) | **Build + publish their page** with `generateSite(…, { publish: true })` unless one exists, so it is usually live before the forwarding / live texts. A failure is logged; the sites sweep is the backstop. An intake enriched AFTER the page was built (the 2 h fallback) rebuilds it once (keeps slug, status, owner edits). | orchestrator `buildSiteInline` |
 | Switched on + number bought + not verified, 08:00–21:00 company time | **Forwarding text + email, once** (`forward_text_sent_at`), from the platform sender (`TWILIO_FROM_NUMBER`), with the no-login link `/forward/<token>`. | `sendForwardingLink` |
 | Owner taps (Android) / confirms (iPhone, landline) | `forward_tapped_at`. ~45 s later (next page poll or sweep) ONE automatic forwarding test via the existing owner-test path (rate-limited, the company's own business line). Outside 08:00–21:00 their time nothing is claimed: the test goes on the first sweep after 08:00 and the page says "we'll call … after 8am". Each new tap allows another (max 5); the existing daily/weekly re-tests carry on. Catcher path only — see Front Desk below. | `dfy/forwarding.ts` |

@@ -3528,6 +3528,7 @@ export interface Database {
           number_flagged_at: string | null;
           switched_on_at: string | null;
           switch_on_detail: Json;
+          switch_on_attempts: number;
           forward_token: string | null;
           forward_text_sent_at: string | null;
           forward_opened_at: string | null;
@@ -3551,6 +3552,7 @@ export interface Database {
           number_flagged_at?: string | null;
           switched_on_at?: string | null;
           switch_on_detail?: Json;
+          switch_on_attempts?: number;
           forward_token?: string | null;
           forward_text_sent_at?: string | null;
           forward_opened_at?: string | null;
@@ -3574,6 +3576,7 @@ export interface Database {
           number_flagged_at?: string | null;
           switched_on_at?: string | null;
           switch_on_detail?: Json;
+          switch_on_attempts?: number;
           forward_token?: string | null;
           forward_text_sent_at?: string | null;
           forward_opened_at?: string | null;

@@ -176,33 +176,33 @@ describe("sweep", () => {
       companies: [company("c1"), company("c2", { name: "Waiting Co" }), company("c3", { name: "Old Co", service_area: "Orillia" }), company("c4", { name: "Thin Co", service_area: null, hours: null })],
       service_catalog_items: catalog("c1"),
       setup_intakes: [
-        { id: "i1", organization_id: ORG, company_id: "c1", status: "enriched" },
+        { id: "i1", organization_id: ORG, company_id: "c1", status: "enriched", enriched_at: "2026-10-08T15:00:00Z" },
         { id: "i2", organization_id: ORG, company_id: "c2", status: "opened" },
       ],
     });
     const d = deps();
-    const first = await generatePendingSites(db.client, { deps: d });
-    // c1 (enriched) + c3 (no intake, enough data). c2 is still mid-intake; c4 has too little.
-    expect(first.generated.map((g) => g.companyId).sort()).toEqual(["c1", "c3"]);
+    const first = await generatePendingSites(db.client, { deps: d, nowMs: Date.parse("2026-10-08T16:00:00Z") });
+    // c1 (enriched) only. c2 is still mid-intake; c3 / c4 are legacy (no intake) — never auto-built.
+    expect(first.generated.map((g) => g.companyId).sort()).toEqual(["c1"]);
     expect(db.tables.company_sites.every((s) => s.status === "published")).toBe(true);
-    const second = await generatePendingSites(db.client, { deps: d });
+    const second = await generatePendingSites(db.client, { deps: d, nowMs: Date.parse("2026-10-08T16:00:00Z") });
     expect(second.generated).toEqual([]);
-    expect(db.tables.company_sites).toHaveLength(2);
+    expect(db.tables.company_sites).toHaveLength(1);
 
     const sent1 = await notifyPublishedSites(db.client, { deps: d });
     const sent2 = await notifyPublishedSites(db.client, { deps: d });
-    expect(sent1).toHaveLength(2);
+    expect(sent1).toHaveLength(1);
     expect(sent2).toHaveLength(0);
     const deliver = d.deliver as ReturnType<typeof vi.fn>;
-    expect(deliver).toHaveBeenCalledTimes(2);
+    expect(deliver).toHaveBeenCalledTimes(1);
     const call = deliver.mock.calls[0][0];
     expect(call).toMatchObject({ channel: "sms", to: "+17055550142", smsFrom: "platform", contactId: null });
     expect(call.body).toMatch(/^Your new page is live: \S+\/(s\/)?northshore-snow-and-property\. Want changes\? \S+\/settings\?section=website$/);
   });
 
   it("waits for daytime, and emails a landline owner instead of texting", async () => {
-    db = seedDb({ companies: [company("c1", { business_phone_kind: "landline" })], setup_intakes: [{ id: "i1", organization_id: ORG, company_id: "c1", status: "enriched" }] });
-    await generatePendingSites(db.client, { deps: deps() });
+    db = seedDb({ companies: [company("c1", { business_phone_kind: "landline" })], setup_intakes: [{ id: "i1", organization_id: ORG, company_id: "c1", status: "enriched", enriched_at: "2026-10-08T15:00:00Z" }] });
+    await generatePendingSites(db.client, { deps: deps(), nowMs: Date.parse("2026-10-08T16:00:00Z") });
     const night = deps({ now: () => new Date("2026-10-08T04:00:00Z") }); // 00:00 Toronto
     expect(await notifyPublishedSites(db.client, { deps: night })).toEqual([]);
     expect(night.deliver).not.toHaveBeenCalled();
@@ -210,6 +210,26 @@ describe("sweep", () => {
     const out = await notifyPublishedSites(db.client, { deps: day });
     expect(out).toEqual([{ companyId: "c1", channel: "email", status: "sent" }]);
     expect((day.deliver as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatchObject({ channel: "email", to: "owner@example.com" });
+  });
+
+  it("legacy published pages (no intake) and stopped / exempt buyers never get the page text", async () => {
+    db = seedDb({
+      companies: [company("c1"), company("c2", { name: "Stopped Co" })],
+      setup_intakes: [{ id: "i2", organization_id: ORG, company_id: "c2", status: "enriched", enriched_at: "2026-10-08T15:00:00Z" }],
+      company_sites: [
+        { id: "s1", organization_id: ORG, company_id: "c1", slug: "legacy-co", status: "published", owner_notified_at: null, published_at: "2026-10-01T00:00:00Z" },
+        { id: "s2", organization_id: ORG, company_id: "c2", slug: "stopped-co", status: "published", owner_notified_at: null, published_at: "2026-10-08T15:00:00Z" },
+      ],
+      crankleads_purchases: [
+        { id: "p2", organization_id: ORG, company_id: "c2", status: "provisioned", created_at: "2026-10-08T12:00:00Z", provisioned_at: "2026-10-08T12:00:00Z", setup_reminders_stopped_at: "2026-10-08T13:00:00Z" },
+      ],
+    });
+    const d = deps();
+    const out = await notifyPublishedSites(db.client, { deps: d });
+    expect(out.map((o) => o.status).sort()).toEqual(["skipped:legacy", "skipped:reminders_stopped"]);
+    expect(d.deliver).not.toHaveBeenCalled();
+    // Handled: they leave the queue.
+    expect(await notifyPublishedSites(db.client, { deps: d })).toEqual([]);
   });
 
   it("ignores non-CrankLeads orgs and canceled ones", async () => {

@@ -12,6 +12,7 @@
 import { isCrankleadsTier } from "@/server/services/crankleads/config";
 import { ValidationError } from "@/server/organizations/context";
 import { emptySchema, registerConciergeAction } from "@/server/services/concierge/actions";
+import { isNewFlowCompany, loadOwnerTextBlock } from "@/server/services/dfy/eligibility";
 import { enrichCompany } from "@/server/services/dfy/enrich";
 import { resendSetupIntake } from "@/server/services/dfy/intake";
 import { ensureDfyNumber } from "@/server/services/dfy/numbers";
@@ -36,12 +37,23 @@ registerConciergeAction({
   label: "Resend quick-setup link",
   schema: emptySchema,
   async run(ctx) {
-    const outcome = await resendSetupIntake(ctx.admin, { organizationId: ctx.organizationId, companyId: ctx.companyId });
+    if (!(await isNewFlowCompany(ctx.admin, ctx.organizationId, ctx.companyId))) {
+      throw new ValidationError("This account was bought before done-for-you — it has no quick-setup link (and we don't text older accounts).");
+    }
+    if (await loadOwnerTextBlock(ctx.admin, ctx.organizationId, ctx.companyId)) {
+      throw new ValidationError("They stopped setup texts (or are exempt) — call them instead.");
+    }
+    const outcome = await resendSetupIntake(ctx.admin, { organizationId: ctx.organizationId, companyId: ctx.companyId }, { now: () => ctx.nowMs });
     if (outcome.status !== "sent") {
       throw new ValidationError(`Couldn't send it${outcome.status === "failed" ? `: ${outcome.error}` : ""}.`);
     }
     const how = [outcome.sms ? "text" : null, outcome.email ? "email" : null].filter(Boolean).join(" + ");
-    return { message: `Quick-setup link sent (${how || "nothing"}).`, result: { url: outcome.url }, audit: { sms: outcome.sms, email: outcome.email } };
+    const warning = outcome.quietHours ? " It's outside 8am–9pm their time, so only the email went — the text was NOT sent; resend in the morning to text it." : "";
+    return {
+      message: `Quick-setup link sent (${how || "nothing"}).${warning}`,
+      result: { url: outcome.url, quietHours: Boolean(outcome.quietHours) },
+      audit: { sms: outcome.sms, email: outcome.email, quietHours: Boolean(outcome.quietHours) },
+    };
   },
 });
 
@@ -74,11 +86,15 @@ registerConciergeAction({
   label: "Build / rebuild website",
   schema: emptySchema,
   async run(ctx) {
-    const built = await generateSite(ctx.admin, ctx.companyId, { publish: true });
+    // Legacy accounts (bought before done-for-you, no quick-setup intake) only ever get a DRAFT
+    // from here — never auto-published; the owner (or you, with them) publishes from Settings.
+    const newFlow = await isNewFlowCompany(ctx.admin, ctx.organizationId, ctx.companyId);
+    const built = await generateSite(ctx.admin, ctx.companyId, { publish: newFlow });
+    const state = built.site.status === "published" ? "published" : "saved as a draft (not public)";
     return {
-      message: `Page ${built.created ? "built" : "rebuilt"} and published: ${built.url}`,
-      result: { url: built.url, slug: built.site.slug },
-      audit: { slug: built.site.slug, url: built.url, created: built.created, copySource: built.content.copySource },
+      message: `Page ${built.created ? "built" : "rebuilt"} and ${state}: ${built.url}${newFlow ? "" : " — older account, so it isn't published automatically."}`,
+      result: { url: built.url, slug: built.site.slug, status: built.site.status },
+      audit: { slug: built.site.slug, url: built.url, created: built.created, copySource: built.content.copySource, published: built.site.status === "published", legacy: !newFlow },
     };
   },
 });
@@ -99,6 +115,8 @@ const FORWARDING_TEXT_ERRORS: Record<Exclude<ForwardingTextOutcome, "sent">, str
   not_switched_on: "Setup hasn't been switched on yet — run switch-on first.",
   quiet_hours: "It's outside 8am–9pm their time — try again in the morning.",
   not_crankleads: "This isn't an active CrankLeads account.",
+  legacy: "This account was bought before done-for-you — it has no forwarding link. Set forwarding up with them by phone.",
+  texts_stopped: "They stopped setup texts (or are exempt) — call them instead.",
 };
 
 registerConciergeAction({
@@ -151,6 +169,12 @@ registerConciergeAction({
   async run(ctx) {
     const result = await advanceDoneForYou(ctx.admin, ctx.companyId, { now: () => ctx.nowMs }, { force: true });
     if (result.error) throw new Error(result.error);
+    if (result.skipped === "legacy_no_intake") {
+      throw new ValidationError("This account was bought before done-for-you, so nothing is switched on automatically. Set it up with them by hand.");
+    }
+    if (result.steps.includes("switch_on_failed")) {
+      throw new ValidationError("Switch-on failed again — see the switch-on details on this page. It will not retry on its own after 3 tries.");
+    }
     const what = result.skipped ? `nothing to do (${result.skipped})` : result.steps.join(", ") || "nothing new";
     return { message: `Switch-on ran: ${what}.`, result, audit: { steps: result.steps, skipped: result.skipped ?? null } };
   },

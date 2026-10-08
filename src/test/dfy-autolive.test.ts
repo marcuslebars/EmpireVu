@@ -187,7 +187,8 @@ function tables(overrides: Record<string, Row[]> = {}): Record<string, Row[]> {
     voice_numbers: [],
     onboarding_progress: [],
     workflows: [],
-    setup_intakes: [],
+    // A done-for-you purchase always has its quick-setup intake (legacy companies have none).
+    setup_intakes: [{ organization_id: ORG, company_id: COMPANY, token: "it", status: "sent", created_at: "2026-10-05T13:00:00Z" }],
     dfy_progress: [],
     retell_calls: [],
     forwarding_tests: [],
@@ -545,6 +546,69 @@ describe("advanceDoneForYou — transitions + idempotency", () => {
     expect(await advanceDoneForYou(db.client, COMPANY, h.deps)).toMatchObject({ skipped: "subscription_canceled" });
     db.tables.organizations[0].crankleads_tier = null;
     expect(await advanceDoneForYou(db.client, COMPANY, h.deps)).toMatchObject({ skipped: "not_crankleads" });
+  });
+
+  it("legacy companies (no quick-setup intake) are never switched on, sold a number or texted", async () => {
+    db = createFakeDb(tables({ setup_intakes: [] }));
+    const h = harness("2026-10-06T14:00:00Z");
+    const ensureNumber = vi.fn(h.deps.ensureNumber);
+    const out = await advanceDoneForYou(db.client, COMPANY, { ...h.deps, ensureNumber });
+    expect(out).toMatchObject({ skipped: "legacy_no_intake", steps: [] });
+    expect(ensureNumber).not.toHaveBeenCalled();
+    expect(h.switchOn).not.toHaveBeenCalled();
+    expect(h.delivered).toHaveLength(0);
+    // …and the sweep doesn't even pick them up.
+    expect(await processDoneForYou(db.client, at("2026-10-06T14:00:00Z"), h.deps)).toEqual([]);
+    // force (concierge) doesn't either.
+    expect(await advanceDoneForYou(db.client, COMPANY, h.deps, { force: true })).toMatchObject({ skipped: "legacy_no_intake" });
+  });
+
+  it("stopped / exempt purchases get no forwarding text", async () => {
+    db = createFakeDb(
+      tables({
+        setup_intakes: [{ organization_id: ORG, company_id: COMPANY, token: "it", status: "enriched", created_at: "2026-10-05T13:00:00Z" }],
+        voice_numbers: [catcherRow()],
+      }),
+    );
+    db.tables.crankleads_purchases[0].setup_reminders_stopped_at = "2026-10-05T13:30:00Z";
+    const h = harness("2026-10-05T14:00:00Z");
+    const out = await advanceDoneForYou(db.client, COMPANY, h.deps);
+    expect(out.steps).toContain("switched_on");
+    expect(out.steps).not.toContain("forwarding_text_sent");
+    expect(h.delivered).toHaveLength(0);
+  });
+
+  it("a failed switch-on is retried (bounded), and the operator's force always re-runs it", async () => {
+    db = createFakeDb(
+      tables({
+        setup_intakes: [{ organization_id: ORG, company_id: COMPANY, token: "it", status: "enriched", created_at: "2026-10-05T13:00:00Z" }],
+        voice_numbers: [catcherRow()],
+      }),
+    );
+    const h = harness("2026-10-05T14:00:00Z");
+    h.switchOn.mockImplementation(async () => {
+      throw new Error("workflows table locked");
+    });
+    for (let i = 1; i <= 3; i++) {
+      const out = await advanceDoneForYou(db.client, COMPANY, h.deps);
+      expect(out.steps).toContain("switch_on_failed");
+      expect(out.steps).not.toContain("forwarding_text_sent");
+      expect(db.tables.dfy_progress[0]).toMatchObject({ switched_on_at: null, switch_on_attempts: i });
+      expect(String(db.tables.dfy_progress[0].last_error)).toContain("workflows table locked");
+    }
+    expect((await advanceDoneForYou(db.client, COMPANY, h.deps)).steps).toContain("switch_on_gave_up");
+    expect(h.switchOn).toHaveBeenCalledTimes(3);
+    // An automations error inside an otherwise-returned result also counts as a failure.
+    h.switchOn.mockImplementation(async () => ({ automations: { error: "boom" }, reviews: "no_review_url", booking: "no_hours", receptionist: "not_front_desk" }) as never);
+    expect((await advanceDoneForYou(db.client, COMPANY, h.deps, { force: true })).steps).toContain("switch_on_failed");
+    // Force after it's fixed: switched on, then the forwarding text goes.
+    h.switchOn.mockImplementation(async () => ({ automations: { activated: [], alreadyActive: [], keptDraft: [] }, reviews: "no_review_url", booking: "no_hours", receptionist: "not_front_desk" }) as never);
+    const ok = await advanceDoneForYou(db.client, COMPANY, h.deps, { force: true });
+    expect(ok.steps).toEqual(expect.arrayContaining(["switched_on", "forwarding_text_sent"]));
+    expect(db.tables.dfy_progress[0].switched_on_at).toBeTruthy();
+    // Force on an already switched-on company re-runs it.
+    expect((await advanceDoneForYou(db.client, COMPANY, h.deps, { force: true })).steps).toContain("switched_on");
+    expect((await advanceDoneForYou(db.client, COMPANY, h.deps)).steps).not.toContain("switched_on");
   });
 
   it("never throws: an unexpected failure is recorded on dfy_progress.last_error", async () => {

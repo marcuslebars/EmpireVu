@@ -22,6 +22,7 @@ import { isBlockedHost, normalizeWebsiteUrl } from "@/server/net/safe-fetch";
 import { ValidationError } from "@/server/organizations/context";
 import type { AdminClient } from "@/server/services/crankleads/purchases";
 import { inLiveWindow } from "@/server/services/crankleads/followup-schedule";
+import { loadOwnerTextBlock } from "@/server/services/dfy/eligibility";
 import { isPlaceId, isPlacesConfigured } from "@/server/services/dfy/places";
 import { appBaseUrlFor, loadOrganizationBrand, type PlatformBrand, type PlatformBrandKey } from "@/server/services/platform-brand";
 import { toE164 } from "@/server/services/retell/payload";
@@ -171,7 +172,10 @@ const defaultSendDeps: IntakeSendDeps = { deliver: defaultDeliverMessage, now: (
 export type EmailBackupMode = "always" | "if_sms_fails" | "never";
 
 export type IntakeSendOutcome =
-  | { status: "sent"; sms: boolean; email: boolean; url: string }
+  | { status: "sent"; sms: boolean; email: boolean; url: string; quietHours?: boolean }
+  /** Outside 08:00–21:00 their time: the text waits for the retry sweep (from 08:00). */
+  | { status: "queued"; email: boolean; url: string }
+  | { status: "texts_stopped"; url: string }
   | { status: "already_sent"; url: string }
   | { status: "failed"; error: string; url: string }
   | { status: "busy"; url: string };
@@ -211,6 +215,8 @@ async function deliverClaimed(
   brand: PlatformBrand,
   emailBackup: EmailBackupMode,
   deps: IntakeSendDeps,
+  /** false outside 08:00–21:00 their time: email only, the text waits (no SMS error recorded). */
+  allowSms = true,
 ): Promise<IntakeSendOutcome> {
   const nowMs = deps.now();
   const company = await loadCompany(admin, intake.organization_id, intake.company_id);
@@ -219,7 +225,7 @@ async function deliverClaimed(
   const errors: string[] = [];
 
   let smsSent = Boolean(intake.sms_sent_at);
-  if (!smsSent) {
+  if (!smsSent && allowSms) {
     if (!company.owner_phone_e164) {
       errors.push("no owner phone");
     } else {
@@ -240,7 +246,7 @@ async function deliverClaimed(
   }
 
   let emailSent = Boolean(intake.email_sent_at);
-  const wantEmail = emailBackup === "always" || (emailBackup === "if_sms_fails" && !smsSent);
+  const wantEmail = emailBackup === "always" || (emailBackup === "if_sms_fails" && !smsSent && allowSms);
   if (!emailSent && wantEmail) {
     if (!company.owner_email) {
       errors.push("no owner email");
@@ -270,6 +276,11 @@ async function deliverClaimed(
   if (emailSent && !intake.email_sent_at) patch.email_sent_at = stamp;
   const { error } = await admin.from("setup_intakes").update(patch).eq("id", intake.id);
   if (error) throw new Error(`setup_intakes update failed: ${error.message}`);
+
+  if (!allowSms) {
+    console.log(`[dfy/intake] outside texting hours for company ${intake.company_id}: email=${emailSent}, the text waits for 08:00`);
+    return { status: "sent", sms: false, email: emailSent, url, quietHours: true };
+  }
 
   // Delivered = the text went out, or (no usable phone) the email did. Only a pending
   // intake moves to 'sent' — never regress one the buyer already opened or answered.
@@ -303,6 +314,18 @@ export async function createAndSendSetupIntake(
   const { intake, url, brand } = await ensureSetupIntake(admin, input);
   if (intake.status !== "pending") return { status: "already_sent", url };
   if (intake.send_attempts >= MAX_SEND_ATTEMPTS) return { status: "failed", error: intake.last_error ?? "gave up", url };
+  if (await loadOwnerTextBlock(admin, intake.organization_id, intake.company_id)) return { status: "texts_stopped", url };
+  const company = await loadCompany(admin, intake.organization_id, intake.company_id);
+  if (!inLiveWindow(company.timezone || FALLBACK_TIMEZONE, deps.now())) {
+    // Bought at night: no text now — processPendingIntakeSends sends it from 08:00 their time
+    // (the welcome email already carries the link). Only when the welcome email failed does an
+    // email copy go now.
+    if ((input.emailBackup ?? "always") !== "always") return { status: "queued", email: false, url };
+    const claimed = await claimSendAttempt(admin, intake, deps.now());
+    if (!claimed) return { status: "busy", url };
+    const out = await deliverClaimed(admin, claimed, url, brand, "always", deps, false);
+    return { status: "queued", email: out.status === "sent" && out.email, url };
+  }
   const claimed = await claimSendAttempt(admin, intake, deps.now());
   if (!claimed) return { status: "busy", url };
   return deliverClaimed(admin, claimed, url, brand, input.emailBackup ?? "always", deps);
@@ -321,7 +344,11 @@ export async function resendSetupIntake(
 ): Promise<IntakeSendOutcome> {
   const deps: IntakeSendDeps = { ...defaultSendDeps, ...depsOverride };
   const { intake, url, brand } = await ensureSetupIntake(admin, input);
-  return deliverClaimed(admin, { ...intake, sms_sent_at: null, email_sent_at: null }, url, brand, "always", deps);
+  if (await loadOwnerTextBlock(admin, intake.organization_id, intake.company_id)) return { status: "texts_stopped", url };
+  const company = await loadCompany(admin, intake.organization_id, intake.company_id);
+  // Outside 08:00–21:00 their time only the email goes (the caller warns the operator).
+  const allowSms = inLiveWindow(company.timezone || FALLBACK_TIMEZONE, deps.now());
+  return deliverClaimed(admin, { ...intake, sms_sent_at: null, email_sent_at: null }, url, brand, "always", deps, allowSms);
 }
 
 /**
@@ -353,6 +380,7 @@ export async function processPendingIntakeSends(
       try {
         const company = await loadCompany(admin, intake.organization_id, intake.company_id);
         if (!inLiveWindow(company.timezone || FALLBACK_TIMEZONE, nowMs)) continue;
+        if (await loadOwnerTextBlock(admin, intake.organization_id, intake.company_id)) continue;
         const claimed = await claimSendAttempt(admin, intake, nowMs);
         if (!claimed) continue;
         attempted += 1;

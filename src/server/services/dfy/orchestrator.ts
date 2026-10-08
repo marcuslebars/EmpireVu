@@ -48,6 +48,7 @@ import {
   renderOperatorNumberFlaggedEmail,
   type OperatorCallInput,
 } from "@/server/services/dfy/messages";
+import { newFlowCompanyIds, ownerTextBlockFor } from "@/server/services/dfy/eligibility";
 import { ensureDfyNumber, type DfyNumberDeps, type EnsureNumberOutcome } from "@/server/services/dfy/numbers";
 import {
   claimOnce,
@@ -84,6 +85,8 @@ export const DFY_LOOKBACK_DAYS = 30;
 export const DFY_BATCH_SIZE = 25;
 /** The scheduler ticks every minute; the sweep runs at most this often per worker. */
 export const DFY_SWEEP_INTERVAL_MS = 60_000;
+/** Automatic switch-on runs before we stop retrying a failing one (the operator can always force it). */
+export const MAX_SWITCH_ON_ATTEMPTS = 3;
 
 export interface DoneForYouDeps extends ForwardingDeps {
   deliver: (input: DeliverMessageInput) => Promise<DeliverMessageResult>;
@@ -236,6 +239,8 @@ async function sendForwardingLink(
 ): Promise<boolean> {
   if (!target.forwardTo || target.verified) return false;
   if (row.forward_text_sent_at && !options.force) return false;
+  // The buyer stopped setup texts (or is exempt): no forwarding text either.
+  if (ownerTextBlockFor(state.purchase)) return false;
   const timeZone = state.company.timezone?.trim() || "America/Toronto";
   if (!inLiveWindow(timeZone, nowMs)) return false;
   const token = await ensureForwardToken(admin, row);
@@ -385,6 +390,8 @@ export type DfyStepOutcome =
   | "number_waiting"
   | "number_flagged"
   | "switched_on"
+  | "switch_on_failed"
+  | "switch_on_gave_up"
   | "waiting_for_intake"
   | "forwarding_text_sent"
   | "forwarding_test_started"
@@ -432,6 +439,9 @@ export async function advanceDoneForYou(
     const state = await loadState(admin, companyId);
     if ("skip" in state) return { companyId, skipped: state.skip, steps };
     const { company, tier, purchase } = state;
+    // Legacy CrankLeads companies (bought before the done-for-you flow — no quick-setup intake)
+    // are never switched on, sold a number, auto-published or texted by this sweep.
+    if (!state.intake) return { companyId, skipped: "legacy_no_intake", steps };
     const ctx: TenantServiceContext = { organizationId: company.organization_id, actorProfileId: null, supabase: admin };
     row = await ensureProgress(admin, company.organization_id, companyId);
     if (purchase?.live_at) return { companyId, skipped: "live", steps: ["live"] };
@@ -461,27 +471,50 @@ export async function advanceDoneForYou(
     steps.push(numberStep(numberOutcome));
     row = (await loadProgress(admin, company.organization_id, companyId)) ?? row;
 
-    // 2) Switch on (once).
+    // 2) Switch on (once — retried a bounded number of times if it failed; an operator's
+    //    force always runs it again, even after a success).
     const provisionedMs = Date.parse(purchase?.provisioned_at ?? row.created_at);
     const waited = intakeReadiness(state.intake, Number.isFinite(provisionedMs) ? provisionedMs : nowMs, nowMs);
     const readiness: IntakeReadiness = waited === "waiting" && options.force ? "operator" : waited;
-    if (!row.switched_on_at) {
+    const attempts = row.switch_on_attempts ?? 0;
+    if (!row.switched_on_at || options.force) {
+      let claimed = false;
       if (readiness === "waiting") {
         steps.push("waiting_for_intake");
+      } else if (!options.force && attempts >= MAX_SWITCH_ON_ATTEMPTS) {
+        steps.push("switch_on_gave_up");
+      } else if (options.force) {
+        await patchProgress(admin, row, { switched_on_at: nowIso, switch_on_attempts: attempts + 1 });
+        claimed = true;
       } else if (await claimOnce(admin, row, "switched_on_at", nowIso)) {
+        await patchProgress(admin, row, { switch_on_attempts: attempts + 1 });
+        claimed = true;
+      }
+      if (claimed) {
         let detail: Json;
+        let failure: string | null = null;
         try {
           const result = await (deps.switchOn ?? ((c, id, t) => switchOnEverything(c, id, t, { retell: deps.retell })))(ctx, companyId, tier);
-          detail = toJson({ ...result, readiness });
+          detail = toJson({ ...result, readiness, attempt: attempts + 1 });
+          if ("error" in result.automations) failure = `automations: ${result.automations.error}`;
         } catch (err) {
-          detail = toJson({ error: errorMessage(err).slice(0, 300), readiness });
-          console.error(`[dfy] switch-on failed for ${companyId}: ${errorMessage(err)}`);
+          failure = errorMessage(err).slice(0, 300);
+          detail = toJson({ error: failure, readiness, attempt: attempts + 1 });
         }
-        await patchProgress(admin, row, { switch_on_detail: detail });
-        steps.push("switched_on");
+        if (failure) {
+          // Not switched on: clear the stamp so the next sweep tries again (bounded), and keep
+          // the details for the console.
+          console.error(`[dfy] switch-on failed for ${companyId} (attempt ${attempts + 1}): ${failure}`);
+          await patchProgress(admin, row, { switch_on_detail: detail, switched_on_at: null, last_error: `switch-on: ${failure}`.slice(0, 500) });
+          steps.push("switch_on_failed");
+        } else {
+          await patchProgress(admin, row, { switch_on_detail: detail });
+          steps.push("switched_on");
+          row = (await loadProgress(admin, company.organization_id, companyId)) ?? row;
+          // 2b) Their page, right away (the sites sweep is the backstop).
+          if (await buildSiteInline(admin, companyId, state.intake, deps)) steps.push("site_built");
+        }
         row = (await loadProgress(admin, company.organization_id, companyId)) ?? row;
-        // 2b) Their page, right away (the sites sweep is the backstop).
-        if (await buildSiteInline(admin, companyId, state.intake, deps)) steps.push("site_built");
       }
     } else if (await rebuildSiteAfterLateEnrichment(admin, companyId, state.intake, deps)) {
       steps.push("site_built");
@@ -530,7 +563,7 @@ export async function advanceDoneForYou(
       }
     }
 
-    await patchProgress(admin, row, { last_run_at: nowIso, last_error: null });
+    await patchProgress(admin, row, { last_run_at: nowIso, ...(steps.includes("switch_on_failed") ? {} : { last_error: null }) });
     return { companyId, steps };
   } catch (err) {
     const message = errorMessage(err).slice(0, 500);
@@ -560,9 +593,14 @@ export async function processDoneForYou(
       .order("provisioned_at", { ascending: false })
       .limit(500);
     if (error) throw new Error(`purchase scan failed: ${error.message}`);
-    const rows = ((data ?? []) as Array<Pick<CrankleadsPurchase, "organization_id" | "company_id">>).filter(
+    let rows = ((data ?? []) as Array<Pick<CrankleadsPurchase, "organization_id" | "company_id">>).filter(
       (p): p is { organization_id: string; company_id: string } => Boolean(p.organization_id && p.company_id),
     );
+    if (rows.length === 0) return results;
+    // Done-for-you purchases only (they have a quick-setup intake); legacy ones are skipped here
+    // so they never take a batch slot.
+    const newFlow = await newFlowCompanyIds(admin, rows.map((r) => r.company_id));
+    rows = rows.filter((r) => newFlow.has(r.company_id));
     if (rows.length === 0) return results;
     const { data: progress, error: progressError } = await admin
       .from("dfy_progress")
@@ -608,7 +646,15 @@ export async function provisionDoneForYouNumber(
   }
 }
 
-export type ForwardingTextOutcome = "sent" | "no_number" | "verified" | "not_switched_on" | "quiet_hours" | "not_crankleads";
+export type ForwardingTextOutcome =
+  | "sent"
+  | "no_number"
+  | "verified"
+  | "not_switched_on"
+  | "quiet_hours"
+  | "not_crankleads"
+  | "legacy"
+  | "texts_stopped";
 
 /**
  * Concierge "Send forwarding text": the same one-tap forwarding text + email, sent again now
@@ -624,6 +670,8 @@ export async function resendForwardingText(
   const nowMs = deps.now?.() ?? Date.now();
   const state = await loadState(admin, companyId);
   if ("skip" in state) return "not_crankleads";
+  if (!state.intake) return "legacy";
+  if (ownerTextBlockFor(state.purchase)) return "texts_stopped";
   const ctx: TenantServiceContext = { organizationId: state.company.organization_id, actorProfileId: null, supabase: admin };
   const row = await ensureProgress(admin, state.company.organization_id, companyId);
   if (!row.switched_on_at) return "not_switched_on";

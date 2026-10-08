@@ -44,6 +44,7 @@ import {
   type SiteStatus,
 } from "./site-content";
 import { siteUrl } from "./site-url";
+import { loadOwnerTextBlock, newFlowCompanyIds } from "./eligibility";
 
 export type CompanySiteRow = Tables<"company_sites">;
 
@@ -348,15 +349,34 @@ export interface SweepResult {
   notified: Array<{ companyId: string; channel: string; status: string }>;
 }
 
-async function crankleadsOrgIds(admin: AdminClient): Promise<Set<string>> {
-  const { data, error } = await admin.from("organizations").select("id, subscription_status").eq("platform_brand", "crankleads");
+/** Of these org ids, the active CrankLeads ones (bounded batch lookup). */
+async function activeCrankleadsOrgs(admin: AdminClient, orgIds: string[]): Promise<Set<string>> {
+  const unique = [...new Set(orgIds)];
+  if (unique.length === 0) return new Set();
+  const { data, error } = await admin.from("organizations").select("id, subscription_status, platform_brand").in("id", unique);
   if (error) throw new Error(`org read failed: ${error.message}`);
-  return new Set(((data ?? []) as Array<{ id: string; subscription_status: string | null }>).filter((o) => o.subscription_status !== "canceled").map((o) => o.id));
+  return new Set(
+    ((data ?? []) as Array<{ id: string; subscription_status: string | null; platform_brand: string | null }>)
+      .filter((o) => o.platform_brand === "crankleads" && o.subscription_status !== "canceled")
+      .map((o) => o.id),
+  );
 }
 
+async function companiesWithSite(admin: AdminClient, companyIds: string[]): Promise<Set<string>> {
+  if (companyIds.length === 0) return new Set();
+  const { data, error } = await admin.from("company_sites").select("company_id").in("company_id", companyIds);
+  if (error) throw new Error(`site list failed: ${error.message}`);
+  return new Set(((data ?? []) as Array<{ company_id: string }>).map((s) => s.company_id));
+}
+
+/** Only recent done-for-you buyers are swept (older ones are the operator's). */
+export const SITE_SWEEP_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
+const SWEEP_PAGE = 100;
+const SWEEP_MAX_PAGES = 10;
+
 /**
- * "Enough data" for a CrankLeads company that predates the quick-setup intake: a phone to
- * call plus at least one more real fact (where they work, their hours, or their services).
+ * Kept for the console / tests: "enough data" for a page. The sweep no longer builds pages for
+ * legacy companies (bought before done-for-you) — an operator can build them a draft.
  */
 export function hasEnoughSiteData(company: Pick<CompanyRow, "name" | "owner_phone_e164" | "service_area" | "hours">, activeServices: number): boolean {
   if (!company.name?.trim() || !company.owner_phone_e164?.trim()) return false;
@@ -364,74 +384,69 @@ export function hasEnoughSiteData(company: Pick<CompanyRow, "name" | "owner_phon
   return Boolean(company.service_area?.trim()) || Boolean(hours) || activeServices >= 3;
 }
 
-/** Company ids that should get a site this pass (no company_sites row yet). */
-export async function pendingSiteCompanyIds(admin: AdminClient, limit = SITE_SWEEP_BATCH): Promise<string[]> {
-  const orgs = await crankleadsOrgIds(admin);
-  if (orgs.size === 0) return [];
-
-  const [{ data: sites, error: sitesError }, { data: intakes, error: intakesError }] = await Promise.all([
-    admin.from("company_sites").select("company_id").in("organization_id", [...orgs]),
-    admin.from("setup_intakes").select("company_id, organization_id, status").in("organization_id", [...orgs]),
-  ]);
-  if (sitesError) throw new Error(`site list failed: ${sitesError.message}`);
-  if (intakesError) throw new Error(`intake list failed: ${intakesError.message}`);
-  const hasSite = new Set(((sites ?? []) as Array<{ company_id: string }>).map((s) => s.company_id));
-  const intakeRows = (intakes ?? []) as Array<{ company_id: string; organization_id: string; status: string }>;
-  const withIntake = new Set(intakeRows.map((i) => i.company_id));
-
+/**
+ * Company ids that should get a site this pass (no company_sites row yet). Done-for-you buyers
+ * ONLY (they have a setup_intakes row): an intake enriched in the last 30 days, or a company the
+ * orchestrator switched on (the backstop for its inline build, incl. the 2 h fallback).
+ * Legacy CrankLeads companies are never auto-built or published (docs: "Who done-for-you
+ * applies to"). Paged queries over candidates only — never a list of every org/company.
+ */
+export async function pendingSiteCompanyIds(admin: AdminClient, limit = SITE_SWEEP_BATCH, nowMs: number = Date.now()): Promise<string[]> {
+  const since = new Date(nowMs - SITE_SWEEP_LOOKBACK_MS).toISOString();
   const out: string[] = [];
+  const consider = async (rows: Array<{ company_id: string; organization_id: string }>, requireIntake: boolean) => {
+    if (rows.length === 0) return;
+    const [orgs, sites, intakes] = await Promise.all([
+      activeCrankleadsOrgs(admin, rows.map((r) => r.organization_id)),
+      companiesWithSite(admin, rows.map((r) => r.company_id)),
+      requireIntake ? newFlowCompanyIds(admin, rows.map((r) => r.company_id)) : Promise.resolve(null),
+    ]);
+    for (const row of rows) {
+      if (out.length >= limit) return;
+      if (!orgs.has(row.organization_id) || sites.has(row.company_id) || out.includes(row.company_id)) continue;
+      if (intakes && !intakes.has(row.company_id)) continue;
+      out.push(row.company_id);
+    }
+  };
+
   // 1) Quick setup finished enriching → build it.
-  for (const intake of intakeRows) {
-    if (out.length >= limit) return out;
-    if (intake.status === "enriched" && !hasSite.has(intake.company_id)) out.push(intake.company_id);
+  for (let page = 0; page < SWEEP_MAX_PAGES && out.length < limit; page++) {
+    const { data, error } = await admin
+      .from("setup_intakes")
+      .select("company_id, organization_id")
+      .eq("status", "enriched")
+      .gte("enriched_at", since)
+      .order("enriched_at", { ascending: true })
+      .range(page * SWEEP_PAGE, page * SWEEP_PAGE + SWEEP_PAGE - 1);
+    if (error) throw new Error(`intake list failed: ${error.message}`);
+    const rows = (data ?? []) as Array<{ company_id: string; organization_id: string }>;
+    await consider(rows, false);
+    if (rows.length < SWEEP_PAGE) break;
   }
 
-  // 1b) Switched on by the done-for-you orchestrator (it builds the page inline; this is the
-  //     backstop when that build failed) — including the 2h "no answer" fallback, which builds
-  //     from whatever facts we have.
-  {
-    const { data: progress, error: progressError } = await admin
+  // 1b) Switched on by the done-for-you orchestrator but still no page (its inline build failed).
+  for (let page = 0; page < SWEEP_MAX_PAGES && out.length < limit; page++) {
+    const { data, error } = await admin
       .from("dfy_progress")
-      .select("company_id, organization_id, switched_on_at")
-      .in("organization_id", [...orgs])
-      .not("switched_on_at", "is", null);
-    if (progressError) throw new Error(`progress list failed: ${progressError.message}`);
-    for (const row of (progress ?? []) as Array<{ company_id: string }>) {
-      if (out.length >= limit) return out;
-      if (!hasSite.has(row.company_id) && !out.includes(row.company_id)) out.push(row.company_id);
-    }
-  }
-
-  // 2) Older CrankLeads companies (no intake at all) with enough data.
-  const { data: companies, error: companiesError } = await admin
-    .from("companies")
-    .select("id, organization_id, name, owner_phone_e164, service_area, hours")
-    .in("organization_id", [...orgs]);
-  if (companiesError) throw new Error(`company list failed: ${companiesError.message}`);
-  const legacy = ((companies ?? []) as Array<Pick<CompanyRow, "id" | "organization_id" | "name" | "owner_phone_e164" | "service_area" | "hours">>).filter(
-    (c) => !hasSite.has(c.id) && !withIntake.has(c.id) && !out.includes(c.id),
-  );
-  for (const company of legacy) {
-    if (out.length >= limit) break;
-    let services = 0;
-    if (!company.service_area?.trim()) {
-      const { data: items } = await admin
-        .from("service_catalog_items")
-        .select("id")
-        .eq("organization_id", company.organization_id)
-        .eq("company_id", company.id)
-        .eq("active", true);
-      services = (items ?? []).length;
-    }
-    if (hasEnoughSiteData(company, services)) out.push(company.id);
+      .select("company_id, organization_id")
+      .gte("switched_on_at", since)
+      .order("switched_on_at", { ascending: true })
+      .range(page * SWEEP_PAGE, page * SWEEP_PAGE + SWEEP_PAGE - 1);
+    if (error) throw new Error(`progress list failed: ${error.message}`);
+    const rows = (data ?? []) as Array<{ company_id: string; organization_id: string }>;
+    await consider(rows, true);
+    if (rows.length < SWEEP_PAGE) break;
   }
   return out;
 }
 
 /** Generate + publish every pending CrankLeads site (done-for-you). Idempotent: a company with a row is skipped. */
-export async function generatePendingSites(admin: AdminClient, options: { limit?: number; deps?: Partial<SiteGeneratorDeps> } = {}): Promise<SweepResult> {
+export async function generatePendingSites(
+  admin: AdminClient,
+  options: { limit?: number; deps?: Partial<SiteGeneratorDeps>; nowMs?: number } = {},
+): Promise<SweepResult> {
   const result: SweepResult = { generated: [], failed: [], notified: [] };
-  const ids = await pendingSiteCompanyIds(admin, options.limit ?? SITE_SWEEP_BATCH);
+  const ids = await pendingSiteCompanyIds(admin, options.limit ?? SITE_SWEEP_BATCH, options.nowMs ?? Date.now());
   for (const companyId of ids) {
     try {
       const generated = await generateSite(admin, companyId, { publish: true, deps: options.deps });
@@ -483,6 +498,7 @@ export async function pageTextHeldForLive(
     .limit(1);
   if (error) throw new Error(`purchase read failed: ${error.message}`);
   const purchase = ((data ?? []) as HoldPurchase[])[0];
+  // Stopped / exempt purchases never get a page text at all (notifyPublishedSites skips them).
   if (!purchase || purchase.setup_followups_exempt_at || purchase.setup_reminders_stopped_at) return false;
   if (!purchase.live_at) {
     const since = Date.parse(purchase.provisioned_at ?? "");
@@ -513,19 +529,36 @@ export function sitePublishedSms(url: string, settingsUrl: string): string {
  */
 export async function notifyPublishedSites(admin: AdminClient, options: { deps?: Partial<SiteGeneratorDeps> } = {}): Promise<SweepResult["notified"]> {
   const deps = withDeps(options.deps);
-  const orgs = await crankleadsOrgIds(admin);
-  if (orgs.size === 0) return [];
+  // Candidates only (published, not yet announced), oldest first, bounded — no org-wide IN().
   const { data, error } = await admin
     .from("company_sites")
     .select("id, organization_id, company_id, slug, status, owner_notified_at")
     .eq("status", "published")
     .is("owner_notified_at", null)
-    .in("organization_id", [...orgs]);
+    .order("published_at", { ascending: true })
+    .limit(SWEEP_PAGE);
   if (error) throw new Error(`site notify list failed: ${error.message}`);
+  const candidates = (data ?? []) as Array<Pick<CompanySiteRow, "id" | "organization_id" | "company_id" | "slug">>;
+  if (candidates.length === 0) return [];
+  const [orgs, newFlow] = await Promise.all([
+    activeCrankleadsOrgs(admin, candidates.map((c) => c.organization_id)),
+    newFlowCompanyIds(admin, candidates.map((c) => c.company_id)),
+  ]);
 
   const out: SweepResult["notified"] = [];
   const nowMs = deps.now().getTime();
-  for (const site of (data ?? []) as Array<Pick<CompanySiteRow, "id" | "organization_id" | "company_id" | "slug">>) {
+  for (const site of candidates) {
+    if (!orgs.has(site.organization_id)) continue;
+    // Legacy accounts (no quick-setup intake) and buyers who stopped setup texts never get the
+    // page text. Mark it handled so it leaves the queue (nothing is sent).
+    const blocked = !newFlow.has(site.company_id) ? "legacy" : await loadOwnerTextBlock(admin, site.organization_id, site.company_id).catch(() => "unknown");
+    if (blocked) {
+      if (blocked !== "unknown") {
+        await admin.from("company_sites").update({ owner_notified_at: new Date(deps.now().getTime()).toISOString() }).eq("id", site.id).is("owner_notified_at", null);
+        out.push({ companyId: site.company_id, channel: "none", status: `skipped:${blocked}` });
+      }
+      continue;
+    }
     const { data: companyData } = await admin
       .from("companies")
       .select("id, organization_id, name, timezone, owner_phone_e164, owner_email, business_phone_kind")
@@ -598,7 +631,7 @@ export async function runGeneratedSitesPass(admin: AdminClient, nowMs: number = 
   if (nowMs - lastSiteSweepMs < SITE_SWEEP_INTERVAL_MS) return null;
   lastSiteSweepMs = nowMs;
   try {
-    const result = await generatePendingSites(admin, { deps });
+    const result = await generatePendingSites(admin, { deps, nowMs });
     result.notified = await notifyPublishedSites(admin, { deps });
     if (result.generated.length || result.failed.length || result.notified.length) {
       console.log(`[scheduler] sites: generated=${result.generated.length} failed=${result.failed.length} notified=${result.notified.length}`);
