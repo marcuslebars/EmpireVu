@@ -300,8 +300,137 @@ export interface Database {
         };
         Relationships: [];
       };
+      company_sites: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          slug: string;
+          mode: string;
+          status: string;
+          content: Json;
+          generated_at: string | null;
+          published_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          slug: string;
+          mode?: string;
+          status?: string;
+          content?: Json;
+          generated_at?: string | null;
+          published_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          slug?: string;
+          mode?: string;
+          status?: string;
+          content?: Json;
+          generated_at?: string | null;
+          published_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      operator_actions: {
+        Row: {
+          id: string;
+          operator_email: string;
+          organization_id: string | null;
+          company_id: string | null;
+          action: string;
+          detail: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          operator_email: string;
+          organization_id?: string | null;
+          company_id?: string | null;
+          action: string;
+          detail?: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          operator_email?: string;
+          organization_id?: string | null;
+          company_id?: string | null;
+          action?: string;
+          detail?: Json;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      setup_intakes: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          token: string;
+          status: string;
+          answers: Json;
+          enrichment: Json;
+          sent_at: string | null;
+          opened_at: string | null;
+          submitted_at: string | null;
+          enriched_at: string | null;
+          last_error: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          token: string;
+          status?: string;
+          answers?: Json;
+          enrichment?: Json;
+          sent_at?: string | null;
+          opened_at?: string | null;
+          submitted_at?: string | null;
+          enriched_at?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          token?: string;
+          status?: string;
+          answers?: Json;
+          enrichment?: Json;
+          sent_at?: string | null;
+          opened_at?: string | null;
+          submitted_at?: string | null;
+          enriched_at?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       companies: {
         Row: {
+          google_place_id: string | null;
+          google_rating: number | null;
+          google_review_count: number | null;
+          business_phone_kind: string | null;
+          business_phone_carrier: string | null;
+          profile: Json;
           tax_registration_number: string | null;
           business_address: string | null;
           invoice_settings: Json;
@@ -351,6 +480,12 @@ export interface Database {
           monthly_scorecard: Json | null;
         };
         Insert: {
+          google_place_id?: string | null;
+          google_rating?: number | null;
+          google_review_count?: number | null;
+          business_phone_kind?: string | null;
+          business_phone_carrier?: string | null;
+          profile?: Json;
           tax_registration_number?: string | null;
           business_address?: string | null;
           invoice_settings?: Json;
@@ -400,6 +535,12 @@ export interface Database {
           monthly_scorecard?: Json | null;
         };
         Update: {
+          google_place_id?: string | null;
+          google_rating?: number | null;
+          google_review_count?: number | null;
+          business_phone_kind?: string | null;
+          business_phone_carrier?: string | null;
+          profile?: Json;
           tax_registration_number?: string | null;
           business_address?: string | null;
           invoice_settings?: Json;
