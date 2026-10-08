@@ -492,7 +492,8 @@ async function main(): Promise<void> {
       await page.waitForTimeout(1500);
       await shot(page, `04d-owner-dashboard-card-${label}`, false);
       // Header: the company picker and the search control never overlap (390px included).
-      const picker = await page.locator("header button", { hasText: /Northshore|All Companies|Company/ }).first().boundingBox();
+      // The visible company picker (the org picker is hidden below md).
+      const picker = await page.locator("header button:visible", { hasText: /Northshore|All Companies|Company|All/ }).last().boundingBox();
       const search = await page.locator('header button[aria-label="Search"]').first().boundingBox();
       const overlap = Boolean(picker && search && picker.x < search.x + search.width && search.x < picker.x + picker.width && picker.y < search.y + search.height && search.y < picker.y + picker.height);
       check(picker && search && !overlap, `header (${label}): company picker ${JSON.stringify(picker)} and search ${JSON.stringify(search)} don't overlap`);

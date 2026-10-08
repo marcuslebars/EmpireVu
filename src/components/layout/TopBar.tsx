@@ -70,15 +70,15 @@ function Dropdown({
         {isLoading ? (
           <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
         ) : (
-          <Icon className="w-4 h-4 shrink-0 text-muted-foreground" />
+          <Icon className="hidden w-4 h-4 shrink-0 text-muted-foreground sm:block" />
         )}
         {showDot && current?.color && (
           <span
-            className="w-2 h-2 rounded-full shrink-0"
+            className="hidden w-2 h-2 rounded-full shrink-0 sm:block"
             style={{ background: current.color }}
           />
         )}
-        <span className="min-w-0 max-w-[96px] truncate sm:max-w-[160px]">
+        <span className="min-w-[2.5rem] max-w-[96px] truncate sm:max-w-[160px]">
           {isLoading ? `Loading ${label}...` : (current?.name || label)}
         </span>
         <ChevronDown
@@ -186,7 +186,7 @@ function QuickCallButton() {
       <button
         onClick={() => setOpen(true)}
         title="Call a lead with Marina"
-        className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold bg-[hsl(var(--accent-violet))]/10 text-[hsl(var(--accent-violet))] hover:bg-[hsl(var(--accent-violet))]/20 transition-all duration-150 active:scale-[0.97]"
+        className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 rounded-lg text-sm font-semibold bg-[hsl(var(--accent-violet))]/10 text-[hsl(var(--accent-violet))] hover:bg-[hsl(var(--accent-violet))]/20 transition-all duration-150 active:scale-[0.97]"
       >
         <Phone className="w-4 h-4" />
         <span className="hidden sm:inline">Call</span>
@@ -208,7 +208,7 @@ function QuickAddMenu() {
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-150 active:scale-[0.97] shadow-md shadow-primary/20"
+        className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-150 active:scale-[0.97] shadow-md shadow-primary/20"
       >
         <Plus className="w-4 h-4" />
         <span className="hidden sm:inline">Quick Add</span>
