@@ -373,11 +373,11 @@ describe("pure helpers", () => {
       numbers: [{ company_id: COMPANY, phone_e164: "+17055551234", mode: "missed_call_catcher", provider: "twilio", forwarding_verified_at: null, active: true }],
       site: null,
       checklist: {
-        organizationId: ORG, companyId: COMPANY, tier: "catch", phonePath: "missed_call_catcher", doneCount: 2, totalCount: 3, isLive: false, nextStep: null,
+        organizationId: ORG, companyId: COMPANY, tier: "catch", phonePath: "missed_call_catcher", doneCount: 2, totalCount: 3, isLive: false, nextStep: null, extras: [],
         steps: [
-          { key: "services", title: "Add your prices", action: "", done: true, wizardStep: "services", path: "", deepLink: "" },
-          { key: "phone", title: "Number", action: "", done: true, wizardStep: "phone", path: "", deepLink: "" },
-          { key: "forwarding", title: "Turn on call forwarding", action: "", done: false, wizardStep: "phone", path: "", deepLink: "" },
+          { key: "services", title: "Add your prices", action: "", done: true, required: false, wizardStep: "services", path: "", deepLink: "" },
+          { key: "phone", title: "Number", action: "", done: true, required: true, wizardStep: "phone", path: "", deepLink: "" },
+          { key: "forwarding", title: "Turn on call forwarding", action: "", done: false, required: true, wizardStep: "phone", path: "", deepLink: "" },
         ],
       },
       nowMs: Date.now(),
