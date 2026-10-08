@@ -7,6 +7,7 @@ import { createActivityEvent } from "@/server/services/activity-events";
 import { sendDailyDigests } from "@/server/services/push/digest";
 import { processOwnerDigests } from "@/server/services/owner-digest";
 import { processSetupFollowups, SETUP_FOLLOWUP_INTERVAL_MS } from "@/server/services/crankleads/setup-followups";
+import { runGeneratedSitesPass } from "@/server/services/dfy/site-generator";
 import { OPERATOR_HEALTH_INTERVAL_MS, processOperatorHealth } from "@/server/services/operator-health/service";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { processForwardingRetests } from "@/server/services/twilio/forwarding-test";
@@ -399,5 +400,6 @@ export async function runScheduler(
       if (r.claimed) console.log(`[scheduler] accounting: claimed=${r.claimed} done=${r.done} skipped=${r.skipped} retrying=${r.retrying} failed=${r.failed}`);
     })
     .catch((error) => console.error("[scheduler] accounting sync failed", error instanceof Error ? error.message : error));
+  await runGeneratedSitesPass(admin, nowMs); // Done-for-you sites (docs/done-for-you.md): throttled, self-guarded.
   return { ticksMaterialized, ticksProcessed, entitiesEmitted };
 }
