@@ -165,7 +165,7 @@ export default function ForwardPage() {
                     <div className="space-y-3" data-testid="forward-ios">
                       <div className="rounded-xl border border-border bg-background/60 p-4 text-center">
                         <p className="text-xs uppercase tracking-wider text-muted-foreground">Your code</p>
-                        <p className="mt-1 select-all break-all font-mono text-2xl font-semibold tracking-wide text-foreground">{plan.code}</p>
+                        <p className="mt-1 select-all whitespace-nowrap font-mono text-[21px] font-semibold text-foreground sm:text-2xl">{plan.code}</p>
                       </div>
                       <button
                         type="button"
@@ -220,7 +220,7 @@ export default function ForwardPage() {
                   <div className="rounded-xl border border-border bg-background/60 p-4">
                     <p className="text-xs uppercase tracking-wider text-muted-foreground">Forward to</p>
                     <div className="mt-1 flex items-center justify-between gap-3">
-                      <p className="font-mono text-2xl font-semibold text-foreground">{plan.pretty}</p>
+                      <p className="whitespace-nowrap font-mono text-xl font-semibold text-foreground sm:text-2xl">{plan.pretty}</p>
                       <button
                         type="button"
                         className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary"
@@ -244,10 +244,13 @@ export default function ForwardPage() {
                       </li>
                     ))}
                   </ol>
-                  <button type="button" className={bigButton} disabled={busy !== null || view.helpRequested} onClick={() => void record("help")}>
-                    {busy === "help" ? <Loader2 className="h-5 w-5 animate-spin" /> : <PhoneCall className="h-5 w-5" />}
-                    {view.helpRequested ? "Got it — we'll call you" : "Have us set it up — we'll call you"}
-                  </button>
+                  <div className="space-y-1.5">
+                    <button type="button" className={bigButton} disabled={busy !== null || view.helpRequested} onClick={() => void record("help")}>
+                      {busy === "help" ? <Loader2 className="h-5 w-5 animate-spin" /> : <PhoneCall className="h-5 w-5" />}
+                      {view.helpRequested ? "Got it — we'll call you" : "Have us set it up"}
+                    </button>
+                    {!view.helpRequested ? <p className="text-center text-xs text-muted-foreground">We'll call you and sort it out with your provider.</p> : null}
+                  </div>
                   <button type="button" className={quietButton} disabled={busy !== null} onClick={() => void record("tapped")}>
                     I've set it up — test it for me
                   </button>
@@ -288,11 +291,17 @@ export default function ForwardPage() {
                   {showMore ? (
                     <div className="mt-3 space-y-3 text-sm text-foreground">
                       <p className="text-muted-foreground">Some plans want the codes one at a time. Dial each and press Call:</p>
-                      <ul className="space-y-1">
+                      <ul className="divide-y divide-border rounded-lg border border-border">
                         {plan.fallbackCodes.map((c) => (
-                          <li key={c.condition} className="flex flex-wrap items-baseline justify-between gap-x-3">
-                            <span className="text-muted-foreground">{c.label}</span>
-                            <span className="font-mono">{c.activate}</span>
+                          <li key={c.condition} className="px-3 py-2">
+                            <p className="text-xs text-muted-foreground">{c.label}</p>
+                            {plan.telHref && !ios ? (
+                              <a href={`tel:${c.activate.replace(/#/g, "%23")}`} className="font-mono text-primary hover:underline">
+                                {c.activate}
+                              </a>
+                            ) : (
+                              <p className="select-all font-mono">{c.activate}</p>
+                            )}
                           </li>
                         ))}
                       </ul>

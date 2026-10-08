@@ -50,12 +50,14 @@ export function SetupProgressPanel({
         <h1 className={cn("font-semibold tracking-tight text-foreground", compact ? "text-base" : "text-2xl")}>
           {view.isLive ? "You're live" : "We're setting you up"}
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-sm text-muted-foreground mt-1 max-w-sm">
           {view.isLive
             ? ai
               ? "Calls you miss now go to your AI receptionist."
               : "Calls you miss now get a text back in seconds."
-            : "We've done the setup for you. There's one thing left that only you can do."}
+            : view.items.every((i) => i.state === "done")
+              ? "We've done the setup for you. There's one thing left that only you can do."
+              : "We're doing the setup for you. Here's where it's at."}
         </p>
       </div>
 
@@ -67,7 +69,7 @@ export function SetupProgressPanel({
               <p className={cn("text-sm", item.state === "done" ? "text-foreground" : "text-foreground/80")}>{item.label}</p>
               {item.detail ? (
                 item.key === "details" && item.state === "todo" && view.quickSetupUrl ? (
-                  <a href={view.quickSetupUrl} className="text-xs font-medium text-primary hover:underline">
+                  <a href={view.quickSetupUrl} className="block text-xs font-medium text-primary hover:underline">
                     {item.detail}
                   </a>
                 ) : (

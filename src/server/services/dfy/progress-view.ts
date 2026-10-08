@@ -63,7 +63,7 @@ export function buildSetupProgressView(input: Inputs): SetupProgressView {
     },
     {
       key: "details",
-      label: "Business details found",
+      label: detailsDone ? "Business details found" : unanswered ? "Your business details" : "Finding your business details",
       state: detailsDone ? "done" : unanswered ? "todo" : "working",
       detail: detailsDone ? null : unanswered ? "Tell us your website or Google listing (60 seconds)." : "Reading your website and Google listing…",
     },
@@ -77,7 +77,7 @@ export function buildSetupProgressView(input: Inputs): SetupProgressView {
   if (input.site) {
     items.push({
       key: "page",
-      label: "Your page is live",
+      label: input.site.status === "published" ? "Your page is live" : "Your page",
       state: input.site.status === "published" ? "done" : "working",
       detail: input.site.status === "published" ? null : "Building your page…",
     });
