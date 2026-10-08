@@ -219,6 +219,36 @@ export const CATCH_RECIPE_SLUGS: readonly string[] = [
   "customer-text-to-owner",
 ];
 
+/** Close adds the follow-up automations that turn quotes and no-shows into jobs. */
+export const CLOSE_EXTRA_RECIPE_SLUGS: readonly string[] = [
+  "quote-follow-up",
+  "stale-lead-nudge",
+  "no-show-recovery",
+  "invoice-paid-owner-alert",
+  "invoice-overdue-owner-alert",
+];
+
+/**
+ * The automations a tier gets switched on. Catch: text-back + lead alerts + reminders.
+ * Close: + quote / lead / no-show follow-ups and invoice alerts. Front Desk: + the AI
+ * receptionist ones.
+ */
+export function dfyRecipeSlugs(tier: CrankleadsTier): string[] {
+  const slugs = [...CATCH_RECIPE_SLUGS];
+  if (tier !== "catch") slugs.push(...CLOSE_EXTRA_RECIPE_SLUGS);
+  if (tier === "front_desk") slugs.push(...RECEPTIONIST_RECIPE_SLUGS);
+  return Array.from(new Set(slugs));
+}
+
+/**
+ * Every recipe a CrankLeads company on this tier may have ACTIVE: the tier's pack recipes
+ * (packRecipesForTier) plus the tier's switch-on set (dfyRecipeSlugs). Anything else the
+ * recipe catalog installed (e.g. stale-lead-nudge on a Catch buyer) stays draft.
+ */
+export function tierAllowedRecipeSlugs(tier: CrankleadsTier, packRecipeSlugs: readonly string[]): Set<string> {
+  return new Set([...packRecipesForTier(tier, packRecipeSlugs), ...dfyRecipeSlugs(tier)]);
+}
+
 /**
  * Which of a pack's recipes to tailor for a tier: Catch → the Catch set; Close → every pack
  * recipe except the receptionist ones; Front Desk → every pack recipe.

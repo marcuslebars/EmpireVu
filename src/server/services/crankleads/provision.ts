@@ -52,6 +52,7 @@ import { applyIndustryPack, listIndustryPacks } from "@/server/services/packs/ap
 import { toE164 } from "@/server/services/retell/payload";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { createAndSendSetupIntake, ensureSetupIntake } from "@/server/services/dfy/intake";
+import { restrictAutomationsToTier } from "@/server/services/crankleads/tier-automations";
 import { appBaseUrlFor } from "@/server/services/platform-brand";
 
 /** The timezone every CrankLeads company starts in (Ontario). Editable in Settings. */
@@ -569,6 +570,11 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
     await updatePurchase(admin, purchase.id, { company_id: companyId });
   }
 
+  // 3b) Done-for-you: every new purchase gets its quick-setup intake row now. It is what marks
+  // the company as "done-for-you" for every sweep (legacy companies never have one) — so it
+  // must exist even if the text later fails. Idempotent (one per company).
+  await ensureSetupIntake(admin, { organizationId: org.id, companyId });
+
   // 4) Industry pack for the trade, with the tier's automations.
   const packId = packIdForBusinessType(purchase.business_type);
   const pack = packId ? getPack(packId) : null;
@@ -578,6 +584,9 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
       recipes: packRecipesForTier(tier, pack.recipes.map((r) => r.slug)),
     });
   }
+  // 4b) Only the tier's automations may be active: createCompany installed the whole recipe
+  // catalog at default status (a Catch buyer must not get stale-lead nudges texting leads).
+  await restrictAutomationsToTier(ctx, companyId, tier, { packRecipeSlugs: pack ? pack.recipes.map((r) => r.slug) : [] });
 
   // 5) Website form (the hosted link works the moment they log in).
   await ensureFormUrl(ctx, companyId);

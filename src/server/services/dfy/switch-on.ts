@@ -6,11 +6,8 @@
 // provisionPhoneForCompany). docs/done-for-you.md → "Automatic switch-on".
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Json, Tables } from "@/server/db/database.types";
-import {
-  CATCH_RECIPE_SLUGS,
-  RECEPTIONIST_RECIPE_SLUGS,
-  type CrankleadsTier,
-} from "@/server/services/crankleads/config";
+import { CLOSE_EXTRA_RECIPE_SLUGS, dfyRecipeSlugs, type CrankleadsTier } from "@/server/services/crankleads/config";
+import { restrictAutomationsToTier } from "@/server/services/crankleads/tier-automations";
 import { bookingHoursFromCompanyHours } from "@/server/services/dfy/hours";
 import { errorMessage } from "@/server/services/dfy/progress";
 import { currentNumber } from "@/server/services/dfy/numbers";
@@ -24,33 +21,14 @@ import { getRecipe } from "@/server/services/workflow-engine/recipes";
 import { installRecipes, missingRequirements } from "@/server/services/workflow-engine/recipes/install";
 import { updateWorkflowStatus } from "@/server/services/workflows";
 
-/** Close adds the follow-up automations that turn quotes and no-shows into jobs. */
-export const CLOSE_EXTRA_RECIPE_SLUGS: readonly string[] = [
-  "quote-follow-up",
-  "stale-lead-nudge",
-  "no-show-recovery",
-  "invoice-paid-owner-alert",
-  "invoice-overdue-owner-alert",
-];
-
-/**
- * The automations a tier gets switched on. Catch: text-back + lead alerts + reminders.
- * Close: + quote / lead / no-show follow-ups and invoice alerts. Front Desk: + the AI
- * receptionist ones. Review requests are switched on separately (review settings) and only
- * when the company has a review link. Deposit automations are never forced on (they need
- * Stripe; the owner meets that the first time they ask for a deposit).
- */
-export function dfyRecipeSlugs(tier: CrankleadsTier): string[] {
-  const slugs = [...CATCH_RECIPE_SLUGS];
-  if (tier !== "catch") slugs.push(...CLOSE_EXTRA_RECIPE_SLUGS);
-  if (tier === "front_desk") slugs.push(...RECEPTIONIST_RECIPE_SLUGS);
-  return Array.from(new Set(slugs));
-}
+export { CLOSE_EXTRA_RECIPE_SLUGS, dfyRecipeSlugs };
 
 export interface AutomationsResult {
   activated: string[];
   alreadyActive: string[];
   keptDraft: Array<{ slug: string; reason: string }>;
+  /** Catalog recipes outside the tier that were active and are now draft. */
+  deactivated?: string[];
 }
 
 /**
@@ -61,6 +39,8 @@ export interface AutomationsResult {
  */
 export async function switchOnAutomations(ctx: TenantServiceContext, companyId: string, tier: CrankleadsTier): Promise<AutomationsResult> {
   const slugs = dfyRecipeSlugs(tier);
+  // Only the tier's automations may run: anything else the catalog installed active goes draft.
+  const { deactivated } = await restrictAutomationsToTier(ctx, companyId, tier);
   await installRecipes(ctx, companyId, { only: slugs });
   const { data, error } = await ctx.supabase
     .from("workflows")
@@ -69,7 +49,7 @@ export async function switchOnAutomations(ctx: TenantServiceContext, companyId: 
     .eq("company_id", companyId)
     .in("slug", slugs);
   if (error) throw new Error(`workflow lookup failed: ${error.message}`);
-  const result: AutomationsResult = { activated: [], alreadyActive: [], keptDraft: [] };
+  const result: AutomationsResult = { activated: [], alreadyActive: [], keptDraft: [], deactivated };
   for (const row of (data ?? []) as Array<Pick<Tables<"workflows">, "id" | "slug" | "status" | "definition">>) {
     if (row.status === "active") {
       result.alreadyActive.push(row.slug);

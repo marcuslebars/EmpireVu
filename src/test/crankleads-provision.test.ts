@@ -187,14 +187,30 @@ beforeEach(() => {
   vi.stubEnv("STRIPE_PRICE_CL_CATCH", "price_cl_catch");
   vi.stubEnv("STRIPE_PRICE_CL_CLOSE", "price_cl_close");
   vi.stubEnv("STRIPE_PRICE_CL_FRONT_DESK", "price_cl_front_desk");
+  // Daytime in Toronto: the quick-setup text only goes 08:00–21:00 their time.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-08T15:00:00Z"));
   setup();
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
 });
 
 describe("checkout.session.completed (CrankLeads) → provisioned account", () => {
+  it("a Catch buyer runs only Catch automations: the rest of the installed catalog is draft", async () => {
+    await processBillingEventJob(admin, seedEvent("checkout.session.completed", sessionObject()) as never);
+    const workflows = (db.tables.workflows ?? []) as Array<{ slug: string; status: string }>;
+    expect(workflows.length).toBeGreaterThan(0);
+    const active = workflows.filter((w) => w.status === "active").map((w) => w.slug);
+    for (const slug of ["stale-lead-nudge", "quote-follow-up", "call-summary-to-owner", "urgent-call-escalation"]) {
+      expect(active, slug).not.toContain(slug);
+    }
+    const allowed = new Set(["missed-call-text-back", "new-lead-owner-alert", "booking-reminder", "customer-text-to-owner"]);
+    expect(active.filter((slug) => !allowed.has(slug))).toEqual([]);
+  });
+
   it("creates the owner login, paid org, owner membership, company, pack, form key, onboarding steps and emails", async () => {
     const checkoutJob = seedEvent("checkout.session.completed", sessionObject());
     await processBillingEventJob(admin, checkoutJob as never);
@@ -553,11 +569,16 @@ describe("provisioning failures", () => {
     expect(backup?.body).toContain(`https://app.crankleads.test/setup/${intake.token as string}`);
   });
 
-  it("an intake that throws outright (DB down) still leaves the purchase provisioned", async () => {
+  it("the intake row is a required provisioning step: a DB failure retries (non-final) and the re-run creates it", async () => {
+    // The intake row is what marks a purchase as done-for-you (legacy companies have none), so a
+    // purchase must never end up provisioned without one. Provisioning is idempotent + retried.
     db.failNext("setup_intakes", "select", { message: "intake table gone" });
-    db.failNext("setup_intakes", "select", { message: "intake table gone" });
-    await processBillingEventJob(admin, seedEvent("checkout.session.completed", sessionObject()) as never);
+    const j = seedEvent("checkout.session.completed", sessionObject());
+    await processBillingEventJob(admin, j as never);
+    expect(job(j.id as string).status).toBe("pending");
+    await processBillingEventJob(admin, { ...job(j.id as string), status: "running", attempt_count: 2 } as never);
     expect(purchase()).toMatchObject({ status: "provisioned" });
+    expect(db.tables.setup_intakes).toHaveLength(1);
   });
 });
 
