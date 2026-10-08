@@ -90,6 +90,14 @@ function unique(values: Array<string | null | undefined>): string[] {
 
 // ── Pure: summaries ───────────────────────────────────────────────────────────
 
+/** The enrichment's "listing needs a check" reason, if any. */
+export function listingCheckOf(intake: Pick<IntakeRow, "enrichment"> | null): string | null {
+  const raw = intake?.enrichment;
+  const record = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const check = record.listingCheck as { needed?: boolean; reason?: string } | null | undefined;
+  return check?.needed ? check.reason ?? "The Google listing they picked doesn't match their business." : null;
+}
+
 /** Top-level enrichment keys that carry a value — "what did we find?" at a glance. */
 export function enrichmentSummary(intake: Pick<IntakeRow, "enrichment" | "status" | "last_error"> | null): ConciergeAccountSummary["enrichment"] {
   if (!intake) return null;
@@ -223,6 +231,8 @@ export function summarizeAccount(input: SummarizeInput): ConciergeAccountSummary
 
 export interface CallScriptInput {
   account: ConciergeAccountSummary;
+  /** The enrichment's "listing needs a check" note (setup_intakes.enrichment.listingCheck). */
+  listingCheck?: string | null;
   phoneKind: string | null;
   phoneCarrier: string | null;
   servicesNeedingPrices: number;
@@ -324,6 +334,7 @@ export function buildCallScript(input: CallScriptInput): CallScript {
     ownerPhone: account.owner.phone,
     missing,
     niceToHave: account.isLive ? null : niceToHaveLine(input),
+    listingCheck: input.listingCheck ? `Listing needs a check: ${input.listingCheck} We used nothing from it — confirm their listing with them, then "Re-run business lookup".` : null,
   };
 }
 
@@ -636,6 +647,7 @@ export async function loadConciergeAccountDetail(
     followups,
     callScript: buildCallScript({
       account,
+      listingCheck: listingCheckOf(intakeRes.data as IntakeRow | null),
       phoneKind: company.business_phone_kind,
       phoneCarrier: company.business_phone_carrier,
       servicesNeedingPrices: services.filter((s) => s.needsPrice).length,

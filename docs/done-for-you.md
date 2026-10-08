@@ -99,6 +99,11 @@ Each try is claimed with a conditional update, so two workers never send the sam
 scheduler and is not awaited. Each intake is claimed with a conditional update. A crashed run
 is reclaimed after 15 min, a failed run is retried up to 3×, and a re-submit during a run sends
 it round again.
+- **Is it their listing?** Before anything from the picked listing is used, it must match:
+  its phone equals the business line or the owner's phone, **or** its name shares at least half
+  its words with the company name (ignoring "inc", "ltd", "services"…). No match → nothing from
+  it is used (no rating, review link, hours, website / crawl, service area, prices, place id) and
+  `enrichment.listingCheck` records why; the concierge call script shows "Listing needs a check".
 - **Google Places (New) details** for the picked listing: hours; locality → service area
   ("<Town> and surrounding area"); website; rating + review count; review link
   `https://search.google.com/local/writereview?placeid=<id>`. No review text or photos are

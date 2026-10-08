@@ -58,7 +58,7 @@ import { GET as detailGET } from "@/app/api/concierge/accounts/[organizationId]/
 import { GET as actionsGET, POST as actionsPOST } from "@/app/api/concierge/accounts/[organizationId]/actions/route";
 import { GET as sessionGET } from "@/app/api/session/context/route";
 import { slaLevel } from "@/lib/concierge";
-import { buildCallScript, numberStatus, summarizeAccount } from "@/server/services/concierge/accounts";
+import { buildCallScript, listingCheckOf, numberStatus, summarizeAccount } from "@/server/services/concierge/accounts";
 import { DFY_CONCIERGE_ACTIONS } from "@/server/services/concierge/dfy-actions";
 import { areaCodeFor, normalizeUrl, registerConciergeAction } from "@/server/services/concierge/actions";
 import { operatorIdentityFor, parseOperatorEmails } from "@/server/services/concierge/auth";
@@ -423,6 +423,17 @@ describe("pure helpers", () => {
     const landline = buildCallScript({ account, phoneKind: "landline", phoneCarrier: "rogers", servicesNeedingPrices: 0, pricedServices: 2 });
     expect(landline.missing[0]).toMatchObject({ code: "(705) 555-1234" });
     expect(landline.missing[0].text).toMatch(/Rogers landline/);
+    expect(cell.listingCheck).toBeNull();
+    const flagged = buildCallScript({
+      account,
+      phoneKind: "cell",
+      phoneCarrier: "bell",
+      servicesNeedingPrices: 0,
+      pricedServices: 2,
+      listingCheck: listingCheckOf({ enrichment: { listingCheck: { needed: true, placeId: "p", reason: 'The Google listing they picked ("Bob\'s Bakery") doesn\'t match.' } } }),
+    });
+    expect(flagged.listingCheck).toContain("Listing needs a check");
+    expect(flagged.listingCheck).toContain("Bob's Bakery");
   });
 });
 

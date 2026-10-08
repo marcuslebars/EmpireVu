@@ -182,6 +182,54 @@ export function planCompanyUpdate(
   return { patch, applied, kept };
 }
 
+// ── Is the picked Google listing really theirs? ────────────────────────────────
+
+const NAME_FILLER = new Set(["inc", "ltd", "llc", "corp", "co", "company", "the", "and", "of", "services", "service", "ltee", "limited"]);
+
+function nameTokens(name: string | null | undefined): string[] {
+  return (name ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 1 && !NAME_FILLER.has(t));
+}
+
+function last10(raw: string | null | undefined): string | null {
+  const d = (raw ?? "").replace(/\D/g, "");
+  return d.length >= 10 ? d.slice(-10) : null;
+}
+
+export interface ListingMatch {
+  matched: boolean;
+  by: "phone" | "name" | null;
+  reason: string | null;
+}
+
+/**
+ * Does the picked listing belong to this business? Its phone equals the business line or the
+ * owner's phone, OR its name shares at least half the words (ignoring "inc", "ltd", "services"…)
+ * of the company name and at least one real word. PURE.
+ */
+export function listingMatchesCompany(
+  place: Pick<PlaceDetails, "name" | "phoneNational">,
+  company: { name: string | null; phones: Array<string | null | undefined> },
+): ListingMatch {
+  const placePhone = last10(place.phoneNational);
+  if (placePhone && company.phones.some((p) => last10(p) === placePhone)) return { matched: true, by: "phone", reason: null };
+  const a = new Set(nameTokens(place.name));
+  const b = new Set(nameTokens(company.name));
+  const shared = [...a].filter((t) => b.has(t)).length;
+  if (shared >= 1 && a.size > 0 && b.size > 0 && shared / Math.min(a.size, b.size) >= 0.5) return { matched: true, by: "name", reason: null };
+  return {
+    matched: false,
+    by: null,
+    reason: `The Google listing they picked ("${place.name ?? "no name"}"${place.phoneNational ? `, ${place.phoneNational}` : ""}) doesn't match ${company.name ?? "their business"} by name or phone.`,
+  };
+}
+
 // ── Services + prices ────────────────────────────────────────────────────────
 
 const STOP_WORDS = new Set(["service", "services", "the", "a", "an", "our", "and", "of", "for", "with", "your", "&"]);
@@ -447,6 +495,11 @@ export interface EnrichmentSummary {
     notApplied: ServicePlan["notApplied"];
     skippedByOwner: boolean;
   };
+  /**
+   * Set when the picked Google listing didn't match the business by phone or name: nothing from
+   * it was used (no rating, review link, hours, website, area, prices) — an operator checks it.
+   */
+  listingCheck?: { needed: true; placeId: string; reason: string } | null;
   /** The owner's price answers this run was based on (compared on the next re-submit). */
   ownerPrices?: Record<string, number>;
   /** Facts the console / site builder can show (no Google review text or photos). */
@@ -567,6 +620,23 @@ export async function enrichCompany(
     }
   }
 
+  // 1b) Is it really their listing? If neither the phone nor the name matches, use nothing from
+  //     it (it would publish someone else's rating / hours / website) and flag it for an operator.
+  let listingCheck: EnrichmentSummary["listingCheck"] = null;
+  let unverifiedPlace: PlaceDetails | null = null;
+  if (place) {
+    const match = listingMatchesCompany(place, {
+      name: company.name,
+      phones: [answers?.phone.number, company.brand_reply_phone, company.owner_phone_e164],
+    });
+    if (!match.matched) {
+      listingCheck = { needed: true, placeId: place.placeId, reason: match.reason ?? "Listing doesn't match." };
+      unverifiedPlace = place;
+      place = null;
+      if (sources.google) sources.google = { ...sources.google, used: false, error: "listing needs a check (name / phone don't match)" };
+    }
+  }
+
   // 2) Their website: what they typed, else the one on their listing, else one already on file.
   const siteUrl =
     answers?.listing.kind === "website" ? answers.listing.url : place?.website ?? (answers?.listing.kind === "none" ? null : company.website);
@@ -633,6 +703,8 @@ export async function enrichCompany(
   const servicePlan = planServicePrices(catalog, answers, drafts, previousOwnerPrices);
   const { priced, added } = await applyServicePlan(admin, intake, catalog, servicePlan);
 
+  // The console shows the listing either way (an unverified one so the operator can check it).
+  const shownPlace = place ?? unverifiedPlace;
   const summary: EnrichmentSummary = {
     version: 1,
     ranAt: new Date(deps.now()).toISOString(),
@@ -646,9 +718,10 @@ export async function enrichCompany(
       skippedByOwner: answers?.prices.skipped ?? false,
     },
     ownerPrices: ownerPriceMap(answers),
+    listingCheck,
     facts: {
-      place: place
-        ? { name: place.name, address: place.address, phone: place.phoneNational, mapsUrl: place.mapsUrl, primaryType: place.primaryType }
+      place: shownPlace
+        ? { name: shownPlace.name, address: shownPlace.address, phone: shownPlace.phoneNational, mapsUrl: shownPlace.mapsUrl, primaryType: shownPlace.primaryType }
         : null,
       site: crawl ? { phones: crawl.phones.slice(0, 5), logoUrl: crawl.logoUrl, description: crawl.description } : null,
     },

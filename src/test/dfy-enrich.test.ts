@@ -15,6 +15,7 @@ import {
   MAX_ENRICH_ATTEMPTS,
   planCompanyUpdate,
   descriptionOnPage,
+  listingMatchesCompany,
   ownerPriceMap,
   planServicePrices,
   priceStatedNearService,
@@ -332,6 +333,33 @@ describe("re-submit: only owner prices that changed since the last submit are ap
     expect(ownerPriceMap(owner)).toEqual({ [REPAIR]: 1100, [INSPECT]: 17500 });
     // First submit (no record): everything applies.
     expect(planServicePrices(catalog as never, owner, []).ops).toHaveLength(2);
+  });
+});
+
+describe("the picked Google listing must match the business", () => {
+  it("matches by phone (business line / owner) or by name (word overlap)", () => {
+    const company = { name: "Jane's Roofing Ltd.", phones: ["+17055550199", null] };
+    expect(listingMatchesCompany({ name: "Totally Different", phoneNational: "(705) 555-0199" }, company)).toMatchObject({ matched: true, by: "phone" });
+    expect(listingMatchesCompany({ name: "Jane's Roofing & Repairs", phoneNational: "(416) 555-0000" }, company)).toMatchObject({ matched: true, by: "name" });
+    expect(listingMatchesCompany({ name: "Roofing Inc", phoneNational: null }, { name: "Northshore Snow and Lawn", phones: [] }).matched).toBe(false);
+    const miss = listingMatchesCompany({ name: "Bob's Bakery", phoneNational: "(416) 555-0000" }, company);
+    expect(miss.matched).toBe(false);
+    expect(miss.reason).toContain("Bob's Bakery");
+  });
+
+  it("a listing that doesn't match is not used at all and is flagged for the operator", async () => {
+    deps.getPlaceDetails = vi.fn(async () => ({ ...PLACE, name: "Bob's Bakery", phoneNational: "(416) 555-0000", website: "https://bobsbakery.ca/" }));
+    await enrichCompany(admin, COMPANY, deps);
+    expect(company()).toMatchObject({ brand_review_url: null, service_area: null, hours: null, website: null });
+    expect("google_rating" in company()).toBe(false);
+    expect(company().google_place_id ?? null).toBeNull();
+    expect(deps.crawlWebsite).not.toHaveBeenCalled(); // never crawls the stranger's website
+    const summary = intake().enrichment as Row;
+    expect(summary.listingCheck).toMatchObject({ needed: true, placeId: PLACE_ID });
+    expect(String((summary.listingCheck as Row).reason)).toContain("Bob's Bakery");
+    expect(summary.facts).toMatchObject({ place: { name: "Bob's Bakery" } });
+    // The owner's own answers still apply.
+    expect(items().find((i) => i.id === REPAIR)?.rate_cents).toBe(1100);
   });
 });
 

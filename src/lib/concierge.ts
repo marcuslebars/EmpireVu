@@ -128,6 +128,8 @@ export interface CallScript {
   missing: CallScriptItem[];
   /** One short line of optional extras worth mentioning (prices, payments, quick setup), or null. */
   niceToHave: string | null;
+  /** The Google listing they picked didn't match their business (nothing from it was used). */
+  listingCheck?: string | null;
 }
 
 export interface ConciergeService {
