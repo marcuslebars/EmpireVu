@@ -609,6 +609,22 @@ describe("one-tap forwarding page", () => {
     expect(db.tables.dfy_progress[0].forward_tests_started).toBe(1);
   });
 
+  it("tapped after 9pm: the test isn't claimed (or burned) at night; it goes after 8am", async () => {
+    db = createFakeDb(pageTables());
+    const startTest = vi.fn(async () => ({}));
+    const t0 = at("2026-10-06T01:30:00Z"); // 21:30 Toronto
+    await recordForwardAction(db.client, TOKEN, "tapped", { now: () => t0 });
+    await pollForwardPage(db.client, TOKEN, { startTest, now: () => t0 + 3_600_000 });
+    expect(startTest).not.toHaveBeenCalled();
+    expect(db.tables.dfy_progress[0].forward_tests_started).toBe(0);
+    expect(db.tables.dfy_progress[0].forward_last_test_at ?? null).toBeNull();
+    await pollForwardPage(db.client, TOKEN, { startTest, now: () => at("2026-10-06T12:05:00Z") }); // 08:05
+    expect(startTest).toHaveBeenCalledTimes(1);
+    expect(forwardStatusFor({ hasNumber: true, verified: false, phonePath: "missed_call_catcher", latestTest: null, tapped: true, canCallNow: false }).message).toContain(
+      "after 8am",
+    );
+  });
+
   it("'Have us set it up' notifies the operator once", async () => {
     db = createFakeDb(pageTables());
     const onHelpRequested = vi.fn(async () => undefined);

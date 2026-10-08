@@ -17,6 +17,7 @@ import { hasFrontDeskForwardingEvidence } from "@/server/services/dfy/front-desk
 import { errorMessage, findProgressByForwardToken, patchProgress, type DfyProgress } from "@/server/services/dfy/progress";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { resolveBusinessLine, startOwnerForwardingTest } from "@/server/services/twilio/forwarding-test";
+import { withinCallingHours } from "@/server/services/twilio/forwarding-test-logic";
 import { CATCHER_MODE } from "@/server/services/twilio/missed-call";
 
 /** Give the carrier a moment to apply the code before we test-call. */
@@ -26,7 +27,7 @@ export const MAX_AUTO_TESTS = 5;
 
 type CompanyRow = Pick<
   Tables<"companies">,
-  "id" | "organization_id" | "name" | "business_phone_kind" | "business_phone_carrier" | "brand_reply_phone" | "owner_phone_e164"
+  "id" | "organization_id" | "name" | "business_phone_kind" | "business_phone_carrier" | "brand_reply_phone" | "owner_phone_e164" | "timezone"
 >;
 type NumberRow = Pick<Tables<"voice_numbers">, "id" | "phone_e164" | "mode" | "provider" | "forwarding_verified_at" | "forwarding_last_test_result">;
 
@@ -45,7 +46,7 @@ export async function loadForwardTarget(admin: AdminClient, row: Pick<DfyProgres
   const [company, organization, numbers, calls] = await Promise.all([
     admin
       .from("companies")
-      .select("id, organization_id, name, business_phone_kind, business_phone_carrier, brand_reply_phone, owner_phone_e164")
+      .select("id, organization_id, name, business_phone_kind, business_phone_carrier, brand_reply_phone, owner_phone_e164, timezone")
       .eq("organization_id", org)
       .eq("id", row.company_id)
       .maybeSingle(),
@@ -121,6 +122,8 @@ export function forwardStatusFor(input: {
   phonePath: PhonePath;
   latestTest: string | null;
   tapped: boolean;
+  /** Test calls may be placed right now (08:00–21:00 their time). Default true. */
+  canCallNow?: boolean;
 }): { status: ForwardStatus; message: string | null } {
   if (!input.hasNumber) return { status: "number_pending", message: "We're still setting up your number — check back in a few minutes." };
   if (input.verified) {
@@ -135,6 +138,12 @@ export function forwardStatusFor(input: {
   if (input.latestTest === "calling") return { status: "testing", message: "Testing it now — we're calling your business line. Let it ring, don't answer." };
   if (input.tapped && input.latestTest === "not_forwarded") {
     return { status: "not_forwarded", message: "Our test call wasn't forwarded yet. Dial the code again from your business phone, or have us set it up." };
+  }
+  if (input.tapped && input.phonePath === "missed_call_catcher" && input.canCallNow === false) {
+    return {
+      status: "ready",
+      message: "Thanks! We only place test calls between 8am and 9pm your time, so we'll call your business line to check it after 8am — let it ring, don't answer.",
+    };
   }
   if (input.tapped && input.phonePath === "missed_call_catcher") {
     return { status: "ready", message: "Thanks! We'll call your business line in about a minute to check it — let it ring, don't answer." };
@@ -162,6 +171,7 @@ export async function buildForwardPageView(admin: AdminClient, row: DfyProgress)
     phonePath: target.phonePath,
     latestTest,
     tapped,
+    canCallNow: withinCallingHours(target.company.timezone, Date.now()),
   });
   return {
     businessName: target.company.name,
@@ -186,7 +196,8 @@ export interface ForwardingDeps {
  * After the owner tapped (or confirmed), place ONE automatic forwarding test once the carrier
  * has had AUTO_TEST_DELAY_MS to apply the code. Catcher path only (the test detects the
  * forwarded leg on our Twilio number; a Front Desk line is verified by the first call that
- * reaches the AI). Guarded so concurrent callers (page poll + sweep) start it once.
+ * reaches the AI). Guarded so concurrent callers (page poll + sweep) start it once. Outside
+ * 08:00–21:00 their time nothing is claimed; the test goes at the next allowed time.
  * Never throws. Returns true when a test was placed.
  */
 export async function maybeStartAutoForwardingTest(
@@ -201,6 +212,9 @@ export async function maybeStartAutoForwardingTest(
   if (!Number.isFinite(tappedMs) || now - tappedMs < AUTO_TEST_DELAY_MS) return false;
   if (row.forward_last_test_at && Date.parse(row.forward_last_test_at) >= tappedMs) return false;
   if ((row.forward_tests_started ?? 0) >= MAX_AUTO_TESTS) return false;
+  // Outside calling hours: don't claim (and so don't burn) the test — the sweep / next poll
+  // places it once their local clock reaches 08:00. The page says so.
+  if (!withinCallingHours(target.company.timezone, now)) return false;
   try {
     let claim = admin
       .from("dfy_progress")
