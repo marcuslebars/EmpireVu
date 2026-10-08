@@ -156,6 +156,15 @@ async function purchase(
         agentId: typeof prior.agentId === "string" ? prior.agentId : null,
         phoneNumber: typeof prior.phoneNumber === "string" ? prior.phoneNumber : null,
       },
+      // Save each id the moment Retell creates it, so a retry after a later failure (agent,
+      // number, our own DB write) updates / reuses it instead of creating another.
+      onCreated: async (ids) => {
+        const latest = objectData((await getOnboardingProgress(ctx, companyId)).find((p) => p.step === "phone")?.data);
+        await upsertOnboardingStep(ctx, companyId, "phone", {
+          completed: false,
+          data: { ...latest, ...ids, source: "done_for_you" },
+        });
+      },
     },
     deps.retell,
   );

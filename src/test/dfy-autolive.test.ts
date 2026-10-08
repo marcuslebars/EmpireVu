@@ -282,6 +282,26 @@ describe("number at purchase (ensureDfyNumber)", () => {
     expect(db.tables.onboarding_progress.find((p) => p.step === "phone")?.data).toMatchObject({ llmId: "llm_1", agentId: "agent_1", phoneNumber: "+14165550123" });
   });
 
+  it("Front Desk: Retell ids are saved as each is created, so a retry after a later failure reuses them", async () => {
+    db = createFakeDb(tables({ organizations: [{ id: ORG, crankleads_tier: "front_desk", subscription_status: "active" }] }));
+    const log: string[] = [];
+    let t = at("2026-10-05T13:00:00Z");
+    const flaky: RetellClient = {
+      ...fakeRetell(log),
+      createAgent: async () => {
+        log.push("createAgent");
+        throw new Error("retell 502");
+      },
+    };
+    expect(await ensureDfyNumber(db.client, { ...input, tier: "front_desk" }, { retell: flaky, now: () => t })).toMatchObject({ status: "failed" });
+    expect(db.tables.onboarding_progress.find((p) => p.step === "phone")?.data).toMatchObject({ llmId: "llm_1" });
+    t += 2 * 3_600_000;
+    const out = await ensureDfyNumber(db.client, { ...input, tier: "front_desk" }, { retell: fakeRetell(log), now: () => t });
+    expect(out).toMatchObject({ status: "ready", purchasedNow: true });
+    expect(log.filter((l) => l === "createLlm")).toHaveLength(1);
+    expect(log).toContain("updateLlm llm_1");
+  });
+
   it("Front Desk already on the catcher path: the text-back number counts as ready, no AI number is bought", async () => {
     db = createFakeDb(
       tables({

@@ -30,6 +30,8 @@ export interface ProvisionPhoneInput {
   transferNumber?: string | null;
   /** Ids from a previous run (onboarding_progress data) → update instead of create. */
   existing?: { llmId?: string | null; agentId?: string | null; phoneNumber?: string | null };
+  /** Persist each Retell id as soon as it's created (see ProvisionInput.onCreated). */
+  onCreated?: (ids: { llmId?: string; agentId?: string; phoneNumber?: string }) => Promise<void>;
 }
 
 async function loadCompany(context: TenantServiceContext, companyId: string): Promise<Tables<"companies">> {
@@ -155,6 +157,7 @@ export async function provisionPhoneForCompany(
     areaCode: input.areaCode ?? null,
     attachNumber: input.attachNumber ?? null,
     existing: input.existing,
+    onCreated: input.onCreated,
   });
 
   await upsertRetellVoiceNumber(context, input.companyId, result.phoneNumber, result.agentId, company.name);
