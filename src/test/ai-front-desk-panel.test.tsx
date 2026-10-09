@@ -31,13 +31,12 @@ beforeEach(() => {
       });
     }
     if (path.endsWith("/ai-settings/call-answering")) {
+      // apiFetch returns the route's `data` (it unwraps { data } itself).
       return Promise.resolve({
-        data: {
-          companyId: "co-1", companyName: "Northshore Snow & Lawn", mode: "ai", modeExplicit: false, includedMinutes: 100,
-          allowance: { scope: "company", source: "call_answering", includedMinutes: 100, usedMinutes: 12, remainingMinutes: 88, month: "2026-10" },
-          agentKind: "message", available: true,
-          preview: { greeting: "Hi, thanks for calling Northshore Snow & Lawn.", collects: ["Name"], never: ["Quotes prices"], afterCall: ["Texts the caller"] },
-        },
+        companyId: "co-1", companyName: "Northshore Snow & Lawn", mode: "ai", modeExplicit: false, includedMinutes: 100,
+        allowance: { scope: "company", source: "call_answering", includedMinutes: 100, usedMinutes: 12, remainingMinutes: 88, month: "2026-10" },
+        agentKind: "message", available: true,
+        preview: { greeting: "Hi, thanks for calling Northshore Snow & Lawn.", collects: ["Name"], never: ["Quotes prices"], afterCall: ["Texts the caller"] },
       });
     }
     if (path.endsWith("/ai-settings/weekly-report")) {

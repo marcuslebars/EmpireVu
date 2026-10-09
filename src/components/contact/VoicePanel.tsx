@@ -71,7 +71,7 @@ export function VoicePanel({ orgId, contact }: { orgId: string; contact: VoicePa
     <button
       type="button"
       onClick={() => setArmed(true)}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[hsl(var(--accent-violet))]/10 text-[hsl(var(--accent-violet))] hover:bg-[hsl(var(--accent-violet))]/20 transition-colors active:scale-[0.97]"
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap bg-[hsl(var(--accent-violet))]/10 text-[hsl(var(--accent-violet))] hover:bg-[hsl(var(--accent-violet))]/20 transition-colors active:scale-[0.97]"
     >
       <Phone className="w-3 h-3" /> Call with Marina
     </button>

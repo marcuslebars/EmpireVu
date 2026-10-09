@@ -37,14 +37,15 @@ export interface CallAnsweringView {
 const path = (orgId: string, companyId: string) => `/api/organizations/${orgId}/companies/${companyId}/ai-settings/call-answering`;
 
 function fetchCallAnswering(orgId: string, companyId: string): Promise<CallAnsweringView> {
-  return apiFetch<{ data: CallAnsweringView }>(path(orgId, companyId)).then((r) => r.data);
+  // apiFetch already unwraps the route's { data } envelope.
+  return apiFetch<CallAnsweringView>(path(orgId, companyId));
 }
 
 function updateCallAnsweringMode(orgId: string, companyId: string, mode: CallAnsweringMode): Promise<CallAnsweringView> {
-  return apiFetch<{ data: CallAnsweringView }>(path(orgId, companyId), {
+  return apiFetch<CallAnsweringView>(path(orgId, companyId), {
     method: "PATCH",
     body: JSON.stringify({ mode }),
-  }).then((r) => r.data);
+  });
 }
 
 function monthLabel(month: string): string {

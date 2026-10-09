@@ -274,14 +274,14 @@ function ConversationPane({ orgId, row }: { orgId: string; row: InboxRow }) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border">
-        <div className="min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 border-b border-border">
+        <div className="min-w-0 flex-1 basis-40">
           <p className="text-sm font-semibold text-foreground truncate">{row.contact_name || "Unknown"}</p>
           <p className="text-[11px] text-muted-foreground truncate">
             {[row.contact_phone, row.contact_email, row.company_name].filter(Boolean).join(" · ") || "—"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <AssistantControl orgId={orgId} contactId={contactId} />
           <VoicePanel orgId={orgId} contact={contact} />
         </div>
