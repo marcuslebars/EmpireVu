@@ -218,6 +218,28 @@ describe("catcher → voicemail", () => {
     expect(typeof notices[0].run_at).toBe("string");
   });
 
+  it("concurrent AI calls reserve their minutes: 20 left with one call in flight → 5 min cap; with two → voicemail, no notice", async () => {
+    const inFlight = (sid: string) => ({ id: sid, organization_id: ORG, company_id: COMPANY, call_sid: sid, text_back_status: "ai_pending", ai_handoff_at: new Date().toISOString(), caller_phone_last10: "4165550000" });
+    h.db = seedDb({ usedMinutes: 80, missedCalls: [inFlight("CA-a")] });
+    const one = await (await voiceInbound(twilioRequest("/api/twilio/voice/inbound", callParams()))).text();
+    expect(one).toContain('timeLimit="300"');
+
+    h.db = seedDb({ usedMinutes: 80, missedCalls: [inFlight("CA-a"), inFlight("CA-b")] });
+    fetchMock.mockClear();
+    const two = await (await voiceInbound(twilioRequest("/api/twilio/voice/inbound", callParams()))).text();
+    expect(two).toBe(golden());
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(db().tables.inbound_webhook_jobs.filter((j) => j.provider === "twilio_voice_ai")).toHaveLength(0);
+  });
+
+  it("one caller gets the AI at most 3 times a day, then voicemail", async () => {
+    const earlier = (sid: string) => ({ id: sid, organization_id: ORG, company_id: COMPANY, call_sid: sid, text_back_status: "ai_handled", ai_handoff_at: new Date(Date.now() - 3_600_000).toISOString(), caller_phone_last10: "7055550123" });
+    h.db = seedDb({ missedCalls: [earlier("CA-1"), earlier("CA-2"), earlier("CA-3")] });
+    const xml = await (await voiceInbound(twilioRequest("/api/twilio/voice/inbound", callParams()))).text();
+    expect(xml).toBe(golden());
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("a house (non-CrankLeads) org is unchanged: voicemail, no Retell", async () => {
     h.db = seedDb({ brand: "empirevu", tier: null, plan: "internal" });
     const xml = await (await voiceInbound(twilioRequest("/api/twilio/voice/inbound", callParams()))).text();

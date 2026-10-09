@@ -11,3 +11,5 @@ drop index if exists public.sms_conversations_recovery_idx;
 alter table public.sms_conversations drop column if exists recovery_alerted_at;
 alter table public.sms_conversations drop column if exists recovery_inbound_at;
 alter table public.sms_conversations drop column if exists recovery_attempts;
+drop index if exists public.missed_calls_ai_caller_idx;
+drop index if exists public.missed_calls_ai_in_flight_idx;

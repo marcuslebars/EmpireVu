@@ -78,3 +78,10 @@ alter table public.sms_conversations add column if not exists recovery_inbound_a
 alter table public.sms_conversations add column if not exists recovery_alerted_at timestamptz;
 create index if not exists sms_conversations_recovery_idx
   on public.sms_conversations (last_inbound_at) where state = 'ai';
+
+-- ── 4. AI call answering: concurrent calls reserve minutes; per-caller daily limit ──
+-- (voice/ai-answer.ts decideCallAnswering) — lookups by in-flight and by caller.
+create index if not exists missed_calls_ai_in_flight_idx
+  on public.missed_calls (organization_id, ai_handoff_at) where text_back_status = 'ai_pending';
+create index if not exists missed_calls_ai_caller_idx
+  on public.missed_calls (company_id, caller_phone_last10, ai_handoff_at) where ai_handoff_at is not null;

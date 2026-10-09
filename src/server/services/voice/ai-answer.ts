@@ -29,7 +29,7 @@ import { toE164 } from "@/server/services/retell/payload";
 import { bookingPageUrl } from "@/server/services/scheduling/urls";
 import { businessTypeSuffix } from "@/server/services/voice/message-agent";
 import { readCallAnsweringSettings, type CallAnsweringSettings } from "@/server/services/voice/answering-settings";
-import { aiCallTimeLimitSeconds, loadMinuteAllowance, type MinuteAllowance } from "@/server/services/voice/minutes";
+import { aiCallTimeLimitSeconds, loadMinuteAllowance, MAX_AI_CALL_SECONDS, MIN_AI_CALL_SECONDS, type MinuteAllowance } from "@/server/services/voice/minutes";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -252,6 +252,10 @@ export type VoicemailReason =
   | "no_agent"
   | "billing"
   | "minutes_exhausted"
+  /** Minutes left, but other AI calls in progress could use them all (no owner notice). */
+  | "minutes_reserved"
+  /** This caller already got the AI several times today. */
+  | "caller_limit"
   | "error";
 
 export type AiAnswerDecision =
@@ -275,6 +279,48 @@ export interface DecideInput {
   organizationId: string;
   companyId: string;
   companyName: string | null;
+  /** The caller's number (per-caller daily limit). */
+  from?: string | null;
+}
+
+/** AI-answered calls one caller number gets per day (then voicemail). */
+export function maxAiCallsPerCallerPerDay(): number {
+  const n = Number(process.env.AI_ANSWER_MAX_CALLS_PER_CALLER_DAY);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 3;
+}
+
+/** An ai_pending row older than this is a stuck call (the watchdog releases it), not in flight. */
+const IN_FLIGHT_WINDOW_MS = 20 * 60_000;
+
+/** AI calls handed off and not finished yet, for the same allowance scope. */
+async function aiCallsInFlight(admin: AdminClient, scope: { organizationId: string; companyId?: string }, now: Date): Promise<number> {
+  let query = admin
+    .from("missed_calls")
+    .select("id")
+    .eq("organization_id", scope.organizationId)
+    .eq("text_back_status", "ai_pending")
+    .gte("ai_handoff_at", new Date(now.getTime() - IN_FLIGHT_WINDOW_MS).toISOString());
+  if (scope.companyId) query = query.eq("company_id", scope.companyId);
+  const { data, error } = await query.limit(100);
+  if (error) throw error;
+  return ((data ?? []) as unknown[]).length;
+}
+
+/** AI-answered calls from this caller to this company in the last 24h. */
+async function aiCallsFromCaller(admin: AdminClient, input: { organizationId: string; companyId: string; from: string }, now: Date): Promise<number> {
+  const last10 = normalizePhoneLast10(input.from);
+  if (!last10) return 0;
+  const { data, error } = await admin
+    .from("missed_calls")
+    .select("id")
+    .eq("organization_id", input.organizationId)
+    .eq("company_id", input.companyId)
+    .eq("caller_phone_last10", last10)
+    .in("text_back_status", ["ai_pending", "ai_handled"])
+    .gte("ai_handoff_at", new Date(now.getTime() - 24 * 3_600_000).toISOString())
+    .limit(50);
+  if (error) throw error;
+  return ((data ?? []) as unknown[]).length;
 }
 
 export interface DecideDeps {
@@ -374,12 +420,26 @@ export async function decideCallAnswering(admin: AdminClient, input: DecideInput
       return { kind: "voicemail", reason: "minutes_exhausted", allowance, timeZone };
     }
 
+    // One caller can't burn the allowance (or run up AI minutes) by calling over and over.
+    if (input.from && (await aiCallsFromCaller(admin, { organizationId: input.organizationId, companyId: input.companyId, from: input.from }, now)) >= maxAiCallsPerCallerPerDay()) {
+      return { kind: "voicemail", reason: "caller_limit", allowance, timeZone };
+    }
+
+    // Concurrent AI calls: each one in progress may still use up to a full call's minutes, so
+    // reserve that before handing over another (the overrun can't exceed the allowance).
+    let remaining = allowance.remainingMinutes;
+    if (remaining !== null) {
+      const inFlight = await aiCallsInFlight(admin, allowance.scope === "organization" ? { organizationId: input.organizationId } : { organizationId: input.organizationId, companyId: input.companyId }, now);
+      remaining -= inFlight * (MAX_AI_CALL_SECONDS / 60);
+      if (remaining < MIN_AI_CALL_SECONDS / 60) return { kind: "voicemail", reason: "minutes_reserved", allowance, timeZone };
+    }
+
     return {
       kind: "ai",
       agentId,
       agentKind: ownAgent ? "receptionist" : "message",
       allowance,
-      timeLimitSeconds: aiCallTimeLimitSeconds(allowance.remainingMinutes),
+      timeLimitSeconds: aiCallTimeLimitSeconds(remaining),
       dynamicVariables: buildAnswerDynamicVariables(state.company, input.companyName),
       timeZone,
     };
@@ -551,7 +611,7 @@ export async function startAiAnswer(admin: AdminClient, input: StartAiAnswerInpu
   const callSid = params.CallSid;
   const decision = await decideCallAnswering(
     admin,
-    { organizationId: tenant.organizationId, companyId: tenant.companyId, companyName: tenant.companyName },
+    { organizationId: tenant.organizationId, companyId: tenant.companyId, companyName: tenant.companyName, from: params.From ?? null },
     { ...deps, config, now },
   );
 
