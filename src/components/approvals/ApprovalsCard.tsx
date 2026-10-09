@@ -39,7 +39,7 @@ function PendingRow({ item, orgId, showCompany }: { item: ApprovalItem; orgId: s
           <p className="text-[11px] text-muted-foreground mt-0.5">
             {showCompany && item.companyName ? `${item.companyName} · ` : ""}
             {relativeTime(item.createdAt)}
-            {item.shortCode != null ? ` · text "Y ${item.shortCode}" to approve` : ""}
+            {item.shortCode != null ? (item.kind === "custom_price" ? ` · text "Y ${item.shortCode} $price" to approve` : item.kind === "owner_command" ? "" : ` · text "Y ${item.shortCode}" to approve`) : ""}
           </p>
           {note && <p className="text-xs text-muted-foreground mt-1">{note}</p>}
         </div>

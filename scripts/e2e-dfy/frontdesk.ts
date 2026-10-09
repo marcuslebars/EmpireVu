@@ -419,6 +419,11 @@ async function main(): Promise<void> {
     check((approvals ?? []).length === 1 && approvals![0].status === "pending", `custom_price approval pending (#${approvals?.[0]?.short_code})`);
     const ask = smsTo(got, dana.phone).find((m) => /Reply Y/.test(String(m.body)));
     check(ask && ask.from === PLATFORM, `owner asked from the platform number: "${ask?.body}" (from ${ask?.from})`);
+    const code = approvals?.[0]?.short_code;
+    // Built in code from the payload: the code, the exact line label the quote will carry, the instruction.
+    check(new RegExp(`#${code} `).test(String(ask?.body)) && new RegExp(`Reply Y ${code} \\$price`).test(String(ask?.body)), `approval text shows #${code} and "Reply Y ${code} $price"`);
+    check(/The quote will say "Seasonal snow contract, double driveway, Midland"/.test(String(ask?.body)), "approval text shows the exact quote line label");
+    check(/Their text: "Can you do it for \$500\?"/.test(String(ask?.body)), "approval text quotes the customer's own words");
     const holding = smsTo(got, JAMIE.phone);
     check(holding.length === 1 && /check with Dana/i.test(String(holding[0].body)), `customer told we're checking: "${holding[0]?.body}"`);
     setMark();
@@ -495,9 +500,16 @@ async function main(): Promise<void> {
     await text(dana.phone, PLATFORM, "move Jamie to Friday 9");
     got = sinceMark();
     const confirm = smsTo(got, dana.phone);
-    check(confirm.length === 1 && /Reply Y to confirm/.test(String(confirm[0].body)), `confirm: "${confirm[0]?.body}"`);
+    const moveCode = /Reply (\d{4}) to confirm/.exec(String(confirm[0]?.body))?.[1];
+    check(confirm.length === 1 && moveCode, `confirm with a 4-digit code: "${confirm[0]?.body}"`);
     setMark();
+    // A bare "Y" doesn't confirm a destructive command (a spoofer can't see the code).
     await text(dana.phone, PLATFORM, "Y");
+    got = sinceMark();
+    const { data: notMoved } = await admin.from("bookings").select("scheduled_for").eq("id", booking.id).single();
+    check(Date.parse(String(notMoved?.scheduled_for)) === Date.parse(at) && /4-digit code/.test(String(smsTo(got, dana.phone)[0]?.body)), `a bare Y doesn't move it: "${smsTo(got, dana.phone)[0]?.body}"`);
+    setMark();
+    await text(dana.phone, PLATFORM, moveCode ?? "0000");
     got = sinceMark();
     const { data: moved } = await admin.from("bookings").select("scheduled_for").eq("id", booking.id).single();
     const local = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, weekday: "long", hour: "numeric", minute: "2-digit" }).format(new Date(moved!.scheduled_for));
@@ -509,6 +521,14 @@ async function main(): Promise<void> {
     setMark();
     await text(dana.phone, PLATFORM, "tell Jamie we'll be there at 9");
     got = sinceMark();
+    const echo = smsTo(got, dana.phone)[0];
+    const tellCode = /Reply (\d{4}) to confirm/.exec(String(echo?.body))?.[1];
+    check(/Send to Jamie Lee: "We'll be there at 9\."\?/.test(String(echo?.body)) && tellCode, `the exact message echoed for a code: "${echo?.body}"`);
+    check(smsTo(got, JAMIE.phone).length === 0, "nothing sent to the customer before the code");
+    setMark();
+    await text(dana.phone, PLATFORM, tellCode ?? "0000");
+    got = sinceMark();
+    console.log(`   owner: "${smsTo(got, dana.phone)[0]?.body ?? "(none)"}"`);
     const told = smsTo(got, JAMIE.phone);
     check(told.length === 1 && /be there at 9/i.test(String(told[0].body)) && told[0].from === dana.catcher, `customer got it from the company number: "${told[0]?.body}"`);
     const { data: conv } = await admin.from("sms_conversations").select("state").eq("contact_id", jamieId).single();
@@ -633,10 +653,12 @@ async function main(): Promise<void> {
       const ctx = await context(width);
       const page = await signIn(ctx, dana.email);
       await page.goto(`${BUYER_APP}/inbox`);
-      await page.waitForTimeout(4000);
+      await page.getByText("Casey Morgan").first().waitFor({ timeout: 30_000 }).catch(() => undefined);
+      await page.waitForTimeout(1000);
       const row = page.getByText("Casey Morgan").first();
       if (await row.count()) await row.click();
-      await page.waitForTimeout(3000);
+      await page.getByText(/Take over|Let AI handle it/).first().waitFor({ timeout: 30_000 }).catch(() => undefined);
+      await page.waitForTimeout(1500);
       await shot(page, `p1-inbox-thread-casey-${width}`);
       const body = await page.locator("body").innerText();
       check(/Assistant/.test(body), `inbox (${width}): Assistant labels`);
@@ -653,7 +675,9 @@ async function main(): Promise<void> {
       const card = page.getByText("Approvals", { exact: false }).first();
       if (await card.count()) await card.scrollIntoViewIfNeeded();
       await shot(page, `p1-dashboard-approvals-${width}`, true);
-      check(!approvalPendingForShots || /Approve/.test(await page.locator("body").innerText()), `dashboard (${width}): Approvals card with Approve / Skip`);
+      const dash = await page.locator("body").innerText();
+      check(!approvalPendingForShots || /Approve/.test(dash), `dashboard (${width}): Approvals card with Approve / Skip`);
+      check(!/Marina/.test(dash), `dashboard (${width}): no "Marina" for a CrankLeads owner`);
       await page.goto(`${BUYER_APP}/settings`);
       await page.waitForTimeout(2500);
       await page.locator("button", { hasText: "AI front desk" }).first().click();
@@ -665,6 +689,8 @@ async function main(): Promise<void> {
       check(/Text conversations/.test(settings) && /Phone answering/.test(settings) && /Weekly report/.test(settings), `settings (${width}): Text conversations / Phone answering / Weekly report`);
       check(/AI call minutes in/.test(settings) && !/Couldn't load/.test(settings), `settings (${width}): every section loaded (minutes bar shown)`);
       check(!/empire\s*vu/i.test(settings), `settings (${width}): no EmpireVu`);
+      check(!/Marina/.test(settings), `settings (${width}): no "Marina" (AI receptionist)`);
+      check(/Your cell for owner texts/.test(settings) && /Confirmed/.test(settings), `settings (${width}): owner's cell shown as confirmed (provisioned = verified)`);
       await ctx.close();
     }
   });
