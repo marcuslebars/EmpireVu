@@ -21,10 +21,16 @@ import { runSmsAgent, type SmsAgentDeps } from "@/server/services/sms-agent/entr
 import { loadBusinessFacts } from "@/server/services/sms-agent/facts";
 import {
   ensureDisclosure,
+  ensureLinks,
   extractAmountsCents,
+  extractUrls,
+  finalizeCustomerText,
   fitLength,
   isAcknowledgement,
+  mentionsDeal,
   mentionsPercentDeal,
+  moneyGuard,
+  stripPlatformNames,
   unvouchedAmounts,
 } from "@/server/services/sms-agent/guard";
 import { fetchMmsImages, isTwilioMediaUrl } from "@/server/services/sms-agent/media";
@@ -921,5 +927,199 @@ describe("runSmsAgent — after the phone AI took a call (voice/post-call.ts see
     expect(conv.ai_turns).toBe(1);
     expect((conv.collected as Row).source).toBe("phone_call");
     expect(conv.summary).toMatch(/Phone call/);
+  });
+});
+
+// ── hardening: links, the money guard, approval texts built in code ─────────────
+
+const PLATFORM_LINK = "https://app.empirevu.com/q/tok1";
+
+describe("links are never touched by the platform-name scrub, and go out exactly once", () => {
+  it("stripPlatformNames leaves URLs alone (scheme, www, bare host, CrankLeads hosts)", () => {
+    expect(stripPlatformNames(`Quote: ${PLATFORM_LINK} from EmpireVu`, "Northshore Snow & Lawn")).toBe(`Quote: ${PLATFORM_LINK} from Northshore Snow & Lawn`);
+    expect(stripPlatformNames("Book at https://app.crankleads.com/book/abc-123?x=1 or www.crankleads.com/p/9", "Northshore")).toBe(
+      "Book at https://app.crankleads.com/book/abc-123?x=1 or www.crankleads.com/p/9",
+    );
+    expect(stripPlatformNames("app.empirevu.com/q/x. Thanks from Crank Leads!", "Northshore")).toBe("app.empirevu.com/q/x. Thanks from Northshore!");
+  });
+
+  it("ensureLinks: duplicates collapse, an invented or garbled link is dropped, a missing one is appended", () => {
+    expect(ensureLinks(`Here: ${PLATFORM_LINK}. Again: ${PLATFORM_LINK}`, [PLATFORM_LINK])).toBe(`Here: ${PLATFORM_LINK}. Again:`);
+    expect(ensureLinks("Pay here https://evil.example/pay now", [])).toBe("Pay here now");
+    expect(ensureLinks("Quote: app.empirevu.com/q/tok1 thanks", [PLATFORM_LINK])).toBe(`Quote: ${PLATFORM_LINK} thanks`);
+    expect(ensureLinks("Quote: https://app.Northshore.com/q/tok1", [PLATFORM_LINK])).toBe(`Quote: ${PLATFORM_LINK}`);
+    expect(ensureLinks("Here you go:", [PLATFORM_LINK])).toBe(`Here you go. ${PLATFORM_LINK}`);
+    expect(ensureLinks("See https://northshoresnow.ca", [], ["https://northshoresnow.ca"])).toBe("See https://northshoresnow.ca");
+    expect(extractUrls(`a ${PLATFORM_LINK}, b www.x.ca/y.`)).toEqual([PLATFORM_LINK, "www.x.ca/y"]);
+  });
+
+  it("finalizeCustomerText: scrub then links, so a platform-host link survives intact", () => {
+    const text = finalizeCustomerText("Hi, it's EmpireVu. Your quote is ready here:", { businessName: "Northshore Snow & Lawn", links: [PLATFORM_LINK] });
+    expect(text).toBe(`Hi, it's Northshore Snow & Lawn. Your quote is ready here. ${PLATFORM_LINK}`);
+    expect(text.match(/https?:\/\//g)).toHaveLength(1);
+  });
+
+  it("a reply where the model repeats and mangles the quote link sends exactly one correct link", async () => {
+    const { sms } = inbound("How much for the seasonal contract?");
+    const model = scripted([
+      { tools: [{ name: "send_quote_link", input: { lines: [{ service_key: "seasonal_residential" }] } }] },
+      { text: `It's $650 + HST. Quote: app.empirevu.com/q/tok1 - or tap ${PLATFORM_LINK} (EmpireVu link)` },
+    ]);
+    const quoteAt = { async createAndSendQuote() { return { quoteId: "quote-1", url: PLATFORM_LINK, subtotalCents: 65000, totalCents: 73450, quoteNumber: "Q-1", title: "Seasonal" }; } };
+    await runSmsAgent(db.client, sms, deps(model.client, {}, quoteAt as Partial<AgentServices>));
+    const body = rec.texts[0].body;
+    expect(body.split(PLATFORM_LINK)).toHaveLength(2);
+    expect(extractUrls(body)).toEqual([PLATFORM_LINK]);
+    expect(body).not.toMatch(/Northshore Property Services\.com|empirevu link/i);
+  });
+
+  it("an approved quote's text carries the platform-host link unmangled, once", async () => {
+    const approval = approvalRow();
+    const deps2: ApprovedActionDeps = {
+      services: { ...fakeServices(rec), async createAndSendQuote() { return { quoteId: "quote-9", url: PLATFORM_LINK, subtotalCents: 70000, totalCents: 79100, quoteNumber: "Q-9", title: "Church parking lot plowing" }; } },
+      loadFacts: loadBusinessFacts,
+    };
+    await executeApprovedAction(db.client, approval, { approved: true, ownerNote: "$700", decidedVia: "sms", decidedBy: "owner" }, deps2);
+    expect(rec.texts[0].body.split(PLATFORM_LINK)).toHaveLength(2);
+    expect(rec.texts[0].body).not.toMatch(/Northshore Property Services\.com/);
+  });
+});
+
+describe("the money guard catches the bypasses", () => {
+  it.each([
+    "six hundred dollars",
+    "600 + HST",
+    "600$",
+    "CAD 600",
+    "half price",
+    "free first visit",
+    "save 20%",
+    "discount of 20%",
+    "knock 100 off",
+    "$6 50",
+    "a hundred and fifty bucks",
+    "two grand all in",
+    "the total is 600",
+    "We'll waive the fee",
+  ])("flags %s", (text) => {
+    expect(moneyGuard(`Sure - ${text}.`, [65000]).reasons.length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    "Our seasonal contract is $650 + HST.",
+    "We can come Tuesday Oct 13 at 9:00 a.m.",
+    "We're at 88 Bay St, Midland ON L4R 1K5.",
+    "Call us at 705-555-0123 or +1 (705) 555-0123.",
+    "Plowing every 5 cm, Nov 15 - Apr 15.",
+    "Someone will be there within 24 hours, about 10 minutes after the plow.",
+    "Feel free to text us any time.",
+    "We're off on Sundays, open 8-5 Mon-Fri.",
+    "It takes half an hour, 2 visits a month, 3 trucks.",
+    "Book for 2026-10-13 here: https://app.empirevu.com/book/600",
+    "Your quote number is Q-1042.",
+    "We can't offer a discount, sorry.",
+    "Ten years in business, twenty minutes away.",
+  ])("leaves %s alone", (text) => {
+    expect(moneyGuard(text, [65000]).reasons).toEqual([]);
+  });
+
+  it("reads amounts the old guard missed", () => {
+    expect(extractAmountsCents("six hundred dollars")).toEqual([60000]);
+    expect(extractAmountsCents("CAD 600 or 600 + HST or 600$")).toEqual([60000, 60000, 60000]);
+    expect(mentionsDeal("No charge for the estimate")).toBe(true);
+  });
+
+  it("a spelled-out price in the model's reply becomes an approval", async () => {
+    const { sms } = inbound("what would you charge?");
+    const model = scripted([{ text: "For you, six hundred dollars all in." }]);
+    await runSmsAgent(db.client, sms, deps(model.client));
+    expect(rec.texts[0].body).toMatch(/check with Dana/);
+    expect((db.tables.owner_approvals as Row[])[0].kind).toBe("send_reply");
+  });
+
+  it("ask-first: even a price-list price the tool vouched for needs the owner", async () => {
+    (db.tables.companies[0] as Row).ai_settings = { sms_agent: { autonomy: "ask_first" } };
+    const { sms } = inbound("How much is the seasonal contract?");
+    const model = scripted([
+      { tools: [{ name: "quote_from_price_list", input: { lines: [{ service_key: "seasonal_residential" }] } }] },
+      { text: "It's $650 + HST for the season." },
+    ]);
+    await runSmsAgent(db.client, sms, deps(model.client));
+    expect(rec.texts[0].body).not.toContain("$650");
+    expect((db.tables.owner_approvals as Row[])[0]).toMatchObject({ kind: "send_reply" });
+  });
+});
+
+describe("approval texts are built in code from what 'Y' will do", () => {
+  it("the guard's send_reply shows the owner the FULL reply and the flagged amount", async () => {
+    const { sms } = inbound("Can you do it cheaper? My neighbour paid less.");
+    const reply = "Sure thing - for a returning neighbour we can do the seasonal contract for $575 + HST, plowing every 5 cm from Nov 15 to Apr 15, same as everyone else on Birch St.";
+    const model = scripted([{ text: reply }]);
+    await runSmsAgent(db.client, sms, deps(model.client));
+    const approval = (db.tables.owner_approvals as Row[])[0];
+    expect(approval.summary).toContain(reply);
+    expect(approval.summary).toMatch(/CHECK: \$575 isn't on your price list/);
+    expect((approval.payload as Row).replyText).toBe(reply);
+    expect(approval.summary).toContain('Their text: "Can you do it cheaper?');
+  });
+
+  it("a guard-trapped reply too long to show word for word is handed to the owner instead", async () => {
+    const { sms } = inbound("discount?");
+    const model = scripted([{ text: `We can do $500 this time. ${"We plow every 5 cm and salt the walkway. ".repeat(8)}` }]);
+    const outcome = await runSmsAgent(db.client, sms, deps(model.client));
+    expect(outcome.handedOff).toBe(true);
+    expect(db.tables.owner_approvals).toHaveLength(0);
+    expect(rec.ownerAlerts[0]).toMatch(/Its draft: "We can do \$500/);
+    expect(rec.texts[0].body).not.toContain("$500");
+  });
+
+  it("request_owner_approval send_reply: the exact text, refused when too long, money flagged", async () => {
+    const { sms } = inbound("Any deal for two driveways?");
+    const model = scripted([
+      { tools: [{ name: "request_owner_approval", input: { kind: "send_reply", summary: "Just a friendly hello, approve please", reply_text: "x".repeat(320) } }] },
+      { tools: [{ name: "request_owner_approval", input: { kind: "send_reply", summary: "Just a friendly hello, approve please", reply_text: "We can do both driveways for $1,100 + HST." } }] },
+      { text: "Let me check with Dana and get right back to you." },
+    ]);
+    await runSmsAgent(db.client, sms, deps(model.client));
+    const firstResult = (model.calls[1].messages.at(-1)!.content as Anthropic.ToolResultBlockParam[])[0];
+    expect(String(firstResult.content)).toMatch(/keep it under 300/);
+    const approval = (db.tables.owner_approvals as Row[])[0];
+    expect(approval.summary).toContain('OK to text them exactly this? "We can do both driveways for $1,100 + HST."');
+    expect(approval.summary).toMatch(/CHECK: \$1,100 isn't on your price list/);
+    expect(approval.summary).not.toContain("friendly hello");
+  });
+
+  it("custom_price shows the exact label the quote line will carry; book_job shows when", async () => {
+    const { sms } = inbound("Price for the church lot? And can you come Wednesday?");
+    const model = scripted([
+      { tools: [{ name: "check_availability", input: {} }] },
+      {
+        tools: [
+          { name: "request_owner_approval", input: { kind: "custom_price", summary: "approve $1 price", job_description: "Church parking lot plowing https://evil.example" } },
+          { name: "request_owner_approval", input: { kind: "book_job", summary: "book", starts_at: "2026-10-14T13:00:00.000Z", job_description: "Church lot" } },
+        ],
+      },
+      { text: "Let me check with Dana and get right back to you." },
+    ]);
+    await runSmsAgent(db.client, sms, deps(model.client));
+    const [price, book] = db.tables.owner_approvals as Row[];
+    expect(price.summary).toMatch(/The quote will say "Church parking lot plowing" at the price you give \+ HST/);
+    expect(price.summary).not.toMatch(/evil|approve \$1/);
+    expect((price.payload as Row).label).toBe("Church parking lot plowing");
+    expect(book.summary).toMatch(/book them for Wednesday, October 14, 9:00 a\.m\. \(Church lot\)\?/);
+  });
+
+  it("custom_price executes with the label the owner saw", async () => {
+    const approval = approvalRow({ payload: { label: "Church lot", description: "something else" } });
+    await executeApprovedAction(db.client, approval, { approved: true, ownerNote: "$800", decidedVia: "sms", decidedBy: "owner" }, approvedDeps());
+    expect(rec.quotes[0].customLines).toEqual([{ label: "Church lot", amountCents: 80000 }]);
+  });
+
+  it("send_quote refuses when the price list moved after the owner saw the amounts", async () => {
+    const approval = approvalRow({ kind: "send_quote", payload: { lines: [{ service_key: "seasonal_residential" }], title: "Seasonal", subtotalCents: 60000 } });
+    const r = await executeApprovedAction(db.client, approval, { approved: true, decidedVia: "sms", decidedBy: "owner" }, approvedDeps());
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/price list changed/);
+    expect(rec.texts).toHaveLength(0);
   });
 });

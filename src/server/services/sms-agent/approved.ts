@@ -14,7 +14,7 @@
 import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } from "@/server/services/front-desk/contracts";
 import { updateConversation, findConversation, mergeCollected } from "@/server/services/sms-agent/conversation";
 import { loadBusinessFacts, type BusinessFacts } from "@/server/services/sms-agent/facts";
-import { ensureLinks, toPlainText, stripPlatformNames } from "@/server/services/sms-agent/guard";
+import { extractUrls, finalizeCustomerText } from "@/server/services/sms-agent/guard";
 import { defaultAgentServices, type AgentContact, type AgentServices, type QuoteLine } from "@/server/services/sms-agent/services";
 import { ownerLabel } from "@/server/services/sms-agent/tools";
 
@@ -103,7 +103,16 @@ function str(value: unknown): string | null {
 // ── execution ───────────────────────────────────────────────────────────────────
 
 type Plan =
-  | { ok: true; customerText: string | null; ownerMessage: string; detail?: Record<string, unknown>; conversation?: "owner" | "ai" | "keep"; collected?: Record<string, unknown> }
+  | {
+      ok: true;
+      customerText: string | null;
+      /** Links that must reach the customer exactly once (a quote link). */
+      links?: string[];
+      ownerMessage: string;
+      detail?: Record<string, unknown>;
+      conversation?: "owner" | "ai" | "keep";
+      collected?: Record<string, unknown>;
+    }
   | { ok: false; clarify: true; ownerMessage: string }
   | { ok: false; clarify: false; ownerMessage: string; detail?: Record<string, unknown> };
 
@@ -171,7 +180,9 @@ export async function executeApprovedAction(
 
     let customerSent: string | null = null;
     if (plan.ok && plan.customerText && contact && facts) {
-      const text = stripPlatformNames(toPlainText(plan.customerText), facts.businessName);
+      // Platform names out (never inside a link), then each link exactly once.
+      const links = plan.links ?? [];
+      const text = finalizeCustomerText(plan.customerText, { businessName: facts.businessName, links, allowed: [...extractUrls(plan.customerText), ...links] });
       const delivery = await deps.services.textCustomer(admin, facts, contact, text);
       customerSent = delivery.status;
       if (delivery.status !== "sent") {
@@ -252,27 +263,40 @@ async function planFor(admin: AdminClient, approval: OwnerApprovalRow, decision:
     case "send_quote":
     case "custom_price": {
       const lines = asLines(payload.lines);
-      const description = str(payload.description) ?? str(payload.title) ?? (lines.length ? null : str(approval.summary.split(": ").slice(1).join(": ")));
+      // The label the owner was shown (approval-text.ts) is the label the quote line carries.
+      const label = str(payload.label) ?? str(payload.title) ?? str(payload.description) ?? "Quoted work";
       const proposed = typeof payload.proposedPriceCents === "number" ? payload.proposedPriceCents : null;
       const priceCents = note.kind === "price" ? note.cents : approval.kind === "custom_price" ? proposed : null;
-      if (approval.kind === "custom_price" && !priceCents) {
+      if (!priceCents && (approval.kind === "custom_price" || lines.length === 0)) {
         return { ok: false, clarify: true, ownerMessage: `What price should I quote ${who}? Reply "Y ${approval.short_code ?? ""} $700" (before HST), or N.`.replace(/\s+/g, " ") };
       }
       if (note.kind === "text") {
         return { ok: false, clarify: true, ownerMessage: `I didn't act on #${approval.short_code ?? "?"}: I can only take a price as a note (like "Y ${approval.short_code ?? ""} $700"). Reply Y, N, or text ${who} yourself.`.replace(/\s+/g, " ") };
       }
-      const title = str(payload.title) ?? description ?? lines.map((l) => facts.priceList.find((p) => p.key === l.service_key)?.label ?? l.service_key).join(", ") ?? "Your quote";
-      const quote = priceCents
-        ? await deps.services.createAndSendQuote(admin, facts, { contactId: contact.id, customLines: [{ label: title || "Quoted work", amountCents: priceCents }], title: title || "Quoted work" })
-        : await deps.services.createAndSendQuote(admin, facts, { contactId: contact.id, lines, title });
-      const customerText = ensureLinks(
-        `${hi}, it's ${facts.businessName}. Here's your quote for ${quote.title}: ${dollars(quote.subtotalCents)} + HST. You can review and approve it here:`,
-        [quote.url],
-      );
+      let quote;
+      if (priceCents) {
+        quote = await deps.services.createAndSendQuote(admin, facts, { contactId: contact.id, customLines: [{ label, amountCents: priceCents }], title: label });
+      } else {
+        // Exactly what the owner was shown: re-price and refuse if the price list moved since.
+        const shownSubtotal = typeof payload.subtotalCents === "number" ? payload.subtotalCents : null;
+        if (shownSubtotal != null) {
+          const now = await deps.services.priceServices(approval.company_id, lines);
+          if (now.subtotalCents !== shownSubtotal) {
+            return {
+              ok: false,
+              clarify: false,
+              ownerMessage: `Your price list changed since I asked (${dollars(shownSubtotal)} then, ${dollars(now.subtotalCents)} now), so I didn't send it. Reply to ${who} yourself or let the assistant quote again.`,
+            };
+          }
+        }
+        quote = await deps.services.createAndSendQuote(admin, facts, { contactId: contact.id, lines, title: label });
+      }
+      const customerText = `${hi}, it's ${facts.businessName}. Here's your quote for ${quote.title}: ${dollars(quote.subtotalCents)} + HST. You can review and approve it here:`;
       await deps.services.recordQuoteEvent(admin, facts, quote.quoteId, "deposit_link_sent", { channels: ["sms"], by: "sms_agent", approvalId: approval.id });
       return {
         ok: true,
         customerText,
+        links: [quote.url],
         conversation: "ai",
         collected: { quote_ids: [quote.quoteId] },
         detail: { quoteId: quote.quoteId },
@@ -302,10 +326,11 @@ async function planFor(admin: AdminClient, approval: OwnerApprovalRow, decision:
         };
       }
       const link = result.quote?.url;
-      const customerText = `${hi}, good news - you're booked for ${result.label}. ${facts.businessName} will confirm the details.${link ? ` Your quote: ${link}` : ""}`;
+      const customerText = `${hi}, good news - you're booked for ${result.label}. ${facts.businessName} will confirm the details.${link ? " Your quote:" : ""}`;
       return {
         ok: true,
         customerText,
+        links: link ? [link] : [],
         conversation: "ai",
         collected: { booking_ids: [result.bookingId], ...(result.quote ? { quote_ids: [result.quote.quoteId] } : {}) },
         detail: { bookingId: result.bookingId },

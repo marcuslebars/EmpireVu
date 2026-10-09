@@ -10,10 +10,13 @@
  */
 import { z } from "zod";
 
+import { buildApprovalSummary, MAX_APPROVAL_REPLY_CHARS, type ApprovalTextInput } from "@/server/services/front-desk/approval-text";
 import type { ApprovalKind } from "@/server/services/front-desk/contracts";
 import { createApproval, type ApprovalDeps } from "@/server/services/sms-agent/approvals";
 import type { ConversationRow } from "@/server/services/sms-agent/conversation";
 import type { BusinessFacts } from "@/server/services/sms-agent/facts";
+import { priceListAmounts } from "@/server/services/sms-agent/facts";
+import { ensureLinks, moneyGuard, stripPlatformNames, toPlainText } from "@/server/services/sms-agent/guard";
 import type { SmsAgentSettings } from "@/server/services/sms-agent/settings";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { AgentContact, AgentServices, OpenSlot, QuoteLine, SentQuote } from "@/server/services/sms-agent/services";
@@ -62,6 +65,10 @@ export interface TurnState {
   services: AgentServices;
   approvalDeps: ApprovalDeps;
   effects: TurnEffects;
+  /** The customer's new text(s) this turn — quoted to the owner as context on approvals. */
+  customerText?: string | null;
+  /** Amounts earlier business messages in this conversation stated (the reply guard's history). */
+  historyAmountsCents?: number[];
 }
 
 export interface ToolResult {
@@ -141,11 +148,17 @@ async function pendingApprovalOfKind(state: TurnState, kind: ApprovalKind): Prom
   return ((data ?? []) as Array<{ id: string; short_code: number | null }>)[0] ?? null;
 }
 
-/** Create (or reuse an open) approval and say what to tell the customer. */
+type OwnerText = Omit<ApprovalTextInput, "kind" | "customerName" | "customerPhone" | "customerText">;
+
+/**
+ * Create (or reuse an open) approval and say what to tell the customer. The owner's text is
+ * built here in code from what "Y" will actually do (front-desk/approval-text.ts); the model's
+ * own summary is only context.
+ */
 async function askOwner(
   state: TurnState,
   kind: ApprovalKind,
-  summary: string,
+  text: OwnerText,
   payload: Record<string, unknown>,
 ): Promise<ToolResult> {
   const existing = await pendingApprovalOfKind(state, kind);
@@ -156,6 +169,13 @@ async function askOwner(
       tell_customer: `You're still waiting on ${ownerLabel(state.facts)} for this — say you'll get back to them as soon as you hear.`,
     };
   }
+  const summary = buildApprovalSummary({
+    kind,
+    customerName: customerName(state.contact),
+    customerPhone: state.contact.phone,
+    customerText: state.customerText ?? null,
+    ...text,
+  });
   const created = await createApproval(
     state.admin,
     {
@@ -164,8 +184,8 @@ async function askOwner(
       contactId: state.contact.id,
       conversationId: state.conversation.id,
       kind,
-      summary: `${customerName(state.contact)}: ${summary}`,
-      payload: { ...payload, customerName: customerName(state.contact) },
+      summary,
+      payload: { ...payload, customerName: customerName(state.contact), modelNote: text.modelNote ?? null },
       timeZone: state.facts.timeZone,
     },
     state.approvalDeps,
@@ -177,6 +197,37 @@ async function askOwner(
     approval_requested: true,
     tell_customer: `Tell the customer honestly you're checking with ${ownerLabel(state.facts)} and will get right back to them (e.g. "Let me check with ${ownerLabel(state.facts)} and get right back to you."). Don't promise the outcome.`,
   };
+}
+
+/** What the owner reads for a booking: the slot label we offered, else the date/window/time. */
+function whenLabel(state: TurnState, input: { date?: string | null; window?: string | null; starts_at?: string | null }): string | null {
+  const offered = state.effects.offeredSlots.find((s) =>
+    input.starts_at ? s.startsAt === input.starts_at : s.date === input.date && (s.window ?? null) === (input.window ?? null),
+  );
+  if (offered) return offered.label;
+  if (input.starts_at) {
+    const d = new Date(input.starts_at);
+    if (Number.isFinite(d.getTime())) {
+      return d.toLocaleString("en-CA", { timeZone: state.facts.timeZone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    }
+  }
+  if (input.date) {
+    const d = new Date(`${input.date}T12:00:00Z`);
+    const day = Number.isFinite(d.getTime()) ? d.toLocaleDateString("en-CA", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" }) : input.date;
+    return input.window ? `${day} (${input.window})` : day;
+  }
+  return null;
+}
+
+/** A label for a custom quote line: plain words only (no links, no platform names). */
+function cleanLabel(state: TurnState, raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const t = stripPlatformNames(toPlainText(raw), state.facts.businessName)
+    .replace(/\b(?:https?:\/\/|www\.)\S+/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+  return t || null;
 }
 
 // ── tools ─────────────────────────────────────────────────────────────────────
@@ -295,7 +346,9 @@ const bookSlot: AgentTool<{ date?: string; window?: string; starts_at?: string; 
       if (![...known, ...thisTurn].includes(input.quote_id)) return { ok: false, error: "Unknown quote_id — use one from send_quote_link in this conversation." };
     }
     if (state.settings.autonomy === "ask_first") {
-      return askOwner(state, "book_job", `wants to book ${input.date ?? input.starts_at ?? "a time"}${input.window ? ` (${input.window})` : ""}${input.job_note ? ` — ${input.job_note}` : ""}`, {
+      const when = whenLabel(state, input);
+      return askOwner(state, "book_job", { when, jobNote: input.job_note ?? null }, {
+        whenLabel: when,
         date: input.date ?? null,
         window: input.window ?? null,
         startsAt: input.starts_at ?? null,
@@ -376,10 +429,12 @@ const sendQuoteLink: AgentTool<{ lines: QuoteLine[]; title?: string }> = {
       input.title?.trim() ||
       input.lines.map((l) => state.facts.priceList.find((p) => p.key === l.service_key)?.label ?? l.service_key).join(", ");
     if (state.settings.autonomy === "ask_first") {
-      return askOwner(state, "send_quote", `quote for ${title}: ${dollars(pricing.subtotalCents)} + HST`, {
+      const shown = pricing.lineItems.filter((l) => l.selected).map((l) => ({ label: l.label, amountCents: l.amountCents }));
+      return askOwner(state, "send_quote", { lines: shown, subtotalCents: pricing.subtotalCents }, {
         lines: input.lines,
         title,
         subtotalCents: pricing.subtotalCents,
+        shownLines: shown,
       });
     }
     const quote = await state.services.createAndSendQuote(state.admin, state.facts, { contactId: state.contact.id, lines: input.lines, title });
@@ -490,7 +545,7 @@ const requestOwnerApproval: AgentTool<{
       summary: { type: "string", description: "One line for the owner: what the customer wants and what you propose. No prices you made up." },
       job_description: { type: "string", description: "custom_price: the work to be priced." },
       lines: { type: "array", items: lineJson, description: "Price-list services involved, if any." },
-      reply_text: { type: "string", description: "send_reply: the exact text you'd send." },
+      reply_text: { type: "string", description: "send_reply: the exact text you'd send (under 300 characters). The owner sees exactly this." },
       date: { type: "string" },
       window: { type: "string" },
       starts_at: { type: "string" },
@@ -509,19 +564,59 @@ const requestOwnerApproval: AgentTool<{
     starts_at: z.string().max(40).optional(),
   }),
   async run(state, input) {
-    if (input.kind === "send_reply" && !input.reply_text) return { ok: false, error: "send_reply needs reply_text." };
     if (input.lines) {
       const unknown = unknownKeys(state, input.lines);
       if (unknown.length) input = { ...input, lines: input.lines.filter((l) => !unknown.includes(l.service_key)) };
     }
-    return askOwner(state, input.kind, input.summary, {
-      lines: input.lines?.length ? input.lines : null,
+    const base = {
       description: input.job_description ?? null,
-      replyText: input.reply_text ?? null,
       date: input.date ?? null,
       window: input.window ?? null,
       startsAt: input.starts_at ?? null,
-    });
+    };
+    switch (input.kind) {
+      case "send_reply": {
+        if (!input.reply_text) return { ok: false, error: "send_reply needs reply_text." };
+        const allowed = [...state.effects.links, state.facts.bookingUrl, state.facts.website].filter((x): x is string => Boolean(x));
+        const reply = ensureLinks(stripPlatformNames(toPlainText(input.reply_text), state.facts.businessName), [], allowed);
+        if (reply.length > MAX_APPROVAL_REPLY_CHARS) {
+          return { ok: false, error: `reply_text is ${reply.length} characters — keep it under ${MAX_APPROVAL_REPLY_CHARS} so the owner can read it, then ask again.` };
+        }
+        const vouched = new Set<number>([...state.effects.allowedAmountsCents, ...(state.historyAmountsCents ?? [])]);
+        if (state.settings.autonomy === "standard") for (const c of priceListAmounts(state.facts.priceList)) vouched.add(c);
+        const money = moneyGuard(reply, vouched);
+        return askOwner(state, "send_reply", { replyText: reply, moneyFlags: money.reasons, modelNote: input.summary }, { ...base, replyText: reply, moneyFlags: money.reasons });
+      }
+      case "send_quote":
+      case "custom_price": {
+        let shown: Array<{ label: string; amountCents: number }> = [];
+        let subtotalCents: number | null = null;
+        if (input.kind === "send_quote" && input.lines?.length) {
+          try {
+            const pricing = await state.services.priceServices(state.facts.companyId, input.lines);
+            rememberPricing(state, pricing);
+            shown = pricing.lineItems.filter((l) => l.selected).map((l) => ({ label: l.label, amountCents: l.amountCents }));
+            subtotalCents = pricing.subtotalCents;
+          } catch {
+            shown = [];
+          }
+        }
+        const label =
+          cleanLabel(state, input.job_description) ??
+          (input.lines?.length ? input.lines.map((l) => state.facts.priceList.find((p) => p.key === l.service_key)?.label ?? l.service_key).join(", ") : null) ??
+          "Quoted work";
+        if (input.kind === "send_quote" && shown.length) {
+          return askOwner(state, "send_quote", { lines: shown, subtotalCents, modelNote: input.summary }, { ...base, lines: input.lines, title: label, subtotalCents, shownLines: shown });
+        }
+        return askOwner(state, input.kind, { label, modelNote: input.summary }, { ...base, lines: null, label, title: label });
+      }
+      case "book_job": {
+        const when = whenLabel(state, input);
+        return askOwner(state, "book_job", { when, jobNote: input.job_description ?? null, modelNote: input.summary }, { ...base, whenLabel: when, lines: input.lines?.length ? input.lines : null, note: input.job_description ?? null });
+      }
+      default:
+        return askOwner(state, input.kind, { modelNote: input.summary }, base);
+    }
   },
 };
 

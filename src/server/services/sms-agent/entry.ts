@@ -34,6 +34,7 @@ import {
   type ConversationRow,
 } from "@/server/services/sms-agent/conversation";
 import { loadBusinessFacts, priceListAmounts, type BusinessFacts } from "@/server/services/sms-agent/facts";
+import { buildApprovalSummary, MAX_APPROVAL_REPLY_CHARS } from "@/server/services/front-desk/approval-text";
 import {
   ensureDisclosure,
   ensureLinks,
@@ -41,10 +42,9 @@ import {
   fitLength,
   isAcknowledgement,
   isAutoReply,
-  mentionsPercentDeal,
+  moneyGuard,
   stripPlatformNames,
   toPlainText,
-  unvouchedAmounts,
 } from "@/server/services/sms-agent/guard";
 import { countAiReplies, hasInboundAfter, loadHistory, newCustomerMessages, type LoggedMessage } from "@/server/services/sms-agent/history";
 import { fetchMmsImages, type FetchedImage } from "@/server/services/sms-agent/media";
@@ -275,6 +275,7 @@ async function runOneTurn(
     const firstAiMessage = !conv.last_ai_reply_at && !history.some((m) => m.from === "assistant" && m.sentBy === SMS_AGENT_SENDER);
     const now = deps.services.now();
     const images = await deps.fetchImages(fresh.flatMap((m) => m.media));
+    const historyAmounts = settings.autonomy === "ask_first" ? [] : history.filter((m) => m.from !== "customer").flatMap((m) => extractAmountsCents(m.body));
     const turnState: TurnState = {
       admin,
       facts,
@@ -284,6 +285,8 @@ async function runOneTurn(
       services: deps.services,
       approvalDeps: deps.approvalDeps,
       effects,
+      customerText: fresh.map((m) => m.body).filter(Boolean).join(" / ") || null,
+      historyAmountsCents: historyAmounts,
     };
     output = await runAgentTurn({
       state: turnState,
@@ -318,35 +321,59 @@ async function runOneTurn(
 
     if (reply) {
       reply = stripPlatformNames(toPlainText(reply), facts.businessName);
-      // The money guard: only amounts the price list / tools / earlier business messages vouched for.
-      const vouched = new Set<number>([...effects.allowedAmountsCents]);
-      for (const m of history) if (m.from !== "customer") for (const c of extractAmountsCents(m.body)) vouched.add(c);
-      if (settings.autonomy === "standard") for (const c of priceListAmounts(facts.priceList)) vouched.add(c);
-      const badAmounts = unvouchedAmounts(reply, vouched);
-      if ((badAmounts.length || mentionsPercentDeal(reply)) && effects.handedOff) {
+      const handOffLine = `Thanks for letting us know. ${ownerLabel(facts) === "the owner" ? "Someone from the team" : ownerLabel(facts)} will follow up with you directly.`;
+      // The money guard: only amounts the price list / tools / earlier business messages vouched
+      // for, and no deal of any kind. Ask-first: no price statement at all without the owner.
+      const vouched = new Set<number>();
+      if (settings.autonomy === "standard") {
+        for (const c of effects.allowedAmountsCents) vouched.add(c);
+        for (const c of historyAmounts) vouched.add(c);
+        for (const c of priceListAmounts(facts.priceList)) vouched.add(c);
+      }
+      const money = moneyGuard(reply, vouched);
+      if (money.reasons.length && effects.handedOff) {
         // Handing off anyway — don't let an invented number ride along.
-        reply = `Thanks for letting us know. ${ownerLabel(facts) === "the owner" ? "Someone from the team" : ownerLabel(facts)} will follow up with you directly.`;
-      } else if (badAmounts.length || mentionsPercentDeal(reply)) {
-        const approval = await createApproval(
-          admin,
-          {
-            organizationId: conv.organization_id,
-            companyId: conv.company_id,
-            contactId: contact.id,
-            conversationId: conv.id,
-            kind: "send_reply",
-            summary: `${displayName(contact)}: OK to send "${preview(reply, 200)}"?`,
-            payload: { replyText: reply, reason: badAmounts.length ? "price not on the price list" : "discount", customerName: displayName(contact) },
-          },
-          deps.approvalDeps,
-        );
-        effects.approvals.push({ id: approval.id, shortCode: approval.shortCode, kind: "send_reply" });
-        effects.collected.approval_ids = [approval.id];
-        effects.links = effects.links.filter((l) => !reply.includes(l));
-        reply = `Good question - let me check with ${ownerLabel(facts)} and get right back to you.`;
+        reply = handOffLine;
+      } else if (money.reasons.length) {
+        const allowed = [...effects.links, facts.bookingUrl, facts.website].filter((x): x is string => Boolean(x));
+        const draft = ensureLinks(reply, effects.links.filter((l) => reply.includes(l)), allowed);
+        if (draft.length > MAX_APPROVAL_REPLY_CHARS) {
+          // Too long to put in front of the owner word for word — it's theirs to answer.
+          effects.handedOff = {
+            reason: `the assistant wanted to send a price or deal it can't vouch for (${money.reasons.join("; ")}). Its draft: "${preview(draft, 200)}"`,
+            urgent: false,
+          };
+          reply = handOffLine;
+        } else {
+          const approval = await createApproval(
+            admin,
+            {
+              organizationId: conv.organization_id,
+              companyId: conv.company_id,
+              contactId: contact.id,
+              conversationId: conv.id,
+              kind: "send_reply",
+              summary: buildApprovalSummary({
+                kind: "send_reply",
+                customerName: displayName(contact),
+                customerPhone: contact.phone,
+                customerText: fresh.map((m) => m.body).join(" / "),
+                replyText: draft,
+                moneyFlags: money.reasons,
+              }),
+              payload: { replyText: draft, reason: money.reasons.join("; "), moneyFlags: money.reasons, customerName: displayName(contact) },
+            },
+            deps.approvalDeps,
+          );
+          effects.approvals.push({ id: approval.id, shortCode: approval.shortCode, kind: "send_reply" });
+          effects.collected.approval_ids = [approval.id];
+          effects.links = effects.links.filter((l) => !draft.includes(l));
+          reply = `Good question - let me check with ${ownerLabel(facts)} and get right back to you.`;
+        }
       }
       if (firstAiMessage) reply = ensureDisclosure(reply, facts.businessName);
-      reply = fitLength(ensureLinks(reply, effects.links), effects.links);
+      const allowedLinks = [facts.bookingUrl, facts.website].filter((x): x is string => Boolean(x));
+      reply = fitLength(ensureLinks(reply, effects.links, allowedLinks), effects.links);
     }
 
     let sent = false;
