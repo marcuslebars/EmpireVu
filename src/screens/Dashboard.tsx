@@ -40,6 +40,7 @@ import type { DashboardActivityItem } from "@/lib/api-client";
 import { useBrand } from "@/lib/brand-context";
 import { SetupProgressCard } from "@/components/onboarding/SetupProgress";
 import { ApprovalsCard } from "@/components/approvals/ApprovalsCard";
+import { WeeklyFrontDeskCard } from "@/components/reports/WeeklyFrontDeskCard";
 
 const ONBOARDING_TOTAL_STEPS = 8;
 
@@ -323,9 +324,11 @@ export default function Dashboard() {
       <SetupChecklistCard orgId={organizationId} />
       <OnboardingChecklistCard orgId={organizationId} />
 
-      <CapturedByPlatformCard orgId={organizationId} companyId={companyId ?? undefined} />
-
       <ApprovalsCard orgId={organizationId} companyId={companyId ?? null} />
+
+      <WeeklyFrontDeskCard orgId={organizationId} companyId={companyId} />
+
+      <CapturedByPlatformCard orgId={organizationId} companyId={companyId ?? undefined} />
 
       {/* Error banners */}
       {summary.isError && (

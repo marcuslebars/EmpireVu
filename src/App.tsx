@@ -49,6 +49,7 @@ import ExpensesPage from "./screens/ExpensesPage";
 import ReviewsPage from "./screens/ReviewsPage";
 import ReportsAttributionPage from "./screens/ReportsAttributionPage";
 import ReportsMonthlyPage from "./screens/ReportsMonthlyPage";
+import ReportsWeeklyPage from "./screens/ReportsWeeklyPage";
 import SettingsPage from "./screens/SettingsPage";
 import NotFound from "./screens/NotFound";
 import ConciergeListPage from "./screens/concierge/ConciergeListPage";
@@ -495,6 +496,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <ReportsMonthlyPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reports/weekly"
+          element={
+            <ProtectedRoute>
+              <ReportsWeeklyPage />
             </ProtectedRoute>
           }
         />

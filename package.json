@@ -24,6 +24,7 @@
     "job:billing-reconcile": "tsx src/server/jobs/billing-reconcile.ts",
     "job:quote-maintenance": "tsx src/server/jobs/quote-maintenance.ts",
     "job:monthly-scorecard": "tsx src/server/jobs/monthly-scorecard.ts",
+    "job:weekly-report": "tsx src/server/jobs/weekly-report.ts",
     "job:seed-a1-recipes": "tsx src/server/jobs/seed-a1-recipes.ts",
     "job:import-a1-care": "tsx src/server/jobs/import-a1-care.ts",
     "job:backfill-stripe-capabilities": "tsx src/server/jobs/backfill-stripe-capabilities.ts",
