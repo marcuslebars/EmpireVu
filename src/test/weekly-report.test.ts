@@ -694,7 +694,15 @@ describe("AI texts counted from message_log.sent_by", () => {
         { contactId: "c-4", lastAiReplyAt: "2026-10-09T20:00:00.000Z" }, // a reply logged before sent_by existed
       ],
     };
-    const m = computeWeeklyMetrics({ scorecard: emptyScorecardInputs(), frontDesk, range, weekStart: WEEK, timeZone: TZ });
+    const withCommands = {
+      ...frontDesk,
+      approvals: [
+        { createdAt: "2026-10-06T14:00:00.000Z", status: "executed", decidedAt: "2026-10-06T14:10:00.000Z", kind: "custom_price" },
+        { createdAt: "2026-10-06T15:00:00.000Z", status: "executed", decidedAt: "2026-10-06T15:01:00.000Z", kind: "owner_command" }, // the owner's own "move Jamie" confirmation
+      ],
+    };
+    const m = computeWeeklyMetrics({ scorecard: emptyScorecardInputs(), frontDesk: withCommands, range, weekStart: WEEK, timeZone: TZ });
+    expect(m.approvals).toEqual({ asked: 1, approved: 1 });
     expect(m.textReplies).toBe(3);
     expect(m.textConversations).toBe(3);
   });

@@ -72,7 +72,8 @@ export interface FrontDeskInputs {
   conversations: Array<{ contactId?: string | null; lastAiReplyAt: string | null }>;
   /** Texts the AI sent (message_log.sent_by = 'sms_agent'). Optional for older fixtures. */
   aiTexts?: Array<{ contactId: string | null; at: string }>;
-  approvals: Array<{ createdAt: string; status: string; decidedAt: string | null }>;
+  /** owner_approvals rows. kind 'owner_command' (the owner confirming their own command) isn't the AI checking in. */
+  approvals: Array<{ createdAt: string; status: string; decidedAt: string | null; kind?: string }>;
   calls: Array<{ direction: string | null; at: string; durationMs: number | null; inVoicemail: boolean | null }>;
   invoicePayments: Array<{ receivedAt: string; amountCents: number; status: string }>;
   /** companies.hours, any stored shape. */
@@ -192,8 +193,9 @@ export function computeWeeklyMetrics(input: {
     if (inRange(c.lastAiReplyAt, fromMs, toMs)) talkedTo.add(c.contactId ? `c:${c.contactId}` : `v:${i}`);
   });
   const textConversations = talkedTo.size;
-  const approvalsAsked = frontDesk.approvals.filter((a) => inRange(a.createdAt, fromMs, toMs)).length;
-  const approvalsApproved = frontDesk.approvals.filter(
+  const aiApprovals = frontDesk.approvals.filter((a) => a.kind !== "owner_command");
+  const approvalsAsked = aiApprovals.filter((a) => inRange(a.createdAt, fromMs, toMs)).length;
+  const approvalsApproved = aiApprovals.filter(
     (a) => (a.status === "approved" || a.status === "executed") && inRange(a.decidedAt, fromMs, toMs),
   ).length;
 
@@ -307,14 +309,14 @@ export async function fetchFrontDeskInputs(
     ),
     tolerant(
       "owner_approvals",
-      db.from("owner_approvals").select("id, created_at, status, decided_at")
+      db.from("owner_approvals").select("id, kind, created_at, status, decided_at")
         .eq("organization_id", org).eq("company_id", companyId)
         .gte("created_at", range.from).lt("created_at", range.to)
         .limit(ROW_LIMIT),
     ),
     tolerant(
       "owner_approvals (decided)",
-      db.from("owner_approvals").select("id, created_at, status, decided_at")
+      db.from("owner_approvals").select("id, kind, created_at, status, decided_at")
         .eq("organization_id", org).eq("company_id", companyId)
         .gte("decided_at", range.from).lt("decided_at", range.to)
         .limit(ROW_LIMIT),
@@ -336,8 +338,8 @@ export async function fetchFrontDeskInputs(
     tolerant("companies.hours", db.from("companies").select("hours").eq("organization_id", org).eq("id", companyId).limit(1)),
   ]);
 
-  const approvalsById = new Map<string, { created_at: string; status: string; decided_at: string | null }>();
-  for (const row of [...approvalsCreated, ...approvalsDecided] as Array<{ id: string; created_at: string; status: string; decided_at: string | null }>) {
+  const approvalsById = new Map<string, { kind?: string; created_at: string; status: string; decided_at: string | null }>();
+  for (const row of [...approvalsCreated, ...approvalsDecided] as Array<{ id: string; kind?: string; created_at: string; status: string; decided_at: string | null }>) {
     approvalsById.set(row.id, row);
   }
 
@@ -347,7 +349,7 @@ export async function fetchFrontDeskInputs(
       lastAiReplyAt: row.last_ai_reply_at,
     })),
     aiTexts: (aiTexts as Array<{ contact_id: string | null; created_at: string }>).map((row) => ({ contactId: row.contact_id, at: row.created_at })),
-    approvals: [...approvalsById.values()].map((row) => ({ createdAt: row.created_at, status: row.status, decidedAt: row.decided_at })),
+    approvals: [...approvalsById.values()].map((row) => ({ createdAt: row.created_at, status: row.status, decidedAt: row.decided_at, kind: row.kind })),
     calls: (calls as Array<{ direction: string | null; created_at: string; duration_ms: number | null; in_voicemail: boolean | null }>).map(
       (row) => ({ direction: row.direction, at: row.created_at, durationMs: row.duration_ms, inVoicemail: row.in_voicemail }),
     ),
