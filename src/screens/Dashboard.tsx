@@ -39,6 +39,7 @@ import { relativeTime, formatCentsCompact, formatSeconds, formatPercent } from "
 import type { DashboardActivityItem } from "@/lib/api-client";
 import { useBrand } from "@/lib/brand-context";
 import { SetupProgressCard } from "@/components/onboarding/SetupProgress";
+import { WeeklyFrontDeskCard } from "@/components/reports/WeeklyFrontDeskCard";
 
 const ONBOARDING_TOTAL_STEPS = 8;
 
@@ -321,6 +322,8 @@ export default function Dashboard() {
 
       <SetupChecklistCard orgId={organizationId} />
       <OnboardingChecklistCard orgId={organizationId} />
+
+      <WeeklyFrontDeskCard orgId={organizationId} companyId={companyId} />
 
       <CapturedByPlatformCard orgId={organizationId} companyId={companyId ?? undefined} />
 

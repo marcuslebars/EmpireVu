@@ -404,6 +404,12 @@ export default function ReportsPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" asChild>
+            <Link to="/reports/weekly">
+              <CalendarCheck className="w-4 h-4 mr-2" />
+              Weekly front desk
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
             <Link to="/reports/monthly">
               <CalendarCheck className="w-4 h-4 mr-2" />
               Monthly results
