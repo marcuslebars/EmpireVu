@@ -162,6 +162,8 @@ export function planCompanyUpdate(
     // would never arrive there; the number from checkout stays our texting number).
     if (answers.phone.number !== company.owner_phone_e164 && answers.phone.kind !== "landline") {
       patch.owner_phone_e164 = answers.phone.number;
+      // The paying buyer gave it on their own setup form: verified (owner-channel/owner-phone.ts).
+      (patch as Record<string, unknown>).owner_phone_verified_at = new Date().toISOString();
       applied.push({ field: "owner_phone_e164", value: answers.phone.number, source: "intake" });
     }
     column("brand_reply_phone", company.brand_reply_phone, answers.phone.number, "intake");

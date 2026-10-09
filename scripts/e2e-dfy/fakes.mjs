@@ -78,6 +78,14 @@ function twilio(req, res, path, body) {
     capture({ kind: "sms", to: form.To, from: form.From, body: form.Body, sid: m.sid });
     return json(res, 201, m);
   }
+  // MMS media (Phase 1 front desk): GET …/Messages/MM…/Media/ME… → a small PNG (Basic auth required).
+  if (/\/Messages\/MM[0-9a-zA-Z]+\/Media\/ME[0-9a-zA-Z]+$/.test(p) && req.method === "GET") {
+    const auth = String(req.headers.authorization || "");
+    capture({ kind: "twilio_media", path: p, basicAuth: auth.startsWith("Basic ") });
+    if (!auth.startsWith("Basic ")) return json(res, 401, { code: 20003, message: "auth required" });
+    res.writeHead(200, { "content-type": "image/png" });
+    return res.end(LOGO);
+  }
   if (/\/Calls\.json$/.test(p) && req.method === "POST") {
     const c = { sid: sid("CA"), status: "queued", to: form.To, from: form.From };
     capture({ kind: "call", to: form.To, from: form.From, sid: c.sid, statusCallback: form.StatusCallback });
@@ -282,8 +290,154 @@ function siteCopyFromFacts(facts) {
   };
 }
 
+// ── Anthropic: the AI front desk (SMS agent + owner commands) ─────────────────
+// A scripted "model" that follows the tool-use protocol and builds every reply only from what
+// it was sent (tool results, the fenced conversation), so the driver can prove context flowed.
+function toolUse(model, uses, text) {
+  return {
+    id: sid("msg_"),
+    type: "message",
+    role: "assistant",
+    model,
+    content: [...(text ? [{ type: "text", text }] : []), ...uses.map((u, i) => ({ type: "tool_use", id: `toolu_${Date.now().toString(36)}_${seq++}_${i}`, name: u.name, input: u.input }))],
+    stop_reason: "tool_use",
+    stop_sequence: null,
+    usage: { input_tokens: 1500, output_tokens: 120, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+  };
+}
+
+/** [{name, input, result}] from the conversation so far. */
+function toolHistory(messages) {
+  const names = new Map();
+  const out = [];
+  for (const m of messages) {
+    if (!Array.isArray(m.content)) continue;
+    for (const b of m.content) {
+      if (b.type === "tool_use") names.set(b.id, { name: b.name, input: b.input });
+      if (b.type === "tool_result") {
+        const raw = typeof b.content === "string" ? b.content : (b.content ?? []).map((c) => c.text ?? "").join("");
+        let result = null;
+        try {
+          result = JSON.parse(raw.replace(/^<tool_data[^>]*>/, "").replace(/<\/tool_data>$/, ""));
+        } catch {
+          result = raw;
+        }
+        out.push({ ...(names.get(b.tool_use_id) ?? { name: "?" }), result });
+      }
+    }
+  }
+  return out;
+}
+
+function between(text, open, close) {
+  const i = text.indexOf(open);
+  const j = text.indexOf(close, i + open.length);
+  return i >= 0 && j > i ? text.slice(i + open.length, j) : "";
+}
+
+function smsAgent(request) {
+  const first = request.messages[0];
+  const blocks = Array.isArray(first.content) ? first.content : [{ type: "text", text: String(first.content) }];
+  const userText = blocks.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  const images = blocks.filter((b) => b.type === "image").length;
+  const newText = between(userText, "<customer_messages>", "</customer_messages>").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  const done = toolHistory(request.messages);
+  const did = (name) => done.find((d) => d.name === name);
+  const system = Array.isArray(request.system) ? request.system.map((s) => s.text).join("\n") : String(request.system ?? "");
+  const owner = (system.match(/The owner is ([A-Z][a-z]+)/) ?? [])[1] ?? null;
+  const fromCall = /Earlier phone call/.test(userText);
+  capture({ kind: "anthropic", purpose: "sms_agent", images, newText: newText.slice(0, 200), round: done.length, fromCall, sawCallSummary: /Phone call .*\(AI answered\)/.test(userText) });
+  const m = request.model;
+
+  if (images > 0) {
+    return anthropicText(m, "Thanks for the photo - that helps. We'll take a look and include it with your quote.");
+  }
+  if (/ridiculous|damaged|damage/i.test(newText)) {
+    if (!did("hand_off_to_owner")) return toolUse(m, [{ name: "hand_off_to_owner", input: { reason: "Complaint: says our crew damaged their lawn" } }]);
+    return anthropicText(m, `I'm sorry to hear that. I've passed this straight to ${owner ?? "the owner"}, who will contact you directly.`);
+  }
+  if (/do it for \$?\d+|for \$\d+/i.test(newText)) {
+    if (!did("request_owner_approval")) {
+      const ask = (newText.match(/\$\s?\d[\d,]*/) ?? ["a lower price"])[0];
+      return toolUse(m, [{ name: "request_owner_approval", input: { kind: "custom_price", summary: `Asks if we can do the seasonal double-driveway contract for ${ask}.`, job_description: "Seasonal snow contract, double driveway, Midland" } }]);
+    }
+    return anthropicText(m, `Let me check with ${owner ?? "the owner"} and get right back to you.`);
+  }
+  if (fromCall) {
+    let collected = {};
+    try {
+      collected = JSON.parse(between(userText, "Already collected: ", "\n").trim() || "{}");
+    } catch {
+      /* keep {} */
+    }
+    if (!did("get_price_list")) return toolUse(m, [{ name: "get_price_list", input: {} }]);
+    const list = did("get_price_list").result?.services ?? [];
+    const item = list.find((x) => /seasonal/i.test(x.name)) ?? list[0];
+    const name = collected.name ? String(collected.name).split(" ")[0] : "there";
+    return anthropicText(m, `Hi ${name}, following up on your call about ${collected.job ?? "your job"}${collected.address ? ` at ${collected.address}` : ""}: our ${String(item?.name ?? "seasonal contract").toLowerCase()} is ${item?.price ?? "on our price list"} + HST. Want me to send a quote you can approve online?`);
+  }
+  if (/how much|price|cost/i.test(newText)) {
+    if (!did("get_price_list")) return toolUse(m, [{ name: "get_price_list", input: {} }]);
+    const list = did("get_price_list").result?.services ?? [];
+    const item = list.find((x) => /seasonal/i.test(x.name) && /double/i.test(x.name)) ?? list.find((x) => /seasonal/i.test(x.name));
+    if (!did("quote_from_price_list") && item) return toolUse(m, [{ name: "quote_from_price_list", input: { lines: [{ service_key: item.service_key }] } }]);
+    const q = did("quote_from_price_list")?.result ?? {};
+    return anthropicText(m, `Our ${String(item?.name ?? "seasonal contract").replace(/ — /g, " - ").toLowerCase()} in Midland is ${q.subtotal_before_hst ?? item?.price} + HST (${q.total_with_hst ?? "?"} total). Want me to send you a quote you can approve online?`);
+  }
+  return anthropicText(m, "Thanks for the message - we'll get back to you shortly.");
+}
+
+function nextWeekdayDate(weekday, timeZone = "America/Toronto") {
+  // weekday: 0=Sun..6=Sat — the next one strictly after today (local).
+  const now = Date.now();
+  for (let d = 1; d <= 7; d++) {
+    const t = new Date(now + d * 86400000);
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(t).map((p) => [p.type, p.value]));
+    const wd = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(parts.weekday);
+    if (wd === weekday) return `${parts.year}-${parts.month}-${parts.day}`;
+  }
+  return null;
+}
+
+function ownerAgent(request) {
+  const body = typeof request.messages[0].content === "string" ? request.messages[0].content : (request.messages[0].content ?? []).map((c) => c.text ?? "").join(" ");
+  const done = toolHistory(request.messages);
+  const did = (name) => done.find((d) => d.name === name);
+  const m = request.model;
+  capture({ kind: "anthropic", purpose: "owner_agent", body: body.slice(0, 120), round: done.length });
+  if (/what'?s on tomorrow/i.test(body)) {
+    if (!did("list_bookings")) return toolUse(m, [{ name: "list_bookings", input: { when: "tomorrow" } }]);
+    const list = did("list_bookings").result?.bookings ?? [];
+    return anthropicText(m, list.length ? `Tomorrow: ${list.map((b) => `${b.when.split(", ").pop()} ${b.customer} - ${b.job}`).join("; ")}.` : "Nothing booked tomorrow.");
+  }
+  const move = body.match(/move (.+?) to (friday|monday|tuesday|wednesday|thursday|saturday)\s+(\d{1,2})(?::(\d{2}))?/i);
+  if (move) {
+    if (!did("find_customer")) return toolUse(m, [{ name: "find_customer", input: { query: move[1] } }]);
+    const c = (did("find_customer").result?.customers ?? []).find((x) => x.next_booking);
+    if (!c) return anthropicText(m, `I couldn't find a booking for ${move[1]}.`);
+    const wd = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].indexOf(move[2].toLowerCase());
+    const hour = String(Number(move[3]) < 7 ? Number(move[3]) + 12 : Number(move[3])).padStart(2, "0");
+    return toolUse(m, [{ name: "propose_reschedule", input: { booking_id: c.next_booking.booking_id, date: nextWeekdayDate(wd), time: `${hour}:${move[4] ?? "00"}` } }]);
+  }
+  const tell = body.match(/^tell (\w+)\s+(.+)$/i);
+  if (tell) {
+    if (!did("find_customer")) return toolUse(m, [{ name: "find_customer", input: { query: tell[1] } }]);
+    const c = (did("find_customer").result?.customers ?? [])[0];
+    if (!c) return anthropicText(m, `I couldn't find ${tell[1]}.`);
+    if (!did("text_customer")) {
+      const msg = tell[2].replace(/^(that )?we'?ll/i, "We'll").replace(/([^.!?])$/, "$1.");
+      return toolUse(m, [{ name: "text_customer", input: { contact_id: c.contact_id, message: msg } }]);
+    }
+    return anthropicText(m, `Sent to ${c.name}. The assistant will stay out of that conversation.`);
+  }
+  return anthropicText(m, "I can help with bookings, customers and approvals.");
+}
+
 function anthropic(req, res, path, body) {
   const request = JSON.parse(body || "{}");
+  const toolNames = (request.tools ?? []).map((t) => t.name);
+  if (toolNames.includes("quote_from_price_list")) return json(res, 200, smsAgent(request));
+  if (toolNames.includes("list_bookings")) return json(res, 200, ownerAgent(request));
   const system = Array.isArray(request.system) ? request.system.map((s) => s.text).join("\n") : String(request.system ?? "");
   const user = (request.messages ?? []).map((m) => (typeof m.content === "string" ? m.content : (m.content ?? []).map((c) => c.text ?? "").join("\n"))).join("\n");
   if (/services catalog/i.test(system)) {
@@ -314,7 +468,21 @@ function resend(req, res, path, body) {
   return json(res, 200, { id });
 }
 
+const control = { retellRegisterFail: false };
+const retellRegistered = [];
+
 function retell(req, res, path, body) {
+  if (path.startsWith("/v2/register-phone-call") && req.method === "POST") {
+    const reg = JSON.parse(body || "{}");
+    if (control.retellRegisterFail) {
+      capture({ kind: "retell_register", ok: false, agent_id: reg.agent_id });
+      return json(res, 503, { error: "fake: register disabled" });
+    }
+    const call_id = `call_e2e_${Date.now().toString(36)}${(++seq).toString(36)}`;
+    retellRegistered.push({ call_id, ...reg });
+    capture({ kind: "retell_register", ok: true, call_id, agent_id: reg.agent_id, from: reg.from_number, to: reg.to_number, vars: reg.retell_llm_dynamic_variables });
+    return json(res, 201, { call_id, agent_id: reg.agent_id, call_status: "registered" });
+  }
   capture({ kind: "retell", method: req.method, path, body: body.slice(0, 300) });
   return json(res, 200, { ok: true, llm_id: "llm_e2e", agent_id: "agent_e2e", phone_number: "+17055550177" });
 }
@@ -325,6 +493,11 @@ createServer(async (req, res) => {
     const url = req.url || "/";
     if (url.startsWith("/anthropic/")) return anthropic(req, res, url.slice("/anthropic".length), body);
     if (url === "/__health") return json(res, 200, { ok: true });
+    if (url === "/__control" && req.method === "POST") {
+      Object.assign(control, JSON.parse(body || "{}"));
+      return json(res, 200, control);
+    }
+    if (url === "/__retell/registered") return json(res, 200, retellRegistered);
     const host = req.headers["x-e2e-host"] || url.split("/")[1];
     const path = url.slice(1 + String(host).length) || "/";
     switch (host) {

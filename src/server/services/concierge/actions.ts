@@ -331,6 +331,9 @@ registerConciergeAction({
     }
     if (Object.keys(patch).length === 0) return { message: "Nothing changed.", audit: { changed: [] } };
     patch.updated_at = new Date(ctx.nowMs).toISOString();
+    // An operator who spoke to the buyer set this number: it's the verified owner phone (the
+    // owner channel only acts for verified numbers — owner-channel/owner-phone.ts).
+    if ("owner_phone_e164" in patch) (patch as Record<string, unknown>).owner_phone_verified_at = patch.owner_phone_e164 ? new Date(ctx.nowMs).toISOString() : null;
     const { error } = await ctx.admin
       .from("companies")
       .update(patch)

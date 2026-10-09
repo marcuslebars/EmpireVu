@@ -11,8 +11,7 @@ import { restrictAutomationsToTier } from "@/server/services/crankleads/tier-aut
 import { bookingHoursFromCompanyHours } from "@/server/services/dfy/hours";
 import { errorMessage } from "@/server/services/dfy/progress";
 import { currentNumber } from "@/server/services/dfy/numbers";
-import { getOnboardingProgress } from "@/server/services/onboarding";
-import { provisionPhoneForCompany } from "@/server/services/onboarding-provision";
+import { resyncReceptionistForContext } from "@/server/services/voice/resync";
 import type { RetellClient } from "@/server/services/retell/provision";
 import { updateReviewSettings } from "@/server/services/reviews/service";
 import { updateOnlineBookingSettings } from "@/server/services/scheduling/settings";
@@ -131,17 +130,10 @@ export async function rebuildReceptionist(
   if (tier !== "front_desk") return "not_front_desk";
   try {
     if (!(await currentNumber(ctx, companyId, "ai"))) return "number_pending";
-    const progress = await getOnboardingProgress(ctx, companyId);
-    const data = progress.find((p) => p.step === "phone")?.data;
-    const prior = data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
-    const str = (v: unknown) => (typeof v === "string" && v ? v : null);
-    if (!str(prior.llmId) || !str(prior.agentId) || !str(prior.phoneNumber)) return "number_pending";
-    await provisionPhoneForCompany(
-      ctx,
-      { companyId, existing: { llmId: str(prior.llmId), agentId: str(prior.agentId), phoneNumber: str(prior.phoneNumber) } },
-      retell,
-    );
-    return "rebuilt";
+    // Same idempotent update the concierge "Re-sync AI receptionist" action runs: prompt +
+    // tools + post-call analysis onto the existing LLM / agent / number (never a purchase).
+    const outcome = await resyncReceptionistForContext(ctx, companyId, retell);
+    return outcome.status === "resynced" ? "rebuilt" : "number_pending";
   } catch (err) {
     console.error(`[dfy/switch-on] receptionist rebuild for ${companyId}: ${errorMessage(err)}`);
     return "failed";

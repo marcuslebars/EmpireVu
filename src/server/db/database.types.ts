@@ -438,8 +438,297 @@ export interface Database {
         };
         Relationships: [];
       };
+      owner_approvals: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          contact_id: string | null;
+          conversation_id: string | null;
+          kind: string;
+          summary: string;
+          payload: Json;
+          status: string;
+          short_code: number | null;
+          requested_by: string;
+          notified_at: string | null;
+          decided_at: string | null;
+          decided_via: string | null;
+          decided_by: string | null;
+          result: Json | null;
+          expires_at: string | null;
+          created_at: string;
+          updated_at: string;
+          execution_claimed_at: string | null;
+          notified_to: string | null;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          contact_id?: string | null;
+          conversation_id?: string | null;
+          kind: string;
+          summary: string;
+          payload?: Json;
+          status?: string;
+          short_code?: number | null;
+          requested_by?: string;
+          notified_at?: string | null;
+          decided_at?: string | null;
+          decided_via?: string | null;
+          decided_by?: string | null;
+          result?: Json | null;
+          expires_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          execution_claimed_at?: string | null;
+          notified_to?: string | null;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          contact_id?: string | null;
+          conversation_id?: string | null;
+          kind?: string;
+          summary?: string;
+          payload?: Json;
+          status?: string;
+          short_code?: number | null;
+          requested_by?: string;
+          notified_at?: string | null;
+          decided_at?: string | null;
+          decided_via?: string | null;
+          decided_by?: string | null;
+          result?: Json | null;
+          expires_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          execution_claimed_at?: string | null;
+          notified_to?: string | null;
+        };
+        Relationships: [];
+      };
+      owner_phone_verifications: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          phone_e164: string;
+          code_hash: string;
+          attempts: number;
+          expires_at: string;
+          verified_at: string | null;
+          requested_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          phone_e164: string;
+          code_hash: string;
+          attempts?: number;
+          expires_at: string;
+          verified_at?: string | null;
+          requested_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          phone_e164?: string;
+          code_hash?: string;
+          attempts?: number;
+          expires_at?: string;
+          verified_at?: string | null;
+          requested_by?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      owner_command_log: {
+        Row: {
+          id: string;
+          organization_id: string | null;
+          company_id: string | null;
+          from_phone: string;
+          to_phone: string | null;
+          provider_ref: string | null;
+          body: string | null;
+          intent: string | null;
+          result: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id?: string | null;
+          company_id?: string | null;
+          from_phone: string;
+          to_phone?: string | null;
+          provider_ref?: string | null;
+          body?: string | null;
+          intent?: string | null;
+          result?: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string | null;
+          company_id?: string | null;
+          from_phone?: string;
+          to_phone?: string | null;
+          provider_ref?: string | null;
+          body?: string | null;
+          intent?: string | null;
+          result?: Json;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      platform_sms_opt_outs: {
+        Row: {
+          phone_e164: string;
+          opted_out_at: string | null;
+          opted_in_at: string | null;
+          source_ref: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          phone_e164: string;
+          opted_out_at?: string | null;
+          opted_in_at?: string | null;
+          source_ref?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          phone_e164?: string;
+          opted_out_at?: string | null;
+          opted_in_at?: string | null;
+          source_ref?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      sms_conversations: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          contact_id: string;
+          state: string;
+          ai_turns: number;
+          last_inbound_at: string | null;
+          last_ai_reply_at: string | null;
+          owner_takeover_at: string | null;
+          collected: Json;
+          summary: string | null;
+          last_error: string | null;
+          created_at: string;
+          updated_at: string;
+          lock_until: string;
+          lock_token: string | null;
+          last_handled_inbound_at: string | null;
+          recovery_attempts: number;
+          recovery_inbound_at: string | null;
+          recovery_alerted_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          contact_id: string;
+          state?: string;
+          ai_turns?: number;
+          last_inbound_at?: string | null;
+          last_ai_reply_at?: string | null;
+          owner_takeover_at?: string | null;
+          collected?: Json;
+          summary?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          lock_until?: string;
+          lock_token?: string | null;
+          last_handled_inbound_at?: string | null;
+          recovery_attempts?: number;
+          recovery_inbound_at?: string | null;
+          recovery_alerted_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          contact_id?: string;
+          state?: string;
+          ai_turns?: number;
+          last_inbound_at?: string | null;
+          last_ai_reply_at?: string | null;
+          owner_takeover_at?: string | null;
+          collected?: Json;
+          summary?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          lock_until?: string;
+          lock_token?: string | null;
+          last_handled_inbound_at?: string | null;
+          recovery_attempts?: number;
+          recovery_inbound_at?: string | null;
+          recovery_alerted_at?: string | null;
+        };
+        Relationships: [];
+      };
+      weekly_report_sends: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          week_start: string;
+          status: string;
+          channels: string[];
+          metrics: Json;
+          sent_at: string | null;
+          last_error: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          week_start: string;
+          status?: string;
+          channels?: string[];
+          metrics?: Json;
+          sent_at?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          week_start?: string;
+          status?: string;
+          channels?: string[];
+          metrics?: Json;
+          sent_at?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       companies: {
         Row: {
+          ai_settings: Json;
           google_place_id: string | null;
           google_rating: number | null;
           google_review_count: number | null;
@@ -493,8 +782,10 @@ export interface Database {
           service_area: string | null;
           digest: Json | null;
           monthly_scorecard: Json | null;
+          owner_phone_verified_at: string | null;
         };
         Insert: {
+          ai_settings?: Json;
           google_place_id?: string | null;
           google_rating?: number | null;
           google_review_count?: number | null;
@@ -548,8 +839,10 @@ export interface Database {
           service_area?: string | null;
           digest?: Json | null;
           monthly_scorecard?: Json | null;
+          owner_phone_verified_at?: string | null;
         };
         Update: {
+          ai_settings?: Json;
           google_place_id?: string | null;
           google_rating?: number | null;
           google_review_count?: number | null;
@@ -603,6 +896,7 @@ export interface Database {
           service_area?: string | null;
           digest?: Json | null;
           monthly_scorecard?: Json | null;
+          owner_phone_verified_at?: string | null;
         };
         Relationships: [];
       };
@@ -3030,6 +3324,7 @@ export interface Database {
       };
       message_log: {
         Row: {
+          media: Json | null;
           body: string | null;
           channel: string;
           company_id: string | null;
@@ -3046,8 +3341,10 @@ export interface Database {
           subject: string | null;
           to_addr: string | null;
           workflow_run_id: string | null;
+          sent_by: string | null;
         };
         Insert: {
+          media?: Json | null;
           body?: string | null;
           channel: string;
           company_id?: string | null;
@@ -3064,8 +3361,10 @@ export interface Database {
           subject?: string | null;
           to_addr?: string | null;
           workflow_run_id?: string | null;
+          sent_by?: string | null;
         };
         Update: {
+          media?: Json | null;
           body?: string | null;
           channel?: string;
           company_id?: string | null;
@@ -3082,6 +3381,7 @@ export interface Database {
           subject?: string | null;
           to_addr?: string | null;
           workflow_run_id?: string | null;
+          sent_by?: string | null;
         };
         Relationships: [];
       };
@@ -3592,6 +3892,36 @@ export interface Database {
         };
         Relationships: [];
       };
+      call_answering_notices: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          month: string;
+          kind: string;
+          sent_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          month: string;
+          kind: string;
+          sent_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          month?: string;
+          kind?: string;
+          sent_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       missed_calls: {
         Row: {
           call_sid: string;
@@ -3618,6 +3948,11 @@ export interface Database {
           transcription_text: string | null;
           updated_at: string;
           voicemail_at: string | null;
+          ai_followup_at: string | null;
+          ai_handoff_at: string | null;
+          ai_released_at: string | null;
+          ai_retell_call_id: string | null;
+          ai_urgent_alerted_at: string | null;
         };
         Insert: {
           call_sid: string;
@@ -3644,6 +3979,11 @@ export interface Database {
           transcription_text?: string | null;
           updated_at?: string;
           voicemail_at?: string | null;
+          ai_followup_at?: string | null;
+          ai_handoff_at?: string | null;
+          ai_released_at?: string | null;
+          ai_retell_call_id?: string | null;
+          ai_urgent_alerted_at?: string | null;
         };
         Update: {
           call_sid?: string;
@@ -3670,6 +4010,11 @@ export interface Database {
           transcription_text?: string | null;
           updated_at?: string;
           voicemail_at?: string | null;
+          ai_followup_at?: string | null;
+          ai_handoff_at?: string | null;
+          ai_released_at?: string | null;
+          ai_retell_call_id?: string | null;
+          ai_urgent_alerted_at?: string | null;
         };
         Relationships: [];
       };

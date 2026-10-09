@@ -19,6 +19,7 @@
 import { sendEmail } from "@/server/outbound/email";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { quotePublicBaseUrlFor } from "./config";
+import { withPlatformBrand } from "./public-url";
 import {
   renderDepositReceipt,
   renderExpiryReminder,
@@ -60,7 +61,8 @@ async function loadContext(quoteId: string): Promise<QuoteEmailContextRow | null
   const email = typeof contact?.email === "string" ? contact.email.trim() : "";
   return {
     quote,
-    company: company ?? null,
+    // + the org's platform brand: a CrankLeads company's quote link uses its neutral host.
+    company: company ? await withPlatformBrand(db, company) : null,
     recipient: email ? { email, firstName: contact?.first_name ?? null } : null,
   };
 }

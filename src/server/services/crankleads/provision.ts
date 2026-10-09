@@ -17,6 +17,7 @@ import { sendEmail as defaultSendEmail, type SendEmailInput, type SendEmailResul
 import { DeferBillingEventError } from "@/server/services/billing/defer";
 import { getAppBaseUrl } from "@/server/services/billing/env";
 import { createCompany, listCompanies, updateCompany } from "@/server/services/companies";
+import { setOwnerPhoneVerified } from "@/server/services/owner-channel/owner-phone";
 import {
   CRANKLEADS_SOURCE,
   CRANKLEADS_TIER_PLAN,
@@ -397,9 +398,11 @@ async function ensureCompany(ctx: TenantServiceContext, purchase: CrankleadsPurc
   }
   await updateCompany(ctx, companyId, {
     ownerEmail: purchase.owner_email,
-    ownerPhone: toE164(purchase.owner_phone),
     timezone: CRANKLEADS_DEFAULT_TIMEZONE,
   });
+  // The paying buyer's own number from checkout: the verified owner phone (owner-phone.ts).
+  const ownerPhone = toE164(purchase.owner_phone);
+  if (ownerPhone) await setOwnerPhoneVerified(ctx.supabase as unknown as Parameters<typeof setOwnerPhoneVerified>[0], { organizationId: ctx.organizationId, companyId, phone: ownerPhone });
   return companyId;
 }
 

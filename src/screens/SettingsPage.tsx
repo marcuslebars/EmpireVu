@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone, Send, Copy, Trash2, Mail, CreditCard, Landmark, Package, Receipt, ListChecks, Star, CalendarCheck, Globe, BookOpenCheck, AppWindow } from "lucide-react";
+import { useBrand } from "@/lib/brand-context";
+import { receptionistCopy } from "@/lib/platform-brand";
+import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone, Send, Copy, Trash2, Mail, CreditCard, Landmark, Package, Receipt, ListChecks, Star, CalendarCheck, Globe, BookOpenCheck, AppWindow, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
 import { useOrg } from "@/lib/org-context";
@@ -29,10 +31,13 @@ import { VisitSettings } from "@/components/settings/VisitSettings";
 import { OnlineBookingSettings } from "@/components/settings/OnlineBookingSettings";
 import { AccountingSettings } from "@/components/settings/AccountingSettings";
 import { WebsiteSettings } from "@/components/settings/WebsiteSettings";
+import { AiFrontDeskSettings } from "@/components/settings/AiFrontDeskSettings";
+import { AI_FRONT_DESK_SECTIONS } from "@/components/settings/ai-front-desk-sections";
 
 const sections = [
   { id: "org", label: "Organization", icon: Building2, description: "Manage organization name, slug, and companies" },
   { id: "packs", label: "Industry pack", icon: Package, description: "Apply a starter pack for your trade and price its services" },
+  { id: "front-desk", label: "AI front desk", icon: Bot, description: "Your assistant that answers customer texts and calls" },
   { id: "voice", label: "Voice (Marina)", icon: Phone, description: "Set each company's outbound agent, caller ID, and system prompt" },
   { id: "members", label: "Members & Permissions", icon: Users, description: "Manage team roles and access controls" },
   { id: "billing", label: "Billing & Plans", icon: CreditCard, description: "Manage your subscription and plan" },
@@ -388,6 +393,7 @@ function MembersSettings() {
 
 export default function SettingsPage() {
   const location = useLocation();
+  const brand = useBrand();
   const [active, setActive] = useState(() => {
     if (location.pathname.endsWith("/payments")) return "payments";
     if (location.pathname.endsWith("/invoices")) return "invoices";
@@ -417,7 +423,7 @@ export default function SettingsPage() {
               )}
             >
               <s.icon className="w-4 h-4 shrink-0" />
-              {s.label}
+              {receptionistCopy(s.label, brand)}
             </button>
           ))}
         </div>
@@ -428,6 +434,8 @@ export default function SettingsPage() {
             <OrganizationSettings />
           ) : active === "packs" ? (
             <IndustryPackSettings />
+          ) : active === "front-desk" ? (
+            <AiFrontDeskSettings sections={AI_FRONT_DESK_SECTIONS} />
           ) : active === "voice" ? (
             <VoiceSettings />
           ) : active === "members" ? (
@@ -459,7 +467,7 @@ export default function SettingsPage() {
               <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center mb-4">
                 {activeSection ? <activeSection.icon className="w-5 h-5 text-muted-foreground" /> : null}
               </div>
-              <h3 className="text-sm font-semibold text-foreground mb-1">{activeSection?.label}</h3>
+              <h3 className="text-sm font-semibold text-foreground mb-1">{activeSection ? receptionistCopy(activeSection.label, brand) : null}</h3>
               <p className="text-sm text-muted-foreground max-w-sm">{activeSection?.description}</p>
               <span className="mt-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
                 Coming soon

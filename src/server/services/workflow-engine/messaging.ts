@@ -2,6 +2,7 @@ import type { Inserts, Tables } from "@/server/db/database.types";
 import { sendEmail } from "@/server/outbound/email";
 import { sendSms } from "@/server/outbound/sms";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { isPlatformOptedOut } from "@/server/services/platform-opt-out";
 import { recordUsageSafe } from "@/server/services/usage";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 
@@ -217,6 +218,11 @@ export interface DeliverMessageInput {
    * own number from texting the owner its lead alerts.
    */
   smsFrom?: "company" | "platform";
+  /**
+   * Who wrote it, stored on message_log.sent_by — "sms_agent" for the AI front desk (the inbox
+   * labels those "Assistant"). Omit for staff / automation messages.
+   */
+  sentBy?: string | null;
 }
 
 export interface DeliverMessageResult {
@@ -238,6 +244,7 @@ export async function deliverMessage(input: DeliverMessageInput): Promise<Delive
     direction: "outbound" as const,
     provider: providerFor(channel),
     workflow_run_id: input.workflowRunId ?? null,
+    ...(input.sentBy ? { sent_by: input.sentBy } : {}),
   };
 
   if (!input.to) {
@@ -250,6 +257,13 @@ export async function deliverMessage(input: DeliverMessageInput): Promise<Delive
   if (!input.body.trim()) {
     await writeMessageLog(context, { ...base, body: input.body, status: "blocked", error: "empty_body" });
     return { status: "blocked", reason: "empty_body", body: input.body };
+  }
+
+  // A STOP to the platform number stops every platform text to that phone (owner channel,
+  // setup reminders, forwarding / page texts, the weekly report) — platform-opt-out.ts.
+  if (channel === "sms" && input.smsFrom === "platform" && (await isPlatformOptedOut(context.supabase, input.to))) {
+    await writeMessageLog(context, { ...base, body: input.body, status: "blocked", error: "platform_opted_out" });
+    return { status: "blocked", reason: "platform_opted_out", body: input.body };
   }
 
   // Consent — only for a known contact (owner/literal recipients are the author's choice).

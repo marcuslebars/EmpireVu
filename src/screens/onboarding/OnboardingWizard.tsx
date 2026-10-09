@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { receptionistCopy } from "@/lib/platform-brand";
 import {
   Building2, ClipboardList, Phone, CreditCard, Globe, PhoneCall, Users, Zap,
   Check, Loader2, ArrowRight, Upload, Sparkles, ExternalLink, X,
@@ -73,6 +74,7 @@ interface StepProps {
 
 // ── Step 1: Business ──────────────────────────────────────────────────────────
 function BusinessStep({ orgId, companyId, onDone }: StepProps) {
+  const brand = useBrand();
   const save = useSaveOnboardingBusiness(orgId);
   const [name, setName] = useState("");
   const [website, setWebsite] = useState("");
@@ -125,7 +127,7 @@ function BusinessStep({ orgId, companyId, onDone }: StepProps) {
 
   return (
     <div className="space-y-4 max-w-xl">
-      <p className="text-sm text-muted-foreground">Tell us about your business. This shapes Marina's script, your quotes, and your branding.</p>
+      <p className="text-sm text-muted-foreground">Tell us about your business. {receptionistCopy("This shapes Marina's script, your quotes, and your branding.", brand)}</p>
       <div>
         <label className={label}>Business name <span className="text-destructive">*</span></label>
         <input className={input} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., A1 Marine Care" />
@@ -245,6 +247,7 @@ function ServicesStep({ orgId, companyId, onDone }: StepProps) {
 
 // ── Step 3: Phone ─────────────────────────────────────────────────────────────
 function PhoneStep({ orgId, companyId, stepData, onDone }: StepProps) {
+  const brand = useBrand();
   const provision = useProvisionOnboardingPhone(orgId);
   const [areaCode, setAreaCode] = useState("");
   const existingNumber = typeof stepData.phoneNumber === "string" ? stepData.phoneNumber : null;
@@ -255,7 +258,7 @@ function PhoneStep({ orgId, companyId, stepData, onDone }: StepProps) {
     try {
       const r = await provision.mutateAsync({ companyId, areaCode: areaCode ? Number(areaCode) : undefined });
       setResult(r.phoneNumberPretty ?? r.phoneNumber);
-      toast.success(r.purchased ? "Number purchased & Marina is live" : "Marina is live on your number");
+      toast.success(receptionistCopy(r.purchased ? "Number purchased & Marina is live" : "Marina is live on your number", brand));
       onDone();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Provisioning failed.");
@@ -264,10 +267,10 @@ function PhoneStep({ orgId, companyId, stepData, onDone }: StepProps) {
 
   return (
     <div className="space-y-4 max-w-xl">
-      <p className="text-sm text-muted-foreground">Get a phone number answered by Marina, your AI receptionist — built from the business + services you just entered.</p>
+      <p className="text-sm text-muted-foreground">{brand.key === "crankleads" ? "Get a phone number answered by your AI receptionist — built from the business + services you just entered." : "Get a phone number answered by Marina, your AI receptionist — built from the business + services you just entered."}</p>
       {result ? (
         <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-4">
-          <p className="text-sm font-semibold text-emerald-400">Marina is answering</p>
+          <p className="text-sm font-semibold text-emerald-400">{receptionistCopy("Marina is answering", brand)}</p>
           <p className="text-2xl font-bold text-foreground tabular-nums mt-1">{result}</p>
         </div>
       ) : null}
@@ -277,9 +280,9 @@ function PhoneStep({ orgId, companyId, stepData, onDone }: StepProps) {
       </div>
       <button className={primaryBtn} disabled={!companyId || provision.isPending} onClick={() => void go()}>
         {provision.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
-        {result ? "Re-provision" : "Get my Marina number"}
+        {result ? "Re-provision" : receptionistCopy("Get my Marina number", brand)}
       </button>
-      <p className="text-[11px] text-muted-foreground/70">Already have a number you want to keep? You can port it later from Settings — for now, get a Marina number to try it.</p>
+      <p className="text-[11px] text-muted-foreground/70">Already have a number you want to keep? You can port it later from Settings — for now, {receptionistCopy("get a Marina number to try it.", brand)}</p>
     </div>
   );
 }
@@ -389,6 +392,7 @@ function WebsiteStep({ orgId, companyId, onDone }: StepProps) {
 
 // ── Step 6: Test call ─────────────────────────────────────────────────────────
 function TestCallStep({ orgId, onDone, phoneNumber }: StepProps & { phoneNumber?: string | null }) {
+  const brand = useBrand();
   const { data: activity } = useDashboardActivity(orgId, { limit: 15 }, { refetchInterval: 6000 });
   const number = phoneNumber ?? null;
   const recentCall = useMemo(
@@ -397,13 +401,13 @@ function TestCallStep({ orgId, onDone, phoneNumber }: StepProps & { phoneNumber?
   );
   const seen = useRef(false);
   useEffect(() => {
-    if (recentCall && !seen.current) { seen.current = true; toast.success("Call received — Marina answered!"); onDone(); }
+    if (recentCall && !seen.current) { seen.current = true; toast.success(receptionistCopy("Call received — Marina answered!", brand)); onDone(); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recentCall]);
 
   return (
     <div className="space-y-4 max-w-xl">
-      <p className="text-sm text-muted-foreground">Call your new number and have a quick chat with Marina. When the call lands, this step completes automatically and you'll see it in your inbox.</p>
+      <p className="text-sm text-muted-foreground">{receptionistCopy("Call your new number and have a quick chat with Marina.", brand)} When the call lands, this step completes automatically and you'll see it in your inbox.</p>
       {number ? (
         <div className="bg-card border border-border rounded-lg p-4">
           <p className="text-xs text-muted-foreground">Call this number now</p>
@@ -627,7 +631,7 @@ function SelfServeWizard() {
             <p className="text-sm text-muted-foreground mt-0.5">
               {brand.key === "crankleads"
                 ? "Your phone and website leads working in about 20 minutes."
-                : "A working Marina number + website leads in about 20 minutes."}
+                : receptionistCopy("A working Marina number + website leads in about 20 minutes.", brand)}
             </p>
           </div>
           <div className="flex items-center gap-2">

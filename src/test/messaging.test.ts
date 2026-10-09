@@ -215,3 +215,27 @@ describe("deliverMessage", () => {
     expect(messageLogInserts[0]).toMatchObject({ status: "blocked", error: "no_recipient" });
   });
 });
+
+describe("deliverMessage: platform-number opt-out", () => {
+  const optedOut = (phone: string, at: string | null) => ({ phone_e164: phone, opted_out_at: at, opted_in_at: null, source_ref: "SM1" });
+  const ctxFor = (db: ReturnType<typeof createFakeDb>) => ({ organizationId: "org-1", actorProfileId: null, supabase: db.client }) as never;
+
+  it("a platform text (setup reminder / weekly report / forwarding) to a phone that texted STOP to the platform number is blocked and logged", async () => {
+    const db = createFakeDb({ platform_sms_opt_outs: [optedOut("+17055550142", daysAgo(1))] });
+    const result = await deliverMessage({
+      context: ctxFor(db), channel: "sms", to: "(705) 555-0142", body: "CrankLeads: your week", companyId: "co-1", contactId: null, consentContact: null, smsFrom: "platform",
+    });
+    expect(result).toMatchObject({ status: "blocked", reason: "platform_opted_out" });
+    expect(sendSms).not.toHaveBeenCalled();
+    expect(db.tables.message_log?.[0]).toMatchObject({ status: "blocked", error: "platform_opted_out" });
+  });
+
+  it("does not block the company number (the opt-out is the platform number's) or a phone that opted back in", async () => {
+    const db = createFakeDb({ platform_sms_opt_outs: [optedOut("+17055550142", daysAgo(1)), optedOut("+17055550143", null)] });
+    const company = await deliverMessage({ context: ctxFor(db), channel: "sms", to: "+17055550142", body: "New lead", companyId: "co-1", contactId: null, consentContact: null });
+    expect(company.status).toBe("sent");
+    const back = await deliverMessage({ context: ctxFor(db), channel: "sms", to: "+17055550143", body: "hi", companyId: "co-1", contactId: null, consentContact: null, smsFrom: "platform" });
+    expect(back.status).toBe("sent");
+    expect(sendSms).toHaveBeenCalledTimes(2);
+  });
+});

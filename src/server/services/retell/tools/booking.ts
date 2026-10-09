@@ -123,6 +123,8 @@ export interface NewBooking {
   title: string;
   description: string;
   callId: string | null;
+  /** bookings.source; default "marina". */
+  source?: string;
 }
 
 const SAY_NO_CALENDAR =
@@ -158,9 +160,20 @@ export async function runAvailability(
 ): Promise<AvailabilityResponse> {
   const tenant = await deps.resolveBookingTenant(req);
   if (!tenant) return { ok: false, reason: "unsupported", say: SAY_NO_CALENDAR };
+  return availabilityForTenant(tenant, req.args, deps);
+}
 
-  const preferredDate = isValidDateString(req.args.preferred_date) ? req.args.preferred_date : null;
-  const preferredWindow = parseWindowKey(req.args.preferred_window, tenant.policy);
+/**
+ * The check_availability core for an already-resolved tenant — shared by the phone (Retell,
+ * tenant from the call) and the text-message agent (tenant from the company number).
+ */
+export async function availabilityForTenant(
+  tenant: BookingTenant,
+  args: AvailabilityArgs,
+  deps: BookingDeps = defaultBookingDeps,
+): Promise<AvailabilityResponse> {
+  const preferredDate = isValidDateString(args.preferred_date) ? args.preferred_date : null;
+  const preferredWindow = parseWindowKey(args.preferred_window, tenant.policy);
   const now = deps.now();
 
   try {
@@ -216,10 +229,32 @@ export type BookResponse =
 export async function runBook(req: RetellFunctionRequest<BookArgs>, deps: BookingDeps = defaultBookingDeps): Promise<BookResponse> {
   const tenant = await deps.resolveBookingTenant(req);
   if (!tenant) return { ok: false, reason: "unsupported", say: SAY_NO_CALENDAR };
+  return bookForTenant(tenant, req.args, deps, { callId: req.call.callId });
+}
 
-  const quoteId = text(req.args.quote_id);
-  const date = isValidDateString(req.args.date) ? (req.args.date as string) : null;
-  const windowKey = parseWindowKey(req.args.window, tenant.policy);
+export interface BookForTenantOptions {
+  /** The Retell call that books it (dedupes a repeated tool call); null off the phone. */
+  callId: string | null;
+  /** bookings.source — "marina" (default) or e.g. "sms_agent". */
+  source?: string;
+  /** First line of the booking description. Default: "Booked by <agent> on the phone." */
+  bookedBy?: string;
+}
+
+/**
+ * The book_wrap_date core for an already-resolved tenant (phone + text share it): the window
+ * must be open under the company's booking policy right now, the quote must be the company's.
+ */
+export async function bookForTenant(
+  tenant: BookingTenant,
+  args: BookArgs,
+  deps: BookingDeps = defaultBookingDeps,
+  options: BookForTenantOptions = { callId: null },
+): Promise<BookResponse> {
+  const callId = options.callId;
+  const quoteId = text(args.quote_id);
+  const date = isValidDateString(args.date) ? (args.date as string) : null;
+  const windowKey = parseWindowKey(args.window, tenant.policy);
   const missing: string[] = [];
   if (!quoteId) missing.push("quote_id");
   if (!date) missing.push("date");
@@ -234,8 +269,8 @@ export async function runBook(req: RetellFunctionRequest<BookArgs>, deps: Bookin
     if (!quote) return { ok: false, reason: "quote_not_found", say: SAY_QUOTE_NOT_FOUND };
 
     // Same call + same quote → same booking (a retried or repeated tool call).
-    if (req.call.callId) {
-      const existing = await deps.findBookingForCall(tenant, quote.id, req.call.callId);
+    if (callId) {
+      const existing = await deps.findBookingForCall(tenant, quote.id, callId);
       if (existing) return alreadyBooked(existing, tenant);
     }
 
@@ -264,13 +299,14 @@ export async function runBook(req: RetellFunctionRequest<BookArgs>, deps: Bookin
       window: check.window,
       title: bookingTitle(quote, contact),
       description: [
-        `Booked by ${tenant.agentName} on the phone.`,
+        options.bookedBy ?? `Booked by ${tenant.agentName} on the phone.`,
         `Quoted ${formatDollars(quote.subtotal_cents)} + HST${quote.quote_number ? ` (${quote.quote_number})` : ""}.`,
-        req.call.callId ? `Retell call ${req.call.callId}.` : null,
+        callId ? `Retell call ${callId}.` : null,
       ]
         .filter(Boolean)
         .join("\n"),
-      callId: req.call.callId,
+      callId,
+      ...(options.source ? { source: options.source } : {}),
     });
     if (duplicate) return alreadyBooked(booking, tenant);
 
@@ -537,7 +573,7 @@ export const defaultBookingDeps: BookingDeps = {
         duration_minutes: row.window.durationMinutes,
         status: "pending",
         window_key: row.window.windowKey,
-        source: "marina",
+        source: row.source ?? "marina",
         source_call_id: row.callId,
         created_by: null,
       })
@@ -565,7 +601,7 @@ export const defaultBookingDeps: BookingDeps = {
           bookingId: booking.id,
           scheduledFor: booking.scheduled_for,
           status: booking.status,
-          source: "marina",
+          source: row.source ?? "marina",
           window: row.window.windowKey,
           quoteId: row.quoteId,
         },

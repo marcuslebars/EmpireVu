@@ -133,6 +133,33 @@ describe("getConversationThread", () => {
   });
 });
 
+describe("getConversationThread — AI labels", () => {
+  it("marks messages the AI front desk sent with metadata.sentBy", async () => {
+    const thread = [
+      { id: "m1", kind: "message", direction: "outbound", metadata: { provider: "twilio" } },
+      { id: "m2", kind: "message", direction: "outbound", metadata: {} },
+      { id: "m3", kind: "message", direction: "inbound", metadata: {} },
+    ];
+    const supabase = {
+      rpc: () => Promise.resolve({ data: thread, error: null }),
+      from: () => {
+        const b = {
+          select: () => b,
+          eq: () => b,
+          in: (_c: string, ids: string[]) => {
+            expect(ids).toEqual(["m1", "m2"]);
+            return Promise.resolve({ data: [{ id: "m1", sent_by: "sms_agent" }, { id: "m2", sent_by: null }], error: null });
+          },
+        };
+        return b;
+      },
+    };
+    const items = await getConversationThread({ organizationId: "org-1", actorProfileId: "u", supabase } as never, "contact-1");
+    expect(items[0].metadata).toEqual({ provider: "twilio", sentBy: "sms_agent" });
+    expect(items[1].metadata).toEqual({});
+  });
+});
+
 describe("getInboxList", () => {
   it("applies needs-reply, company, and search filters and sorts by needs_reply then recency", async () => {
     const { context, calls } = makeContext({ inboxData: [] });
@@ -179,6 +206,22 @@ describe("sendContactMessage", () => {
       }),
     );
     expect(result.status).toBe("blocked");
+  });
+
+  it("a manual SMS that went out marks an owner takeover (the AI front desk steps back)", async () => {
+    const { context } = makeContext();
+    const markOwnerTakeover = vi.fn(async () => true);
+    await sendContactMessage(context, "contact-1", { channel: "sms", body: "On my way" }, { markOwnerTakeover });
+    expect(markOwnerTakeover).toHaveBeenCalledWith({ companyId: "co-1", contactId: "contact-1" });
+  });
+
+  it("no takeover when the SMS was blocked, or for email", async () => {
+    const { context } = makeContext();
+    const markOwnerTakeover = vi.fn(async () => true);
+    deliverMessage.mockResolvedValueOnce({ status: "blocked", reason: "opted_out", body: "hi" });
+    await sendContactMessage(context, "contact-1", { channel: "sms", body: "Hi" }, { markOwnerTakeover });
+    await sendContactMessage(context, "contact-1", { channel: "email", body: "Hi", subject: "Hi" }, { markOwnerTakeover });
+    expect(markOwnerTakeover).not.toHaveBeenCalled();
   });
 
   it("routes email to the contact's email address", async () => {

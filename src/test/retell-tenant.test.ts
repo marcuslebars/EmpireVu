@@ -102,3 +102,16 @@ describe("resolveRetellTenant", () => {
     expect(tenant.resolvedBy).toBe("legacy");
   });
 });
+
+describe("pinnedRetellTenant (AI-answered catcher calls, CrankLeads Front Desk numbers)", () => {
+  it("a non-A1 company is tagged with its own slug, so the phone lead is a valid envelope (contact created)", async () => {
+    const { pinnedRetellTenant } = await import("@/server/services/retell/tenant");
+    const { buildPhoneLeadEnvelope } = await import("@/server/services/retell/lead-adapter");
+    const { leadEnvelopeSchema } = await import("@/server/services/lead-intake/envelope");
+    const admin = fakeAdmin((table, f) => (table === "companies" && f.id === "co-9" ? { slug: "northshore-snow-lawn" } : null));
+    const tenant = await pinnedRetellTenant(admin, "org-9", "co-9");
+    expect(tenant).toEqual({ organizationId: "org-9", companyId: "co-9", sourceSite: "northshore-snow-lawn", resolvedBy: "number" });
+    const envelope = buildPhoneLeadEnvelope({ callId: "call_1", name: "Casey Morgan", fromNumber: "+17055550177", callSummary: "Wants a seasonal contract.", servicesRequested: [] } as never, tenant.sourceSite, "retell_voice_agent");
+    expect(leadEnvelopeSchema.safeParse(envelope).success).toBe(true);
+  });
+});

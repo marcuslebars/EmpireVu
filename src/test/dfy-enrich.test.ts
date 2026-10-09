@@ -182,6 +182,7 @@ describe("company facts: don't overwrite what the owner set", () => {
       business_phone_kind: "cell",
       business_phone_carrier: "rogers",
       owner_phone_e164: "+17055550199",
+      owner_phone_verified_at: expect.any(String), // the buyer's own setup form: verified
       brand_reply_phone: "+17055550199",
       profile: {
         tagline: "Roofing contractor in Barrie",

@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Phone, Loader2 } from "lucide-react";
+import { receptionistCopy } from "@/lib/platform-brand";
+import { useBrand } from "@/lib/brand-context";
 
 import { useCallContact } from "@/lib/api-hooks";
 import { toast } from "@/components/ui/sonner";
@@ -17,6 +19,7 @@ export interface VoicePanelContact {
  * reuses this as its quick-call control.)
  */
 export function VoicePanel({ orgId, contact }: { orgId: string; contact: VoicePanelContact }) {
+  const brand = useBrand();
   const call = useCallContact(orgId, contact.id);
   const [armed, setArmed] = useState(false);
   const hasPhone = Boolean(contact.phone?.trim());
@@ -26,7 +29,7 @@ export function VoicePanel({ orgId, contact }: { orgId: string; contact: VoicePa
     setArmed(false);
     try {
       await call.mutateAsync();
-      toast.success(`Marina is calling ${firstName}…`);
+      toast.success(receptionistCopy(`Marina is calling ${firstName}…`, brand));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't place the call.");
     }
@@ -71,9 +74,9 @@ export function VoicePanel({ orgId, contact }: { orgId: string; contact: VoicePa
     <button
       type="button"
       onClick={() => setArmed(true)}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[hsl(var(--accent-violet))]/10 text-[hsl(var(--accent-violet))] hover:bg-[hsl(var(--accent-violet))]/20 transition-colors active:scale-[0.97]"
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap bg-[hsl(var(--accent-violet))]/10 text-[hsl(var(--accent-violet))] hover:bg-[hsl(var(--accent-violet))]/20 transition-colors active:scale-[0.97]"
     >
-      <Phone className="w-3 h-3" /> Call with Marina
+      <Phone className="w-3 h-3" /> {receptionistCopy("Call with Marina", brand)}
     </button>
   );
 }

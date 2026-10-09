@@ -12,6 +12,8 @@
  */
 
 const DEFAULT_MODEL = "claude-opus-5";
+/** The AI front desk (customer texts, owner commands): fast and cheaper. Price it with AI_PRICE_SONNET_*. */
+export const FRONT_DESK_DEFAULT_MODEL = "claude-sonnet-5-5";
 
 export function getDraftsModel(): string {
   return process.env.AI_MODEL_DRAFTS?.trim() || DEFAULT_MODEL;
@@ -35,4 +37,21 @@ export function getHelpModel(): string {
  */
 export function getReceiptsModel(): string {
   return process.env.AI_MODEL_RECEIPTS?.trim() || DEFAULT_MODEL;
+}
+
+/**
+ * The AI front desk's text conversations with customers (sms-agent/, docs/front-desk-ai.md).
+ * A fast, cheaper model by default — replies must land within seconds. If you change it, set
+ * AI_PRICE_* to match so the usage ledger stays honest.
+ */
+export function getSmsAgentModel(): string {
+  return process.env.AI_MODEL_SMS_AGENT?.trim() || FRONT_DESK_DEFAULT_MODEL;
+}
+
+/**
+ * The owner's text commands ("what's on tomorrow", "move Jones to Friday") — owner-channel/
+ * agent.ts, docs/front-desk-ai.md "Owner by text". Same fast default as the SMS agent.
+ */
+export function getOwnerAgentModel(): string {
+  return process.env.AI_MODEL_OWNER_AGENT?.trim() || FRONT_DESK_DEFAULT_MODEL;
 }

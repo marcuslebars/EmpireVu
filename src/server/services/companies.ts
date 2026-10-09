@@ -105,7 +105,8 @@ export async function createCompany(
 const hexColor = z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Must be a #RRGGBB hex color");
 const httpsUrl = z.string().url().startsWith("https://", "Must be an https:// URL").max(500);
 
-// The business-profile fields the onboarding wizard (and settings) can write. Colors +
+// The business-profile fields the onboarding wizard (and settings) can write. NOT the owner's
+// cell (owner_phone_e164): that's the owner channel's identity — owner-channel/owner-phone.ts. Colors +
 // logo/website URLs are validated to match the companies check constraints so a bad value
 // gets a clean 400 rather than a Postgres error.
 export const updateCompanyInputSchema = z.object({
@@ -115,7 +116,6 @@ export const updateCompanyInputSchema = z.object({
   hours: z.record(z.string(), z.unknown()).nullable().optional(),
   serviceArea: z.string().max(500).nullable().optional(),
   ownerEmail: z.string().email().max(320).nullable().optional(),
-  ownerPhone: z.string().max(40).nullable().optional(),
   brandLogoUrl: httpsUrl.nullable().optional(),
   brandWebsiteUrl: httpsUrl.nullable().optional(),
   brandPrimaryColor: hexColor.nullable().optional(),
@@ -141,7 +141,6 @@ export async function updateCompany(
   if (input.hours !== undefined) updates.hours = (input.hours ?? null) as Json;
   if (input.serviceArea !== undefined) updates.service_area = input.serviceArea;
   if (input.ownerEmail !== undefined) updates.owner_email = input.ownerEmail;
-  if (input.ownerPhone !== undefined) updates.owner_phone_e164 = input.ownerPhone;
   if (input.brandLogoUrl !== undefined) updates.brand_logo_url = input.brandLogoUrl;
   if (input.brandWebsiteUrl !== undefined) updates.brand_website_url = input.brandWebsiteUrl;
   if (input.brandPrimaryColor !== undefined) updates.brand_primary_color = input.brandPrimaryColor;

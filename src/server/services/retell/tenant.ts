@@ -61,7 +61,22 @@ async function tenantFromCompany(
     .eq("id", companyId)
     .maybeSingle();
   const slug = (data as { slug: string } | null)?.slug ?? null;
-  return { organizationId, companyId, sourceSite: sourceSiteForCompanySlug(slug) ?? "" };
+  // A1 brands keep their legacy tag; every other company is tagged with its own slug (the
+  // lead envelope requires a non-empty sourceSite — an empty one made a pinned call's lead
+  // schema-invalid: no contact, so no consent check / conversation for the caller).
+  return { organizationId, companyId, sourceSite: sourceSiteForCompanySlug(slug) ?? slug ?? "retell" };
+}
+
+/**
+ * A tenant WE pinned (e.g. from the HMAC-verified metadata of an AI-answered catcher call —
+ * voice/ai-answer.ts readAnswerMetadata). Never call this with ids taken from unverified input.
+ */
+export async function pinnedRetellTenant(
+  admin: RetellAdminClient,
+  organizationId: string,
+  companyId: string,
+): Promise<RetellTenant> {
+  return { ...(await tenantFromCompany(admin, organizationId, companyId)), resolvedBy: "number" };
 }
 
 /**

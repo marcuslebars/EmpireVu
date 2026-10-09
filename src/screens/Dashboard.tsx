@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { receptionistCopy } from "@/lib/platform-brand";
 import {
   Calendar,
   CheckSquare,
@@ -39,6 +40,8 @@ import { relativeTime, formatCentsCompact, formatSeconds, formatPercent } from "
 import type { DashboardActivityItem } from "@/lib/api-client";
 import { useBrand } from "@/lib/brand-context";
 import { SetupProgressCard } from "@/components/onboarding/SetupProgress";
+import { ApprovalsCard } from "@/components/approvals/ApprovalsCard";
+import { WeeklyFrontDeskCard } from "@/components/reports/WeeklyFrontDeskCard";
 
 const ONBOARDING_TOTAL_STEPS = 8;
 
@@ -67,7 +70,7 @@ function OnboardingChecklistCard({ orgId }: { orgId: string }) {
     <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex items-center justify-between gap-4 opacity-0 animate-fade-in">
       <div className="min-w-0">
         <p className="text-sm font-semibold text-foreground">Finish setting up {brand.name}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{done} of {ONBOARDING_TOTAL_STEPS} steps done — get your Marina number and website leads live.</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{done} of {ONBOARDING_TOTAL_STEPS} steps done — {receptionistCopy("get your Marina number and website leads live.", brand)}</p>
         <div className="mt-2 h-1.5 w-48 max-w-full rounded-full bg-secondary overflow-hidden">
           <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${(done / ONBOARDING_TOTAL_STEPS) * 100}%` }} />
         </div>
@@ -228,6 +231,7 @@ function ActivityFeedItem({ item }: { item: DashboardActivityItem }) {
   const cfg = eventTypeConfig[item.eventType] ?? { label: item.eventType, color: "text-muted-foreground" };
   const companyName = item.company?.name ?? "";
   const navigate = useNavigate();
+  const brand = useBrand();
 
   const handleClick = () => {
     if (!item.entity) return;
@@ -247,7 +251,7 @@ function ActivityFeedItem({ item }: { item: DashboardActivityItem }) {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-foreground leading-snug">
-          <span className="font-medium">{cfg.label}</span>
+          <span className="font-medium">{receptionistCopy(cfg.label, brand)}</span>
           {item.entity && (
             <span className="text-foreground/70"> · {item.entity.label}</span>
           )}
@@ -321,6 +325,10 @@ export default function Dashboard() {
 
       <SetupChecklistCard orgId={organizationId} />
       <OnboardingChecklistCard orgId={organizationId} />
+
+      <ApprovalsCard orgId={organizationId} companyId={companyId ?? null} />
+
+      <WeeklyFrontDeskCard orgId={organizationId} companyId={companyId} />
 
       <CapturedByPlatformCard orgId={organizationId} companyId={companyId ?? undefined} />
 

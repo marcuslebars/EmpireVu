@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import {
-  Inbox, Search, MessageSquare, Mail, Phone, Loader2, ChevronDown, ChevronRight, Sparkles, FileText, Activity, Send,
+  Inbox, Search, MessageSquare, Mail, Phone, Loader2, ChevronDown, ChevronRight, Sparkles, FileText, Activity, Send, Bot,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/lib/org-context";
@@ -10,6 +11,7 @@ import { relativeTime } from "@/lib/format";
 import { EmptyState, ErrorBanner } from "@/components/ui/StateViews";
 import { toast } from "@/components/ui/sonner";
 import { VoicePanel } from "@/components/contact/VoicePanel";
+import { AssistantControl } from "@/components/inbox/AssistantControl";
 import { toChronological } from "@/lib/inbox-utils";
 import type { ConversationThreadItem, InboxRow } from "@/lib/api-client";
 
@@ -131,6 +133,11 @@ function ThreadItem({ item, orgId, contact }: { item: ConversationThreadItem; or
           )}
           <p className="text-sm whitespace-pre-wrap break-words">{item.body}</p>
           <div className={cn("flex items-center gap-1 mt-1", outbound ? "text-primary-foreground/70 justify-end" : "text-muted-foreground")}>
+            {["sms_agent", "voice_agent"].includes((item.metadata as { sentBy?: string } | null)?.sentBy ?? "") && (
+              <span className="flex items-center gap-0.5 text-[10px] font-semibold mr-1">
+                <Bot className="w-2.5 h-2.5" /> Assistant
+              </span>
+            )}
             <Icon className="w-2.5 h-2.5" />
             <span className="text-[10px]">
               {relativeTime(item.occurred_at)}
@@ -170,6 +177,7 @@ function ThreadItem({ item, orgId, contact }: { item: ConversationThreadItem; or
 
 function Composer({ orgId, contact }: { orgId: string; contact: InboxRow }) {
   const send = useSendContactMessage(orgId, contact.contact_id as string);
+  const qc = useQueryClient();
   const [channel, setChannel] = useState<"sms" | "email">(contact.contact_phone ? "sms" : "email");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -182,6 +190,8 @@ function Composer({ orgId, contact }: { orgId: string; contact: InboxRow }) {
       const result = await send.mutateAsync({ channel, body: body.trim(), subject: subject.trim() || undefined });
       if (result.status === "sent") {
         toast.success(channel === "sms" ? "SMS sent" : "Email sent");
+        // A manual text = you've taken over from the assistant (server marks it).
+        if (channel === "sms") void qc.invalidateQueries({ queryKey: ["front-desk", "assistant", orgId, contact.contact_id] });
         setBody("");
         setSubject("");
       } else if (result.status === "blocked") {
@@ -264,14 +274,17 @@ function ConversationPane({ orgId, row }: { orgId: string; row: InboxRow }) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border">
-        <div className="min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 border-b border-border">
+        <div className="min-w-0 flex-1 basis-40">
           <p className="text-sm font-semibold text-foreground truncate">{row.contact_name || "Unknown"}</p>
           <p className="text-[11px] text-muted-foreground truncate">
             {[row.contact_phone, row.contact_email, row.company_name].filter(Boolean).join(" · ") || "—"}
           </p>
         </div>
-        <VoicePanel orgId={orgId} contact={contact} />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <AssistantControl orgId={orgId} contactId={contactId} />
+          <VoicePanel orgId={orgId} contact={contact} />
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3">

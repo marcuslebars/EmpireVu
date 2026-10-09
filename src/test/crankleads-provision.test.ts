@@ -258,6 +258,8 @@ describe("checkout.session.completed (CrankLeads) → provisioned account", () =
       owner_email: BUYER,
       timezone: "America/Toronto",
     });
+    // The paying buyer's own number is the VERIFIED owner phone (owner texts work right away).
+    expect(company.owner_phone_verified_at).toBeTruthy();
     expect(p.company_id).toBe(company.id);
 
     // Roofing pack: services (unpriced, inactive) + Catch automations only.

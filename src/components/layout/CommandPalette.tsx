@@ -44,6 +44,7 @@ const NAV_ITEMS = [
   { label: "Reports", to: "/reports", icon: BarChart3, keywords: "reports revenue collected owed overdue jobs quotes win rate hours analytics" },
   { label: "Captured by {{product}}", to: "/reports/attribution", icon: BarChart3, keywords: "attribution revenue captured report analytics" },
   { label: "Monthly results", to: "/reports/monthly", icon: BarChart3, keywords: "scorecard monthly results leads jobs report" },
+  { label: "Weekly front desk report", to: "/reports/weekly", icon: BarChart3, keywords: "weekly front desk report calls texts hours saved" },
   { label: "Settings", to: "/settings", icon: SettingsIcon, keywords: "preferences organization" },
 ];
 

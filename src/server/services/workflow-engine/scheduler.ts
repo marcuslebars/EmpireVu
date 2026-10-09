@@ -6,6 +6,9 @@ import type { Json, Tables } from "@/server/db/database.types";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { sendDailyDigests } from "@/server/services/push/digest";
 import { processOwnerDigests } from "@/server/services/owner-digest";
+import { sweepOwnerApprovals } from "@/server/services/owner-channel/notify";
+import { sweepUnansweredTexts } from "@/server/services/sms-agent/entry";
+import { processWeeklyReports } from "@/server/services/weekly-report/send";
 import { runDoneForYouSweep } from "@/server/services/dfy/orchestrator";
 import { processSetupFollowups, SETUP_FOLLOWUP_INTERVAL_MS } from "@/server/services/crankleads/setup-followups";
 import { runGeneratedSitesPass } from "@/server/services/dfy/site-generator";
@@ -382,6 +385,7 @@ export async function runScheduler(
   await processOwnerDigests(admin, nowMs).catch((error) =>
     console.error("[scheduler] owner digest failed", error instanceof Error ? error.message : error),
   );
+  await guarded("weekly report", 0, () => processWeeklyReports(admin, nowMs)); // Monday 08:00 local; self-throttled (docs/front-desk-ai.md)
   // Missed-call catcher forwarding verification (docs/missed-call-catcher.md): finish stale
   // tests, then re-test catcher numbers on their schedule (weekdays 10–16 company time).
   // Self-guarded; never breaks the scheduler pass.
@@ -390,6 +394,8 @@ export async function runScheduler(
   );
   // Done-for-you CrankLeads: quick setup → enrichment → switch-on → page → follow-ups.
   await runDoneForYouPasses(admin, nowMs);
+  await guarded("owner approvals", null, () => sweepOwnerApprovals(admin, nowMs)); // expire + morning sends (docs/front-desk-ai.md)
+  await guarded("unanswered texts", null, () => sweepUnansweredTexts(admin, nowMs)); // re-run lost SMS-agent turns, else tell the owner once
   // Daily operator health email (docs/operator-health.md) — at/after 07:30 BUSINESS_TIMEZONE,
   // once per day (claimed in operator_health_reports before sending), throttled like the
   // follow-ups and self-guarded.
