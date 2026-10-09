@@ -199,7 +199,8 @@ export async function assertNumberClaimable(
   const pretty = prettyPhone(phone);
 
   const sharedSender = toE164(process.env.TWILIO_FROM_NUMBER);
-  if (sharedSender && phone === sharedSender) {
+  const platformLine = toE164(process.env.PLATFORM_SMS_NUMBER);
+  if ((sharedSender && phone === sharedSender) || (platformLine && phone === platformLine)) {
     throw new ValidationError(`${pretty} is the platform's shared SMS sender and can't be a catcher number.`);
   }
 

@@ -6,6 +6,7 @@
  * phone in this schema). Everything the owner channel reads or changes is scoped to the
  * companies that phone owns — never to an id that arrived in a text.
  */
+import { platformNumber } from "@/server/outbound/platform-number";
 import type { Tables } from "@/server/db/database.types";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
@@ -34,10 +35,7 @@ export function samePhone(a: string | null | undefined, b: string | null | undef
   return Boolean(x && y && x === y);
 }
 
-/** The deployment-wide platform number (TWILIO_FROM_NUMBER), if set. */
-export function platformNumber(): string | null {
-  return process.env.TWILIO_FROM_NUMBER?.trim() || null;
-}
+export { platformNumber };
 
 export function isPlatformNumber(to: string | null | undefined): boolean {
   const platform = platformNumber();

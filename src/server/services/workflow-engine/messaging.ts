@@ -1,3 +1,4 @@
+import { platformNumber } from "@/server/outbound/platform-number";
 import type { Inserts, Tables } from "@/server/db/database.types";
 import { sendEmail } from "@/server/outbound/email";
 import { sendSms } from "@/server/outbound/sms";
@@ -286,7 +287,7 @@ export async function deliverMessage(input: DeliverMessageInput): Promise<Delive
   let providerRef: string | null = null;
   try {
     if (channel === "sms") {
-      const from = input.smsFrom === "platform" ? null : await resolveCompanySmsFrom(context, companyId);
+      const from = input.smsFrom === "platform" ? platformNumber() : await resolveCompanySmsFrom(context, companyId);
       providerRef = (await sendSms(from ? { to: input.to, body, from } : { to: input.to, body })).sid;
     } else {
       providerRef = (
