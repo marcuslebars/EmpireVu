@@ -38,6 +38,10 @@ const bodySchema = z.object({ ai: z.boolean() }).strict();
 /**
  * "Take over" (ai: false → the owner has it for 72h, the AI stays quiet) or "Let AI handle it"
  * (ai: true). Any member may do this — it's the same as replying by hand.
+ *
+ * SANCTIONED EXCEPTION (service role): sms_conversations isn't client-writable. The contact is
+ * resolved first through the caller's RLS session (another org's contact → 403/404), then only
+ * that contact's own company + contact id are written (state / owner_takeover_at).
  */
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   return handleRoute(async () => {

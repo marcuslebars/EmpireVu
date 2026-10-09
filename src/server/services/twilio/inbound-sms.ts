@@ -178,6 +178,8 @@ const UNKNOWN_REPLY_WINDOW_S = 30 * 86_400;
 
 type CommandLogIntent = "stop" | "start" | "help" | "unknown_sender" | "owner_company_keyword";
 
+export const UNKNOWN_SENDER_BODY_CHARS = 200;
+
 /** Log a platform-number text we handle here (not an owner command). False = already logged. */
 async function logPlatformText(
   admin: AdminClient,
@@ -185,11 +187,13 @@ async function logPlatformText(
   intent: CommandLogIntent,
   extra: { organizationId?: string | null; companyId?: string | null; result?: Record<string, unknown> } = {},
 ): Promise<boolean> {
+  // A stranger's text isn't ours to keep in full (PIPEDA): 200 characters, pruned after 30 days.
+  const known = Boolean(extra.organizationId);
   const { error } = await admin.from("owner_command_log").insert({
     from_phone: fields.from,
     to_phone: fields.to,
     provider_ref: fields.messageSid,
-    body: fields.body,
+    body: known ? fields.body.slice(0, 2000) : fields.body.slice(0, UNKNOWN_SENDER_BODY_CHARS),
     intent,
     organization_id: extra.organizationId ?? null,
     company_id: extra.companyId ?? null,

@@ -127,5 +127,29 @@ export async function sweepOwnerApprovals(admin: AdminClient, nowMs: number = Da
     if ((await notifyOwnerOfApproval(admin, row.id, { nowMs })).notified) notified++;
   }
 
+  await pruneUnknownSenderLog(admin, nowMs);
   return { expired, notified };
+}
+
+/** Texts from phones that aren't owners are kept 30 days. */
+export const UNKNOWN_SENDER_LOG_DAYS = 30;
+let lastPruneMs = 0;
+
+/**
+ * Delete owner_command_log rows of unknown senders (no organization) older than 30 days. Runs
+ * from the approvals sweep at most hourly per process. Never throws.
+ */
+export async function pruneUnknownSenderLog(admin: AdminClient, nowMs: number = Date.now(), options: { force?: boolean } = {}): Promise<void> {
+  if (!options.force && nowMs - lastPruneMs < 3_600_000) return;
+  lastPruneMs = nowMs;
+  try {
+    const { error } = await admin
+      .from("owner_command_log")
+      .delete()
+      .is("organization_id", null)
+      .lt("created_at", new Date(nowMs - UNKNOWN_SENDER_LOG_DAYS * 86_400_000).toISOString());
+    if (error) throw error;
+  } catch (err) {
+    console.error("[owner-channel] pruning the unknown-sender log failed:", err instanceof Error ? err.message : err);
+  }
 }

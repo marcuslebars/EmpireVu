@@ -117,3 +117,22 @@ describe("owner phone identity", () => {
     expect(deliverMessage).not.toHaveBeenCalled();
   });
 });
+
+describe("strangers' texts to the platform number", () => {
+  it("keep only 200 characters, and are pruned after 30 days", async () => {
+    const { pruneUnknownSenderLog } = await import("@/server/services/owner-channel/notify");
+    const res = await handleOwnerInboundSms(db.client, { from: "+14165550000", to: "+16475550000", body: "x".repeat(500), media: [], providerRef: "SMs1", viaPlatformNumber: true, companyId: null });
+    expect(res.handled).toBe(false);
+    expect(String(db.tables.owner_command_log[0].body)).toHaveLength(200);
+    const now = Date.parse("2026-10-09T12:00:00Z");
+    db.tables.owner_command_log.push(
+      { id: "old-stranger", organization_id: null, from_phone: "+1416", created_at: new Date(now - 31 * 86_400_000).toISOString() },
+      { id: "old-owner", organization_id: "org-1", from_phone: OWNER, created_at: new Date(now - 31 * 86_400_000).toISOString() },
+    );
+    db.tables.owner_command_log[0].created_at = new Date(now - 86_400_000).toISOString();
+    await pruneUnknownSenderLog(db.client, now, { force: true });
+    expect(db.tables.owner_command_log.map((r) => r.id)).not.toContain("old-stranger");
+    expect(db.tables.owner_command_log.map((r) => r.id)).toContain("old-owner");
+    expect(db.tables.owner_command_log).toHaveLength(2);
+  });
+});

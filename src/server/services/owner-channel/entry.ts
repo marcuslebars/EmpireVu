@@ -32,7 +32,7 @@ interface Outcome {
 async function insertLog(admin: AdminClient, sms: InboundOwnerSms): Promise<{ id: string } | "duplicate"> {
   const { data, error } = await admin
     .from("owner_command_log")
-    .insert({ from_phone: sms.from, to_phone: sms.to, provider_ref: sms.providerRef, body: sms.body, intent: "received", company_id: sms.companyId, created_at: new Date().toISOString() })
+    .insert({ from_phone: sms.from, to_phone: sms.to, provider_ref: sms.providerRef, body: sms.body.slice(0, 2000), intent: "received", company_id: sms.companyId, created_at: new Date().toISOString() })
     .select("id")
     .single();
   if (error) {
@@ -309,6 +309,8 @@ export async function handleOwnerInboundSms(admin: AdminClient, sms: InboundOwne
 
   const owned = await findOwnerCompanies(admin, sms.from);
   if (owned.length === 0) {
+    // Not an owner: keep only the first 200 characters of a stranger's text (pruned after 30 days).
+    await admin.from("owner_command_log").update({ body: sms.body.slice(0, 200) }).eq("id", logged.id);
     await updateLog(admin, logged.id, { intent: "not_owner", reply: null, company: null });
     return { handled: false };
   }
