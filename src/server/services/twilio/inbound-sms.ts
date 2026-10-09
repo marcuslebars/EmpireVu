@@ -316,8 +316,12 @@ export async function handleInboundSms(payload: unknown): Promise<void> {
 
   const admin = createSupabaseAdminClient();
 
-  // Texts to the platform number (TWILIO_FROM_NUMBER) have no voice_numbers row.
-  if (isPlatformNumber(fields.to)) {
+  // Texts to the platform number (TWILIO_FROM_NUMBER) go to the owner channel — UNLESS that
+  // number is also a business's own line (an active voice_numbers row, e.g. a house org whose
+  // number predates the platform channel). A business's line always stays that business's:
+  // its customers' texts must reach it, never the "this number is for account owners" reply.
+  // (Its owner still reaches the owner channel below, via the owner-phone check.)
+  if (isPlatformNumber(fields.to) && !(await resolveSmsTenant(admin, fields.to))) {
     await handlePlatformInbound(admin, fields);
     return;
   }
