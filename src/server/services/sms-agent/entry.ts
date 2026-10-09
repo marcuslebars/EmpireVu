@@ -31,6 +31,7 @@ import {
   mergeCollected,
   releaseTurn,
   updateConversation,
+  updateConversationIf,
   type ConversationRow,
 } from "@/server/services/sms-agent/conversation";
 import { loadBusinessFacts, priceListAmounts, type BusinessFacts } from "@/server/services/sms-agent/facts";
@@ -257,6 +258,24 @@ async function runOneTurn(
   const newestAt = fresh[fresh.length - 1].at;
   const markHandled = (patch: Partial<ConversationRow> = {}) =>
     updateConversation(admin, conv.id, { last_handled_inbound_at: newestAt, last_inbound_at: newestAt, ...patch });
+  /** The owner may have taken over while the model was thinking: never overwrite that. */
+  const ownerTookOver = async (): Promise<boolean> => {
+    const now = await findConversation(admin, { companyId: conv.company_id, contactId: conv.contact_id });
+    if (!now) return true;
+    return now.state !== conv.state || (now.owner_takeover_at ?? null) !== (conv.owner_takeover_at ?? null);
+  };
+  /** Record the turn only if the conversation is still the AI's; otherwise just mark the texts handled. */
+  const finishIfStillOurs = async (patch: Partial<ConversationRow>): Promise<boolean> => {
+    const ok = await updateConversationIf(admin, conv.id, conv, { last_handled_inbound_at: newestAt, last_inbound_at: newestAt, ...patch });
+    if (!ok) {
+      await updateConversation(admin, conv.id, {
+        last_handled_inbound_at: newestAt,
+        ...(patch.last_ai_reply_at ? { last_ai_reply_at: patch.last_ai_reply_at } : {}),
+        ...(patch.collected ? { collected: patch.collected } : {}),
+      });
+    }
+    return ok;
+  };
 
   // "ok thanks" after a statement (not a question) needs no answer.
   const lastOut = [...history].reverse().find((m) => m.from !== "customer");
@@ -376,6 +395,13 @@ async function runOneTurn(
       reply = fitLength(ensureLinks(reply, effects.links, allowedLinks), effects.links);
     }
 
+    // The owner stepped in while the model was working (they texted the customer, or hit
+    // "Take over"): drop the AI's reply silently and leave the conversation with them.
+    if (await ownerTookOver()) {
+      await updateConversation(admin, conv.id, { last_handled_inbound_at: newestAt });
+      return { ran: true, replied: false, handedOff: false, failed: false };
+    }
+
     let sent = false;
     if (reply) {
       const delivery = await deps.services.textCustomer(admin, facts, contact, reply);
@@ -411,7 +437,8 @@ async function runOneTurn(
       return { ran: true, replied: sent, handedOff: true, failed: false };
     }
 
-    await markHandled({
+    // Conditional: a takeover that landed between the send and here wins (state stays 'owner').
+    await finishIfStillOurs({
       state: effects.ended ? "closed" : "ai",
       ai_turns: conv.ai_turns + 1,
       last_ai_reply_at: sent ? nowIso : conv.last_ai_reply_at,

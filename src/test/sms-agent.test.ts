@@ -1123,3 +1123,33 @@ describe("approval texts are built in code from what 'Y' will do", () => {
     expect(rec.texts).toHaveLength(0);
   });
 });
+
+describe("owner takeover mid-turn", () => {
+  it("the owner takes over while the model is thinking: the AI's reply is dropped and the state stays 'owner'", async () => {
+    const { sms } = inbound("Do you do driveways in Barrie?");
+    // The owner hits "Take over" (or texts the customer) while the model call is in flight.
+    const client: ModelClient = { async createMessage(params) { await markOwnerTakeover(db.client, { companyId: CO, contactId: CONTACT, at: new Date(clock + 500) }); return scripted([{ text: "Yes we do! Our seasonal contract is $650 + HST." }]).client.createMessage(params); } };
+    const outcome = await runSmsAgent(db.client, sms, deps(client));
+    expect(outcome.replied).toBe(false);
+    expect(rec.texts).toHaveLength(0);
+    expect(conversation().state).toBe("owner");
+    expect(conversation().owner_takeover_at).toBeTruthy();
+    expect(conversation().last_handled_inbound_at).toBeTruthy();
+  });
+
+  it("a takeover landing between the send and the bookkeeping isn't overwritten with 'ai'", async () => {
+    const { sms } = inbound("Hours?");
+    const model = scripted([{ text: "We're open Mon-Fri 8am-5pm." }]);
+    const services: Partial<AgentServices> = {
+      async textCustomer(_a, _f, contact, body) {
+        rec.texts.push({ to: contact.phone, body });
+        await markOwnerTakeover(db.client, { companyId: CO, contactId: CONTACT, at: new Date(clock + 500) });
+        return { status: "sent", providerRef: "SMx", body };
+      },
+    };
+    await runSmsAgent(db.client, sms, deps(model.client, {}, services));
+    expect(rec.texts).toHaveLength(1);
+    expect(conversation().state).toBe("owner");
+    expect(conversation().last_ai_reply_at).toBeTruthy();
+  });
+});

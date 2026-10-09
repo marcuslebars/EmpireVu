@@ -152,6 +152,24 @@ export async function updateConversation(
   if (error) throw error;
 }
 
+/**
+ * Update only if nobody took the conversation over meanwhile: state and owner_takeover_at must
+ * still be what the turn started with. Returns false (nothing written) when they changed — the
+ * owner stepped in mid-turn, and their takeover must not be overwritten with state 'ai'.
+ */
+export async function updateConversationIf(
+  admin: AdminClient,
+  conversationId: string,
+  expected: Pick<ConversationRow, "state" | "owner_takeover_at">,
+  patch: Partial<Omit<ConversationRow, "id" | "organization_id" | "company_id" | "contact_id" | "created_at">>,
+): Promise<boolean> {
+  let query = db(admin).from("sms_conversations").update(patch).eq("id", conversationId).eq("state", expected.state);
+  query = expected.owner_takeover_at ? query.eq("owner_takeover_at", expected.owner_takeover_at) : query.is("owner_takeover_at", null);
+  const { data, error } = await query.select("id");
+  if (error) throw error;
+  return ((data ?? []) as unknown[]).length === 1;
+}
+
 /** Shallow-merge into collected (arrays of ids are unioned). PURE. */
 export function mergeCollected(current: Record<string, unknown>, add: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...current };
