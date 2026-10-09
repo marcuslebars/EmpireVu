@@ -100,7 +100,7 @@ export interface AiUsageInput {
  * uncached input count). Zero-quantity kinds are skipped to keep the ledger clean.
  */
 export async function recordAiUsage(admin: AdminClient, input: AiUsageInput): Promise<void> {
-  const rates = aiRatesPerMTok();
+  const rates = aiRatesPerMTok(input.model);
   const provider = input.provider ?? "anthropic";
   const metadata = { model: input.model };
 

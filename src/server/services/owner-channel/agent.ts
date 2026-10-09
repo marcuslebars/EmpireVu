@@ -6,19 +6,16 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { extractAiUsage, isAIConfigured } from "@/server/ai/claude";
+import { getOwnerAgentModel } from "@/server/ai/config";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { recordAiUsageSafe } from "@/server/services/usage";
 import type { CompanyScope } from "./schedule";
 import { OWNER_TOOLS, runOwnerTool, type ToolRunState } from "./tools";
 
-const DEFAULT_OWNER_MODEL = "claude-sonnet-5-5";
 const MAX_ROUNDS = 6;
 const MAX_REPLY = 480;
 
-/** AI_MODEL_OWNER_AGENT (same pattern as src/server/ai/config.ts). */
-export function getOwnerAgentModel(): string {
-  return process.env.AI_MODEL_OWNER_AGENT?.trim() || DEFAULT_OWNER_MODEL;
-}
+export { getOwnerAgentModel };
 
 export const FALLBACK_HELP =
   "I can help with: what's on today/tomorrow, who's waiting on me, look up a customer, move or cancel a booking, text a customer (\"tell Dana we'll be there at 3\"), AI on/off, pause texts. Reply Y/N to approvals.";
