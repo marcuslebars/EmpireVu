@@ -10,6 +10,7 @@ import type { Tables } from "@/server/db/database.types";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { isPlatformOptedOut as isPlatformOptedOutShared } from "@/server/services/platform-opt-out";
 import { deliverMessage } from "@/server/services/workflow-engine/messaging";
 
 export const DEFAULT_TIMEZONE = "America/Toronto";
@@ -86,12 +87,7 @@ export async function isOwnerOfCompany(admin: AdminClient, phone: string, compan
 // ── Platform-number opt-out ──────────────────────────────────────────────────
 
 export async function isPlatformOptedOut(admin: AdminClient, phone: string): Promise<boolean> {
-  try {
-    const { data } = await admin.from("platform_sms_opt_outs").select("opted_out_at").eq("phone_e164", phone.trim()).maybeSingle();
-    return Boolean((data as { opted_out_at: string | null } | null)?.opted_out_at);
-  } catch {
-    return false;
-  }
+  return isPlatformOptedOutShared(admin, phone);
 }
 
 export async function setPlatformOptOut(admin: AdminClient, phone: string, optedOut: boolean, sourceRef: string | null): Promise<void> {
@@ -153,7 +149,8 @@ export interface OwnerSmsInput {
 
 /**
  * Text a business owner from the PLATFORM number (never the company number, so a STOP to it
- * can't block the company's own number). Respects the platform opt-out. Never throws.
+ * can't block the company's own number). Respects the platform opt-out (also enforced by
+ * deliverMessage for every platform sender). Never throws.
  */
 export async function sendOwnerSms(admin: AdminClient, input: OwnerSmsInput): Promise<{ status: "sent" | "failed" | "blocked"; reason?: string }> {
   try {
