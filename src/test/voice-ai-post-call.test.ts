@@ -41,7 +41,7 @@ vi.mock("@/server/services/workflow-engine/dispatch", () => ({
 
 import { ingestRetellCall, type RetellCallFields } from "@/server/services/retell/lead-adapter";
 import { buildAnswerMetadata, signAnswerToken } from "@/server/services/voice/ai-answer";
-import { buildFollowUpText, handleAnsweredCall, readAnswerDetails, runUrgentAlert } from "@/server/services/voice/post-call";
+import { buildFollowUpText, handleAnsweredCall, readAnswerDetails, runUrgentAlert, safeEcho } from "@/server/services/voice/post-call";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const COMPANY = "22222222-2222-4222-8222-222222222222";
@@ -264,6 +264,30 @@ describe("follow-up copy", () => {
     });
     expect(text).toBe("Hi there, it's Northshore Plumbing — sorry we couldn't finish your call. Book here: https://b.test/book/x or reply and we'll call you back.");
     expect(text).not.toMatch(/EmpireVu|CrankLeads/);
+  });
+});
+
+describe("caller speech in the follow-up text (the caller ID can be spoofed)", () => {
+  const details = (job: string, callbackTime: string | null = null) =>
+    readAnswerDetails({ customAnalysisData: { job_description: job, caller_name: "Jamie", ...(callbackTime ? { callback_time: callbackTime } : {}) }, callSummary: null, urgent: false, name: null, servicesRequested: [] });
+
+  it.each([
+    "claim your refund at bit.ly/xyz",
+    "go to https://evil.example now",
+    "email me at a@b.co",
+    "call 4165550000 for a free gift",
+    "$500 credit waiting",
+    "crankleads support",
+  ])("drops a risky job description: %s", (job) => {
+    const text = buildFollowUpText({ companyName: "Northshore Plumbing", details: details(job, "visit www.x.ca"), bookingUrl: null, tookMessage: true });
+    expect(text).toBe("Hi Jamie, thanks for calling Northshore Plumbing. We got your message — someone will call you back soon. Reply here if anything changes.");
+  });
+
+  it("keeps plain words", () => {
+    expect(safeEcho("leaking kitchen tap", 60)).toBe("leaking kitchen tap");
+    expect(safeEcho("after 3:30pm", 30)).toBe("after 3:30pm");
+    const text = buildFollowUpText({ companyName: "Northshore Plumbing", details: details("leaking kitchen tap", "this afternoon"), bookingUrl: null, tookMessage: true });
+    expect(text).toMatch(/We got your message about leaking kitchen tap — someone will call you back this afternoon\./);
   });
 });
 

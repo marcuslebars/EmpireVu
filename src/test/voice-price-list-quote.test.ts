@@ -124,12 +124,30 @@ describe("runPriceListQuote", () => {
     const d = deps();
     const res = await runPriceListQuote(req({ services: [{ name: "furnace tune-up" }, { name: "drain cleaning" }], caller_name: "Jamie Lee" }), d);
     expect(res).toMatchObject({ ok: true, quote_id: "q1", total_dollars: 338, texted: true });
-    expect(res.say).toBe("That comes to $338 plus HST for Furnace tune-up and Drain cleaning. I've just texted you the quote — you can approve it right from the link.");
+    expect(res.say).toBe("That comes to $338 plus HST for Furnace tune-up and Drain cleaning. I've just texted the quote to the number you're calling from — you can approve it right from the link.");
     expect(d.createAndSendQuote).toHaveBeenCalledWith(
       { organizationId: "org", companyId: "co" },
       expect.objectContaining({ services: [{ serviceId: "furnace_tune_up" }, { serviceId: "drain_cleaning" }], leadId: "lead_1", contactId: "c1" }),
     );
     expect(d.textQuoteLink).toHaveBeenCalledWith({ organizationId: "org", companyId: "co" }, expect.objectContaining({ phone: "+17055550123" }));
+  });
+
+  it("a number the caller SAYS is kept on the lead, but the quote is only texted to the caller ID", async () => {
+    const d = deps();
+    const res = await runPriceListQuote(req({ services: [{ name: "drain cleaning" }], caller_name: "Jamie", phone: "416-555-0000" }), d);
+    expect(res.ok).toBe(true);
+    expect((d.captureLead.mock.calls[0] as unknown as [{ args: { phone: string } }])[0].args.phone).toBe("+14165550000");
+    expect(d.textQuoteLink).toHaveBeenCalledTimes(1);
+    expect(d.textQuoteLink).toHaveBeenCalledWith({ organizationId: "org", companyId: "co" }, expect.objectContaining({ phone: "+17055550123", contactId: null }));
+  });
+
+  it("no caller ID → no text at all (the team sends the link)", async () => {
+    const d = deps();
+    const r = req({ services: [{ name: "drain cleaning" }], caller_name: "Jamie", phone: "416-555-0000" });
+    r.call.fromNumber = null as unknown as string;
+    const res = await runPriceListQuote(r, d);
+    expect(d.textQuoteLink).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ ok: true, texted: false });
   });
 
   it("ambiguous → asks, creates NOTHING", async () => {

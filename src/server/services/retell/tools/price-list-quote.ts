@@ -263,7 +263,11 @@ export async function runPriceListQuote(
     return { ok: false, reason: "clarify", questions: plan.questions, say: plan.questions.join(" ") };
   }
   const name = s(args.caller_name, 80);
-  const phone = toE164(s(args.phone, 30)) ?? toE164(call.fromNumber);
+  // The number the caller SAYS is kept on the lead (the team can call it back), but the quote is
+  // only ever texted to the number actually calling (caller ID): a caller can't make the
+  // business text arbitrary numbers.
+  const callerId = toE164(call.fromNumber);
+  const phone = toE164(s(args.phone, 30)) ?? callerId;
   if (!name || !phone) {
     const missing = [!name ? "their name" : null, !phone ? "a mobile number to text the quote to" : null].filter(Boolean).join(" and ");
     return { ok: false, reason: "missing_info", say: `Before I price it, I just need ${missing}.` };
@@ -320,10 +324,14 @@ export async function runPriceListQuote(
     );
     let texted = false;
     try {
-      texted = await deps.textQuoteLink(
-        { organizationId: tenant.organizationId, companyId: tenant.companyId },
-        { quote, phone, contactId: lead.contactId ?? quote.contact_id ?? null, companyName: null },
-      );
+      if (callerId) {
+        // Consent/opt-out is checked against the contact only when it IS the caller's number.
+        const contactId = phone === callerId ? lead.contactId ?? quote.contact_id ?? null : null;
+        texted = await deps.textQuoteLink(
+          { organizationId: tenant.organizationId, companyId: tenant.companyId },
+          { quote, phone: callerId, contactId, companyName: null },
+        );
+      }
     } catch (err) {
       console.error("[retell:price-quote] quote text failed:", err instanceof Error ? err.message : err);
     }
@@ -335,7 +343,7 @@ export async function runPriceListQuote(
       total_dollars: Math.round(quote.subtotal_cents) / 100,
       texted,
       say: `That comes to ${total} plus HST for ${plan.labels.join(" and ")}. ${
-        texted ? "I've just texted you the quote — you can approve it right from the link." : "The team will text you the quote link shortly."
+        texted ? "I've just texted the quote to the number you're calling from — you can approve it right from the link." : "The team will send you the quote link shortly."
       }`,
     };
   } catch (err) {

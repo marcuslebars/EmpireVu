@@ -113,7 +113,20 @@ function firstName(name: string | null): string | null {
   return /^[A-Za-zÀ-ÿ'’-]{2,30}$/.test(f) ? f : null;
 }
 
-/** The caller's follow-up text. Fixed templates; the caller's own words appear only trimmed. Pure. */
+/**
+ * Caller speech echoed into a text that goes to a (spoofable) caller ID: only plain words. A
+ * link, domain, email, long number, money or anything else odd → null (the template then uses a
+ * generic phrase), so a caller can't make the business text someone a link or an offer. PURE.
+ */
+export function safeEcho(raw: string | null | undefined, max: number): string | null {
+  const t = (raw ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return null;
+  if (/https?:|www\.|@|\b[a-z0-9-]+\.(?:com|ca|net|org|io|co|app|ly|me|info|biz|xyz|link|gl)\b|\$|%|\d{3,}|crank\s?leads|empire\s?vu/i.test(t)) return null;
+  if (!/^[A-Za-zÀ-ÿ0-9 ,.'’&/:()-]+$/.test(t)) return null;
+  return t.length > max ? `${t.slice(0, max - 3).trimEnd()}...` : t;
+}
+
+/** The caller's follow-up text. Fixed templates; the caller's own words appear only via safeEcho. Pure. */
 export function buildFollowUpText(input: {
   companyName: string;
   details: AnswerDetails;
@@ -131,11 +144,13 @@ export function buildFollowUpText(input: {
   if (input.details.urgency !== "normal") {
     return `${hi}, it's ${company}. Thanks for calling — we've flagged this as urgent and the team has been alerted. We'll call you back as soon as we can. Reply here if anything changes.`;
   }
-  const about = input.details.job ? ` about ${input.details.job.length > 60 ? `${input.details.job.slice(0, 57)}…` : input.details.job}` : "";
+  const job = safeEcho(input.details.job, 60);
+  const about = job ? ` about ${job}` : "";
   if (input.bookingUrl && input.details.wantsBookingLink && !input.details.wantsCallback) {
     return `${hi}, thanks for calling ${company}! Here's our booking link to pick a time: ${input.bookingUrl} — or just reply here with any questions.`;
   }
-  const when = input.details.callbackTime ? ` ${input.details.callbackTime.replace(/^(at|on)\s+/i, "")}` : " soon";
+  const callbackTime = safeEcho(input.details.callbackTime, 30);
+  const when = callbackTime ? ` ${callbackTime.replace(/^(at|on)\s+/i, "")}` : " soon";
   const link = input.bookingUrl && !input.details.wantsCallback ? ` You can also book here: ${input.bookingUrl}` : "";
   return `${hi}, thanks for calling ${company}. We got your message${about} — someone will call you back${when}.${link} Reply here if anything changes.`;
 }
