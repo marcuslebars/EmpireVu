@@ -132,7 +132,8 @@ export async function consumeLimit(admin: AdminClient, key: string, limit: numbe
 
 // ── Texting the owner ─────────────────────────────────────────────────────────
 
-const MAX_OWNER_SMS = 600;
+// Approval texts (≤440 + code + instruction + a business name) must never be cut.
+const MAX_OWNER_SMS = 700;
 
 /** "CrankLeads: " for CrankLeads orgs; nothing otherwise (never "EmpireVu"). */
 export function signaturePrefix(platformBrand: string | null | undefined): string {

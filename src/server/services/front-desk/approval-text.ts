@@ -14,7 +14,7 @@ import type { ApprovalKind } from "@/server/services/front-desk/contracts";
 /** A send_reply longer than this isn't put in front of the owner (shorten it, or hand off). */
 export const MAX_APPROVAL_REPLY_CHARS = 300;
 /** Budget for the whole owner text, before the platform prefix and the reply instruction. */
-const MAX_SUMMARY_CHARS = 500;
+const MAX_SUMMARY_CHARS = 440;
 
 /** Kinds where "Y $700" (a price note) means something. */
 export const PRICE_NOTE_KINDS = new Set<string>(["custom_price", "send_quote"]);

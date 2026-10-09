@@ -72,13 +72,14 @@ describe("one way to create an approval", () => {
       agentDeps,
     );
     const b = await createOwnerApproval(db.client, {
-      organizationId: ORG, companyId: CO, contactId: CONTACT, kind: "owner_command", summary: "Move Jamie to Fri 9am?", payload: {}, requestedBy: "owner_channel", expiresInMinutes: 30, notified: true,
+      organizationId: ORG, companyId: CO, contactId: CONTACT, kind: "owner_command", summary: "Move Jamie to Fri 9am?", payload: {}, requestedBy: "owner_channel", expiresInMinutes: 30, notifiedTo: "+17055550142",
     });
     expect(a.shortCode).toBe(1);
     expect(b.short_code).toBe(2);
     expect(rows()[0]).toMatchObject({ requested_by: "sms_agent", status: "pending", short_code: 1, notified_at: null });
     expect(rows()[1]).toMatchObject({ requested_by: "owner_channel", short_code: 2 });
     expect(rows()[1].notified_at).toBeTruthy();
+    expect(rows()[1].notified_to).toBe("+17055550142");
     expect(notified).toEqual([a.id]);
     // 24h for a price; 30 min for the owner's own confirmation.
     expect(Date.parse(String(rows()[0].expires_at)) - NOW.getTime()).toBe(24 * 3_600_000);

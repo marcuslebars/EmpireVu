@@ -460,6 +460,7 @@ export interface Database {
           created_at: string;
           updated_at: string;
           execution_claimed_at: string | null;
+          notified_to: string | null;
         };
         Insert: {
           id?: string;
@@ -482,6 +483,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
           execution_claimed_at?: string | null;
+          notified_to?: string | null;
         };
         Update: {
           id?: string;
@@ -504,6 +506,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
           execution_claimed_at?: string | null;
+          notified_to?: string | null;
         };
         Relationships: [];
       };

@@ -23,7 +23,8 @@ vi.mock("@anthropic-ai/sdk", () => ({
   },
 }));
 
-import { decideApproval, parseApprovalReply } from "@/server/services/owner-channel/approvals";
+import { nextShortCode } from "@/server/services/front-desk/approvals";
+import { decideApproval, looksLikeApprovalAttempt, parseApprovalReply } from "@/server/services/owner-channel/approvals";
 import { decideApprovalFromApp } from "@/server/services/owner-channel/app";
 import { handleOwnerInboundSms } from "@/server/services/owner-channel/entry";
 import { notifyOwnerOfApproval, sweepOwnerApprovals } from "@/server/services/owner-channel/notify";
@@ -47,6 +48,7 @@ function approval(over: Record<string, unknown>) {
     short_code: null,
     requested_by: "sms_agent",
     notified_at: "2026-10-07T13:00:00Z",
+    notified_to: OWNER,
     decided_at: null,
     decided_via: null,
     decided_by: null,
@@ -115,16 +117,42 @@ describe("parseApprovalReply", () => {
     ["Y 2", { approved: true, code: 2, note: null }],
     ["N2", { approved: false, code: 2, note: null }],
     ["Y but $700", { approved: true, code: null, note: "but $700" }],
-    ["N tell them next week", { approved: false, code: null, note: "tell them next week" }],
     ["y 3, but $700", { approved: true, code: 3, note: "but $700" }],
+    ["Y 2 $700", { approved: true, code: 2, note: "$700" }],
+    ["Y 700 + HST", { approved: true, code: null, note: "700 + HST" }],
+    ["y#12", { approved: true, code: 12, note: null }],
+    ["Yes!", { approved: true, code: null, note: null }],
+    ["nope", { approved: false, code: null, note: null }],
   ])("%s", (body, expected) => {
     expect(parseApprovalReply(body)).toEqual(expected);
   });
 
-  it("ignores commands", () => {
-    for (const body of ["what's on tomorrow", "Yesterday's jobs?", "Nothing on today?", "move Jones to Thursday"]) {
-      expect(parseApprovalReply(body)).toBeNull();
+  it("only the bare word (+ code) or a yes + one clear price is a decision", () => {
+    for (const body of [
+      "what's on tomorrow",
+      "Yesterday's jobs?",
+      "Nothing on today?",
+      "move Jones to Thursday",
+      "ok actually no, keep it",
+      "Ok what's on tomorrow",
+      "No worries, tell Jamie 9am works",
+      "N tell them next week",
+      "Y but tell them 9am",
+      "Y but about 700",
+      "N 2 too cheap",
+    ]) {
+      expect(parseApprovalReply(body), body).toBeNull();
     }
+  });
+
+  it("which non-decisions look like an attempt at one (we ask) vs a command", () => {
+    expect(looksLikeApprovalAttempt("ok actually no, keep it")).toBe(true);
+    expect(looksLikeApprovalAttempt("N tell them next week")).toBe(true);
+    expect(looksLikeApprovalAttempt("Y but tell them 9am")).toBe(true);
+    expect(looksLikeApprovalAttempt("Ok what's on tomorrow")).toBe(false);
+    expect(looksLikeApprovalAttempt("No worries, tell Jamie 9am works")).toBe(false);
+    expect(looksLikeApprovalAttempt("ok move Jones to Friday")).toBe(false);
+    expect(looksLikeApprovalAttempt("what's on tomorrow")).toBe(false);
   });
 });
 
@@ -143,30 +171,77 @@ describe("approvals by text", () => {
     expect(db.tables.owner_command_log[0]).toMatchObject({ intent: "approval_done", company_id: "co-1", organization_id: "org-1" });
   });
 
-  it("note passthrough: 'Y but $700' and 'N tell them next week'", async () => {
-    seed({ owner_approvals: [approval({ id: "a-1" })] });
+  it("a price note passes through; 'N tell them next week' is NOT a silent reject - we ask", async () => {
+    seed({ owner_approvals: [approval({ id: "a-1", short_code: 4 })] });
     await text("Y but $700");
     expect(executeApprovedAction.mock.calls[0][2]).toMatchObject({ approved: true, ownerNote: "but $700" });
 
-    seed({ owner_approvals: [approval({ id: "a-2" })] });
-    executeApprovedAction.mockResolvedValueOnce({ ok: true, message: "Told Dana you'll be in touch next week." });
+    seed({ owner_approvals: [approval({ id: "a-2", short_code: 5 })] });
     await text("N tell them next week");
-    expect(executeApprovedAction.mock.calls[1][2]).toMatchObject({ approved: false, ownerNote: "tell them next week" });
-    expect(db.tables.owner_approvals[0].status).toBe("rejected");
+    expect(executeApprovedAction).toHaveBeenCalledTimes(1);
+    expect(db.tables.owner_approvals[0].status).toBe("pending");
+    expect(lastReply()).toMatch(/Did you mean Y or N to #5 \(Quote for Dana.*\)\? Reply Y 5 or N 5/);
+  });
+
+  it("'ok actually no, keep it' asks; 'Ok what's on tomorrow' and 'No worries, tell Jamie 9am works' are commands", async () => {
+    seed({ owner_approvals: [approval({ id: "a-1", short_code: 3 })] });
+    await text("ok actually no, keep it");
+    expect(lastReply()).toMatch(/Did you mean Y or N to #3/);
+    await text("Ok what's on tomorrow");
+    await text("No worries, tell Jamie 9am works");
+    expect(executeApprovedAction).not.toHaveBeenCalled();
+    expect(db.tables.owner_approvals[0].status).toBe("pending");
+    expect(db.tables.owner_command_log.map((l) => l.intent)).toEqual(["approval_did_you_mean", "command", "command"]);
+  });
+
+  it("a price on a kind that can't take one asks instead of ignoring it", async () => {
+    seed({ owner_approvals: [approval({ id: "a-1", short_code: 7, kind: "book_job", summary: "Sam - book them for Fri 9am?" })] });
+    await text("Y $700");
+    expect(executeApprovedAction).not.toHaveBeenCalled();
+    expect(lastReply()).toMatch(/#7 \(Sam - book them for Fri 9am\?\) doesn't take a price\. Reply Y 7/);
+  });
+
+  it("only approvals already texted to THIS phone can be decided by text", async () => {
+    seed({
+      owner_approvals: [
+        approval({ id: "held", short_code: 8, notified_at: null, notified_to: null }), // held for quiet hours
+        approval({ id: "other-phone", short_code: 9, notified_to: "+14165550000" }),
+      ],
+    });
+    await text("Y");
+    expect(lastReply()).toMatch(/Nothing waiting on you/);
+    await text("Y 8");
+    expect(lastReply()).toMatch(/No #8 waiting/);
+    await text("Y 9");
+    expect(lastReply()).toMatch(/No #9 waiting/);
+    expect(executeApprovedAction).not.toHaveBeenCalled();
+  });
+
+  it("codes never recycle within a week; a stale code says what happened to it", async () => {
+    expect(nextShortCode([1, 2, 3])).toBe(4);
+    expect(nextShortCode([5])).toBe(6);
+    expect(nextShortCode([999, 1, 2])).toBe(3);
+    seed({ owner_approvals: [approval({ id: "a-1", short_code: 1, status: "executed" }), approval({ id: "a-2", short_code: 2, summary: "Book Sam." })] });
+    await text("Y 1");
+    expect(executeApprovedAction).not.toHaveBeenCalled();
+    expect(lastReply()).toMatch(/#1 was already approved: Quote for Dana/);
+    seed({ owner_approvals: [approval({ id: "a-1", short_code: 1, status: "expired" })] });
+    await text("N 1");
+    expect(lastReply()).toMatch(/#1 was already expired/);
   });
 
   it("several pending: a bare Y asks for the code; 'Y 2' runs that one", async () => {
     seed({
       owner_approvals: [
-        approval({ id: "a-1", summary: "Quote for Dana: $650." }),
-        approval({ id: "a-2", summary: "Book Sam Fri 9am.", kind: "book_job", created_at: "2026-10-07T13:30:00Z" }),
+        approval({ id: "a-1", short_code: 1, summary: "Quote for Dana: $650." }),
+        approval({ id: "a-2", short_code: 2, summary: "Book Sam Fri 9am.", kind: "book_job", created_at: "2026-10-07T13:30:00Z" }),
       ],
     });
     await text("Y");
     expect(executeApprovedAction).not.toHaveBeenCalled();
     expect(lastReply()).toMatch(/2 waiting/);
-    expect(lastReply()).toMatch(/1\) Quote for Dana/);
-    expect(lastReply()).toMatch(/2\) Book Sam/);
+    expect(lastReply()).toMatch(/#1 Quote for Dana/);
+    expect(lastReply()).toMatch(/#2 Book Sam/);
 
     await text("Y 2");
     expect(executeApprovedAction).toHaveBeenCalledTimes(1);
@@ -251,14 +326,15 @@ describe("notifyOwnerOfApproval + sweep", () => {
     expect(deliverMessage).toHaveBeenCalledTimes(1);
     const sent = deliverMessage.mock.calls[0][0] as { body: string; smsFrom: string; to: string };
     expect(sent).toMatchObject({ smsFrom: "platform", to: OWNER });
-    expect(sent.body).toBe("CrankLeads: Quote for Dana: $650 seasonal contract. Reply Y to approve, N to skip.");
+    expect(sent.body).toBe("CrankLeads: #1 Quote for Dana: $650 seasonal contract. Reply Y 1 $price (before HST) to send it, N 1 to skip.");
     expect(db.tables.owner_approvals[0].notified_at).toBeTruthy();
+    expect(db.tables.owner_approvals[0].notified_to).toBe(OWNER);
   });
 
-  it("adds the code when more than one is pending", async () => {
-    seed({ owner_approvals: [approval({ id: "a-0", short_code: 1 }), approval({ id: "a-1", notified_at: null, summary: "Book Sam Fri 9am." })] });
+  it("the code is always shown, with the instruction for the kind", async () => {
+    seed({ owner_approvals: [approval({ id: "a-0", short_code: 1 }), approval({ id: "a-1", notified_at: null, kind: "book_job", summary: "Sam - book them for Fri 9am?" })] });
     await notifyOwnerOfApproval(db.client, "a-1", { nowMs: NOW });
-    expect(lastReply()).toBe("CrankLeads: Book Sam Fri 9am. Reply Y 2 to approve, N 2 to skip.");
+    expect(lastReply()).toBe("CrankLeads: #2 Sam - book them for Fri 9am? Reply Y 2 to book it, N 2 to skip.");
   });
 
   it("a failed send releases the claim so the sweep retries", async () => {

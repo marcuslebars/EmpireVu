@@ -13,7 +13,8 @@ import type {
   ExecuteResult,
   OwnerApprovalRow,
 } from "@/server/services/front-desk/contracts";
-import { insertApproval } from "@/server/services/front-desk/approvals";
+import { insertApproval, nextShortCode, recentShortCodes } from "@/server/services/front-desk/approvals";
+import { parseOwnerNote } from "@/server/services/front-desk/owner-note";
 import { executeApprovedAction } from "@/server/services/sms-agent/approved";
 import { executeOwnerCommand, OWNER_COMMAND_KIND } from "./owner-commands";
 
@@ -24,26 +25,62 @@ type ApprovalDbRow = Tables<"owner_approvals">;
 export interface ParsedApprovalReply {
   approved: boolean;
   code: number | null;
+  /** Only ever a price ("$700", "but 700 + HST") — anything else isn't a decision. */
   note: string | null;
 }
 
-const YES_WORDS = new Set(["y", "yes", "yep", "yup", "ok", "okay", "approve", "approved"]);
-const NO_WORDS = new Set(["n", "no", "nope", "skip"]);
-const REPLY_RE = /^\s*([a-z]+?)\s*#?\s*(\d{1,2})?(?=$|[\s,.:;!\-–—])\s*[,.:;!\-–—]*\s*([\s\S]*)$/i;
+const YES_WORDS = ["y", "yes", "yep", "yup", "yeah", "ok", "okay", "approve", "approved"];
+const NO_WORDS = ["n", "no", "nope", "nah", "skip"];
+const WORD = `(${[...YES_WORDS, ...NO_WORDS].sort((a, b) => b.length - a.length).join("|")})`;
+/** The bare word + optional code: "Y", "yes!", "N 2", "y#12", "OK 3." */
+const BARE_RE = new RegExp(`^\\s*${WORD}\\s*#?\\s*(\\d{1,4})?\\s*[.!]*\\s*$`, "i");
+/** A yes-word + optional code + the rest (a price note, if it is one). */
+const WITH_NOTE_RE = new RegExp(`^\\s*${WORD}(?:\\s*#?\\s*(\\d{1,4})(?=$|[\\s,.:;!$-]))?\\s*[,.:;!-]*\\s*([\\s\\S]+)$`, "i");
 
 /**
- * "Y", "YES", "OK", "N", "NO", "Y 2", "N2", "Y but $700", "N tell them next week" → a decision.
- * Anything else → null (it's a command, not an approval reply).
+ * A decision is ONLY: the bare word (Y/YES/OK/N/NO and close variants) with an optional code,
+ * or a yes-word + optional code + one clear price ("Y but $700", "Y 2 $700", "Y $700 + HST").
+ * "ok actually no, keep it", "Ok what's on tomorrow", "No worries, tell Jamie 9am works" are NOT
+ * decisions (null) — they go to the command agent, or we ask (see looksLikeApprovalAttempt).
  */
 export function parseApprovalReply(body: string): ParsedApprovalReply | null {
-  const match = REPLY_RE.exec(body ?? "");
-  if (!match) return null;
-  const word = match[1].toLowerCase();
-  const approved = YES_WORDS.has(word) ? true : NO_WORDS.has(word) ? false : null;
-  if (approved === null) return null;
-  const code = match[2] ? Number.parseInt(match[2], 10) : null;
-  const note = match[3]?.trim() || null;
-  return { approved, code, note };
+  const text = (body ?? "").trim();
+  const bare = BARE_RE.exec(text);
+  if (bare) {
+    const word = bare[1].toLowerCase();
+    return { approved: YES_WORDS.includes(word), code: bare[2] ? Number.parseInt(bare[2], 10) : null, note: null };
+  }
+  const withNote = WITH_NOTE_RE.exec(text);
+  if (!withNote || !YES_WORDS.includes(withNote[1].toLowerCase())) return null;
+  const code = withNote[2] ? Number.parseInt(withNote[2], 10) : null;
+  const rest = withNote[3].trim();
+  if (parseOwnerNote(rest).kind === "price") return { approved: true, code, note: rest };
+  // "Y 700 + HST" — the digits were the price, not a code.
+  if (code != null && parseOwnerNote(`${withNote[2]} ${rest}`).kind === "price") return { approved: true, code: null, note: `${withNote[2]} ${rest}` };
+  return null;
+}
+
+const QUESTION_OR_IDIOM = /^(what|what's|whats|who|who's|when|where|how|why|is|are|do|does|can|could|any|worries|problem|prob|way|idea|clue|rush)\b/i;
+const ACTION = /^(move|cancel|reschedule|tell|text|send|list|show|pause|resume|stop|start|ai|book|find|call|remind|help)\b/i;
+
+/**
+ * Starts like an answer ("ok actually no, keep it", "Y but tell them 9am", "N tell them next
+ * week") but isn't a clean one: if something is waiting, we ask "Did you mean …?" instead of
+ * guessing. Questions and idioms ("Ok what's on tomorrow", "No worries, tell Jamie…") are
+ * commands, and so is "ok/okay" + an action ("ok move Jones to Friday"). PURE.
+ */
+export function looksLikeApprovalAttempt(body: string): boolean {
+  const text = (body ?? "").trim();
+  if (parseApprovalReply(text)) return false;
+  const m = new RegExp(`^\\s*${WORD}\\b\\s*#?\\s*\\d{0,4}\\s*([,.:;!-]*)\\s*([\\s\\S]*)$`, "i").exec(text);
+  if (!m) return false;
+  const word = m[1].toLowerCase();
+  const rest = m[3].trim();
+  if (!rest) return true;
+  if (text.includes("?") || QUESTION_OR_IDIOM.test(rest)) return false;
+  const afterFiller = rest.replace(/^(so|and|then|but|well|um|uh|actually)\b[\s,]*/i, "");
+  if ((word === "ok" || word === "okay") && ACTION.test(afterFiller)) return false;
+  return true;
 }
 
 // ── Rows ──────────────────────────────────────────────────────────────────────
@@ -85,18 +122,18 @@ export async function listPendingApprovals(admin: AdminClient, companyIds: strin
 }
 
 /**
- * Give every pending approval of a company a short code (lowest free 1..99), so the owner can
- * say "Y 2". Codes are unique among a company's pending rows (owner_approvals_short_code_open_idx);
- * a lost race just retries with the next free code.
+ * Give every pending approval of a company a short code (rows created before codes were
+ * assigned at insert). Same sequence as insertApproval: never a code used in the last 7 days.
  */
 export async function ensureShortCodes(admin: AdminClient, companyId: string): Promise<void> {
   const pending = await listPendingApprovals(admin, [companyId]);
-  const used = new Set(pending.map((r) => r.short_code).filter((c): c is number => typeof c === "number"));
+  if (pending.every((r) => r.short_code != null)) return;
+  const used = await recentShortCodes(admin, companyId, new Date());
   for (const row of pending) {
     if (row.short_code != null) continue;
     for (let attempt = 0; attempt < 3; attempt++) {
-      let code = 1;
-      while (used.has(code) && code < 99) code++;
+      const code = nextShortCode(used);
+      used.push(code);
       const { data, error } = await admin
         .from("owner_approvals")
         .update({ short_code: code })
@@ -104,7 +141,6 @@ export async function ensureShortCodes(admin: AdminClient, companyId: string): P
         .eq("status", "pending")
         .is("short_code", null)
         .select("id");
-      used.add(code);
       if (!error) {
         if ((data ?? []).length > 0) row.short_code = code;
         break;
@@ -122,8 +158,8 @@ export interface NewApprovalInput {
   payload: Record<string, unknown>;
   requestedBy: string;
   expiresInMinutes: number;
-  /** Set when the owner is being asked inline (an owner-command confirmation). */
-  notified?: boolean;
+  /** Set when the owner is being asked inline (an owner-command confirmation): the phone asked. */
+  notifiedTo?: string | null;
 }
 
 /** Create a pending approval with a short code (the shared insert — front-desk/approvals.ts). */
@@ -139,7 +175,8 @@ export async function createApproval(admin: AdminClient, input: NewApprovalInput
     requestedBy: input.requestedBy,
     createdAt: now,
     expiresAt: new Date(now.getTime() + input.expiresInMinutes * 60_000),
-    notifiedAt: input.notified ? now : null,
+    notifiedAt: input.notifiedTo ? now : null,
+    notifiedTo: input.notifiedTo ?? null,
   });
 }
 
@@ -212,7 +249,7 @@ export async function expireApproval(admin: AdminClient, row: ApprovalDbRow, now
     .eq("status", "pending")
     .select("*");
   const claimed = ((data ?? []) as ApprovalDbRow[])[0];
-  const message = `That one expired: ${row.summary}`;
+  const message = `#${row.short_code ?? "?"} expired before you answered, so nothing was done: ${clipLine(row.summary, 140)}`;
   if (!claimed) return { outcome: "already", approval: row, result: null, message };
   const decision: ApprovalDecision = { approved: false, ownerNote: null, decidedVia: "expiry", decidedBy: "system" };
   // An owner's own command confirmation that timed out needs no follow-up.
@@ -223,9 +260,7 @@ export async function expireApproval(admin: AdminClient, row: ApprovalDbRow, now
 }
 
 function alreadyLine(row: ApprovalDbRow): string {
-  const what =
-    row.status === "rejected" ? "skipped" : row.status === "expired" ? "expired" : row.status === "failed" ? "tried (it failed)" : "approved";
-  return `Already ${what}: ${row.summary}`;
+  return `#${row.short_code ?? "?"} was already ${statusWord(row.status)}: ${clipLine(row.summary, 140)}`;
 }
 
 /**
@@ -273,12 +308,24 @@ export async function decideApproval(
   return { outcome: "done", approval: settled, result, message: result.message?.trim() || fallback };
 }
 
-/** "1) Quote for Dana: $650 · 2) Book Sam Fri 9am" — for "which one?" replies. */
+function clipLine(text: string, max: number): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  return t.length > max ? `${t.slice(0, max - 3).trimEnd()}...` : t;
+}
+
+/** "#4 Dana Lee - send them a quote… · #5 Book Sam…" — for "which one?" replies (each line short). */
 export function listLine(rows: ApprovalDbRow[], companyNames?: Map<string, string>): string {
+  const each = rows.length > 3 ? 60 : 90;
   return rows
+    .slice(0, 6)
     .map((r) => {
       const where = companyNames && companyNames.size > 1 ? `${companyNames.get(r.company_id) ?? ""}: ` : "";
-      return `${r.short_code ?? "?"}) ${where}${r.summary}`;
+      return `#${r.short_code ?? "?"} ${where}${clipLine(r.summary, each)}`;
     })
     .join(" · ");
+}
+
+/** "approved" / "skipped" / … for a decided row. */
+export function statusWord(status: string): string {
+  return status === "rejected" ? "skipped" : status === "expired" ? "expired" : status === "failed" ? "tried (it failed)" : status === "superseded" ? "replaced" : status === "pending" ? "waiting" : "approved";
 }

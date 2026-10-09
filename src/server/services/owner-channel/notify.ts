@@ -1,6 +1,7 @@
 import type { Tables } from "@/server/db/database.types";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
-import { ensureShortCodes, expireApproval, isExpired, listPendingApprovals } from "./approvals";
+import { replyInstruction } from "@/server/services/front-desk/approval-text";
+import { ensureShortCodes, expireApproval, isExpired } from "./approvals";
 import { DEFAULT_TIMEZONE, findOwnerCompanies, isQuietHours, sendOwnerSms } from "./common";
 
 /**
@@ -47,7 +48,7 @@ export async function notifyOwnerOfApproval(admin: AdminClient, approvalId: stri
     // Claim: only one caller gets to send.
     const { data: claimed } = await admin
       .from("owner_approvals")
-      .update({ notified_at: new Date(nowMs).toISOString() })
+      .update({ notified_at: new Date(nowMs).toISOString(), notified_to: ownerPhone })
       .eq("id", row.id)
       .eq("status", "pending")
       .is("notified_at", null)
@@ -55,18 +56,19 @@ export async function notifyOwnerOfApproval(admin: AdminClient, approvalId: stri
     if ((claimed ?? []).length === 0) return { notified: false };
 
     await ensureShortCodes(admin, row.company_id);
+    const { data: fresh } = await admin.from("owner_approvals").select("short_code").eq("id", row.id).maybeSingle();
+    const code = (fresh as { short_code: number | null } | null)?.short_code ?? row.short_code ?? null;
     const owned = await findOwnerCompanies(admin, ownerPhone);
-    const companyIds = owned.length > 0 ? owned.map((c) => c.companyId) : [row.company_id];
-    const pending = await listPendingApprovals(admin, companyIds);
-    const self = pending.find((p) => p.id === row.id) ?? row;
-    const code = pending.length > 1 && self.short_code != null ? ` ${self.short_code}` : "";
     const where = owned.length > 1 ? `${company.name}: ` : "";
     const brand = owned.find((c) => c.companyId === row.company_id)?.platformBrand ?? null;
-    const body = `${where}${row.summary.trim()} Reply Y${code} to approve, N${code} to skip.`;
+    const payload = row.payload && typeof row.payload === "object" && !Array.isArray(row.payload) ? (row.payload as Record<string, unknown>) : {};
+    // The code is always shown (codes never repeat within a week), so a late "Y 12" can only
+    // ever mean this item.
+    const body = `${where}#${code ?? "?"} ${row.summary.trim()} ${replyInstruction(row.kind, code, payload)}`;
 
     const sent = await sendOwnerSms(admin, { to: ownerPhone, body, organizationId: row.organization_id, companyId: row.company_id, platformBrand: brand });
     if (sent.status === "failed") {
-      await admin.from("owner_approvals").update({ notified_at: null }).eq("id", row.id).eq("status", "pending");
+      await admin.from("owner_approvals").update({ notified_at: null, notified_to: null }).eq("id", row.id).eq("status", "pending");
       return { notified: false };
     }
     // "blocked" (owner opted out of platform texts): leave it claimed — it's on the app list.

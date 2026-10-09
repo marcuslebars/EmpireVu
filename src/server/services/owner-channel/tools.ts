@@ -290,7 +290,7 @@ async function proposeRescheduleTool(state: ToolRunState, input: Input) {
     payload: proposal.payload,
     requestedBy: "owner_command",
     expiresInMinutes: CONFIRM_MINUTES,
-    notified: true,
+    notifiedTo: state.ownerPhone,
   });
   return { ok: true, asked_owner: proposal.summary };
 }
@@ -309,7 +309,7 @@ async function proposeCancelTool(state: ToolRunState, input: Input) {
     payload: proposal.payload,
     requestedBy: "owner_command",
     expiresInMinutes: CONFIRM_MINUTES,
-    notified: true,
+    notifiedTo: state.ownerPhone,
   });
   return { ok: true, asked_owner: proposal.summary };
 }

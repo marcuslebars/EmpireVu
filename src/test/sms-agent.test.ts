@@ -407,8 +407,8 @@ describe("runSmsAgent — needs the owner", () => {
     expect(rec.quotes).toHaveLength(0);
   });
 
-  it("a second open approval gets the next short code", () => {
-    expect(nextShortCode([1, 3, null])).toBe(2);
+  it("a second approval gets the next short code (codes don't recycle)", () => {
+    expect(nextShortCode([1, 3, null])).toBe(4); // one more than the highest used this week — never a recycled code
     expect(nextShortCode([])).toBe(1);
   });
 

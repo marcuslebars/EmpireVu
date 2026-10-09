@@ -3,8 +3,10 @@ import { toJson } from "@/server/db/json";
 import type { AdminClient, InboundOwnerSms } from "@/server/services/front-desk/contracts";
 import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
 import { runOwnerCommandAgent } from "./agent";
-import { decideApproval, ensureShortCodes, isExpired, listLine, listPendingApprovals, parseApprovalReply, type ParsedApprovalReply } from "./approvals";
-import { consumeLimit, findOwnerCompanies, sendOwnerSms, type OwnerCompany } from "./common";
+import { PRICE_NOTE_KINDS } from "@/server/services/front-desk/approval-text";
+import { SHORT_CODE_REUSE_MS } from "@/server/services/front-desk/approvals";
+import { decideApproval, isExpired, listLine, looksLikeApprovalAttempt, parseApprovalReply, type ParsedApprovalReply } from "./approvals";
+import { consumeLimit, findOwnerCompanies, samePhone, sendOwnerSms, type OwnerCompany } from "./common";
 import { OWNER_COMMAND_KIND } from "./owner-commands";
 
 /** Texts per phone per hour we'll act on at all, and model-backed commands per hour. */
@@ -117,6 +119,30 @@ function pickFromAsk(body: string, optionIds: string[], owned: OwnerCompany[]): 
 
 // ── Approvals ─────────────────────────────────────────────────────────────────
 
+function clip(text: string, max: number): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  return t.length > max ? `${t.slice(0, max - 3).trimEnd()}...` : t;
+}
+
+/**
+ * Approvals this phone was actually asked about (notified_to), in the last 7 days, any status,
+ * newest first. A text can only decide one of these: an approval still held for quiet hours, or
+ * one sent to a different phone, can't be approved by a "Y" it never saw.
+ */
+async function approvalsAskedOf(admin: AdminClient, companyIds: string[], phone: string, nowMs: number): Promise<ApprovalDbRow[]> {
+  if (companyIds.length === 0) return [];
+  const { data, error } = await admin
+    .from("owner_approvals")
+    .select("*")
+    .in("company_id", companyIds)
+    .not("notified_at", "is", null)
+    .gte("created_at", new Date(nowMs - SHORT_CODE_REUSE_MS).toISOString())
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) throw error;
+  return ((data ?? []) as ApprovalDbRow[]).filter((r) => samePhone(r.notified_to, phone) && Date.parse(r.notified_at as string) <= nowMs);
+}
+
 async function handleApproval(
   admin: AdminClient,
   sms: InboundOwnerSms,
@@ -125,54 +151,65 @@ async function handleApproval(
   hint: OwnerCompany | null,
   originalBody: string,
   nowMs: number,
-): Promise<Outcome | null> {
+): Promise<Outcome> {
   const scope = hint ? [hint] : owned;
-  for (const c of scope) await ensureShortCodes(admin, c.companyId);
-  const pending = await listPendingApprovals(admin, scope.map((c) => c.companyId));
-  const live = pending.filter((p) => !isExpired(p, nowMs));
+  const asked = await approvalsAskedOf(admin, scope.map((c) => c.companyId), sms.from, nowMs);
+  const live = asked.filter((p) => p.status === "pending" && !isExpired(p, nowMs)).reverse(); // oldest first for lists
   const names = new Map(owned.map((c) => [c.companyId, c.name]));
   const companyOf = (row: ApprovalDbRow) => owned.find((c) => c.companyId === row.company_id) ?? null;
-
-  if (pending.length === 0) {
-    // "No, move Jones to Friday" with nothing pending is a command, not an answer.
-    if (parsed.note) return null;
-    return { intent: "approval_none", reply: "Nothing waiting on you right now.", company: hint ?? (owned.length === 1 ? owned[0] : null) };
-  }
+  const fallbackCompany = hint ?? (owned.length === 1 ? owned[0] : null);
 
   let target: ApprovalDbRow | null = null;
   if (parsed.code != null) {
-    const matches = pending.filter((p) => p.short_code === parsed.code);
+    let matches = asked.filter((p) => p.short_code === parsed.code);
     if (matches.length === 0) {
       return {
         intent: "approval_unknown_code",
-        reply: `No #${parsed.code} waiting. ${live.length > 0 ? `Waiting: ${listLine(live, names)}` : "Nothing else is waiting."}`,
-        company: hint,
+        reply: `No #${parsed.code} waiting on you. ${live.length > 0 ? `Waiting: ${listLine(live, names)}` : "Nothing else is waiting."}`,
+        company: fallbackCompany,
       };
     }
+    // The newest row per company holds the code (codes aren't reused within the lookback).
+    const perCompany = new Map<string, ApprovalDbRow>();
+    for (const m of matches) if (!perCompany.has(m.company_id)) perCompany.set(m.company_id, m);
+    matches = [...perCompany.values()];
     if (matches.length > 1) {
-      const named = parsed.note ? companyNamedIn(parsed.note, owned) : null;
-      target = named ? matches.find((m) => m.company_id === named.companyId) ?? null : null;
-      if (!target) {
-        const options = matches.map((m) => companyOf(m)).filter((c): c is OwnerCompany => Boolean(c));
-        return { intent: "ask_company", reply: askWhichBusiness(options), company: null, result: { originalBody, options: options.map((c) => c.companyId) } };
-      }
-    } else target = matches[0];
+      const pendingOnes = matches.filter((m) => m.status === "pending");
+      if (pendingOnes.length === 1) matches = pendingOnes;
+    }
+    if (matches.length > 1) {
+      const options = matches.map((m) => companyOf(m)).filter((c): c is OwnerCompany => Boolean(c));
+      return { intent: "ask_company", reply: askWhichBusiness(options), company: null, result: { originalBody, options: options.map((c) => c.companyId) } };
+    }
+    target = matches[0];
   } else if (live.length === 1) {
     target = live[0];
   } else if (live.length === 0) {
     // Only expired ones left: answer about the newest (decide reports "expired" and closes it).
-    target = pending[pending.length - 1];
+    const stale = asked.find((p) => p.status === "pending");
+    if (!stale) return { intent: "approval_none", reply: "Nothing waiting on you right now.", company: fallbackCompany };
+    target = stale;
   } else {
-    const newest = [...live].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+    const newest = live[live.length - 1];
     if (newest.kind === OWNER_COMMAND_KIND && nowMs - Date.parse(newest.created_at) <= FRESH_CONFIRMATION_MS) target = newest;
     else {
       const first = live[0].short_code ?? 1;
       return {
         intent: "approval_which",
-        reply: `${live.length} waiting — reply with the number: ${listLine(live, names)}. e.g. Y ${first} or N ${first}`,
-        company: hint ?? (owned.length === 1 ? owned[0] : null),
+        reply: `${live.length} waiting - reply with the number: ${listLine(live, names)}. e.g. Y ${first} or N ${first}`,
+        company: fallbackCompany,
       };
     }
+  }
+
+  // A note is only ever a price; on a kind that can't take one, ask rather than drop it.
+  if (parsed.note && target.status === "pending" && !PRICE_NOTE_KINDS.has(target.kind)) {
+    const code = target.short_code ?? "?";
+    return {
+      intent: "approval_note_not_allowed",
+      reply: `#${code} (${clip(target.summary, 80)}) doesn't take a price. Reply Y ${code} to approve it as it is, or N ${code}.`,
+      company: companyOf(target),
+    };
   }
 
   const decided = await decideApproval(admin, target.id, {
@@ -186,6 +223,28 @@ async function handleApproval(
     reply: decided.message,
     company: companyOf(target),
     result: { approvalId: target.id, approved: parsed.approved, note: parsed.note, ok: decided.result?.ok ?? null },
+  };
+}
+
+/** "Did you mean Y to #12 (…)?" — for "ok actually no, keep it" while something is waiting. */
+async function askDidYouMean(admin: AdminClient, sms: InboundOwnerSms, owned: OwnerCompany[], hint: OwnerCompany | null, nowMs: number): Promise<Outcome | null> {
+  const scope = hint ? [hint] : owned;
+  const asked = await approvalsAskedOf(admin, scope.map((c) => c.companyId), sms.from, nowMs);
+  const live = asked.filter((p) => p.status === "pending" && !isExpired(p, nowMs)).reverse();
+  if (live.length === 0) return null;
+  const names = new Map(owned.map((c) => [c.companyId, c.name]));
+  if (live.length === 1) {
+    const code = live[0].short_code ?? "?";
+    return {
+      intent: "approval_did_you_mean",
+      reply: `Did you mean Y or N to #${code} (${clip(live[0].summary, 90)})? Reply Y ${code} or N ${code}. Nothing's been done yet.`,
+      company: owned.find((c) => c.companyId === live[0].company_id) ?? null,
+    };
+  }
+  return {
+    intent: "approval_did_you_mean",
+    reply: `Not sure which you meant - nothing's been done yet. Waiting: ${listLine(live, names)}. Reply like Y ${live[0].short_code ?? 1} or N ${live[0].short_code ?? 1}.`,
+    company: hint ?? (owned.length === 1 ? owned[0] : null),
   };
 }
 
@@ -253,9 +312,10 @@ async function route(admin: AdminClient, sms: InboundOwnerSms, owned: OwnerCompa
   }
 
   const parsed = parseApprovalReply(body);
-  if (parsed) {
-    const handled = await handleApproval(admin, sms, parsed, owned, hint, body, nowMs);
-    if (handled) return handled;
+  if (parsed) return handleApproval(admin, sms, parsed, owned, hint, body, nowMs);
+  if (looksLikeApprovalAttempt(body)) {
+    const ask = await askDidYouMean(admin, sms, owned, hint, nowMs);
+    if (ask) return ask;
   }
 
   // A command: pick the business, then let the agent work.
