@@ -18,6 +18,7 @@
  *   • an invoice with money against it (paid or clearing) can't be edited or
  *     voided — the fix for that is a refund, which is done in Stripe or recorded.
  */
+import { reminderScheduleFor, type ReminderSchedule } from "./reminders";
 import { randomBytes } from "node:crypto";
 
 import { billableExpenseLines, markExpensesBilled } from "@/server/services/expenses/service";
@@ -831,6 +832,8 @@ export interface InvoiceDetail {
   publicUrl: string;
   /** Which online methods the brand can actually take right now. */
   online: { card: boolean; bankDebit: boolean; stripeReady: boolean };
+  /** Where this invoice stands with payment reminders. */
+  reminders: ReminderSchedule;
 }
 
 export async function getInvoiceDetail(ctx: TenantServiceContext, invoiceId: string): Promise<InvoiceDetail> {
@@ -859,5 +862,6 @@ export async function getInvoiceDetail(ctx: TenantServiceContext, invoiceId: str
     events: events ?? [],
     publicUrl: invoicePublicUrl(company, invoice.public_token),
     online: { card: stripeReady && settings.acceptCard, bankDebit: bankDebitReadyFor(company) && settings.acceptBankDebit, stripeReady },
+    reminders: reminderScheduleFor(invoice, company),
   };
 }

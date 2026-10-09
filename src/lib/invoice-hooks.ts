@@ -17,7 +17,9 @@ import {
   linkContactToAccount,
   recordInvoicePayment,
   removeInvoicePayment,
+  setInvoiceRemindersPaused,
   sendInvoice,
+  sendInvoiceReminderNow,
   sendStatement,
   updateCustomerAccount,
   updateInvoice,
@@ -87,6 +89,22 @@ export function useVoidInvoice(orgId: string) {
   const invalidate = useInvalidateInvoices();
   return useMutation({
     mutationFn: (args: { invoiceId: string; reason?: string }) => voidInvoice(orgId, args.invoiceId, args.reason),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSetInvoiceRemindersPaused(orgId: string) {
+  const invalidate = useInvalidateInvoices();
+  return useMutation({
+    mutationFn: (args: { invoiceId: string; paused: boolean }) => setInvoiceRemindersPaused(orgId, args.invoiceId, args.paused),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSendInvoiceReminderNow(orgId: string) {
+  const invalidate = useInvalidateInvoices();
+  return useMutation({
+    mutationFn: (args: { invoiceId: string }) => sendInvoiceReminderNow(orgId, args.invoiceId),
     onSuccess: invalidate,
   });
 }

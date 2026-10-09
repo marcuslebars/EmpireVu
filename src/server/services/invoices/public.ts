@@ -32,6 +32,7 @@ import {
 } from "./common";
 import { buildInvoiceDocument, type InvoiceDocument } from "./document";
 import { sendPaymentReceiptEmail } from "./notify";
+import { deviceLabel, isAutomatedAgent, OPEN_DEDUPE_SECONDS, type EmailKind } from "./opens";
 import { renderInvoicePdf } from "./pdf";
 
 const admin = (): Db => createSupabaseAdminClient() as unknown as Db;
@@ -46,30 +47,104 @@ async function invoiceByToken(db: Db, token: string): Promise<InvoiceRow | null>
   return data;
 }
 
+export interface PublicViewer {
+  /** The signed-in EmpireVu user, if any (cookie or bearer) — staff previews never count. */
+  userId?: string | null;
+  userAgent?: string | null;
+}
+
+/** Is this signed-in user a member of the invoice's organization (i.e. staff, not the customer)? */
+async function isStaff(db: Db, organizationId: string, userId: string | null | undefined): Promise<boolean> {
+  if (!userId) return false;
+  const { data } = await db
+    .from("organization_memberships")
+    .select("profile_id")
+    .eq("organization_id", organizationId)
+    .eq("profile_id", userId)
+    .limit(1);
+  return (data ?? []).length > 0;
+}
+
 /**
- * The page's data. The first open of a sent invoice marks it viewed (once).
+ * Count one customer open of the invoice page. Never throws — the page must load
+ * whatever happens here. The first ever open moves the invoice to "viewed" and fires
+ * invoice.viewed (the owner's alert + any automations); every counted open is logged.
  */
-export async function getPublicInvoice(token: string, opts: { markViewed?: boolean } = {}): Promise<InvoiceDocument | null> {
+async function recordView(db: Db, invoice: InvoiceRow, viewer: PublicViewer): Promise<InvoiceRow> {
+  try {
+    if (invoice.status === "void" || invoice.status === "draft") return invoice;
+    if (isAutomatedAgent(viewer.userAgent)) return invoice;
+    if (await isStaff(db, invoice.organization_id, viewer.userId)) return invoice;
+
+    const { data, error } = await db.rpc("record_invoice_view", { p_invoice_id: invoice.id, p_dedupe_seconds: OPEN_DEDUPE_SECONDS });
+    if (error) throw error;
+    const row = (Array.isArray(data) ? data[0] : data) as { counted: boolean; first_view: boolean; view_count: number } | undefined;
+    if (!row?.counted) return invoice;
+
+    await recordInvoiceEvent(db, {
+      organizationId: invoice.organization_id,
+      invoiceId: invoice.id,
+      eventType: "viewed",
+      metadata: { count: row.view_count, device: deviceLabel(viewer.userAgent) },
+    });
+    if (!row.first_view) return { ...invoice, view_count: row.view_count, last_viewed_at: new Date().toISOString() };
+
+    // First open: status → viewed (derived from first_viewed_at), then tell the owner.
+    const refreshed = await refreshInvoiceBalance(db, invoice.id);
+    await emitInvoiceTrigger(db, {
+      organizationId: invoice.organization_id,
+      companyId: invoice.company_id,
+      contactId: invoice.contact_id,
+      invoiceId: invoice.id,
+      quoteId: invoice.quote_id,
+      eventType: "invoice.viewed",
+      metadata: { invoiceNumber: invoice.invoice_number, name: readBillTo(invoice.bill_to).name || null },
+    });
+    return refreshed;
+  } catch (err) {
+    console.error(`[invoices] could not record a view of ${invoice.id}:`, err instanceof Error ? err.message : err);
+    return invoice;
+  }
+}
+
+/**
+ * The page's data. Each customer open is counted (refreshes within 30 minutes are
+ * the same open); the first one marks the invoice viewed and alerts the owner.
+ */
+export async function getPublicInvoice(token: string, viewer: PublicViewer | false = {}): Promise<InvoiceDocument | null> {
   const db = admin();
   let invoice = await invoiceByToken(db, token);
   if (!invoice) return null;
-
-  if (opts.markViewed !== false && !invoice.first_viewed_at && invoice.status !== "void") {
-    const { data: claimed } = await db
-      .from("invoices")
-      .update({ first_viewed_at: new Date().toISOString() })
-      .eq("id", invoice.id)
-      .is("first_viewed_at", null)
-      .select("id")
-      .maybeSingle();
-    if (claimed) {
-      invoice = await refreshInvoiceBalance(db, invoice.id);
-      await recordInvoiceEvent(db, { organizationId: invoice.organization_id, invoiceId: invoice.id, eventType: "viewed" });
-    }
-  }
+  if (viewer !== false) invoice = await recordView(db, invoice, viewer);
 
   const company = await loadCompanyForInvoice(db, invoice.organization_id, invoice.company_id);
   return buildInvoiceDocument(invoice, company);
+}
+
+/**
+ * The email's tracking image was loaded. Counted on the invoice (deduped like page
+ * opens) and logged with which email it was; never changes the status and never
+ * alerts — some mail apps load images by themselves. Never throws.
+ */
+export async function recordEmailOpen(token: string, kind: EmailKind, userAgent: string | null): Promise<void> {
+  try {
+    if (isAutomatedAgent(userAgent, { allowEmpty: true })) return;
+    const db = admin();
+    const invoice = await invoiceByToken(db, token);
+    if (!invoice || invoice.status === "void") return;
+    const { data, error } = await db.rpc("record_invoice_email_open", { p_invoice_id: invoice.id, p_dedupe_seconds: OPEN_DEDUPE_SECONDS });
+    if (error) throw error;
+    const row = (Array.isArray(data) ? data[0] : data) as { counted: boolean; open_count: number } | undefined;
+    if (!row?.counted) return;
+    await recordInvoiceEvent(db, {
+      organizationId: invoice.organization_id,
+      invoiceId: invoice.id,
+      eventType: "email_opened",
+      metadata: { email: kind, count: row.open_count, device: deviceLabel(userAgent) },
+    });
+  } catch (err) {
+    console.error("[invoices] could not record an email open:", err instanceof Error ? err.message : err);
+  }
 }
 
 export async function getPublicInvoicePdf(token: string): Promise<{ bytes: Uint8Array; filename: string } | null> {

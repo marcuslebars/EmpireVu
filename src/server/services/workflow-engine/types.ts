@@ -23,8 +23,10 @@ export const supportedWorkflowTriggerEventTypes = [
   "quote.deposit_paid",
   // The receptionist promised the caller a deposit link but it didn't go out — tell the owner.
   "quote.deposit_link_failed",
-  // Invoices: issued, fully paid, past due (scheduler, once per invoice), online payment failed.
+  // Invoices: issued, first opened by the customer (once), fully paid, past due
+  // (scheduler, once per invoice), online payment failed.
   "invoice.sent",
+  "invoice.viewed",
   "invoice.paid",
   "invoice.overdue",
   "invoice.payment_failed",

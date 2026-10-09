@@ -57,6 +57,16 @@ export interface Invoice {
   internal_notes: string | null;
   sent_at: string | null;
   first_viewed_at: string | null;
+  /** Customer opens of the invoice page (a refresh within 30 min is the same open). */
+  view_count: number;
+  last_viewed_at: string | null;
+  /** Opens of the emails (tracking image) — a hint: some mail apps open by themselves. */
+  email_open_count: number;
+  first_email_opened_at: string | null;
+  last_email_opened_at: string | null;
+  /** Automatic reminders turned off for this invoice only. */
+  reminders_paused: boolean;
+  last_reminder_at: string | null;
   paid_at: string | null;
   voided_at: string | null;
   void_reason: string | null;
@@ -95,6 +105,20 @@ export interface InvoiceDetail {
   events: InvoiceEvent[];
   publicUrl: string;
   online: { card: boolean; bankDebit: boolean; stripeReady: boolean };
+  reminders: ReminderSchedule;
+}
+
+export type ReminderState = "scheduled" | "paused" | "off" | "done" | "no_email" | "closed";
+
+export interface ReminderSchedule {
+  state: ReminderState;
+  paused: boolean;
+  nextDate: string | null;
+  nextNumber: number | null;
+  total: number;
+  sentCount: number;
+  lastSentAt: string | null;
+  canSendNow: boolean;
 }
 
 export interface InvoiceListSummary {
@@ -178,6 +202,9 @@ export interface InvoiceSettingsValues {
   acceptCash: boolean;
   remindersEnabled: boolean;
   reminderDays: number[];
+  /** Custom reminder wording with {placeholders}; null = the built-in wording. */
+  reminderSubject: string | null;
+  reminderMessage: string | null;
   /** When a job is marked done: nothing, a draft invoice, or an invoice that's sent right away. */
   autoInvoiceOnComplete: "off" | "draft" | "send";
   /** Email a copy of every sent invoice to the brand's own inbox. */
@@ -263,6 +290,14 @@ export async function sendInvoice(
 
 export function voidInvoice(orgId: string, invoiceId: string, reason?: string): Promise<Invoice> {
   return apiFetch<Invoice>(`${base(orgId)}/invoices/${invoiceId}/void`, { method: "POST", body: JSON.stringify({ reason: reason ?? null }) });
+}
+
+export function setInvoiceRemindersPaused(orgId: string, invoiceId: string, paused: boolean): Promise<{ paused: boolean }> {
+  return apiFetch(`${base(orgId)}/invoices/${invoiceId}/reminders`, { method: "PATCH", body: JSON.stringify({ paused }) });
+}
+
+export function sendInvoiceReminderNow(orgId: string, invoiceId: string): Promise<DeliveryOutcome> {
+  return apiFetch(`${base(orgId)}/invoices/${invoiceId}/reminders/send`, { method: "POST", body: "{}" });
 }
 
 export interface RecordPaymentPayload {

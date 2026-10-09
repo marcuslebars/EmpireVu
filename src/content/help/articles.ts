@@ -288,9 +288,9 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
   },
   {
     id: "invoices",
-    title: "Invoices: drafts and your copy",
-    summary: "Saving invoices as drafts before they're finished, and getting a copy of every invoice you send.",
-    keywords: ["invoice", "invoices", "draft", "save draft", "copy", "bcc", "my copy", "send me a copy", "records", "inbox"],
+    title: "Invoices: drafts, opens and reminders",
+    summary: "Saving drafts, getting a copy of what you send, seeing when the customer opens it, and controlling payment reminders.",
+    keywords: ["invoice", "invoices", "draft", "save draft", "copy", "bcc", "my copy", "send me a copy", "records", "inbox", "opened", "viewed", "seen", "read receipt", "tracking", "reminder", "reminders", "overdue", "late", "nudge", "follow up", "wording", "turn off reminders", "pause"],
     sections: [
       {
         heading: "Saving a draft",
@@ -306,6 +306,16 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
         heading: "Getting a copy of what you send",
         body:
           "Settings → Invoices → Send me a copy. Every time an invoice is sent or resent you get the same email and PDF the customer got, with a note saying how it reached them. Leave the address blank to use the account owner's email, or enter another (for example your bookkeeper's).",
+      },
+      {
+        heading: "Seeing when the customer opens it",
+        body:
+          "Open the invoice: \"Seen by the customer\" shows how many times they've opened it and when, and the Activity list shows each open with the kind of device (for example iPhone). Refreshing within 30 minutes counts as one open, and opening it yourself while signed in doesn't count. The first time they open it you get an alert in the bell (and on your phone if you use the app) — you can also build an automation on \"Invoice opened\". Email opens are shown too, but treat them as a hint: some email apps, like Apple Mail, report an open on their own, and others block it.",
+      },
+      {
+        heading: "Payment reminders",
+        body:
+          "Settings → Invoices → Email overdue reminders sets when reminders go out (days after the due date) for each company, or turns them off. Turn on \"Use my own wording\" to write the subject and message yourself, with fill-ins like the customer's first name and the amount due; the amount, pay button and payment options are always added below. On an invoice, the Automatic reminders switch turns them off for just that invoice (the date of the next one is shown when they're on), and \"Send a reminder now\" emails one straight away — it doesn't use up a scheduled reminder.",
       },
     ],
   },
