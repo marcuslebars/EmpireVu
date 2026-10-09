@@ -90,6 +90,8 @@ export async function getSmsAgentSettingsView(ctx: TenantServiceContext, company
   };
 }
 
+import { updateAiSettings } from "@/server/services/front-desk/ai-settings-write";
+
 /** Write with the service role (ai_settings isn't client-writable); the caller checked the role + company. */
 export async function updateSmsAgentSettings(
   admin: AdminClient,
@@ -97,20 +99,7 @@ export async function updateSmsAgentSettings(
   companyId: string,
   patch: { enabled?: boolean; autonomy?: SmsAgentAutonomy },
 ): Promise<void> {
-  const db = admin as Db;
-  const { data, error } = await db
-    .from("companies")
-    .select("ai_settings")
-    .eq("organization_id", organizationId)
-    .eq("id", companyId)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) throw new Error("Company not found.");
-  const next = mergeSmsAgentSettings((data as { ai_settings: unknown }).ai_settings, patch);
-  const { error: updateError } = await db
-    .from("companies")
-    .update({ ai_settings: next })
-    .eq("organization_id", organizationId)
-    .eq("id", companyId);
-  if (updateError) throw updateError;
+  // Optimistic (companies.updated_at): a concurrent write to another section isn't clobbered.
+  const written = await updateAiSettings(admin, { organizationId, companyId }, (current) => mergeSmsAgentSettings(current, patch) as Record<string, unknown>);
+  if (!written) throw new Error("Company not found.");
 }

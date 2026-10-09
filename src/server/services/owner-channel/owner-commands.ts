@@ -12,6 +12,7 @@ import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto
 import type { Json, Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import { rescheduleBooking, updateBookingStatus } from "@/server/services/bookings";
+import { updateAiSettings } from "@/server/services/front-desk/ai-settings-write";
 import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } from "@/server/services/front-desk/contracts";
 import { markOwnerTakeover } from "@/server/services/sms-agent/takeover";
 import { deliverMessage } from "@/server/services/workflow-engine/messaging";
@@ -150,20 +151,9 @@ async function readAiSettings(admin: AdminClient, scope: CompanyScope): Promise<
   return asRecord((data as { ai_settings: Json } | null)?.ai_settings);
 }
 
-async function writeAiSettings(admin: AdminClient, scope: CompanyScope, settings: Settings): Promise<void> {
-  const { error } = await admin
-    .from("companies")
-    .update({ ai_settings: toJson(settings) })
-    .eq("organization_id", scope.organizationId)
-    .eq("id", scope.companyId);
-  if (error) throw error;
-}
-
-/** companies.ai_settings.sms_agent.enabled (only that key is touched). */
+/** companies.ai_settings.sms_agent.enabled (only that key is touched; optimistic write). */
 export async function setBusinessAi(admin: AdminClient, scope: CompanyScope, on: boolean): Promise<void> {
-  const settings = await readAiSettings(admin, scope);
-  settings.sms_agent = { ...asRecord(settings.sms_agent), enabled: on };
-  await writeAiSettings(admin, scope, settings);
+  await updateAiSettings(admin, scope, (settings) => ({ ...settings, sms_agent: { ...asRecord(settings.sms_agent), enabled: on } }));
 }
 
 function sendsCustomerTexts(definition: Json): boolean {
@@ -177,8 +167,6 @@ function sendsCustomerTexts(definition: Json): boolean {
  * ai_settings.owner_pause so "resume texts" restores exactly that.
  */
 export async function pauseAllTexts(admin: AdminClient, scope: CompanyScope): Promise<{ workflowsPaused: number }> {
-  const settings = await readAiSettings(admin, scope);
-  const existing = asRecord(settings.owner_pause);
   const { data } = await admin
     .from("workflows")
     .select("id, definition, status")
@@ -190,15 +178,20 @@ export async function pauseAllTexts(admin: AdminClient, scope: CompanyScope): Pr
     const { error } = await admin.from("workflows").update({ status: "paused" }).eq("organization_id", scope.organizationId).in("id", ids);
     if (error) throw error;
   }
-  const smsAgent = asRecord(settings.sms_agent);
-  const previous = Array.isArray(existing.workflow_ids) ? (existing.workflow_ids as string[]) : [];
-  settings.owner_pause = {
-    at: new Date().toISOString(),
-    workflow_ids: [...new Set([...previous, ...ids])],
-    sms_agent_enabled_before: "sms_agent_enabled_before" in existing ? existing.sms_agent_enabled_before : (smsAgent.enabled ?? null),
-  };
-  settings.sms_agent = { ...smsAgent, enabled: false };
-  await writeAiSettings(admin, scope, settings);
+  await updateAiSettings(admin, scope, (current) => {
+    const pause = asRecord(current.owner_pause);
+    const smsAgent = asRecord(current.sms_agent);
+    const previous = Array.isArray(pause.workflow_ids) ? (pause.workflow_ids as string[]) : [];
+    return {
+      ...current,
+      owner_pause: {
+        at: new Date().toISOString(),
+        workflow_ids: [...new Set([...previous, ...ids])],
+        sms_agent_enabled_before: "sms_agent_enabled_before" in pause ? pause.sms_agent_enabled_before : (smsAgent.enabled ?? null),
+      },
+      sms_agent: { ...smsAgent, enabled: false },
+    };
+  });
   return { workflowsPaused: ids.length };
 }
 
@@ -217,13 +210,16 @@ export async function resumeAllTexts(admin: AdminClient, scope: CompanyScope): P
     if (error) throw error;
   }
   const wasPaused = Object.keys(pause).length > 0;
-  const smsAgent = asRecord(settings.sms_agent);
-  const before = pause.sms_agent_enabled_before;
-  if (typeof before === "boolean") smsAgent.enabled = before;
-  else delete smsAgent.enabled; // back to the default for this plan
-  settings.sms_agent = smsAgent;
-  delete settings.owner_pause;
-  await writeAiSettings(admin, scope, settings);
+  await updateAiSettings(admin, scope, (current) => {
+    const next = { ...current };
+    const smsAgent = asRecord(next.sms_agent);
+    const before = asRecord(next.owner_pause).sms_agent_enabled_before;
+    if (typeof before === "boolean") smsAgent.enabled = before;
+    else delete smsAgent.enabled; // back to the default for this plan
+    next.sms_agent = smsAgent;
+    delete next.owner_pause;
+    return next;
+  });
   return { workflowsResumed: ids.length, wasPaused };
 }
 

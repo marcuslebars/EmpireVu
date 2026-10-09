@@ -70,6 +70,8 @@ export async function getCallAnsweringView(admin: AdminClient, organizationId: s
   };
 }
 
+import { updateAiSettings } from "@/server/services/front-desk/ai-settings-write";
+
 /** Merge ONLY the call_answering section; returns the fresh view. */
 export async function updateCallAnswering(
   admin: AdminClient,
@@ -77,15 +79,8 @@ export async function updateCallAnswering(
   companyId: string,
   patch: CallAnsweringPatch,
 ): Promise<CallAnsweringView | null> {
-  const { data, error } = await admin.from("companies").select("ai_settings").eq("organization_id", organizationId).eq("id", companyId).maybeSingle();
-  if (error) throw error;
-  if (!data) return null;
-  const next = mergeCallAnsweringSettings((data as { ai_settings: unknown }).ai_settings, patch);
-  const { error: updateError } = await admin
-    .from("companies")
-    .update({ ai_settings: toJson(next) })
-    .eq("organization_id", organizationId)
-    .eq("id", companyId);
-  if (updateError) throw updateError;
+  // Optimistic (companies.updated_at): a concurrent write to another section isn't clobbered.
+  const written = await updateAiSettings(admin, { organizationId, companyId }, (current) => mergeCallAnsweringSettings(current, patch) as Record<string, unknown>);
+  if (!written) return null;
   return getCallAnsweringView(admin, organizationId, companyId);
 }
