@@ -3997,6 +3997,12 @@ export interface Database {
           created_by: string | null;
           created_at: string;
           updated_at: string;
+          view_count: number;
+          last_viewed_at: string | null;
+          email_open_count: number;
+          first_email_opened_at: string | null;
+          last_email_opened_at: string | null;
+          reminders_paused: boolean;
         };
         Insert: {
           id?: string;
@@ -4038,6 +4044,12 @@ export interface Database {
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
+          view_count?: number;
+          last_viewed_at?: string | null;
+          email_open_count?: number;
+          first_email_opened_at?: string | null;
+          last_email_opened_at?: string | null;
+          reminders_paused?: boolean;
         };
         Update: {
           id?: string;
@@ -4079,6 +4091,12 @@ export interface Database {
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
+          view_count?: number;
+          last_viewed_at?: string | null;
+          email_open_count?: number;
+          first_email_opened_at?: string | null;
+          last_email_opened_at?: string | null;
+          reminders_paused?: boolean;
         };
         Relationships: [];
       };
@@ -4445,6 +4463,20 @@ export interface Database {
           p_entity_id: string;
         };
         Returns: undefined;
+      };
+      record_invoice_view: {
+        Args: {
+          p_invoice_id: string;
+          p_dedupe_seconds?: number;
+        };
+        Returns: Array<{ counted: boolean; first_view: boolean; view_count: number }>;
+      };
+      record_invoice_email_open: {
+        Args: {
+          p_invoice_id: string;
+          p_dedupe_seconds?: number;
+        };
+        Returns: Array<{ counted: boolean; first_open: boolean; open_count: number }>;
       };
       claim_accounting_token_refresh: {
         Args: {

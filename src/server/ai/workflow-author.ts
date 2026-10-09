@@ -154,7 +154,7 @@ Triggers:
 - "call.completed" — an inbound call was answered
 - "call.urgent" — a caller flagged something urgent
 - "quote.sent" / "quote.viewed" / "quote.approved" / "quote.expiring" / "quote.deposit_paid" — quote lifecycle
-- "invoice.sent" / "invoice.paid" / "invoice.overdue" / "invoice.payment_failed" — invoice lifecycle (templates: {{ invoice.number }}, {{ invoice.balance }}, {{ invoice.total }}, {{ invoice.due }}, {{ invoice.public_url }})
+- "invoice.sent" / "invoice.viewed" (customer first opened it) / "invoice.paid" / "invoice.overdue" / "invoice.payment_failed" — invoice lifecycle (templates: {{ invoice.number }}, {{ invoice.balance }}, {{ invoice.total }}, {{ invoice.due }}, {{ invoice.public_url }})
 - "task.completed" — a task is ticked off
 
 Actions:

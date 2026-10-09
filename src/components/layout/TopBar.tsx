@@ -155,6 +155,8 @@ const ACTIVITY_LABELS: Record<string, string> = {
   "booking.cancelled": "Booking cancelled",
   "task.created": "Task created",
   "task.completed": "Task completed",
+  "invoice.viewed": "Invoice opened",
+  "invoice.paid": "Invoice paid",
 };
 
 function activityLabel(eventType: string): string {

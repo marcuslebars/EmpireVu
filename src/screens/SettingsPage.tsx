@@ -390,6 +390,7 @@ export default function SettingsPage() {
   const location = useLocation();
   const [active, setActive] = useState(() => {
     if (location.pathname.endsWith("/payments")) return "payments";
+    if (location.pathname.endsWith("/invoices")) return "invoices";
     if (location.pathname.endsWith("/billing")) return "billing";
     const requested = new URLSearchParams(location.search).get("section");
     return requested && sections.some((s) => s.id === requested) ? requested : "org";

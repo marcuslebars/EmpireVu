@@ -9,6 +9,16 @@ import { useAuth } from "@/lib/auth-context";
 import { useCompanies } from "@/lib/api-hooks";
 import { useInvoiceSettings, useUpdateInvoiceSettings } from "@/lib/invoice-hooks";
 import type { CompanyInvoiceSettings, InvoiceSettingsValues } from "@/lib/invoices-api";
+import {
+  DEFAULT_REMINDER_MESSAGE,
+  DEFAULT_REMINDER_SUBJECT,
+  REMINDER_MESSAGE_MAX,
+  REMINDER_PLACEHOLDERS,
+  REMINDER_SUBJECT_MAX,
+  fillReminderTemplate,
+  sampleReminderValues,
+  unknownPlaceholders,
+} from "@/lib/reminder-template";
 
 const inputCls =
   "w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-60";
@@ -38,6 +48,10 @@ interface FormState {
   acceptCash: boolean;
   remindersEnabled: boolean;
   reminderDays: number[];
+  /** "Use my own wording" — off sends the built-in wording (both saved as null). */
+  customReminder: boolean;
+  reminderSubject: string;
+  reminderMessage: string;
   autoInvoiceOnComplete: "off" | "draft" | "send";
   sendCopy: boolean;
   copyEmail: string;
@@ -73,6 +87,9 @@ function toForm(data: CompanyInvoiceSettings): FormState {
     acceptCash: s.acceptCash,
     remindersEnabled: s.remindersEnabled,
     reminderDays: [...s.reminderDays].sort((a, b) => a - b),
+    customReminder: Boolean(s.reminderSubject || s.reminderMessage),
+    reminderSubject: s.reminderSubject ?? "",
+    reminderMessage: s.reminderMessage ?? "",
     autoInvoiceOnComplete: s.autoInvoiceOnComplete ?? "off",
     sendCopy: s.sendCopy ?? false,
     copyEmail: s.copyEmail ?? "",
@@ -105,6 +122,11 @@ function validate(f: FormState): string | null {
   }
   if (f.acceptCheque && !f.chequePayableTo.trim()) return "Add who cheques should be made payable to.";
   if (f.copyEmail.trim() && !EMAIL_RE.test(f.copyEmail.trim())) return "The email for your invoice copies doesn't look right.";
+  if (f.customReminder) {
+    if (!f.reminderMessage.trim()) return "Write your reminder message, or switch back to the standard wording.";
+    if (f.reminderSubject.length > REMINDER_SUBJECT_MAX) return `The reminder subject can be at most ${REMINDER_SUBJECT_MAX} characters.`;
+    if (f.reminderMessage.length > REMINDER_MESSAGE_MAX) return `The reminder message can be at most ${REMINDER_MESSAGE_MAX} characters.`;
+  }
   return null;
 }
 
@@ -126,6 +148,8 @@ function toPayload(f: FormState) {
     acceptCash: f.acceptCash,
     remindersEnabled: f.remindersEnabled,
     reminderDays: f.reminderDays,
+    reminderSubject: f.customReminder ? text(f.reminderSubject) : null,
+    reminderMessage: f.customReminder ? text(f.reminderMessage) : null,
     autoInvoiceOnComplete: f.autoInvoiceOnComplete,
     sendCopy: f.sendCopy,
     copyEmail: text(f.copyEmail),
@@ -167,6 +191,132 @@ function MethodRow({
         <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} aria-label={title} className="mt-1" />
       </div>
       {checked && children ? <div className="mt-3 pl-11 space-y-3">{children}</div> : null}
+    </div>
+  );
+}
+
+/** The brand's own reminder wording: subject + message with {placeholders}, and a live preview. */
+function ReminderWordingEditor({
+  enabled,
+  subject,
+  message,
+  companyName,
+  disabled,
+  onChange,
+}: {
+  enabled: boolean;
+  subject: string;
+  message: string;
+  companyName: string;
+  disabled: boolean;
+  onChange: (next: { customReminder?: boolean; reminderSubject?: string; reminderMessage?: string }) => void;
+}) {
+  const [focus, setFocus] = useState<"subject" | "message">("message");
+  const values = sampleReminderValues(companyName);
+  const unknown = [...new Set([...unknownPlaceholders(subject), ...unknownPlaceholders(message)])];
+  const insert = (key: string) => {
+    const token = `{${key}}`;
+    if (focus === "subject") onChange({ reminderSubject: `${subject}${subject && !subject.endsWith(" ") ? " " : ""}${token}` });
+    else onChange({ reminderMessage: `${message}${message && !/\s$/.test(message) ? " " : ""}${token}` });
+  };
+  const previewSubject = fillReminderTemplate(subject.trim() || DEFAULT_REMINDER_SUBJECT, values);
+  const previewBody = fillReminderTemplate(message, values);
+
+  return (
+    <div className="rounded-xl border border-border p-4 space-y-3" data-testid="reminder-wording">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-foreground">Use my own wording</p>
+          <p className={hintCls}>
+            Off: a friendly first reminder, then plainer ones. On: every overdue reminder uses your words. The amount, pay button and
+            payment options are always added below your message.
+          </p>
+        </div>
+        <Switch
+          checked={enabled}
+          disabled={disabled}
+          aria-label="Use my own reminder wording"
+          onCheckedChange={(v) =>
+            onChange(
+              v && !message.trim()
+                ? { customReminder: true, reminderSubject: subject || DEFAULT_REMINDER_SUBJECT, reminderMessage: DEFAULT_REMINDER_MESSAGE }
+                : { customReminder: v },
+            )
+          }
+        />
+      </div>
+
+      {enabled && (
+        <>
+          <div>
+            <label className={labelCls} htmlFor="reminder-subject">
+              Subject
+            </label>
+            <input
+              id="reminder-subject"
+              className={inputCls}
+              value={subject}
+              maxLength={REMINDER_SUBJECT_MAX}
+              placeholder={DEFAULT_REMINDER_SUBJECT}
+              disabled={disabled}
+              onFocus={() => setFocus("subject")}
+              onChange={(e) => onChange({ reminderSubject: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="reminder-message">
+              Message
+            </label>
+            <textarea
+              id="reminder-message"
+              rows={6}
+              className={cn(inputCls, "resize-y")}
+              value={message}
+              maxLength={REMINDER_MESSAGE_MAX}
+              disabled={disabled}
+              onFocus={() => setFocus("message")}
+              onChange={(e) => onChange({ reminderMessage: e.target.value })}
+            />
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              <span className="text-xs text-muted-foreground mr-1">Insert:</span>
+              {REMINDER_PLACEHOLDERS.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => insert(p.key)}
+                  className="px-2 py-0.5 rounded-full border border-border bg-secondary/60 text-[11px] text-foreground hover:bg-secondary disabled:opacity-50"
+                  title={`Adds {${p.key}} to the ${focus}`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            {unknown.length > 0 && (
+              <p className="text-xs text-[hsl(var(--warning))] mt-2">
+                Not recognised: {unknown.map((u) => `{${u}}`).join(", ")} — it will be sent exactly as typed.
+              </p>
+            )}
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange({ reminderSubject: DEFAULT_REMINDER_SUBJECT, reminderMessage: DEFAULT_REMINDER_MESSAGE })}
+              className="text-xs text-primary hover:underline mt-2 disabled:opacity-50"
+            >
+              Start again from the standard wording
+            </button>
+          </div>
+          <div className="rounded-lg bg-secondary/40 border border-border/60 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Preview (example customer)</p>
+            <p className="text-sm font-semibold text-foreground">{previewSubject}</p>
+            <p className="text-sm text-foreground/90 whitespace-pre-wrap mt-2">{previewBody || "…"}</p>
+            <p className="text-xs text-muted-foreground mt-2 italic">+ amount due, “Pay Invoice” button and your payment options</p>
+          </div>
+          <p className={hintCls}>
+            A reminder you send by hand before the due date uses standard “is due on …” wording, since “past due” wouldn't be true yet.
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -610,6 +760,18 @@ function CompanyInvoicePanel({
             onChange={(days) => set("reminderDays", days)}
           />
         </div>
+        <ReminderWordingEditor
+          enabled={form.customReminder}
+          subject={form.reminderSubject}
+          message={form.reminderMessage}
+          companyName={data.companyName}
+          disabled={!canManage}
+          onChange={(next) => {
+            setForm((prev) => (prev ? { ...prev, ...next } : prev));
+            setError(null);
+          }}
+        />
+        <p className={hintCls}>You can also turn reminders off for one invoice, or send one right away, from the invoice itself.</p>
       </section>
 
       {error && (
