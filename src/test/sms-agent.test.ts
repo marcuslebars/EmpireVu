@@ -824,6 +824,20 @@ describe("conversation state + relay", () => {
     expect(await isSmsAgentHandling(db.client, { companyId: CO, contactId: CONTACT })).toBe(false);
   });
 
+  it("the text the AI handed off is not relayed a second time; the next one is", async () => {
+    const { sms, row } = inbound("This is ridiculous, your guy damaged my lawn");
+    const model = scripted([{ tools: [{ name: "hand_off_to_owner", input: { reason: "Complaint about lawn damage" } }] }, { text: "Sorry - Dana will call you." }]);
+    await runSmsAgent(db.client, sms, deps(model.client));
+    expect(conversation().state).toBe("owner");
+    expect(rec.ownerAlerts.join(" ")).toMatch(/damaged my lawn/);
+    // The relay for that same text: the AI already put it in front of the owner.
+    expect(await isSmsAgentHandling(db.client, { companyId: CO, contactId: CONTACT, providerRef: row.provider_ref as string })).toBe(true);
+    // A later text while the owner has it: relayed as usual.
+    const next = inbound("Hello?? Anyone there?");
+    expect(await isSmsAgentHandling(db.client, { companyId: CO, contactId: CONTACT, providerRef: next.row.provider_ref as string })).toBe(false);
+    expect(await isSmsAgentHandling(db.client, { companyId: CO, contactId: CONTACT })).toBe(false);
+  });
+
   it("not handling when the AI isn't configured", async () => {
     delete process.env.ANTHROPIC_API_KEY;
     expect(await isSmsAgentHandling(db.client, { companyId: CO, contactId: CONTACT })).toBe(false);

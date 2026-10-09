@@ -182,9 +182,11 @@ export async function buildWorkflowEventContext(
   // contact.sms_received: is the AI front desk answering this customer? (Then the owner's
   // "forward customer texts to me" relay stays quiet — see processor.ts.)
   if (activityEvent.event_type === "contact.sms_received" && activityEvent.company_id && activityEvent.entity_id) {
+    const meta = activityEvent.metadata_json as { providerRef?: unknown } | null;
     fields.sms_agent_handling = await isSmsAgentHandling(context.supabase as never, {
       companyId: activityEvent.company_id,
       contactId: activityEvent.entity_id,
+      providerRef: typeof meta?.providerRef === "string" ? meta.providerRef : null,
     });
   }
 

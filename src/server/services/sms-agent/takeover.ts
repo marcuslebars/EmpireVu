@@ -110,7 +110,7 @@ export async function getConversationStatus(
  */
 export async function isSmsAgentHandling(
   db: AdminClient,
-  input: { companyId: string; contactId: string },
+  input: { companyId: string; contactId: string; /** MessageSid of the text the event is about. */ providerRef?: string | null },
   now: Date = new Date(),
 ): Promise<boolean> {
   try {
@@ -126,7 +126,22 @@ export async function isSmsAgentHandling(
     const conv = await findConversation(db, input);
     if (!conv) return true;
     const state = effectiveState(conv, now, smsAgentLimits().takeoverMs);
-    return state === "ai" || state === "closed";
+    if (state === "ai" || state === "closed") return true;
+    // Handed to the owner — but if the AI's own turn handled THIS text (it handed off and
+    // alerted the owner with it), relaying it too would tell the owner twice.
+    if (input.providerRef && conv.last_handled_inbound_at) {
+      const { data: msg } = await (db as Db)
+        .from("message_log")
+        .select("created_at")
+        .eq("company_id", input.companyId)
+        .eq("contact_id", input.contactId)
+        .eq("provider_ref", input.providerRef)
+        .limit(1)
+        .maybeSingle();
+      const at = (msg as { created_at: string } | null)?.created_at;
+      if (at && Date.parse(conv.last_handled_inbound_at) >= Date.parse(at)) return true;
+    }
+    return false;
   } catch (err) {
     console.error("[sms-agent] handling check failed:", err instanceof Error ? err.message : err);
     return false;
