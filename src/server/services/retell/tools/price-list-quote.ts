@@ -57,6 +57,7 @@ export interface PriceListQuoteArgs {
 const STOPWORDS = new Set(["a", "an", "the", "of", "for", "and", "my", "our", "to", "please", "some", "job", "service", "services", "i", "need", "want", "get"]);
 
 function stem(token: string): string {
+  if (token.length > 5 && token.endsWith("ing")) return token.slice(0, -3);
   if (token.length > 4 && token.endsWith("ies")) return `${token.slice(0, -3)}y`;
   if (token.length > 4 && /(ches|shes|xes|sses)$/.test(token)) return token.slice(0, -2);
   if (token.length > 3 && token.endsWith("s") && !token.endsWith("ss")) return token.slice(0, -1);
