@@ -63,7 +63,7 @@ function approval(over: Record<string, unknown>) {
 function seed(extra: Record<string, Array<Record<string, unknown>>> = {}) {
   db = createFakeDb(
     {
-      companies: [{ id: "co-1", organization_id: "org-1", name: "Northshore Lawn", timezone: "America/Toronto", owner_phone_e164: OWNER, ai_settings: {} }],
+      companies: [{ id: "co-1", organization_id: "org-1", name: "Northshore Lawn", timezone: "America/Toronto", owner_phone_e164: OWNER, owner_phone_verified_at: "2026-10-01T00:00:00Z", ai_settings: {} }],
       organizations: [{ id: "org-1", platform_brand: "crankleads" }],
       owner_approvals: [],
       owner_command_log: [],
@@ -295,8 +295,8 @@ describe("approvals by text", () => {
   it("an owner with two businesses: codes that collide ask which business, then the answer resolves it", async () => {
     seed({
       companies: [
-        { id: "co-1", organization_id: "org-1", name: "Northshore Lawn", timezone: "America/Toronto", owner_phone_e164: OWNER },
-        { id: "co-2", organization_id: "org-1", name: "Bayview Snow", timezone: "America/Toronto", owner_phone_e164: OWNER },
+        { id: "co-1", organization_id: "org-1", name: "Northshore Lawn", timezone: "America/Toronto", owner_phone_e164: OWNER, owner_phone_verified_at: "2026-10-01T00:00:00Z" },
+        { id: "co-2", organization_id: "org-1", name: "Bayview Snow", timezone: "America/Toronto", owner_phone_e164: OWNER, owner_phone_verified_at: "2026-10-01T00:00:00Z" },
       ],
       owner_approvals: [
         approval({ id: "a-1", company_id: "co-1", short_code: 1, summary: "Quote for Dana." }),

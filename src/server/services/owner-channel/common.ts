@@ -44,23 +44,50 @@ export function isPlatformNumber(to: string | null | undefined): boolean {
   return Boolean(platform && to && (platform === to.trim() || samePhone(platform, to)));
 }
 
-type CompanyRow = Pick<Tables<"companies">, "id" | "organization_id" | "name" | "timezone" | "owner_phone_e164">;
+type CompanyRow = Pick<Tables<"companies">, "id" | "organization_id" | "name" | "timezone" | "owner_phone_e164" | "owner_phone_verified_at">;
 
 /**
- * Every company whose owner phone is this phone (exact E.164 first, then a last-10-digits
- * match for numbers stored in another format). Cross-tenant by design — this IS the
- * identity check — and returns only companies whose stored owner phone matches.
+ * Two phones are the same owner phone: exact E.164, or — for NANP (+1) numbers only — the same
+ * last 10 digits (a number stored as "705-555-0142"). Never a last-10 match across countries
+ * (+44 20 7946 0958 and +1 207-946-0958 share no owner). PURE.
+ */
+export function sameOwnerPhone(stored: string | null | undefined, phone: string | null | undefined): boolean {
+  const a = (stored ?? "").trim();
+  const b = (phone ?? "").trim();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const digits = (x: string) => x.replace(/\D/g, "");
+  const nanp = (x: string) => {
+    const d = digits(x);
+    if (x.startsWith("+")) return d.length === 11 && d.startsWith("1") ? d.slice(1) : null;
+    if (d.length === 10) return d;
+    if (d.length === 11 && d.startsWith("1")) return d.slice(1);
+    return null;
+  };
+  const x = nanp(a);
+  const y = nanp(b);
+  if (x && y) return x === y;
+  return a.startsWith("+") && b.startsWith("+") && digits(a) === digits(b);
+}
+
+/**
+ * Every company whose VERIFIED owner phone is this phone (exact E.164 first, then the NANP
+ * last-10 form for numbers stored in another format). Cross-tenant by design — this IS the
+ * identity check. A number that was changed and not yet confirmed with the texted code
+ * (owner_phone_verified_at null) is not an owner (owner-channel/owner-phone.ts).
  */
 export async function findOwnerCompanies(admin: AdminClient, phone: string): Promise<OwnerCompany[]> {
   const last10 = normalizePhoneLast10(phone);
   if (!last10) return [];
-  const columns = "id, organization_id, name, timezone, owner_phone_e164";
+  const columns = "id, organization_id, name, timezone, owner_phone_e164, owner_phone_verified_at";
   const exact = await admin.from("companies").select(columns).eq("owner_phone_e164", phone.trim()).limit(20);
-  let rows = ((exact.data ?? []) as CompanyRow[]).filter((r) => samePhone(r.owner_phone_e164, phone));
-  if (rows.length === 0) {
+  let rows = ((exact.data ?? []) as CompanyRow[]).filter((r) => sameOwnerPhone(r.owner_phone_e164, phone));
+  const isNanp = /^\+1\d{10}$/.test(phone.trim()) || (!phone.trim().startsWith("+") && phone.replace(/\D/g, "").length === 10);
+  if (rows.length === 0 && isNanp) {
     const loose = await admin.from("companies").select(columns).like("owner_phone_e164", `%${last10}`).limit(20);
-    rows = ((loose.data ?? []) as CompanyRow[]).filter((r) => samePhone(r.owner_phone_e164, phone));
+    rows = ((loose.data ?? []) as CompanyRow[]).filter((r) => sameOwnerPhone(r.owner_phone_e164, phone));
   }
+  rows = rows.filter((r) => Boolean(r.owner_phone_verified_at));
   if (rows.length === 0) return [];
 
   const orgIds = [...new Set(rows.map((r) => r.organization_id))];
@@ -79,9 +106,9 @@ export async function findOwnerCompanies(admin: AdminClient, phone: string): Pro
 
 /** Is this phone the owner of exactly this company? */
 export async function isOwnerOfCompany(admin: AdminClient, phone: string, companyId: string): Promise<boolean> {
-  const { data } = await admin.from("companies").select("id, owner_phone_e164").eq("id", companyId).maybeSingle();
-  const row = data as { owner_phone_e164: string | null } | null;
-  return Boolean(row && samePhone(row.owner_phone_e164, phone));
+  const { data } = await admin.from("companies").select("id, owner_phone_e164, owner_phone_verified_at").eq("id", companyId).maybeSingle();
+  const row = data as { owner_phone_e164: string | null; owner_phone_verified_at: string | null } | null;
+  return Boolean(row && row.owner_phone_verified_at && sameOwnerPhone(row.owner_phone_e164, phone));
 }
 
 // ── Platform-number opt-out ──────────────────────────────────────────────────

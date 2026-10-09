@@ -7,12 +7,16 @@
  * Every action re-checks scope at execution time: the booking must still belong to the
  * approval's own organization + company, and a move must still land on an open time.
  */
+import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+
 import type { Json, Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import { rescheduleBooking, updateBookingStatus } from "@/server/services/bookings";
 import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } from "@/server/services/front-desk/contracts";
+import { markOwnerTakeover } from "@/server/services/sms-agent/takeover";
+import { deliverMessage } from "@/server/services/workflow-engine/messaging";
 import { ctxFor, DEFAULT_TIMEZONE, shortWhen } from "./common";
-import { contactName, findScopedBooking, openTimesForBooking, type CompanyScope } from "./schedule";
+import { contactName, findScopedBooking, findScopedContact, openTimesForBooking, type CompanyScope } from "./schedule";
 
 /** "…9:00 a.m." already ends the sentence — don't add a second period. */
 function sentence(text: string): string {
@@ -23,7 +27,35 @@ export const OWNER_COMMAND_KIND = "owner_command";
 
 export type OwnerCommandPayload =
   | { action: "reschedule"; bookingId: string; startsAt: string; windowKey: string | null; previousStartsAt: string; who: string }
-  | { action: "cancel"; bookingId: string; who: string };
+  | { action: "cancel"; bookingId: string; who: string }
+  | { action: "text_customer"; contactId: string; message: string; who: string };
+
+// ── Confirmation codes ────────────────────────────────────────────────────────
+// Destructive owner commands (cancel, move, text a customer) are confirmed with a 4-digit code
+// ("Reply 4821 to confirm"), not a bare "Y": someone spoofing the owner's number can't see our
+// reply, so they can't confirm. The code is stored hashed (salted) in the payload.
+
+export const CONFIRM_CODE_RE = /^\s*(\d{4})\s*\.?\s*$/;
+/** Wrong codes allowed before every waiting confirmation for that phone is cancelled. */
+export const MAX_CONFIRM_ATTEMPTS = 3;
+
+export function newConfirmation(): { code: string; salt: string; hash: string } {
+  const code = String(randomInt(1000, 10_000));
+  const salt = randomBytes(8).toString("hex");
+  return { code, salt, hash: hashConfirmation(code, salt) };
+}
+
+export function hashConfirmation(code: string, salt: string): string {
+  return createHash("sha256").update(`${salt}:${code}`).digest("hex");
+}
+
+export function confirmationMatches(payload: Record<string, unknown>, code: string): boolean {
+  const salt = typeof payload.confirmSalt === "string" ? payload.confirmSalt : null;
+  const hash = typeof payload.confirmHash === "string" ? payload.confirmHash : null;
+  if (!salt || !hash) return false;
+  const given = hashConfirmation(code, salt);
+  return given.length === hash.length && timingSafeEqual(Buffer.from(given), Buffer.from(hash));
+}
 
 async function scopeForApproval(admin: AdminClient, approval: OwnerApprovalRow): Promise<CompanyScope | null> {
   const { data } = await admin
@@ -42,7 +74,32 @@ export async function executeOwnerCommand(admin: AdminClient, approval: OwnerApp
   const payload = approval.payload as Partial<OwnerCommandPayload>;
   const scope = await scopeForApproval(admin, approval);
   if (!scope) return { ok: false, message: "I couldn't find that business." };
-  const booking = await findScopedBooking(admin, scope, payload.bookingId);
+
+  if (payload.action === "text_customer") {
+    // Exactly the message the owner confirmed (it was echoed back to them word for word).
+    const contact = await findScopedContact(admin, scope, payload.contactId);
+    if (!contact) return { ok: false, message: "I couldn't find that customer any more." };
+    if (!contact.phone) return { ok: false, message: `${payload.who ?? "They"} have no phone number on file.` };
+    const message = typeof payload.message === "string" ? payload.message : "";
+    if (!message) return { ok: false, message: "There was no message to send." };
+    const result = await deliverMessage({
+      context: ctxFor(admin, scope.organizationId),
+      channel: "sms",
+      to: contact.phone,
+      body: message,
+      companyId: scope.companyId,
+      contactId: contact.id,
+      consentContact: contact,
+    });
+    if (result.status !== "sent") {
+      const why = result.reason === "opted_out" ? "they've opted out of texts" : result.reason ?? "the text didn't go through";
+      return { ok: false, message: `Not sent to ${payload.who ?? "them"} - ${why}.` };
+    }
+    await markOwnerTakeover(admin, { companyId: scope.companyId, contactId: contact.id });
+    return { ok: true, message: `Sent to ${payload.who ?? "them"}. The assistant will stay out of that conversation for now.`, detail: { contactId: contact.id } };
+  }
+
+  const booking = await findScopedBooking(admin, scope, (payload as { bookingId?: string }).bookingId);
   if (!booking) return { ok: false, message: "I couldn't find that booking any more." };
   const ctx = ctxFor(admin, scope.organizationId);
 
@@ -181,6 +238,11 @@ export function rescheduleProposal(
     summary: `Move ${who} (${shortWhen(booking.scheduled_for, timeZone)}) to ${shortWhen(slot.startsAt, timeZone)}?`,
     payload: { action: "reschedule", bookingId: booking.id, startsAt: slot.startsAt, windowKey: slot.windowKey, previousStartsAt: booking.scheduled_for, who },
   };
+}
+
+/** Build the confirmation line + payload for a text to a customer (the exact message, echoed). */
+export function textCustomerProposal(contactId: string, who: string, message: string): { summary: string; payload: OwnerCommandPayload } {
+  return { summary: `Send to ${who}: "${message}"?`, payload: { action: "text_customer", contactId, message, who } };
 }
 
 export function cancelProposal(booking: Pick<Tables<"bookings">, "id" | "scheduled_for" | "title">, who: string, timeZone: string): { summary: string; payload: OwnerCommandPayload } {

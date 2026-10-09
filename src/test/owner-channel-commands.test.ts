@@ -44,8 +44,8 @@ function seed() {
   db = createFakeDb(
     {
       companies: [
-        { id: "co-1", organization_id: "org-1", name: "Northshore Lawn", timezone: "America/Toronto", owner_phone_e164: OWNER, ai_settings: {}, booking_policy: null, online_booking_settings: {} },
-        { id: "co-9", organization_id: "org-9", name: "Someone Else Plumbing", timezone: "America/Toronto", owner_phone_e164: "+14165551234", ai_settings: {} },
+        { id: "co-1", organization_id: "org-1", name: "Northshore Lawn", timezone: "America/Toronto", owner_phone_e164: OWNER, owner_phone_verified_at: "2026-10-01T00:00:00Z", ai_settings: {}, booking_policy: null, online_booking_settings: {} },
+        { id: "co-9", organization_id: "org-9", name: "Someone Else Plumbing", timezone: "America/Toronto", owner_phone_e164: "+14165551234", owner_phone_verified_at: "2026-10-01T00:00:00Z", ai_settings: {} },
       ],
       organizations: [
         { id: "org-1", platform_brand: "crankleads" },
@@ -92,6 +92,13 @@ function scriptModel(steps: Array<{ name: string; input: Record<string, unknown>
     }
     return Promise.resolve({ id: `msg_${i++}`, model: "claude-sonnet-5-5", stop_reason: "end_turn", content: [{ type: "text", text: final }], usage: { input_tokens: 10, output_tokens: 5 } });
   });
+}
+
+/** The confirmation code in the last owner text ("… Reply 4821 to confirm"). */
+function lastCode(): string {
+  const m = /Reply (\d{4}) to confirm/.exec(ownerReplies().at(-1) ?? "");
+  if (!m) throw new Error(`no code in: ${ownerReplies().at(-1)}`);
+  return m[1];
 }
 
 function ownerReplies(): string[] {
@@ -143,18 +150,24 @@ describe("owner commands", () => {
     expect(db.tables.owner_command_log[0]).toMatchObject({ intent: "command", company_id: "co-1" });
   });
 
-  it("reschedule: asks to confirm the exact change, applies it only after Y", async () => {
+  it("reschedule: asks to confirm the exact change with a 4-digit code; a bare Y doesn't do it", async () => {
     scriptModel([{ name: "propose_reschedule", input: { booking_id: B_DANA, date: "2026-10-09", time: "09:00" } }], "unused");
     await text("move Dana to Friday 9am");
 
     expect(rescheduleBooking).not.toHaveBeenCalled();
     const ask = ownerReplies().at(-1) ?? "";
-    expect(ask).toMatch(/^CrankLeads: Move Dana Jones \(Thu.*Oct.*8.*9:00.*\) to Fri.*Oct.*9.*9:00.*\? Reply Y to confirm/);
+    expect(ask).toMatch(/^CrankLeads: Move Dana Jones \(Thu.*Oct.*8.*9:00.*\) to Fri.*Oct.*9.*9:00.*\? Reply \d{4} to confirm/);
     expect(db.tables.owner_approvals).toHaveLength(1);
-    expect(db.tables.owner_approvals[0]).toMatchObject({ kind: "owner_command", status: "pending", requested_by: "owner_command" });
+    expect(db.tables.owner_approvals[0]).toMatchObject({ kind: "owner_command", status: "pending", requested_by: "owner_command", notified_to: OWNER });
     expect(db.tables.owner_approvals[0].notified_at).toBeTruthy();
+    expect(JSON.stringify(db.tables.owner_approvals[0].payload)).not.toContain(lastCode()); // stored hashed
 
+    const code = lastCode();
     await text("Y");
+    expect(rescheduleBooking).not.toHaveBeenCalled();
+    expect(ownerReplies().at(-1)).toMatch(/reply with the 4-digit code/);
+
+    await text(code);
     expect(rescheduleBooking).toHaveBeenCalledTimes(1);
     expect(rescheduleBooking.mock.calls[0][1]).toMatchObject({ bookingId: B_DANA, scheduledFor: "2026-10-09T13:00:00.000Z" });
     expect((rescheduleBooking.mock.calls[0][0] as { organizationId: string }).organizationId).toBe("org-1");
@@ -170,11 +183,11 @@ describe("owner commands", () => {
     expect(db.tables.owner_approvals).toHaveLength(0);
   });
 
-  it("cancel always confirms; N leaves it", async () => {
+  it("cancel always confirms with a code; N leaves it", async () => {
     scriptModel([{ name: "propose_cancel", input: { booking_id: B_DANA } }], "unused");
     await text("cancel Dana tomorrow");
     expect(updateBookingStatus).not.toHaveBeenCalled();
-    expect(ownerReplies().at(-1)).toMatch(/Cancel Dana Jones .*Spring cleanup.*\? Reply Y to confirm/);
+    expect(ownerReplies().at(-1)).toMatch(/Cancel Dana Jones .*Spring cleanup.*\? Reply \d{4} to confirm, or N to leave it/);
 
     await text("N");
     expect(updateBookingStatus).not.toHaveBeenCalled();
@@ -182,27 +195,49 @@ describe("owner commands", () => {
 
     scriptModel([{ name: "propose_cancel", input: { booking_id: B_DANA } }], "unused");
     await text("cancel Dana tomorrow");
-    await text("yes");
+    await text(lastCode());
     expect(updateBookingStatus).toHaveBeenCalledWith(expect.objectContaining({ organizationId: "org-1" }), { bookingId: B_DANA, status: "cancelled" });
   });
 
-  it("a bare Y right after a confirmation goes to it even when AI approvals are also waiting", async () => {
+  it("a blind spoofer can't confirm: Y doesn't, wrong codes don't, and three wrong codes cancel it", async () => {
+    scriptModel([{ name: "propose_cancel", input: { booking_id: B_DANA } }], "unused");
+    await text("cancel Dana");
+    const code = lastCode();
+    const wrong = code === "1234" ? "4321" : "1234";
+    await text("Y");
+    await text(wrong);
+    expect(ownerReplies().at(-1)).toMatch(/doesn't match/);
+    await text(wrong);
+    await text(wrong);
+    expect(ownerReplies().at(-1)).toMatch(/last try/);
+    expect(db.tables.owner_approvals[0].status).toBe("rejected");
+    await text(code);
+    expect(updateBookingStatus).not.toHaveBeenCalled();
+  });
+
+  it("with an AI approval also waiting, a bare Y goes to the AI approval, the code to the confirmation", async () => {
     db.tables.owner_approvals.push({
       id: "a-ai", organization_id: "org-1", company_id: "co-1", kind: "send_quote", summary: "Quote for Sam: $650.", payload: {},
-      status: "pending", short_code: 1, requested_by: "sms_agent", notified_at: "2026-10-07T13:00:00Z",
+      status: "pending", short_code: 1, requested_by: "sms_agent", notified_at: "2026-10-07T13:00:00Z", notified_to: OWNER,
       expires_at: "2026-10-08T13:00:00Z", created_at: "2026-10-07T13:00:00Z",
     });
     scriptModel([{ name: "propose_cancel", input: { booking_id: B_DANA } }], "unused");
     await text("cancel Dana");
-    await text("Y");
+    const code = lastCode();
+    await text(code);
     expect(updateBookingStatus).toHaveBeenCalledTimes(1);
     expect(executeApprovedAction).not.toHaveBeenCalled();
     expect(db.tables.owner_approvals.find((a) => a.id === "a-ai")?.status).toBe("pending");
+    await text("Y");
+    expect(executeApprovedAction).toHaveBeenCalledTimes(1);
   });
 
-  it("text a customer: sends from the company number and marks the owner takeover", async () => {
-    scriptModel([{ name: "text_customer", input: { contact_id: DANA, message: "We'll be there at 3." } }], "Sent to Dana.");
+  it("text a customer: echoes the exact message for a code, then sends from the company number and marks the owner takeover", async () => {
+    scriptModel([{ name: "text_customer", input: { contact_id: DANA, message: "We'll be there at 3." } }], "unused");
     await text("tell Dana we'll be there at 3");
+    expect(deliverMessage.mock.calls.some((c) => (c[0] as Record<string, unknown>).contactId === DANA)).toBe(false);
+    expect(ownerReplies().at(-1)).toMatch(/^CrankLeads: Send to Dana Jones: "We'll be there at 3\."\? Reply \d{4} to confirm/);
+    await text(lastCode());
 
     const customer = deliverMessage.mock.calls.map((c) => c[0] as Record<string, unknown>).find((m) => m.contactId === DANA);
     expect(customer).toMatchObject({ to: "+17055550123", companyId: "co-1", body: "We'll be there at 3." });
@@ -210,7 +245,7 @@ describe("owner commands", () => {
     expect(customer?.consentContact).toBeTruthy(); // consent still checked
     expect(db.tables.sms_conversations[0]).toMatchObject({ organization_id: "org-1", company_id: "co-1", contact_id: DANA, state: "owner" });
     expect(db.tables.sms_conversations[0].owner_takeover_at).toBeTruthy();
-    expect(ownerReplies().at(-1)).toBe("CrankLeads: Sent to Dana.");
+    expect(ownerReplies().at(-1)).toBe("CrankLeads: Sent to Dana Jones. The assistant will stay out of that conversation for now.");
   });
 
   it("another company's booking or customer is 'not found' — no change, no text, no leak", async () => {
@@ -264,7 +299,7 @@ describe("owner commands", () => {
   });
 
   it("an owner of two businesses is asked which one, and the answer runs the original command there", async () => {
-    db.tables.companies.push({ id: "co-2", organization_id: "org-1", name: "Bayview Snow", timezone: "America/Toronto", owner_phone_e164: OWNER, ai_settings: {} });
+    db.tables.companies.push({ id: "co-2", organization_id: "org-1", name: "Bayview Snow", timezone: "America/Toronto", owner_phone_e164: OWNER, owner_phone_verified_at: "2026-10-01T00:00:00Z", ai_settings: {} });
     scriptModel([], "Nothing on tomorrow at Bayview.");
     await text("what's on tomorrow?");
     expect(anthropicCreate).not.toHaveBeenCalled();
@@ -283,7 +318,7 @@ describe("owner commands", () => {
   });
 
   it("naming the business picks it", async () => {
-    db.tables.companies.push({ id: "co-2", organization_id: "org-1", name: "Bayview Snow", timezone: "America/Toronto", owner_phone_e164: OWNER, ai_settings: {} });
+    db.tables.companies.push({ id: "co-2", organization_id: "org-1", name: "Bayview Snow", timezone: "America/Toronto", owner_phone_e164: OWNER, owner_phone_verified_at: "2026-10-01T00:00:00Z", ai_settings: {} });
     scriptModel([], "ok");
     await text("what's on tomorrow for northshore");
     expect((anthropicCreate.mock.calls[0][0] as { system: Array<{ text: string }> }).system[0].text).toContain("Northshore Lawn");

@@ -92,3 +92,49 @@ export function useSetAssistantHandling(orgId: string, contactId: string) {
     },
   });
 }
+
+// ── The owner's cell (owner texts: approvals + commands) ─────────────────────────
+
+export interface OwnerPhoneView {
+  phone: string | null;
+  verified: boolean;
+  verifiedAt: string | null;
+  pendingPhone: string | null;
+  pendingExpiresAt: string | null;
+  canManage: boolean;
+}
+
+export function fetchOwnerPhone(orgId: string, companyId: string): Promise<OwnerPhoneView> {
+  return apiFetch(`/api/organizations/${orgId}/companies/${companyId}/owner-phone`);
+}
+
+export function sendOwnerPhoneCode(orgId: string, companyId: string, phone: string): Promise<OwnerPhoneView> {
+  return apiFetch(`/api/organizations/${orgId}/companies/${companyId}/owner-phone`, { method: "POST", body: JSON.stringify({ phone }) });
+}
+
+export function verifyOwnerPhoneCode(orgId: string, companyId: string, code: string): Promise<OwnerPhoneView> {
+  return apiFetch(`/api/organizations/${orgId}/companies/${companyId}/owner-phone/verify`, { method: "POST", body: JSON.stringify({ code }) });
+}
+
+export function useOwnerPhone(orgId: string, companyId: string | null) {
+  return useQuery({
+    queryKey: ["front-desk", "owner-phone", orgId, companyId],
+    queryFn: () => fetchOwnerPhone(orgId, companyId as string),
+    enabled: Boolean(orgId && companyId),
+    staleTime: 30_000,
+  });
+}
+
+export function useOwnerPhoneActions(orgId: string, companyId: string) {
+  const qc = useQueryClient();
+  const key = ["front-desk", "owner-phone", orgId, companyId];
+  const sendCode = useMutation({
+    mutationFn: (phone: string) => sendOwnerPhoneCode(orgId, companyId, phone),
+    onSuccess: (data) => qc.setQueryData(key, (prev: OwnerPhoneView | undefined) => ({ ...data, canManage: prev?.canManage ?? true })),
+  });
+  const verify = useMutation({
+    mutationFn: (code: string) => verifyOwnerPhoneCode(orgId, companyId, code),
+    onSuccess: (data) => qc.setQueryData(key, (prev: OwnerPhoneView | undefined) => ({ ...data, canManage: prev?.canManage ?? true })),
+  });
+  return { sendCode, verify };
+}

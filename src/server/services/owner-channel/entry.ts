@@ -1,13 +1,13 @@
 import type { Json, Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import type { AdminClient, InboundOwnerSms } from "@/server/services/front-desk/contracts";
-import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
-import { runOwnerCommandAgent } from "./agent";
 import { PRICE_NOTE_KINDS } from "@/server/services/front-desk/approval-text";
 import { SHORT_CODE_REUSE_MS } from "@/server/services/front-desk/approvals";
+import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
+import { runOwnerCommandAgent } from "./agent";
 import { decideApproval, isExpired, listLine, looksLikeApprovalAttempt, parseApprovalReply, type ParsedApprovalReply } from "./approvals";
-import { consumeLimit, findOwnerCompanies, samePhone, sendOwnerSms, type OwnerCompany } from "./common";
-import { OWNER_COMMAND_KIND } from "./owner-commands";
+import { consumeLimit, findOwnerCompanies, sameOwnerPhone, sendOwnerSms, type OwnerCompany } from "./common";
+import { CONFIRM_CODE_RE, confirmationMatches, MAX_CONFIRM_ATTEMPTS, OWNER_COMMAND_KIND } from "./owner-commands";
 
 /** Texts per phone per hour we'll act on at all, and model-backed commands per hour. */
 const OWNER_SMS_PER_HOUR = 60;
@@ -16,8 +16,6 @@ const OWNER_AI_PER_HOUR = 20;
 const ASK_TTL_MS = 30 * 60_000;
 /** "The business we were just talking about" for commands that don't name one. */
 const RECENT_CONTEXT_MS = 12 * 3_600_000;
-/** A bare "Y" right after "Move Dana…? Reply Y" goes to that confirmation. */
-const FRESH_CONFIRMATION_MS = 10 * 60_000;
 
 type ApprovalDbRow = Tables<"owner_approvals">;
 type LogRow = Tables<"owner_command_log">;
@@ -140,7 +138,7 @@ async function approvalsAskedOf(admin: AdminClient, companyIds: string[], phone:
     .order("created_at", { ascending: false })
     .limit(200);
   if (error) throw error;
-  return ((data ?? []) as ApprovalDbRow[]).filter((r) => samePhone(r.notified_to, phone) && Date.parse(r.notified_at as string) <= nowMs);
+  return ((data ?? []) as ApprovalDbRow[]).filter((r) => sameOwnerPhone(r.notified_to, phone) && Date.parse(r.notified_at as string) <= nowMs);
 }
 
 async function handleApproval(
@@ -154,7 +152,9 @@ async function handleApproval(
 ): Promise<Outcome> {
   const scope = hint ? [hint] : owned;
   const asked = await approvalsAskedOf(admin, scope.map((c) => c.companyId), sms.from, nowMs);
-  const live = asked.filter((p) => p.status === "pending" && !isExpired(p, nowMs)).reverse(); // oldest first for lists
+  // Owner-command confirmations take their 4-digit code, never a Y (a blind spoofer can't see it).
+  const liveAll = asked.filter((p) => p.status === "pending" && !isExpired(p, nowMs)).reverse(); // oldest first for lists
+  const live = parsed.approved ? liveAll.filter((p) => p.kind !== OWNER_COMMAND_KIND) : liveAll;
   const names = new Map(owned.map((c) => [c.companyId, c.name]));
   const companyOf = (row: ApprovalDbRow) => owned.find((c) => c.companyId === row.company_id) ?? null;
   const fallbackCompany = hint ?? (owned.length === 1 ? owned[0] : null);
@@ -185,21 +185,24 @@ async function handleApproval(
   } else if (live.length === 1) {
     target = live[0];
   } else if (live.length === 0) {
+    if (parsed.approved && liveAll.some((p) => p.kind === OWNER_COMMAND_KIND)) {
+      return { intent: "confirm_needs_code", reply: "To confirm that, reply with the 4-digit code from my last text (or N to leave it).", company: fallbackCompany };
+    }
     // Only expired ones left: answer about the newest (decide reports "expired" and closes it).
-    const stale = asked.find((p) => p.status === "pending");
+    const stale = asked.find((p) => p.status === "pending" && (parsed.approved ? p.kind !== OWNER_COMMAND_KIND : true));
     if (!stale) return { intent: "approval_none", reply: "Nothing waiting on you right now.", company: fallbackCompany };
     target = stale;
   } else {
-    const newest = live[live.length - 1];
-    if (newest.kind === OWNER_COMMAND_KIND && nowMs - Date.parse(newest.created_at) <= FRESH_CONFIRMATION_MS) target = newest;
-    else {
-      const first = live[0].short_code ?? 1;
-      return {
-        intent: "approval_which",
-        reply: `${live.length} waiting - reply with the number: ${listLine(live, names)}. e.g. Y ${first} or N ${first}`,
-        company: fallbackCompany,
-      };
-    }
+    const first = live[0].short_code ?? 1;
+    return {
+      intent: "approval_which",
+      reply: `${live.length} waiting - reply with the number: ${listLine(live, names)}. e.g. Y ${first} or N ${first}`,
+      company: fallbackCompany,
+    };
+  }
+
+  if (parsed.approved && target.kind === OWNER_COMMAND_KIND && target.status === "pending") {
+    return { intent: "confirm_needs_code", reply: "To confirm that, reply with the 4-digit code from my last text (or N to leave it).", company: companyOf(target) };
   }
 
   // A note is only ever a price; on a kind that can't take one, ask rather than drop it.
@@ -223,6 +226,49 @@ async function handleApproval(
     reply: decided.message,
     company: companyOf(target),
     result: { approvalId: target.id, approved: parsed.approved, note: parsed.note, ok: decided.result?.ok ?? null },
+  };
+}
+
+/**
+ * "4821" — the confirmation code for a destructive owner command ("Cancel Dana…? Reply 4821").
+ * Only pending confirmations texted to this phone count; three wrong codes cancel them all.
+ * Returns null when nothing is waiting for a code (the digits are then just a command).
+ */
+async function handleConfirmationCode(admin: AdminClient, sms: InboundOwnerSms, code: string, owned: OwnerCompany[], nowMs: number): Promise<Outcome | null> {
+  const asked = await approvalsAskedOf(admin, owned.map((c) => c.companyId), sms.from, nowMs);
+  const waiting = asked.filter((p) => p.kind === OWNER_COMMAND_KIND && p.status === "pending" && !isExpired(p, nowMs));
+  if (waiting.length === 0) return null;
+  const payloadOf = (row: ApprovalDbRow) => (row.payload && typeof row.payload === "object" && !Array.isArray(row.payload) ? (row.payload as Record<string, unknown>) : {});
+  const target = waiting.find((p) => confirmationMatches(payloadOf(p), code));
+  if (!target) {
+    let cancelled = 0;
+    for (const row of waiting) {
+      const payload = payloadOf(row);
+      const attempts = (typeof payload.confirmAttempts === "number" ? payload.confirmAttempts : 0) + 1;
+      if (attempts >= MAX_CONFIRM_ATTEMPTS) {
+        const { data } = await admin
+          .from("owner_approvals")
+          .update({ status: "rejected", decided_at: new Date(nowMs).toISOString(), decided_via: "sms", decided_by: sms.from, result: toJson({ ok: true, message: "Cancelled after too many wrong codes." }) })
+          .eq("id", row.id)
+          .eq("status", "pending")
+          .select("id");
+        cancelled += (data ?? []).length;
+      } else {
+        await admin.from("owner_approvals").update({ payload: toJson({ ...payload, confirmAttempts: attempts }) }).eq("id", row.id).eq("status", "pending");
+      }
+    }
+    return {
+      intent: "confirm_wrong_code",
+      reply: cancelled ? "That code doesn't match, and that was the last try - nothing was changed. Ask again if you still want it." : "That code doesn't match anything waiting - nothing was changed.",
+      company: owned.find((c) => c.companyId === waiting[0].company_id) ?? null,
+    };
+  }
+  const decided = await decideApproval(admin, target.id, { approved: true, ownerNote: null, decidedVia: "sms", decidedBy: sms.from }, { organizationId: target.organization_id, nowMs });
+  return {
+    intent: `confirm_${decided.outcome}`,
+    reply: decided.message,
+    company: owned.find((c) => c.companyId === target.company_id) ?? null,
+    result: { approvalId: target.id, ok: decided.result?.ok ?? null },
   };
 }
 
@@ -309,6 +355,12 @@ async function route(admin: AdminClient, sms: InboundOwnerSms, owned: OwnerCompa
 
   if (!body && sms.media.length > 0) {
     return { intent: "media_only", reply: "Got the picture — I can't do anything with photos here yet. Text me what you need.", company: hint };
+  }
+
+  const codeMatch = CONFIRM_CODE_RE.exec(body);
+  if (codeMatch) {
+    const confirmed = await handleConfirmationCode(admin, sms, codeMatch[1], owned, nowMs);
+    if (confirmed) return confirmed;
   }
 
   const parsed = parseApprovalReply(body);

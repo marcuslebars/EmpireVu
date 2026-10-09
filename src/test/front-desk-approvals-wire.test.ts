@@ -37,7 +37,7 @@ beforeEach(() => {
       organizations: [{ id: ORG, platform_brand: "crankleads" }],
       companies: [
         {
-          id: CO, organization_id: ORG, name: "Northshore Snow & Lawn", timezone: "America/Toronto", owner_phone_e164: "+17055550142",
+          id: CO, organization_id: ORG, name: "Northshore Snow & Lawn", timezone: "America/Toronto", owner_phone_e164: "+17055550142", owner_phone_verified_at: "2026-10-01T00:00:00Z",
           ai_settings: {}, hours: null, service_area: "Midland", online_booking_settings: null, booking_policy: null, industry_pack: null,
           cancellation_policy_text: null, quote_terms_text: null,
         },

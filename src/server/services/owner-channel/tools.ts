@@ -9,17 +9,20 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { Tables } from "@/server/db/database.types";
 import { addDays, localDate, zonedInstant } from "@/server/services/booking-windows";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
-import { markOwnerTakeover, setConversationAi } from "@/server/services/sms-agent/takeover";
-import { deliverMessage } from "@/server/services/workflow-engine/messaging";
+import { toPlainText } from "@/server/services/sms-agent/guard";
+import { setConversationAi } from "@/server/services/sms-agent/takeover";
 import { createApproval, ensureShortCodes, listPendingApprovals } from "./approvals";
-import { ctxFor, shortWhen } from "./common";
+import { shortWhen } from "./common";
 import {
   cancelProposal,
+  newConfirmation,
   OWNER_COMMAND_KIND,
   pauseAllTexts,
   rescheduleProposal,
   resumeAllTexts,
   setBusinessAi,
+  textCustomerProposal,
+  type OwnerCommandPayload,
 } from "./owner-commands";
 import { contactName, findScopedBooking, findScopedContact, openTimesForBooking, type CompanyScope } from "./schedule";
 
@@ -28,12 +31,33 @@ export interface ToolRunState {
   scope: CompanyScope;
   ownerPhone: string;
   nowMs: number;
-  /** Set when a tool created a confirmation the owner must answer with Y/N. */
+  /** Set when a tool created a confirmation the owner must answer with its 4-digit code. */
   confirmation: Tables<"owner_approvals"> | null;
+  /** The code for `confirmation` (only ever sent back to the phone that texted). */
+  confirmationCode?: string | null;
   actions: Array<{ tool: string; ok: boolean; detail?: Record<string, unknown> }>;
 }
 
 const CONFIRM_MINUTES = 30;
+/** text_customer: the whole message is echoed to the owner for confirmation, so keep it short. */
+const MAX_OWNER_TEXT = 300;
+
+/** Every destructive command waits for "Reply 4821 to confirm" (owner-commands.ts). */
+async function proposeConfirmation(state: ToolRunState, contactId: string | null, proposal: { summary: string; payload: OwnerCommandPayload }) {
+  const confirm = newConfirmation();
+  state.confirmation = await createApproval(state.admin, {
+    organizationId: state.scope.organizationId,
+    companyId: state.scope.companyId,
+    contactId,
+    kind: OWNER_COMMAND_KIND,
+    summary: proposal.summary,
+    payload: { ...proposal.payload, confirmSalt: confirm.salt, confirmHash: confirm.hash, confirmAttempts: 0 },
+    requestedBy: "owner_command",
+    expiresInMinutes: CONFIRM_MINUTES,
+    notifiedTo: state.ownerPhone,
+  });
+  state.confirmationCode = confirm.code;
+}
 
 export const OWNER_TOOLS: Anthropic.Messages.Tool[] = [
   {
@@ -69,7 +93,7 @@ export const OWNER_TOOLS: Anthropic.Messages.Tool[] = [
   {
     name: "propose_reschedule",
     description:
-      "Ask the owner to confirm moving a booking to an open time. Nothing changes until they reply Y. Give the local date and either the local time (HH:MM, 24h) or the booking window key.",
+      "Ask the owner to confirm moving a booking to an open time. Nothing changes until they reply with the confirmation code. Give the local date and either the local time (HH:MM, 24h) or the booking window key.",
     input_schema: {
       type: "object",
       properties: {
@@ -83,13 +107,13 @@ export const OWNER_TOOLS: Anthropic.Messages.Tool[] = [
   },
   {
     name: "propose_cancel",
-    description: "Ask the owner to confirm cancelling a booking. Nothing changes until they reply Y.",
+    description: "Ask the owner to confirm cancelling a booking. Nothing changes until they reply with the confirmation code.",
     input_schema: { type: "object", properties: { booking_id: { type: "string" } }, required: ["booking_id"] },
   },
   {
     name: "text_customer",
     description:
-      "Send a text to a customer from the business's number, on the owner's behalf, with the owner's message (lightly tidied, same meaning). The AI then stays out of that conversation.",
+      "Text a customer from the business's number on the owner's behalf, with the owner's message (lightly tidied, same meaning, under 300 characters). The owner is shown the exact message and must confirm with a code before it goes; the AI then stays out of that conversation.",
     input_schema: {
       type: "object",
       properties: { contact_id: { type: "string" }, message: { type: "string" } },
@@ -281,17 +305,7 @@ async function proposeRescheduleTool(state: ToolRunState, input: Input) {
   }
   const contact = booking.contact_id ? await findScopedContact(state.admin, state.scope, booking.contact_id) : null;
   const proposal = rescheduleProposal(booking, contactName(contact), { startsAt: slot.startsAt, windowKey: slot.windowKey }, state.scope.timeZone);
-  state.confirmation = await createApproval(state.admin, {
-    organizationId: state.scope.organizationId,
-    companyId: state.scope.companyId,
-    contactId: booking.contact_id,
-    kind: OWNER_COMMAND_KIND,
-    summary: proposal.summary,
-    payload: proposal.payload,
-    requestedBy: "owner_command",
-    expiresInMinutes: CONFIRM_MINUTES,
-    notifiedTo: state.ownerPhone,
-  });
+  await proposeConfirmation(state, booking.contact_id, proposal);
   return { ok: true, asked_owner: proposal.summary };
 }
 
@@ -300,45 +314,22 @@ async function proposeCancelTool(state: ToolRunState, input: Input) {
   if (!booking || booking.status === "cancelled") return { error: "No such booking for this business." };
   const contact = booking.contact_id ? await findScopedContact(state.admin, state.scope, booking.contact_id) : null;
   const proposal = cancelProposal(booking, contactName(contact), state.scope.timeZone);
-  state.confirmation = await createApproval(state.admin, {
-    organizationId: state.scope.organizationId,
-    companyId: state.scope.companyId,
-    contactId: booking.contact_id,
-    kind: OWNER_COMMAND_KIND,
-    summary: proposal.summary,
-    payload: proposal.payload,
-    requestedBy: "owner_command",
-    expiresInMinutes: CONFIRM_MINUTES,
-    notifiedTo: state.ownerPhone,
-  });
+  await proposeConfirmation(state, booking.contact_id, proposal);
   return { ok: true, asked_owner: proposal.summary };
 }
 
 async function textCustomerTool(state: ToolRunState, input: Input) {
   const contact = await findScopedContact(state.admin, state.scope, input.contact_id);
   if (!contact) return { error: "No such customer for this business." };
-  const message = str(input.message);
-  if (!message) return { error: "What should I say?" };
+  const raw = str(input.message);
+  if (!raw) return { error: "What should I say?" };
   if (!contact.phone) return { ok: false, reason: `${contactName(contact)} has no phone number on file.` };
-  const result = await deliverMessage({
-    context: ctxFor(state.admin, state.scope.organizationId),
-    channel: "sms",
-    to: contact.phone,
-    body: message.slice(0, 600),
-    companyId: state.scope.companyId,
-    contactId: contact.id,
-    consentContact: contact,
-  });
-  if (result.status !== "sent") {
-    const why = result.reason === "opted_out" ? "they've opted out of texts" : result.reason ?? "the text didn't go through";
-    return { ok: false, reason: `Not sent — ${why}.` };
-  }
-  try {
-    await markOwnerTakeover(state.admin, { companyId: state.scope.companyId, contactId: contact.id });
-  } catch (err) {
-    console.error("[owner-channel] takeover mark failed:", err instanceof Error ? err.message : err);
-  }
-  return { ok: true, sent_to: contactName(contact), text: result.body, note: "The AI will stay out of this conversation for now." };
+  if (contact.sms_opt_out_at) return { ok: false, reason: `${contactName(contact)} has opted out of texts.` };
+  const message = toPlainText(raw).replace(/\s+/g, " ").trim();
+  if (message.length > MAX_OWNER_TEXT) return { error: `That's ${message.length} characters - keep it under ${MAX_OWNER_TEXT} (the owner confirms it word for word).` };
+  // Nothing goes out yet: the owner sees the exact message and confirms with a code.
+  await proposeConfirmation(state, contact.id, textCustomerProposal(contact.id, contactName(contact), message));
+  return { ok: true, asked_owner: "Confirmation sent; nothing is sent to the customer until the owner confirms." };
 }
 
 async function setAiForCustomerTool(state: ToolRunState, input: Input) {

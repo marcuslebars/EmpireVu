@@ -41,7 +41,7 @@ function seed(extra: Record<string, Array<Record<string, unknown>>> = {}) {
   db = createFakeDb(
     {
       voice_numbers: [{ organization_id: "org-1", company_id: "co-1", phone_e164: COMPANY_NUMBER, provider: "twilio", active: true }],
-      companies: [{ id: "co-1", organization_id: "org-1", name: "Northshore Lawn", brand_from_name: null, owner_phone_e164: OWNER, timezone: "America/Toronto" }],
+      companies: [{ id: "co-1", organization_id: "org-1", name: "Northshore Lawn", brand_from_name: null, owner_phone_e164: OWNER, owner_phone_verified_at: "2026-10-01T00:00:00Z", timezone: "America/Toronto" }],
       organizations: [{ id: "org-1", platform_brand: "crankleads" }],
       contacts: [],
       message_log: [],

@@ -5,6 +5,8 @@ import { handleRoute, parseJsonBody } from "@/server/api/route";
 import { requireOrganizationContext } from "@/server/organizations/context";
 import { createCompany, updateCompany } from "@/server/services/companies";
 import { recordOnboardingEvent, upsertOnboardingStep } from "@/server/services/onboarding";
+import { saveOwnerPhoneUnverified } from "@/server/services/owner-channel/owner-phone";
+import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -50,11 +52,20 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
         hours: body.hours,
         serviceArea: body.serviceArea,
         ownerEmail: body.ownerEmail,
-        ownerPhone: body.ownerPhone,
         brandLogoUrl: body.brandLogoUrl,
         brandPrimaryColor: body.brandPrimaryColor,
         brandAccentColor: body.brandAccentColor,
       });
+
+      // The owner's cell is the owner channel's identity: not client-writable. Owners/admins
+      // save it here (service role, pinned to this org + company) UNVERIFIED; it's used for
+      // owner texts only after the code sent from Settings → AI front desk is entered.
+      if (body.ownerPhone !== undefined) {
+        const role = organization.membership.role;
+        if (role === "owner" || role === "admin") {
+          await saveOwnerPhoneUnverified(createSupabaseAdminClient(), { organizationId: organization.organizationId, companyId, phone: body.ownerPhone?.trim() || null });
+        }
+      }
 
       await upsertOnboardingStep(ctx, companyId, "business", { completed: true, data: { name: company.name } });
       await recordOnboardingEvent(ctx, { companyId, step: "business", event: "complete" });

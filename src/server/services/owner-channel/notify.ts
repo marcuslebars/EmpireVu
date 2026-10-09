@@ -34,13 +34,14 @@ export async function notifyOwnerOfApproval(admin: AdminClient, approvalId: stri
 
     const { data: companyData } = await admin
       .from("companies")
-      .select("id, organization_id, name, timezone, owner_phone_e164")
+      .select("id, organization_id, name, timezone, owner_phone_e164, owner_phone_verified_at")
       .eq("organization_id", row.organization_id)
       .eq("id", row.company_id)
       .maybeSingle();
-    const company = companyData as Pick<Tables<"companies">, "id" | "organization_id" | "name" | "timezone" | "owner_phone_e164"> | null;
+    const company = companyData as Pick<Tables<"companies">, "id" | "organization_id" | "name" | "timezone" | "owner_phone_e164" | "owner_phone_verified_at"> | null;
     const ownerPhone = company?.owner_phone_e164?.trim();
-    if (!company || !ownerPhone) return { notified: false };
+    // Only a verified owner phone can answer approvals; an unverified one waits (the app card works).
+    if (!company || !ownerPhone || !company.owner_phone_verified_at) return { notified: false };
 
     const timeZone = company.timezone?.trim() || DEFAULT_TIMEZONE;
     if (isQuietHours(nowMs, timeZone) && !isUrgentApproval(row)) return { notified: false };

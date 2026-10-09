@@ -510,6 +510,45 @@ export interface Database {
         };
         Relationships: [];
       };
+      owner_phone_verifications: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          phone_e164: string;
+          code_hash: string;
+          attempts: number;
+          expires_at: string;
+          verified_at: string | null;
+          requested_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          phone_e164: string;
+          code_hash: string;
+          attempts?: number;
+          expires_at: string;
+          verified_at?: string | null;
+          requested_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          phone_e164?: string;
+          code_hash?: string;
+          attempts?: number;
+          expires_at?: string;
+          verified_at?: string | null;
+          requested_by?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       owner_command_log: {
         Row: {
           id: string;
@@ -734,6 +773,7 @@ export interface Database {
           service_area: string | null;
           digest: Json | null;
           monthly_scorecard: Json | null;
+          owner_phone_verified_at: string | null;
         };
         Insert: {
           ai_settings?: Json;
@@ -790,6 +830,7 @@ export interface Database {
           service_area?: string | null;
           digest?: Json | null;
           monthly_scorecard?: Json | null;
+          owner_phone_verified_at?: string | null;
         };
         Update: {
           ai_settings?: Json;
@@ -846,6 +887,7 @@ export interface Database {
           service_area?: string | null;
           digest?: Json | null;
           monthly_scorecard?: Json | null;
+          owner_phone_verified_at?: string | null;
         };
         Relationships: [];
       };
