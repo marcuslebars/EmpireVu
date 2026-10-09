@@ -17,8 +17,10 @@ to me" relay stays quiet while the assistant is handling the customer.
 
 **The customer wants something only the owner can decide** ("can you do it for $500?"). The
 customer hears "Let me check with Dana and get right back to you." Dana gets a text from the
-CrankLeads number: "Jamie Lee: asks if we can do the seasonal contract for $500. Reply Y to
-approve, N to skip." She replies "Y but $575" — Jamie gets a $575 + HST quote link from the
+CrankLeads number, built from what "Y" will actually do: "#1 Jamie Lee (705-555-0123) wants a
+price. The quote will say "Seasonal snow contract, double driveway" at the price you give + HST.
+Their text: "Can you do it for $500?" Reply Y 1 $price (before HST) to send it, N 1 to skip." She
+replies "Y but $575" — Jamie gets a $575 + HST quote link from the
 business number, and Dana gets "Sent Jamie Lee the $575 + HST quote." A "no" (with or without a
 note) sends Jamie a polite "Dana will be in touch"; Dana's note is never passed on.
 
@@ -29,8 +31,9 @@ we'll be there at 9"); the assistant stays out of that conversation for 3 days o
 turns it back on (inbox **Let AI handle it**, or text "AI back on for Jamie").
 
 **The owner runs the day by text** to the CrankLeads number: "what's on tomorrow", "who's waiting
-on me", "move Jamie to Friday 9" (always "…? Reply Y to confirm" first), "tell Jamie we'll be
-there at 9" (goes out from the business number), "pause all texts".
+on me", "move Jamie to Friday 9" (always "…? Reply 4821 to confirm" first — a one-time code, not "Y"),
+"tell Jamie we'll be there at 9" (echoed word for word for a code, then sent from the business
+number), "pause all texts".
 
 **A call the owner can't take** forwards to the business's CrankLeads number. On every plan an AI
 picks up in the business's name, says it's an automated assistant and the call may be recorded,
@@ -57,7 +60,8 @@ report (on/off, text and/or email, send a test).
 1. **Migrations, in order** (Supabase SQL editor; all additive, rollbacks in `supabase/rollback/`):
    `20261009100000_front_desk_ai.sql` → `20261009110000_sms_agent.sql` →
    `20261009120000_owner_channel.sql` → `20261009130000_voice_ai_answering.sql` →
-   `20261009150000_front_desk_wiring.sql` (makes `call_answering_notices` service-role only).
+   `20261009150000_front_desk_wiring.sql` (makes `call_answering_notices` service-role only) →
+   `20261009160000_front_desk_hardening.sql` (see [Hardening](#hardening)).
    The weekly report has no migration of its own (its table is in `20261009100000`).
 2. **Env** (web + worker unless noted):
    - already set: `ANTHROPIC_API_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `APP_BASE_URL`, `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`, `RETELL_API_KEY`;
@@ -65,7 +69,11 @@ report (on/off, text and/or email, send a test).
    - `RETELL_FUNCTION_SECRET` (already used by Marina's tools; also signs the AI-answer call metadata unless `VOICE_AI_TOKEN_SECRET` is set);
    - `RETELL_MESSAGE_AGENT_ID` + `RETELL_MESSAGE_LLM_ID` (web) — from step 4;
    - `AI_PRICE_SONNET_INPUT_PER_MTOK` / `_OUTPUT_` / `_CACHE_READ_` / `_CACHE_WRITE_PER_MTOK` (worker) — Sonnet's list price, so front-desk AI cost isn't booked at Opus rates;
-   - optional: `AI_MODEL_SMS_AGENT`, `AI_MODEL_OWNER_AGENT` (default `claude-sonnet-5-5`), `SMS_AGENT_*` caps, `TWILIO_INBOUND_SMS_URL`, `AI_ANSWER_*`, `RETELL_SIP_DOMAIN`, `VOICE_AI_TOKEN_SECRET`.
+   - optional: `AI_MODEL_SMS_AGENT`, `AI_MODEL_OWNER_AGENT` (default `claude-sonnet-5-5`), `SMS_AGENT_*` caps (incl. `SMS_AGENT_LOOP_WINDOW_MS` / `_LOOP_MAX_REPLIES` / `_LOOP_MAX_INBOUND`), `TWILIO_INBOUND_SMS_URL`, `AI_ANSWER_*` (incl. `AI_ANSWER_MAX_CALLS_PER_CALLER_DAY`, default 3), `RETELL_SIP_DOMAIN`, `VOICE_AI_TOKEN_SECRET`;
+   - **`QUOTE_PUBLIC_BASE_URL_CRANKLEADS` — decision pending (Marcus):** the host CrankLeads
+     businesses' customers see in quote / booking links. Pick a neutral domain (not empirevu.com),
+     point it at the web service, and set it here; until then links use `QUOTE_PUBLIC_BASE_URL` /
+     `APP_BASE_URL`. A company's own `companies.quote_public_base_url` always wins.
 3. **Twilio — platform number Messaging webhook:** on `TWILIO_FROM_NUMBER` (or its Messaging
    Service) set "A message comes in" → `POST {APP_BASE_URL}/api/twilio/sms/inbound` (exactly the
    URL signatures are checked against; else set `TWILIO_INBOUND_SMS_URL`). Without it owners'
@@ -725,3 +733,78 @@ npm run job:weekly-report -- --company <companyId> --week 2026-10-05 --force   #
 - `--force` requires `--company`.
 
 Tests: `src/test/weekly-report.test.ts`.
+
+## Hardening
+
+A review pass on top of the four parts (migration `20261009160000_front_desk_hardening.sql`,
+rollback in `supabase/rollback/`). What changed, by area:
+
+**Customer texts (sms-agent/guard.ts).**
+- Links are masked before platform names are replaced, so a link is never rewritten; then
+  `ensureLinks` drops any link a tool didn't produce (or that isn't the business's booking page /
+  website), collapses duplicates and appends what's missing — every customer text carries each
+  correct link exactly once. Approved actions go through the same `finalizeCustomerText`.
+- Money guard: `$` before or after, `CAD`, `+ HST`, money words (total, price, cost, rate, fee,
+  charge, quote, deposit, knock, save…), spelled-out amounts ("six hundred dollars", "two
+  grand"), any `%`, and deal words (free, half price, discount, waive, deal, special, promo,
+  cheaper, "knock 100 off", "no charge"). Dates, times, addresses, phone numbers and
+  measurements don't count; a plain refusal ("we can't offer a discount") isn't a deal.
+  Ask-first autonomy: no price statement at all without the owner, even one a tool priced.
+
+**Approvals (front-desk/approval-text.ts, owner-channel/approvals.ts, entry.ts, notify.ts).**
+- The owner's text is built in code from the payload — `send_reply` shows the exact reply
+  (≤ 300 characters; the tool refuses longer, a guard-trapped reply that long is handed off
+  instead) plus `CHECK: $575 isn't on your price list`; `send_quote` the exact lines + amounts;
+  `custom_price` the exact label the quote line will carry; `book_job` the date/time. The
+  customer's own words are quoted as context; the model's summary is never what the owner
+  approves. Executors use what was shown (`payload.label`; `send_quote` refuses if the price
+  list moved since).
+- Replies: a decision is only the bare word (Y/YES/OK/N/NO, yep/yup/yeah/okay/approve, nope/nah/
+  skip) + optional code, or a yes + one clear price ("Y but $700", "Y 2 $700", "Y 700 + HST").
+  "ok actually no, keep it" / "N tell them next week" → "Did you mean Y or N to #5 (…)? Reply Y 5
+  or N 5. Nothing's been done yet."; "Ok what's on tomorrow" / "No worries, tell Jamie 9am
+  works" → commands. A price on a kind that can't take one is asked about, never dropped.
+- Short codes: one per-company sequence, never reused within 7 days (wraps past 999 to the
+  smallest code unused for a week); every approval text shows its code. SMS decisions count only
+  for approvals already texted to that phone (`owner_approvals.notified_to`) — quiet-hours rows
+  can't be approved blind; a code whose item was decided/expired says so.
+
+**Owner identity (owner-channel/owner-phone.ts).**
+- `companies.owner_phone_e164` is no longer member-writable. Owners/admins change it in Settings
+  → AI front desk → **Your cell for owner texts** (`POST …/companies/:id/owner-phone` texts a
+  6-digit code, `POST …/owner-phone/verify` confirms it; 10 minutes, 5 tries, 5 codes/hour).
+- The owner channel only acts for a verified number (`owner_phone_verified_at`): inbound identity
+  and approval texts. Checkout provisioning, the buyer's intake form and the concierge set it
+  verified; any other change is cleared by a DB trigger. Existing numbers were grandfathered.
+- `findOwnerCompanies`: exact E.164, last-10 only for +1 numbers.
+- Destructive commands — cancel, move, text a customer — confirm with a 4-digit code ("Reply 4821
+  to confirm"), stored hashed; a bare Y gets "reply with the 4-digit code"; 3 wrong codes cancel.
+  `text_customer` echoes the exact message (≤ 300 characters) and sends only on the code.
+
+**Never lost, never overridden (sms-agent/entry.ts).**
+- An owner takeover mid-turn wins: the conversation is re-read before the reply goes out (the
+  reply is dropped) and the end-of-turn update is conditional on state + `owner_takeover_at`.
+- Each customer text is stamped (`last_inbound_at`) before anything can fail; the scheduler's
+  `sweepUnansweredTexts` re-runs 'ai' conversations with an unhandled text and no turn running
+  (2-minute grace, 2 retries per text), then tells the owner once and hands it over.
+
+**Cost and abuse.** Past the company's daily cap: no more texts to customers, one owner alert
+per day. Owner alerts + approval texts: 30/hour/company, then one summary. Bot loops (≥ 6 AI
+replies or ≥ 10 texts in 10 minutes, or the same text 3 times) stop quietly and hand off.
+Concurrent AI calls each reserve 15 minutes before another is answered (`minutes_reserved` →
+voicemail, no notice); one caller gets the AI 3 times a day per company, then voicemail.
+
+**Voice.** Phone quotes are texted only to the caller ID (the number a caller says goes on the
+lead). Caller speech in the follow-up text is plain words only (no links, domains, emails, long
+numbers, `$`/`%`). The call metadata token signs an issue time (24h expiry) and is bound to the
+Retell `call_id` stored on the call's `missed_calls` row — function calls and the post-call
+webhook from any other call are refused.
+
+**Also.** Plain-words opt-outs ("stop texting me", "please don't text me again", "unsubscribe
+me", "remove me from your list" — the whole text) → opted out + one confirmation, no AI reply.
+Platform HELP is answered even after STOP (CTIA). MMS redirects are followed by hand to Twilio's
+CDN only, without the account's auth. `ai_settings` read-modify-writes are optimistic everywhere
+(`front-desk/ai-settings-write.ts`). Strangers' platform texts keep 200 characters and are pruned
+after 30 days. CrankLeads owners see "AI receptionist", never "Marina" (house tenants keep
+Marina). Customer links: a company's `quote_public_base_url`, else `QUOTE_PUBLIC_BASE_URL_CRANKLEADS`
+for CrankLeads orgs, else the platform default.
