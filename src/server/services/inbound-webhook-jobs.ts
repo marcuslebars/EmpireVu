@@ -15,6 +15,8 @@ import {
   VOICE_JOB_PROVIDER,
   VOICEMAIL_JOB_PROVIDER,
 } from "@/server/services/twilio/missed-call";
+import { VOICE_AI_JOB_PROVIDER } from "@/server/services/voice/ai-answer";
+import { handleVoiceAiJob } from "@/server/services/voice/jobs";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -145,6 +147,10 @@ export async function dispatchInboundWebhookJob(job: InboundWebhookJob): Promise
       return;
     case VOICEMAIL_JOB_PROVIDER:
       await handleVoicemail(job.payload);
+      return;
+    case VOICE_AI_JOB_PROVIDER:
+      // AI answering: the hand-off watchdog + the "minutes used up" owner notice.
+      await handleVoiceAiJob(job.payload);
       return;
     case FORWARDING_TEST_JOB_PROVIDER:
       // Forwarding verification: test-call status / AMD callbacks + the delayed finalize.

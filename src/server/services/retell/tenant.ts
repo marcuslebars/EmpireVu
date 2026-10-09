@@ -65,6 +65,18 @@ async function tenantFromCompany(
 }
 
 /**
+ * A tenant WE pinned (e.g. from the HMAC-verified metadata of an AI-answered catcher call —
+ * voice/ai-answer.ts readAnswerMetadata). Never call this with ids taken from unverified input.
+ */
+export async function pinnedRetellTenant(
+  admin: RetellAdminClient,
+  organizationId: string,
+  companyId: string,
+): Promise<RetellTenant> {
+  return { ...(await tenantFromCompany(admin, organizationId, companyId)), resolvedBy: "number" };
+}
+
+/**
  * Resolve the org + company for an INBOUND Retell call: by dialled number, then by agent
  * id, then the legacy env. An unmapped call yields null ids — it's still stored durably
  * (service-role only) and flagged, never dropped. Outbound calls resolve from the metadata

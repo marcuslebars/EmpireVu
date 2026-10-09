@@ -80,6 +80,42 @@ export function buildCatcherGreetingTwiml(input: CatcherGreetingInput): string {
   );
 }
 
+// ── AI answering (docs/front-desk-ai.md → "## Phone answering") ────────────────────────
+
+export interface AiHandoffInput {
+  /** sip:{retell_call_id}@sip.retellai.com — the call we registered with Retell. */
+  sipUri: string;
+  /** Absolute URL Twilio requests when the <Dial> ends (DialCallStatus decides the fallback). */
+  actionUrl: string;
+  /** Seconds to wait for the SIP leg to answer before falling back. */
+  ringTimeoutSeconds: number;
+  /** Hard cap on the AI call (what's left of the month's minutes, max 15 min). */
+  timeLimitSeconds: number;
+}
+
+/**
+ * Hand the caller to the AI: <Dial><Sip>. answerOnBridge keeps the caller hearing ringing until
+ * the AI picks up, so a failed leg goes straight to the voicemail greeting (the action URL) with
+ * no dead air. No <Say> here — the AI's own greeting discloses that it's automated.
+ */
+export function buildAiHandoffTwiml(input: AiHandoffInput): string {
+  const timeout = Math.min(60, Math.max(5, Math.round(input.ringTimeoutSeconds)));
+  const timeLimit = Math.min(4 * 3600, Math.max(30, Math.round(input.timeLimitSeconds)));
+  return (
+    XML_HEADER +
+    "<Response>" +
+    `<Dial action="${escapeXml(input.actionUrl)}" method="POST" timeout="${timeout}" timeLimit="${timeLimit}" answerOnBridge="true">` +
+    `<Sip>${escapeXml(input.sipUri)}</Sip>` +
+    "</Dial>" +
+    "</Response>"
+  );
+}
+
+/** The AI call ended normally — nothing more to do on the Twilio side. */
+export function buildHangupTwiml(): string {
+  return `${XML_HEADER}<Response><Hangup/></Response>`;
+}
+
 /** After the voicemail (the <Record> action): thank them and hang up. */
 export function buildVoicemailDoneTwiml(voice?: string): string {
   const v = escapeXml(voice?.trim() || DEFAULT_SAY_VOICE);
