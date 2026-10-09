@@ -870,6 +870,34 @@ describe("MMS pictures", () => {
     expect(isTwilioMediaUrl("http://api.twilio.com/x")).toBe(false);
   });
 
+  it("follows a redirect only to Twilio's CDN, without the Authorization header", async () => {
+    process.env.TWILIO_ACCOUNT_SID = "AC123";
+    process.env.TWILIO_AUTH_TOKEN = "secret";
+    const calls: Array<{ url: string; headers?: Record<string, string>; redirect?: string }> = [];
+    const fetchImpl = vi.fn(async (url: string, init: { headers?: Record<string, string>; redirect?: string }) => {
+      calls.push({ url, headers: init.headers, redirect: init.redirect });
+      if (url.includes("/ME1")) return new Response(null, { status: 302, headers: { location: "https://s3-external-1.amazonaws.com/media.twiliocdn.com/AC123/abc" } });
+      if (url.includes("/ME2")) return new Response(null, { status: 302, headers: { location: "https://evil.example/steal" } });
+      return new Response(new Uint8Array([9, 9]), { status: 200, headers: { "content-type": "image/png" } });
+    });
+    const images = await fetchMmsImages(
+      [
+        { url: "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages/MM1/Media/ME1", contentType: "image/png" },
+        { url: "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages/MM1/Media/ME2", contentType: "image/png" },
+      ],
+      { fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    expect(images).toHaveLength(1);
+    expect(calls.map((c) => c.url)).toEqual([
+      "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages/MM1/Media/ME1",
+      "https://s3-external-1.amazonaws.com/media.twiliocdn.com/AC123/abc",
+      "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages/MM1/Media/ME2",
+    ]);
+    expect(calls.every((c) => c.redirect === "manual")).toBe(true);
+    expect(calls[1].headers?.Authorization).toBeUndefined();
+    expect(calls[0].headers?.Authorization).toBeTruthy();
+  });
+
   it("passes pictures to the model as image blocks", async () => {
     const { sms } = inbound("Here's the roof", { media: [{ url: "https://api.twilio.com/2010-04-01/Accounts/AC/Messages/MM/Media/ME", contentType: "image/png" }] });
     const model = scripted([{ text: "Thanks for the photo." }]);

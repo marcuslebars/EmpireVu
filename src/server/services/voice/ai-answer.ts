@@ -89,10 +89,19 @@ export interface AnswerTokenClaims {
   companyId: string;
   /** The Twilio CallSid of the forwarded call (links the missed_calls row). */
   callSid: string;
+  /** When we issued it (unix seconds) — tokens expire (ANSWER_TOKEN_MAX_AGE_MS). */
+  issuedAt?: number;
 }
 
+/**
+ * A call's token is good for this long: covers the call (≤15 min), Retell's post-call analysis
+ * and webhook retries — not a replay days later.
+ */
+export const ANSWER_TOKEN_MAX_AGE_MS = 24 * 3_600_000;
+
 function tokenPayload(claims: AnswerTokenClaims): string {
-  return `${AI_ANSWER_SOURCE}|${claims.organizationId}|${claims.companyId}|${claims.callSid}`;
+  const base = `${AI_ANSWER_SOURCE}|${claims.organizationId}|${claims.companyId}|${claims.callSid}`;
+  return claims.issuedAt != null ? `${base}|${claims.issuedAt}` : base;
 }
 
 export function signAnswerToken(claims: AnswerTokenClaims, secret: string): string {
@@ -114,17 +123,21 @@ export interface AnswerMetadata {
   company_id: string;
   twilio_call_sid: string;
   agent_kind: AgentKind;
+  /** Unix seconds, signed into the token. */
+  issued_at: string;
   token: string;
 }
 
-export function buildAnswerMetadata(claims: AnswerTokenClaims, agentKind: AgentKind, secret: string): AnswerMetadata {
+export function buildAnswerMetadata(claims: AnswerTokenClaims, agentKind: AgentKind, secret: string, now: Date = new Date()): AnswerMetadata {
+  const issuedAt = claims.issuedAt ?? Math.floor(now.getTime() / 1000);
   return {
     source: AI_ANSWER_SOURCE,
     organization_id: claims.organizationId,
     company_id: claims.companyId,
     twilio_call_sid: claims.callSid,
     agent_kind: agentKind,
-    token: signAnswerToken(claims, secret),
+    issued_at: String(issuedAt),
+    token: signAnswerToken({ ...claims, issuedAt }, secret),
   };
 }
 
@@ -141,6 +154,7 @@ export interface VerifiedAnswerTenant extends AnswerTokenClaims {
 export function readAnswerMetadata(
   metadata: unknown,
   secret: string | null = getAiAnswerConfig().tokenSecret,
+  nowMs: number = Date.now(),
 ): VerifiedAnswerTenant | { valid: false } | null {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
   const m = metadata as Record<string, unknown>;
@@ -149,10 +163,36 @@ export function readAnswerMetadata(
   const organizationId = str(m.organization_id);
   const companyId = str(m.company_id);
   const callSid = str(m.twilio_call_sid);
-  if (!organizationId || !companyId || !callSid) return { valid: false };
-  const claims = { organizationId, companyId, callSid };
+  const issuedAt = Number(str(m.issued_at) ?? m.issued_at);
+  if (!organizationId || !companyId || !callSid || !Number.isFinite(issuedAt) || issuedAt <= 0) return { valid: false };
+  const claims = { organizationId, companyId, callSid, issuedAt };
   if (!verifyAnswerToken(claims, m.token, secret)) return { valid: false };
-  return { ...claims, agentKind: m.agent_kind === "receptionist" ? "receptionist" : "message" };
+  // Expired (or issued in the future beyond clock skew) → not trusted.
+  if (nowMs - issuedAt * 1000 > ANSWER_TOKEN_MAX_AGE_MS || issuedAt * 1000 - nowMs > 5 * 60_000) return { valid: false };
+  return { organizationId, companyId, callSid, agentKind: m.agent_kind === "receptionist" ? "receptionist" : "message" };
+}
+
+/**
+ * The token is bound to the Retell call we registered: the call presenting it (a function call
+ * or a webhook) must be that call — its call_id is the one stored on the missed_calls row when
+ * we registered. Metadata copied onto another call (or replayed) doesn't match.
+ */
+export async function answerCallMatches(admin: AdminClient, tenant: AnswerTokenClaims, retellCallId: string | null | undefined): Promise<boolean> {
+  if (!retellCallId) return false;
+  try {
+    const { data } = await admin
+      .from("missed_calls")
+      .select("ai_retell_call_id")
+      .eq("organization_id", tenant.organizationId)
+      .eq("company_id", tenant.companyId)
+      .eq("call_sid", tenant.callSid)
+      .maybeSingle();
+    const stored = (data as { ai_retell_call_id: string | null } | null)?.ai_retell_call_id ?? null;
+    return Boolean(stored && stored === retellCallId);
+  } catch (err) {
+    console.error("[voice-ai] call binding check failed:", err instanceof Error ? err.message : err);
+    return false;
+  }
 }
 
 export function isVerifiedAnswerTenant(value: ReturnType<typeof readAnswerMetadata>): value is VerifiedAnswerTenant {
@@ -659,7 +699,7 @@ export async function startAiAnswer(admin: AdminClient, input: StartAiAnswerInpu
         agentId: decision.agentId,
         fromNumber: toE164(params.From ?? null),
         toNumber: tenant.phoneE164,
-        metadata: buildAnswerMetadata(claims, decision.agentKind, config.tokenSecret!),
+        metadata: buildAnswerMetadata(claims, decision.agentKind, config.tokenSecret!, now),
         dynamicVariables: decision.dynamicVariables,
       },
       config,

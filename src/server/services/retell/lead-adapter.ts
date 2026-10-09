@@ -30,7 +30,7 @@ import {
   type RetellAdminClient,
   type RetellTenant,
 } from "./tenant";
-import { isVerifiedAnswerTenant, readAnswerMetadata, type VerifiedAnswerTenant } from "@/server/services/voice/ai-answer";
+import { answerCallMatches, isVerifiedAnswerTenant, readAnswerMetadata, type VerifiedAnswerTenant } from "@/server/services/voice/ai-answer";
 import { handleAnsweredCall } from "@/server/services/voice/post-call";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -743,8 +743,9 @@ async function ingestAnsweredCall(
   answered: VerifiedAnswerTenant | { valid: false },
 ): Promise<RetellWebhookResult> {
   const admin = createRetellAdminClient();
-  if (!isVerifiedAnswerTenant(answered)) {
-    console.error(`[retell] AI-answer call ${fields.callId ?? "?"} has metadata that doesn't verify — stored without a tenant.`);
+  // Signed + fresh + bound to the Retell call_id we registered for that CallSid.
+  if (!isVerifiedAnswerTenant(answered) || !(await answerCallMatches(admin, answered, fields.callId))) {
+    console.error(`[retell] AI-answer call ${fields.callId ?? "?"} has metadata that doesn't verify (or isn't this call's) — stored without a tenant.`);
     await upsertRetellCall(admin, {
       callId: fields.callId ?? `retell_nocid_${randomBytes(8).toString("hex")}`,
       tenant: { organizationId: null, companyId: null, sourceSite: "" },
@@ -844,8 +845,11 @@ export async function captureRetellLead(payload: unknown): Promise<RetellIngestR
   // A receptionist answering a catcher call: the tenant is the one in the signed metadata.
   const answered = readAnswerMetadata(fields.metadata);
   if (answered) {
-    if (!isVerifiedAnswerTenant(answered)) throw new Error("AI-answer call metadata doesn't verify — not capturing.");
-    const tenant = await pinnedRetellTenant(createRetellAdminClient(), answered.organizationId, answered.companyId);
+    const admin = createRetellAdminClient();
+    if (!isVerifiedAnswerTenant(answered) || !(await answerCallMatches(admin, answered, fields.callId))) {
+      throw new Error("AI-answer call metadata doesn't verify — not capturing.");
+    }
+    const tenant = await pinnedRetellTenant(admin, answered.organizationId, answered.companyId);
     return runPhoneLeadIntake(fields, payload, { tenant, triggersEmitOnly: true });
   }
   return runPhoneLeadIntake(fields, payload);

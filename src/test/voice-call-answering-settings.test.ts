@@ -147,6 +147,16 @@ describe("tenant token", () => {
     expect(readAnswerMetadata(buildAnswerMetadata(claims, "receptionist", "secret"), "secret")).toEqual({ ...claims, agentKind: "receptionist" });
   });
 
+  it("tokens expire, and the issue time is signed (can't be bumped)", () => {
+    const issued = new Date("2026-10-09T12:00:00Z");
+    const meta = buildAnswerMetadata(claims, "message", "secret", issued);
+    expect(readAnswerMetadata(meta, "secret", issued.getTime() + 60_000)).toEqual({ ...claims, agentKind: "message" });
+    expect(readAnswerMetadata(meta, "secret", issued.getTime() + 25 * 3_600_000)).toEqual({ valid: false });
+    expect(readAnswerMetadata({ ...meta, issued_at: String(Math.floor(issued.getTime() / 1000) + 86_400) }, "secret", issued.getTime() + 25 * 3_600_000)).toEqual({ valid: false });
+    const { issued_at: _drop, ...noIat } = meta;
+    expect(readAnswerMetadata(noIat, "secret", issued.getTime())).toEqual({ valid: false });
+  });
+
   it("owner notices wait for 08:00–21:00 local", () => {
     expect(nextCivilTime(new Date("2026-10-09T16:00:00Z"), "America/Toronto").toISOString()).toBe("2026-10-09T16:00:00.000Z"); // 12:00 EDT
     expect(nextCivilTime(new Date("2026-10-10T02:30:00Z"), "America/Toronto").toISOString()).toBe("2026-10-10T12:00:00.000Z"); // 22:30 → 08:00

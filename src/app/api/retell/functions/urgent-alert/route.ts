@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { readRetellFunctionRequest } from "@/server/services/retell/functions";
 import { createRetellAdminClient } from "@/server/services/retell/tenant";
-import { isVerifiedAnswerTenant, readAnswerMetadata } from "@/server/services/voice/ai-answer";
+import { answerCallMatches, isVerifiedAnswerTenant, readAnswerMetadata } from "@/server/services/voice/ai-answer";
 import { runUrgentAlert, type UrgentAlertArgs } from "@/server/services/voice/post-call";
 
 export const dynamic = "force-dynamic";
@@ -26,12 +26,15 @@ export async function POST(request: Request): Promise<NextResponse> {
   const raw = guard.data.raw && typeof guard.data.raw === "object" ? (guard.data.raw as Record<string, unknown>) : {};
   const call = raw.call && typeof raw.call === "object" ? (raw.call as Record<string, unknown>) : {};
   const tenant = readAnswerMetadata(call.metadata);
-  if (!isVerifiedAnswerTenant(tenant)) {
+  const admin = createRetellAdminClient();
+  const callId = typeof call.call_id === "string" ? call.call_id : guard.data.call.callId;
+  // The metadata must belong to THIS Retell call (the call_id we registered), and be fresh.
+  if (!isVerifiedAnswerTenant(tenant) || !(await answerCallMatches(admin, tenant, callId))) {
     return NextResponse.json({ ok: false, reason: "unsupported", say: SAY_FALLBACK }, { status: 200 });
   }
 
   try {
-    const result = await runUrgentAlert(createRetellAdminClient(), {
+    const result = await runUrgentAlert(admin, {
       tenant,
       args: guard.data.args ?? {},
       fromNumber: guard.data.call.fromNumber,

@@ -77,6 +77,7 @@ function seed(row: Record<string, unknown> = {}, contact: Record<string, unknown
       {
         id: "mc-1",
         call_sid: "CA0001",
+        ai_retell_call_id: "call_abc",
         organization_id: ORG,
         company_id: COMPANY,
         from_number: CALLER,
@@ -353,6 +354,21 @@ describe("ingestRetellCall for an AI-answered catcher call", () => {
     expect(h.intake).toHaveLength(0);
     expect(h.sent).toHaveLength(0);
     expect(db().tables.retell_calls[0]).toMatchObject({ call_id: "call_abc", organization_id: null, company_id: null });
+  });
+
+  it("metadata copied onto ANOTHER Retell call (call_id doesn't match the one we registered) is refused", async () => {
+    db().tables.missed_calls[0].ai_retell_call_id = "call_other";
+    const result = await ingestRetellCall(payload({ ...buildAnswerMetadata(claims, "message", SECRET) }));
+    expect(result.handled).toBe("skipped");
+    expect(h.intake).toHaveLength(0);
+    expect(h.sent).toHaveLength(0);
+  });
+
+  it("an expired token (issued over 24h ago) is refused", async () => {
+    const old = buildAnswerMetadata(claims, "message", SECRET, new Date(Date.now() - 25 * 3_600_000));
+    const result = await ingestRetellCall(payload({ ...old }));
+    expect(result.handled).toBe("skipped");
+    expect(h.sent).toHaveLength(0);
   });
 
   it("a token signed with the wrong secret is refused the same way", async () => {

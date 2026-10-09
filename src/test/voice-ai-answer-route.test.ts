@@ -170,7 +170,8 @@ describe("catcher → AI (mode 'ai', the CrankLeads default)", () => {
     });
     const metadata = body.metadata as Record<string, string>;
     expect(metadata).toMatchObject({ source: "catcher_ai", organization_id: ORG, company_id: COMPANY, twilio_call_sid: "CA0001", agent_kind: "message" });
-    expect(verifyAnswerToken({ organizationId: ORG, companyId: COMPANY, callSid: "CA0001" }, metadata.token, SECRET)).toBe(true);
+    expect(Number(metadata.issued_at)).toBeGreaterThan(0);
+    expect(verifyAnswerToken({ organizationId: ORG, companyId: COMPANY, callSid: "CA0001", issuedAt: Number(metadata.issued_at) }, metadata.token, SECRET)).toBe(true);
   });
 
   it("the tenant comes from the CALLED number only — caller-supplied fields can't pick another company", async () => {
@@ -180,7 +181,7 @@ describe("catcher → AI (mode 'ai', the CrankLeads default)", () => {
     expect(metadata.organization_id).toBe(ORG);
     expect(metadata.company_id).toBe(COMPANY);
     // A token for another tenant never verifies against this call's.
-    expect(verifyAnswerToken({ organizationId: OTHER_ORG, companyId: OTHER_COMPANY, callSid: "CA0001" }, metadata.token, SECRET)).toBe(false);
+    expect(verifyAnswerToken({ organizationId: OTHER_ORG, companyId: OTHER_COMPANY, callSid: "CA0001", issuedAt: Number(metadata.issued_at) }, metadata.token, SECRET)).toBe(false);
   });
 
   it("caps the AI call at the minutes left this month", async () => {

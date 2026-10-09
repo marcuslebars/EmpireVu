@@ -34,6 +34,24 @@ export function isTwilioMediaUrl(raw: string): boolean {
   }
 }
 
+/**
+ * Where a Twilio media URL may redirect to (its CDN): *.twiliocdn.com, or the S3 bucket behind
+ * it. Checked on every hop; the account's Authorization header is only ever sent to Twilio's
+ * own API host, never to a redirect target.
+ */
+export function isTwilioMediaRedirect(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:") return false;
+    if (url.hostname === "media.twiliocdn.com" || url.hostname.endsWith(".twiliocdn.com")) return true;
+    return /^s3[a-z0-9.-]*\.amazonaws\.com$/.test(url.hostname) && url.pathname.startsWith("/media.twiliocdn.com/");
+  } catch {
+    return false;
+  }
+}
+
+const MAX_REDIRECTS = 2;
+
 function normalizeType(raw: string | null): SupportedImageType | null {
   const type = (raw ?? "").split(";")[0].trim().toLowerCase();
   const fixed = type === "image/jpg" ? "image/jpeg" : type;
@@ -58,11 +76,20 @@ export async function fetchMmsImages(media: InboundMedia[], options: MediaFetchO
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 10_000);
     try {
-      const response = await doFetch(item.url, {
-        headers: auth ? { Authorization: auth } : undefined,
-        redirect: "follow",
-        signal: controller.signal,
-      });
+      // Follow redirects by hand: re-check every hop's host, and send the account's Basic auth
+      // only on the first request to Twilio's API host — never to a redirect target.
+      let url = item.url;
+      let response = await doFetch(url, { headers: auth ? { Authorization: auth } : undefined, redirect: "manual", signal: controller.signal });
+      for (let hop = 0; hop < MAX_REDIRECTS && response.status >= 300 && response.status < 400; hop++) {
+        const location = response.headers.get("location");
+        const next = location ? new URL(location, url).toString() : null;
+        if (!next || !isTwilioMediaRedirect(next)) {
+          response = new Response(null, { status: 502 });
+          break;
+        }
+        url = next;
+        response = await doFetch(url, { redirect: "manual", signal: controller.signal });
+      }
       if (!response.ok) {
         console.warn(`[sms-agent] media fetch ${response.status} for ${new URL(item.url).pathname}`);
         continue;
