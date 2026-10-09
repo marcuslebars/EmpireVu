@@ -14,6 +14,7 @@
 //                     a customer → message_log (+ MMS) → STOP / START / HELP → contact.sms_received
 //                     → the SMS agent (never fails the job)
 // ─────────────────────────────────────────────────────────────────────────────
+import { platformNumber } from "@/server/outbound/platform-number";
 import type { Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import { createActivityEvent } from "@/server/services/activity-events";
@@ -232,7 +233,7 @@ async function handlePlatformInbound(admin: AdminClient, fields: InboundSmsField
     // directly, past the opt-out-respecting senders.
     if (await isPlatformOptedOut(admin, fields.from)) {
       try {
-        await sendSms({ to: fields.from, body: first ? `${signaturePrefix(first.platformBrand)}${PLATFORM_HELP_OWNER}` : PLATFORM_UNKNOWN_SENDER });
+        await sendSms(withPlatformFrom({ to: fields.from, body: first ? `${signaturePrefix(first.platformBrand)}${PLATFORM_HELP_OWNER}` : PLATFORM_UNKNOWN_SENDER }));
       } catch (err) {
         console.error("[inbound-sms] platform HELP reply failed:", err instanceof Error ? err.message : err);
       }
@@ -264,11 +265,17 @@ async function handlePlatformInbound(admin: AdminClient, fields: InboundSmsField
   });
 }
 
+/** Platform replies come from the platform number (PLATFORM_SMS_NUMBER, else the default sender). */
+function withPlatformFrom(msg: { to: string; body: string }): { to: string; body: string; from?: string } {
+  const from = platformNumber();
+  return from ? { ...msg, from } : msg;
+}
+
 /** A platform text to someone who belongs to no tenant (no message_log row — it needs an org). */
 async function sendPlatformTextNoTenant(admin: AdminClient, to: string, body: string): Promise<void> {
   try {
     if (await isPlatformOptedOut(admin, to)) return;
-    await sendSms({ to, body });
+    await sendSms(withPlatformFrom({ to, body }));
   } catch (err) {
     console.error("[inbound-sms] platform reply failed:", err instanceof Error ? err.message : err);
   }

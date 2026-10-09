@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createFakeDb, type FakeDb } from "@/test/helpers/fake-supabase";
 
@@ -256,6 +256,33 @@ describe("handleInboundSms — a platform number that is also a business's own l
     await handleInboundSms(payload({ To: PLATFORM, From: OWNER, Body: "today" }));
     expect(handleOwnerInboundSms).toHaveBeenCalledWith(db.client, expect.objectContaining({ companyId: "co-1", viaPlatformNumber: false }));
     expect(db.tables.message_log).toHaveLength(0);
+  });
+});
+
+describe("handleInboundSms — a separate platform line (PLATFORM_SMS_NUMBER)", () => {
+  const LINE = "+12898034824";
+  beforeEach(() => {
+    process.env.PLATFORM_SMS_NUMBER = LINE;
+  });
+  afterEach(() => {
+    delete process.env.PLATFORM_SMS_NUMBER;
+  });
+
+  it("an owner texting the new line → owner channel", async () => {
+    await handleInboundSms(payload({ To: LINE, From: OWNER, Body: "today" }));
+    expect(handleOwnerInboundSms).toHaveBeenCalledWith(db.client, expect.objectContaining({ viaPlatformNumber: true, companyId: null }));
+  });
+
+  it("the old shared number (a house business's line) is just that business's line again", async () => {
+    seed({ voice_numbers: [{ organization_id: "org-1", company_id: "co-1", phone_e164: PLATFORM, provider: "twilio", active: true }] });
+    await handleInboundSms(payload({ To: PLATFORM }));
+    expect(db.tables.message_log[0]).toMatchObject({ direction: "inbound", provider_ref: "SM123" });
+    expect(db.tables.owner_command_log).toHaveLength(0);
+  });
+
+  it("platform replies (HELP) go out from the new line", async () => {
+    await handleInboundSms(payload({ To: LINE, From: CUSTOMER, Body: "HELP" }));
+    expect(sendSms).toHaveBeenCalledWith(expect.objectContaining({ to: CUSTOMER, from: LINE }));
   });
 });
 

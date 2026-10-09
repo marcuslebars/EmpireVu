@@ -239,3 +239,22 @@ describe("deliverMessage: platform-number opt-out", () => {
     expect(sendSms).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("deliverMessage: which number a platform text comes from", () => {
+  const ctxFor = (db: ReturnType<typeof createFakeDb>) => ({ organizationId: "org-1", actorProfileId: null, supabase: db.client }) as never;
+  afterEach(() => {
+    delete process.env.PLATFORM_SMS_NUMBER;
+  });
+
+  it("PLATFORM_SMS_NUMBER set: platform texts come from it; company texts are unchanged", async () => {
+    process.env.PLATFORM_SMS_NUMBER = "+12898034824";
+    const db = createFakeDb({
+      platform_sms_opt_outs: [],
+      voice_numbers: [{ organization_id: "org-1", company_id: "co-1", phone_e164: "+17055551000", mode: "missed_call_catcher", provider: "twilio", active: true }],
+    });
+    await deliverMessage({ context: ctxFor(db), channel: "sms", to: "+17055550142", body: "Reply Y to send", companyId: "co-1", contactId: null, consentContact: null, smsFrom: "platform" });
+    expect(sendSms.mock.calls.at(-1)?.[0]).toMatchObject({ from: "+12898034824" });
+    await deliverMessage({ context: ctxFor(db), channel: "sms", to: "+17055550142", body: "New lead", companyId: "co-1", contactId: null, consentContact: null });
+    expect(sendSms.mock.calls.at(-1)?.[0]).toMatchObject({ from: "+17055551000" });
+  });
+});

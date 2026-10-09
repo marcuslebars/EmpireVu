@@ -73,7 +73,10 @@ report (on/off, text and/or email, send a test).
    - Customer quote / booking links for CrankLeads businesses use the CrankLeads domain
      (`CRANKLEADS_APP_BASE_URL`, i.e. https://app.crankleads.com — already set). Optional override:
      `QUOTE_PUBLIC_BASE_URL_CRANKLEADS`. A company's own `companies.quote_public_base_url` always wins.
-3. **Twilio — platform number Messaging webhook:** on `TWILIO_FROM_NUMBER` (or its Messaging
+3. **Platform number:** `PLATFORM_SMS_NUMBER` = the owner channel's own Twilio line (every service
+   that sends texts). Unset → `TWILIO_FROM_NUMBER` doubles as it. Set it whenever `TWILIO_FROM_NUMBER`
+   is also a business's line (A1's): that number then stays the business's line and default sender.
+   **Twilio — platform number Messaging webhook:** on the platform number (or its Messaging
    Service) set "A message comes in" → `POST {APP_BASE_URL}/api/twilio/sms/inbound` (exactly the
    URL signatures are checked against; else set `TWILIO_INBOUND_SMS_URL`). Without it owners'
    "Y" replies go nowhere. If Twilio Advanced Opt-Out answers HELP, turn that reply off. Make sure
