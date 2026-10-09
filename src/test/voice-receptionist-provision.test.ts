@@ -194,3 +194,32 @@ describe("resyncReceptionistAgent", () => {
     expect(await resyncReceptionistAgent(db.client as never, "99999999-9999-4999-8999-999999999999")).toEqual({ status: "company_not_found" });
   });
 });
+
+describe("done-for-you switch-on → resyncReceptionistAgent", () => {
+  const ctx = () => ({ organizationId: ORG, actorProfileId: null, supabase: db.client }) as never;
+
+  it("Front Desk with its AI number: switch-on re-syncs the receptionist (prompt + tools) in place", async () => {
+    const { rebuildReceptionist } = await import("@/server/services/dfy/switch-on");
+    db.tables.voice_numbers.push({ organization_id: ORG, company_id: COMPANY, provider: "retell", mode: "ai_receptionist", phone_e164: "+17055551234", active: true });
+    const rec: Recorded = { calls: [], bodies: {} };
+    expect(await rebuildReceptionist(ctx(), COMPANY, "front_desk", mockRetell(rec))).toBe("rebuilt");
+    expect(rec.calls).toEqual(["updateLlm:llm_1", "updateAgent:agent_1", "updatePhoneNumber:+17055551234"]);
+    expect((rec.bodies.updateLlm.general_tools as Array<{ name: string }>).map((t) => t.name)).toEqual(
+      expect.arrayContaining(["check_availability", "send_deposit_link", "alert_owner", "end_call"]),
+    );
+  });
+
+  it("Catch / Close never touch Retell; Front Desk without its number yet waits", async () => {
+    const { rebuildReceptionist } = await import("@/server/services/dfy/switch-on");
+    const rec: Recorded = { calls: [], bodies: {} };
+    expect(await rebuildReceptionist(ctx(), COMPANY, "close", mockRetell(rec))).toBe("not_front_desk");
+    expect(await rebuildReceptionist(ctx(), COMPANY, "front_desk", mockRetell(rec))).toBe("number_pending");
+    expect(rec.calls).toEqual([]);
+  });
+
+  it("the concierge registry (register-all) carries the voice actions", async () => {
+    const { listConciergeActions } = await import("@/server/services/concierge/register-all");
+    const names = listConciergeActions().map((a) => a.name);
+    expect(names).toEqual(expect.arrayContaining(["resync_ai_receptionist", "set_ai_call_minutes"]));
+  });
+});
