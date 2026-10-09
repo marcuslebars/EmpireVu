@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useBrand } from "@/lib/brand-context";
+import { receptionistCopy } from "@/lib/platform-brand";
 import { Loader2, Check, Minus, CreditCard, ExternalLink, AlertTriangle, Sparkles } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -65,6 +67,7 @@ function UsageStat({ label, value, sub, warn }: { label: string; value: string; 
 
 /** This month's metered usage — minutes vs cap, messages, and the AI cost estimate (Task 6). */
 function ThisMonthPanel({ organizationId }: { organizationId: string }) {
+  const brand = useBrand();
   const { data, isLoading } = useMonthlyUsage(organizationId);
 
   const money = (cents: number) =>
@@ -80,7 +83,7 @@ function ThisMonthPanel({ organizationId }: { organizationId: string }) {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <UsageStat
-            label="Marina minutes"
+            label={receptionistCopy("Marina minutes", brand)}
             value={
               data.voiceMinutesCap != null
                 ? `${data.voiceMinutes} / ${data.voiceMinutesCap}`

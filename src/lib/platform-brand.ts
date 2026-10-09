@@ -81,6 +81,34 @@ export const PLATFORM_BRANDS: Record<PlatformBrandKey, PlatformBrand> = {
   },
 };
 
+/**
+ * The AI receptionist's name in the app. House tenants (A1 etc.) know her as "Marina";
+ * CrankLeads owners never see that name — it's "the AI receptionist" for them.
+ */
+export function receptionistName(brand: Pick<PlatformBrand, "key">): string {
+  return brand.key === "crankleads" ? "AI receptionist" : "Marina";
+}
+
+/**
+ * Rewrite a "Marina" UI string for the brand: unchanged for house tenants; for CrankLeads,
+ * "Call with Marina" → "Call with the AI receptionist", "Voice (Marina)" → "Voice (AI
+ * receptionist)", "Marina call" → "AI receptionist call", a sentence-initial "Marina" → "The AI
+ * receptionist". Only pass strings that name the agent (not business names like "Bayview
+ * Marina"). PURE.
+ */
+export function receptionistCopy(text: string, brand: Pick<PlatformBrand, "key">): string {
+  if (brand.key !== "crankleads") return text;
+  return text
+    .replace(/\(Marina\)/g, "(AI receptionist)")
+    .replace(/\bMarina reception\b/g, "AI receptionist")
+    .replace(/\bMarina (call|calls|minutes|number|voice reception)\b/g, "AI receptionist $1")
+    .replace(/(^|[.!?]\s+)Marina's\b/g, "$1The AI receptionist's")
+    .replace(/(^|[.!?]\s+)Marina\b/g, "$1The AI receptionist")
+    .replace(/\bMarina's\b/g, "the AI receptionist's")
+    .replace(/\bMarina\b/g, "the AI receptionist")
+    .replace(/\bthe the AI\b/g, "the AI");
+}
+
 export function isPlatformBrandKey(value: unknown): value is PlatformBrandKey {
   return typeof value === "string" && (PLATFORM_BRAND_KEYS as readonly string[]).includes(value);
 }

@@ -136,7 +136,7 @@ describe("runPriceListQuote", () => {
     const d = deps();
     const res = await runPriceListQuote(req({ services: [{ name: "drain cleaning" }], caller_name: "Jamie", phone: "416-555-0000" }), d);
     expect(res.ok).toBe(true);
-    expect((d.captureLead.mock.calls[0] as unknown as [{ args: { phone: string } }])[0].args.phone).toBe("+14165550000");
+    expect(((d.captureLead as unknown as { mock: { calls: unknown[][] } }).mock.calls[0] as unknown as [{ args: { phone: string } }])[0].args.phone).toBe("+14165550000");
     expect(d.textQuoteLink).toHaveBeenCalledTimes(1);
     expect(d.textQuoteLink).toHaveBeenCalledWith({ organizationId: "org", companyId: "co" }, expect.objectContaining({ phone: "+17055550123", contactId: null }));
   });

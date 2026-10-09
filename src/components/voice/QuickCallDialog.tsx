@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Phone, X, Loader2, AlertTriangle } from "lucide-react";
+import { receptionistCopy } from "@/lib/platform-brand";
+import { useBrand } from "@/lib/brand-context";
 import { useCallContact, useQuickCall } from "@/lib/api-hooks";
 import { Modal } from "@/components/ui/Modal";
 import { toast } from "@/components/ui/sonner";
@@ -23,6 +25,7 @@ export function QuickCallDialog({
   initialName?: string;
   onClose: () => void;
 }) {
+  const brand = useBrand();
   const quickCall = useQuickCall(orgId);
   const contactCall = useCallContact(orgId, contactId ?? "");
   const isContact = Boolean(contactId);
@@ -42,7 +45,7 @@ export function QuickCallDialog({
         await quickCall.mutateAsync({ phone: phone.trim(), name: name.trim() || undefined });
       }
       const who = name.trim() || (isContact ? initialName : "") || phone.trim() || initialPhone || "the lead";
-      toast.success(`Marina is calling ${who}…`);
+      toast.success(receptionistCopy(`Marina is calling ${who}…`, brand));
       onClose();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't place the call.");
@@ -60,7 +63,7 @@ export function QuickCallDialog({
           <div className="w-8 h-8 rounded-lg bg-[hsl(var(--accent-violet))]/15 flex items-center justify-center shrink-0">
             <Phone className="w-4 h-4 text-[hsl(var(--accent-violet))]" />
           </div>
-          <h2 className="text-sm font-semibold text-foreground truncate">Call with Marina</h2>
+          <h2 className="text-sm font-semibold text-foreground truncate">{receptionistCopy("Call with Marina", brand)}</h2>
         </div>
         <button
           onClick={onClose}
@@ -101,7 +104,7 @@ export function QuickCallDialog({
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="So Marina can greet them"
+                placeholder={receptionistCopy("So Marina can greet them", brand)}
                 className={inputCls}
               />
             </div>

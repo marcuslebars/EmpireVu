@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
+import { useBrand } from "@/lib/brand-context";
+import { receptionistCopy } from "@/lib/platform-brand";
 import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone, Send, Copy, Trash2, Mail, CreditCard, Landmark, Package, Receipt, ListChecks, Star, CalendarCheck, Globe, BookOpenCheck, AppWindow, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
@@ -391,6 +393,7 @@ function MembersSettings() {
 
 export default function SettingsPage() {
   const location = useLocation();
+  const brand = useBrand();
   const [active, setActive] = useState(() => {
     if (location.pathname.endsWith("/payments")) return "payments";
     if (location.pathname.endsWith("/billing")) return "billing";
@@ -419,7 +422,7 @@ export default function SettingsPage() {
               )}
             >
               <s.icon className="w-4 h-4 shrink-0" />
-              {s.label}
+              {receptionistCopy(s.label, brand)}
             </button>
           ))}
         </div>
@@ -463,7 +466,7 @@ export default function SettingsPage() {
               <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center mb-4">
                 {activeSection ? <activeSection.icon className="w-5 h-5 text-muted-foreground" /> : null}
               </div>
-              <h3 className="text-sm font-semibold text-foreground mb-1">{activeSection?.label}</h3>
+              <h3 className="text-sm font-semibold text-foreground mb-1">{activeSection ? receptionistCopy(activeSection.label, brand) : null}</h3>
               <p className="text-sm text-muted-foreground max-w-sm">{activeSection?.description}</p>
               <span className="mt-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
                 Coming soon

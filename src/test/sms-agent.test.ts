@@ -1156,7 +1156,7 @@ describe("owner takeover mid-turn", () => {
   it("the owner takes over while the model is thinking: the AI's reply is dropped and the state stays 'owner'", async () => {
     const { sms } = inbound("Do you do driveways in Barrie?");
     // The owner hits "Take over" (or texts the customer) while the model call is in flight.
-    const client: ModelClient = { async createMessage(params) { await markOwnerTakeover(db.client, { companyId: CO, contactId: CONTACT, at: new Date(clock + 500) }); return scripted([{ text: "Yes we do! Our seasonal contract is $650 + HST." }]).client.createMessage(params); } };
+    const client: ModelClient = { async createMessage(params, options) { await markOwnerTakeover(db.client, { companyId: CO, contactId: CONTACT, at: new Date(clock + 500) }); return scripted([{ text: "Yes we do! Our seasonal contract is $650 + HST." }]).client.createMessage(params, options); } };
     const outcome = await runSmsAgent(db.client, sms, deps(client));
     expect(outcome.replied).toBe(false);
     expect(rec.texts).toHaveLength(0);

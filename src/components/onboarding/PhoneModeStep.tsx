@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { receptionistCopy } from "@/lib/platform-brand";
 import { Bot, Check, Copy, Loader2, PhoneForwarded, PhoneMissed } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -43,6 +44,7 @@ function initialMode(stepData: Record<string, unknown>): PhoneMode | null {
 }
 
 export function PhoneModeStep({ orgId, companyId, stepData, onDone, aiStep }: PhoneModeStepProps) {
+  const brand = useBrand();
   const [chosen, setMode] = useState<PhoneMode | null>(() => initialMode(stepData));
   const { data: billing } = useBilling(orgId);
   // Optimistic while billing loads (the server is the real boundary).
@@ -79,7 +81,7 @@ export function PhoneModeStep({ orgId, companyId, stepData, onDone, aiStep }: Ph
         </p>
       ) : null}
       <div className="flex flex-col sm:flex-row gap-3 max-w-2xl">
-        {catcherOnly ? null : choice("ai_receptionist", "AI receptionist answers", "Marina picks up every call, books and quotes.", Bot)}
+        {catcherOnly ? null : choice("ai_receptionist", "AI receptionist answers", receptionistCopy("Marina picks up every call, books and quotes.", brand), Bot)}
         {choice(
           "missed_call_catcher",
           "Missed-call catcher (no AI)",

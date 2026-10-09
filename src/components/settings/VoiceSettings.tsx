@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, X, Sparkles, Variable } from "lucide-react";
+import { receptionistCopy } from "@/lib/platform-brand";
 
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
@@ -159,12 +160,12 @@ export function VoiceSettings() {
     return (
       <div className="space-y-6">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">Voice (Marina)</h2>
-          <p className="text-sm text-muted-foreground mt-1">Marina's AI voice reception isn't in your current plan.</p>
+          <h2 className="text-lg font-semibold text-foreground">{receptionistCopy("Voice (Marina)", brand)}</h2>
+          <p className="text-sm text-muted-foreground mt-1">{brand.key === "crankleads" ? "AI voice reception isn't in your current plan." : "Marina's AI voice reception isn't in your current plan."}</p>
         </div>
         <UpgradeNudge
-          title="Marina voice reception isn't in your plan"
-          description="Upgrade to the Front Desk plan to have Marina answer and place calls for your team."
+          title={receptionistCopy("Marina voice reception isn't in your plan", brand)}
+          description={receptionistCopy("Upgrade to the Front Desk plan to have Marina answer and place calls for your team.", brand)}
         />
       </div>
     );
@@ -173,10 +174,9 @@ export function VoiceSettings() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-foreground">Voice (Marina)</h2>
+        <h2 className="text-lg font-semibold text-foreground">{receptionistCopy("Voice (Marina)", brand)}</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Each company can call leads with its own agent, caller ID, and prompt. Marina uses this
-          brand's setup whenever it calls a lead that came in from this company.
+          {receptionistCopy("Each company can call leads with its own agent, caller ID, and prompt. Marina uses this brand's setup whenever it calls a lead that came in from this company.", brand)}
         </p>
       </div>
 
