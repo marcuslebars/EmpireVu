@@ -51,6 +51,10 @@ describe("CrankLeads welcome page", () => {
     expect(screen.getByText("j***@roofco.example")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open CrankLeads" })).toHaveAttribute("href", "/signin");
     expect(screen.getByTestId("welcome-ready").textContent).not.toMatch(/EmpireVu/);
+    // Done-for-you: we finish it for them — the steps that actually happen, no DIY time estimate.
+    expect(screen.getByText(/Check your texts — we'll finish setting things up for you/)).toBeInTheDocument();
+    expect(screen.getByTestId("welcome-steps").textContent).toMatch(/quick setup.*call forwarding.*You're live/s);
+    expect(screen.getByTestId("welcome-ready").textContent).not.toMatch(/10 minutes|last few steps/);
 
     fireEvent.click(screen.getByRole("button", { name: /resend the email/i }));
     await screen.findByText(/Sent!/);

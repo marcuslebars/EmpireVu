@@ -23,7 +23,7 @@ import type { TenantServiceContext } from "@/server/services/shared";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { parseLeadEnvelope, type LeadEnvelope } from "./envelope";
 import { normalizeEmail, normalizePhoneLast10 } from "./matching";
-import { sendLeadNotification, type ReturningInfo } from "./notify";
+import { leadNotifyAudience, sendLeadNotification, type LeadNotifyAudience, type ReturningInfo } from "./notify";
 import { companySlugForSourceSite, LEAD_INTAKE_ORG_SLUG } from "./routing";
 import { maybeAutoQuoteLead } from "@/server/services/quotes/auto-quote";
 
@@ -619,24 +619,40 @@ export async function handleLeadIntake(
     }
   }
 
-  // (3) Notify — best-effort.
+  // (3) Notify the operator — best-effort, house orgs only. A CrankLeads org's lead (customer
+  //     name / phone / email) never goes to the platform mailbox; its owner gets the org's own
+  //     new-lead alert. Fail closed: if we can't tell whose org it is, don't send.
+  let audience: LeadNotifyAudience = "none";
   try {
-    await sendLeadNotification({
-      leadId,
-      source: envelope?.source ?? null,
-      sourceSite: envelope?.sourceSite ?? null,
-      formType: envelope?.formType ?? null,
-      schemaValid: parse.valid,
-      companyName,
-      contact: envelope?.contact ?? {},
-      message: envelope?.message ?? null,
-      lineItems: envelope?.lineItems ?? null,
-      returning,
-      crossBrandBrands,
-      urgent: envelope?.meta?.urgent === true,
-    });
+    if (orgId) {
+      const { data: orgRow, error: orgError } = await admin.from("organizations").select("platform_brand, crankleads_tier").eq("id", orgId).maybeSingle();
+      if (orgError) throw orgError;
+      audience = leadNotifyAudience((orgRow as { platform_brand: string | null; crankleads_tier: string | null } | null) ?? null, true);
+    } else {
+      audience = leadNotifyAudience(null, false);
+    }
   } catch (err) {
-    console.error("[intake] notification failed:", err);
+    console.error("[intake] org brand lookup failed — operator lead copy skipped:", err instanceof Error ? err.message : err);
+  }
+  if (audience === "operator") {
+    try {
+      await sendLeadNotification({
+        leadId,
+        source: envelope?.source ?? null,
+        sourceSite: envelope?.sourceSite ?? null,
+        formType: envelope?.formType ?? null,
+        schemaValid: parse.valid,
+        companyName,
+        contact: envelope?.contact ?? {},
+        message: envelope?.message ?? null,
+        lineItems: envelope?.lineItems ?? null,
+        returning,
+        crossBrandBrands,
+        urgent: envelope?.meta?.urgent === true,
+      });
+    } catch (err) {
+      console.error("[intake] notification failed:", err);
+    }
   }
 
   return quoteUrl ? { ok: true, leadId, quoteUrl } : { ok: true, leadId };

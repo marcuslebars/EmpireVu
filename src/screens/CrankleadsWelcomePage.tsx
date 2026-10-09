@@ -17,8 +17,9 @@ import {
  * Where Stripe Checkout sends a CrankLeads buyer after paying:
  *   /welcome/crankleads?session_id=cs_…
  * Public (no account exists yet — the session id is the credential). Polls the purchase
- * status while the billing worker provisions the account, then tells the buyer to check
- * their email for the login link. See docs/crankleads-purchase.md.
+ * status while the billing worker provisions the account, then tells the buyer to check their
+ * texts: we finish setting everything up for them (done-for-you — docs/done-for-you.md). The
+ * welcome email carries the same quick-setup link plus the set-password link.
  */
 
 const POLL_MS = 3000;
@@ -140,13 +141,21 @@ export default function CrankleadsWelcomePage() {
               <div className="flex items-center gap-3">
                 <CheckCircle2 className="w-8 h-8 text-emerald-500 shrink-0" />
                 <div>
-                  <h1 className="text-xl font-semibold text-foreground">Done! Your system is ready.</h1>
+                  <h1 className="text-xl font-semibold text-foreground">Check your texts — we'll finish setting things up for you.</h1>
                   <p className="text-sm text-muted-foreground">{view.data.businessName}</p>
                 </div>
               </div>
-              <p className="text-sm text-foreground">
-                Check your email (<strong>{view.data.emailMasked}</strong>) for your login link. It walks you through the
-                last few steps — about 10 minutes.
+              <ol className="space-y-2 text-sm text-foreground list-decimal pl-5" data-testid="welcome-steps">
+                <li>
+                  We just texted you a link to a 60-second quick setup: your website or Google listing and your business
+                  phone. No login needed.
+                </li>
+                <li>We get your number, switch on your automations and build your web page.</li>
+                <li>We text you one link to turn on call forwarding on your business phone.</li>
+                <li>We test it, then text you "You're live".</li>
+              </ol>
+              <p className="text-sm text-muted-foreground">
+                The same link, and a link to set your password, are in your email (<strong>{view.data.emailMasked}</strong>).
               </p>
               <div className="flex flex-col sm:flex-row gap-3">
                 <Link to={signInHref} className={openAppClass}>

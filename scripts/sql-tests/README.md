@@ -9,6 +9,7 @@ They run against a **throwaway local Postgres**. Never point them at a real Supa
 | `supabase-stubs.sql` | Minimal stand-ins for Supabase platform objects (`anon` / `authenticated` / `service_role`, `auth.uid()` reading the JWT GUCs, `auth.users`, `storage`, the realtime publication, and Supabase's default `GRANT ALL` to the API roles) |
 | `run.sh` | Drops and recreates the test database, applies the stubs and every file in `supabase/migrations/` in order, then runs each `*.test.sql` |
 | `lock_privileged_columns.test.sql` | Acts as an admin, a member, an owner, `anon` and `service_role` (`set role` plus `request.jwt.claim.sub`) and asserts that each write is refused or allowed |
+| `zz_done_for_you.test.sql` | The done-for-you tables: `setup_intakes` / `company_sites` / `dfy_progress` / `operator_actions` are not client-writable (incl. new columns), the no-login token columns (`setup_intakes.token`, `dfy_progress.forward_token`) are not readable by any client role, anon can't read `company_sites`, the composite (company, org) FKs, and the `updated_at` triggers |
 | `postgrest-smoke.mjs` | Sends the same requests a browser would (supabase-js through PostgREST) to a local PostgREST, with signed JWTs |
 
 ## Run

@@ -118,24 +118,33 @@ describe("welcome email", () => {
     servicesNeedingPrices: 7,
   };
 
-  it("names CrankLeads as the purchase AND the app (log in at its host); lists done + 3 steps; no prices", () => {
-    const email = renderWelcomeEmail({ ...base, tier: "catch" });
-    expect(email.subject).toBe("Your CrankLeads system is ready — finish setup (10 min)");
-    expect(email.body).toContain("Set your password and log in to CrankLeads at app.test");
+  it("names CrankLeads as the purchase AND the app; done-for-you copy (setup link, no DIY steps); no prices", () => {
+    const setupUrl = "https://app.test/setup/abcdefghijklmnopqrstuvwxyz012345";
+    const email = renderWelcomeEmail({ ...base, tier: "catch", setupUrl });
+    expect(email.subject).toBe("You're in — we're setting up CrankLeads for you");
+    expect(email.body).toContain("You can still log in to CrankLeads at app.test any time");
     for (const tier of ["catch", "close", "front_desk"] as const) {
       for (const setPasswordUrl of [base.setPasswordUrl, null]) {
-        const e = renderWelcomeEmail({ ...base, tier, setPasswordUrl });
+        const e = renderWelcomeEmail({ ...base, tier, setPasswordUrl, setupUrl });
         expect(`${e.subject}\n${e.body}\n${e.html}\n${e.fromName}`).not.toMatch(/empire\s*vu/i);
       }
     }
     expect(email.body).toContain(base.setPasswordUrl);
-    expect(email.body).toContain("Already done for you:");
-    expect(email.body).toContain("Add your prices (7 services are waiting for one)");
-    expect(email.body).toContain("turn on missed-call forwarding");
+    expect(email.body).toContain("Check your texts");
+    expect(email.body).toContain(setupUrl);
+    expect(email.html).toContain(`href="${setupUrl}"`);
+    expect(email.body).toContain("we're setting up Jane's Roofing for you");
+    // No self-serve checklist any more.
+    expect(email.body).not.toMatch(/Finish these|Add your prices|turn on missed-call forwarding|10 minutes/);
+    expect(email.body).toContain("Already done:");
     expect(email.body).toContain(base.formUrl);
     expect(email.body).not.toMatch(/\$\s?\d/);
     expect(email.html).toContain("<strong>Jane's Roofing</strong>");
     expect(renderWelcomeEmail({ ...base, tier: "front_desk" }).body).toContain("AI receptionist");
+    // Without a link (couldn't be made) it still points at the text.
+    const noLink = renderWelcomeEmail({ ...base, tier: "catch", setupUrl: null });
+    expect(noLink.body).toContain("we're sending you a link to a 60-second quick setup");
+    expect(noLink.body).not.toContain("/setup/");
   });
 
   it("escapes HTML", () => {

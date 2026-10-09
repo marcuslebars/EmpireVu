@@ -58,32 +58,32 @@ function Dropdown({
   const current = items.find((i) => i.id === selected);
 
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <button
         onClick={() => !isLoading && setOpen(!open)}
         disabled={isLoading}
         className={cn(
-          "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-secondary-foreground hover:bg-secondary hover:text-foreground transition-all duration-150 active:scale-[0.97]",
+          "flex max-w-full min-w-0 items-center gap-2 px-2 sm:px-3 py-2 rounded-lg text-sm font-medium text-secondary-foreground hover:bg-secondary hover:text-foreground transition-all duration-150 active:scale-[0.97]",
           isLoading && "opacity-50 cursor-not-allowed"
         )}
       >
         {isLoading ? (
           <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
         ) : (
-          <Icon className="w-4 h-4 text-muted-foreground" />
+          <Icon className="hidden w-4 h-4 shrink-0 text-muted-foreground sm:block" />
         )}
         {showDot && current?.color && (
           <span
-            className="w-2 h-2 rounded-full shrink-0"
+            className="hidden w-2 h-2 rounded-full shrink-0 sm:block"
             style={{ background: current.color }}
           />
         )}
-        <span className="max-w-[160px] truncate">
+        <span className="min-w-[2.5rem] max-w-[96px] truncate sm:max-w-[160px]">
           {isLoading ? `Loading ${label}...` : (current?.name || label)}
         </span>
         <ChevronDown
           className={cn(
-            "w-3.5 h-3.5 text-muted-foreground transition-transform duration-200",
+            "w-3.5 h-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
             open && "rotate-180"
           )}
         />
@@ -188,7 +188,7 @@ function QuickCallButton() {
       <button
         onClick={() => setOpen(true)}
         title="Call a lead with Marina"
-        className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold bg-[hsl(var(--accent-violet))]/10 text-[hsl(var(--accent-violet))] hover:bg-[hsl(var(--accent-violet))]/20 transition-all duration-150 active:scale-[0.97]"
+        className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 rounded-lg text-sm font-semibold bg-[hsl(var(--accent-violet))]/10 text-[hsl(var(--accent-violet))] hover:bg-[hsl(var(--accent-violet))]/20 transition-all duration-150 active:scale-[0.97]"
       >
         <Phone className="w-4 h-4" />
         <span className="hidden sm:inline">Call</span>
@@ -210,7 +210,7 @@ function QuickAddMenu() {
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-150 active:scale-[0.97] shadow-md shadow-primary/20"
+        className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-150 active:scale-[0.97] shadow-md shadow-primary/20"
       >
         <Plus className="w-4 h-4" />
         <span className="hidden sm:inline">Quick Add</span>
@@ -575,15 +575,16 @@ export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
         </div>
       </div>
 
-      {/* Center: Search */}
-      <div className="flex-1 min-w-0 max-w-lg mx-1 sm:mx-4">
+      {/* Center: Search — an icon button on phones (so it can never sit on top of the company
+          picker), the full search field from sm up. */}
+      <div className="shrink-0 sm:flex-1 sm:min-w-0 max-w-lg sm:mx-4">
         <button
           onClick={() => setPaletteOpen(true)}
-          className="w-full relative flex items-center bg-secondary/80 border border-transparent rounded-lg pl-10 pr-4 sm:pr-14 py-2 text-sm text-muted-foreground hover:bg-secondary hover:border-primary/30 transition-all duration-200 text-left group"
+          aria-label="Search"
+          className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-transparent bg-secondary/80 text-sm text-muted-foreground transition-all duration-200 hover:border-primary/30 hover:bg-secondary group sm:h-auto sm:w-full sm:justify-start sm:py-2 sm:pl-10 sm:pr-14 sm:text-left"
         >
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+          <Search className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary sm:absolute sm:left-3.5 sm:top-1/2 sm:-translate-y-1/2" />
           <span className="truncate hidden sm:inline">Search contacts, pages…</span>
-          <span className="truncate sm:hidden">Search…</span>
           <kbd className="hidden sm:block absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium text-muted-foreground bg-surface-3 px-1.5 py-0.5 rounded border border-border">
             ⌘K
           </kbd>

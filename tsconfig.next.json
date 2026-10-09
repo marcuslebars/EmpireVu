@@ -8,7 +8,13 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "plugins": [{ "name": "next" }]
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "strict": false,
+    "incremental": true
   },
   "include": [
     "next-env.d.ts",
@@ -18,5 +24,11 @@
     "src/server/**/*.ts",
     "src/middleware.ts"
   ],
-  "exclude": ["node_modules", "src/screens", "src/components", "src/main.tsx", "src/App.tsx"]
+  "exclude": [
+    "node_modules",
+    "src/screens",
+    "src/components",
+    "src/main.tsx",
+    "src/App.tsx"
+  ]
 }

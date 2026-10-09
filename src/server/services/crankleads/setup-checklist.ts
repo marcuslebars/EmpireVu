@@ -1,37 +1,38 @@
 /**
- * CrankLeads setup checklist — "what does this buyer still have to do before the system
- * actually works?" One function, three callers: the setup follow-up job (reminders + live
- * detection), the dashboard "Setup: 3 of 5 done" card (GET /api/organizations/{orgId}/setup-checklist,
- * normal RLS auth), and the daily operator health email (services/operator-health/load.ts).
+ * CrankLeads setup checklist — "is this buyer's system actually working yet?" One function,
+ * several callers: the setup follow-up job (reminders + live detection), the done-for-you
+ * orchestrator (24h escalation), the in-app "We're setting you up" view and dashboard card
+ * (GET /api/organizations/{orgId}/setup-checklist, normal RLS auth), and the daily operator
+ * health email (services/operator-health/load.ts).
  *
- *   computeSetupChecklist(input)   — PURE: tier + facts → ordered required steps, done/not,
- *                                    deep link per step, isLive, nextStep.
+ *   computeSetupChecklist(input)   — PURE: tier + facts → ordered REQUIRED steps (live = all
+ *                                    done), optional extras, deep links, isLive, nextStep.
  *   loadSetupFacts(ctx, companyId) — reads the facts for one company (every query filtered by
  *                                    organization_id + company_id; works on an RLS client or
  *                                    the worker's service-role client).
  *   loadSetupChecklist(ctx, opts)  — org → tier + company → facts → checklist; null when the
  *                                    org is not a CrankLeads org or has no company yet.
  *
- * Required steps per tier (in wizard order) — see docs/crankleads-purchase.md "Setup follow-ups":
+ * "Live" (done-for-you, docs/done-for-you.md → "Automatic switch-on"):
  *
- *   catch              services · phone (catcher number) · forwarding · website · automations
- *   close              services · phone (catcher number) · forwarding · payments · website · automations
- *   front_desk (AI)    services · phone (AI number) · test_call · payments · website
- *   front_desk (catcher chosen instead of the AI)   services · phone · forwarding · payments · website · automations
+ *   catch / close              phone (text-back number active) · forwarding (verified) ·
+ *                              automations (missed-call text-back active)
+ *   front_desk (AI)            phone (AI number active) · forwarding (verified, OR a call to the
+ *                              AI receptionist that shows forwarding from the business line —
+ *                              dfy/front-desk-forwarding.ts; a call alone doesn't count)
+ *   front_desk (catcher chosen instead of the AI) — as catch / close
  *
- * Team invites are never required. Payments are required for Close + Front Desk because their
- * starter packs include the quote / deposit automations (deposit links need Stripe Connect);
- * Catch's automations never take money.
- *
- * Forwarding is done ONLY when the company's active missed-call-catcher number has
- * voice_numbers.forwarding_verified_at set (stamped by feat/forwarding-verify when a forwarded
- * call actually arrives) — the wizard's "mark done / skip" never counts. Likewise every other
- * step is judged from real state, not from onboarding_progress (which "Skip for now" can set).
+ * Prices, payments (Stripe), the website form and the team are NOT required: they are
+ * optional `extras` (shown, never chased). Forwarding is done ONLY when a forwarded call
+ * actually arrived (voice_numbers.forwarding_verified_at, stamped by a passing forwarding
+ * test or a real forwarded call) — tapping the link never counts by itself. Every step is
+ * judged from real state, not from onboarding_progress.
  */
-import { buildForwardingInstructions, prettyPhone } from "@/lib/carrier-forwarding";
+import { prettyPhone } from "@/lib/carrier-forwarding";
 import type { Tables } from "@/server/db/database.types";
 import { isCrankleadsTier, type CrankleadsTier } from "@/server/services/crankleads/config";
 import type { OnboardingStep } from "@/server/services/onboarding";
+import { businessLineOf, hasFrontDeskForwardingEvidence } from "@/server/services/dfy/front-desk-forwarding";
 import { needsPrice } from "@/server/services/packs/apply";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { appBaseUrlFor } from "@/server/services/platform-brand";
@@ -57,8 +58,16 @@ export interface SetupFacts {
   forwardingVerified: boolean;
   /** Active AI-receptionist number (E.164), if any. */
   aiNumber: string | null;
+  /** The AI number's voice_numbers.forwarding_verified_at is set. Optional (defaults false). */
+  aiForwardingVerified?: boolean;
   /** At least one call answered by the AI receptionist (retell_calls) for the company. */
   receptionistCallReceived: boolean;
+  /**
+   * A call to the AI receptionist that shows the business line forwards to it (diversion from
+   * the business line, or a call after the forwarding tap from someone other than the business
+   * line — dfy/front-desk-forwarding.ts). Optional (defaults false). A call alone is NOT enough.
+   */
+  receptionistForwardedCall?: boolean;
   /** companies.stripe_charges_enabled (Stripe Connect ready). */
   paymentsConnected: boolean;
   /** A lead has arrived through the website form (public form key or intake key used). */
@@ -69,6 +78,8 @@ export interface SetupFacts {
 
 export interface SetupChecklistStep {
   key: SetupStepKey;
+  /** Required for "live" (false = an optional extra). */
+  required: boolean;
   /** Short title for the card ("Turn on call forwarding"). */
   title: string;
   /** Lower-case action phrase for messages ("set call forwarding (dial **004*… from your business phone)"). */
@@ -87,7 +98,10 @@ export interface SetupChecklist {
   companyId: string;
   tier: CrankleadsTier;
   phonePath: PhonePath;
+  /** The REQUIRED steps (live = all done). */
   steps: SetupChecklistStep[];
+  /** Optional extras (prices, payments, website form) — never block "live". */
+  extras: SetupChecklistStep[];
   doneCount: number;
   totalCount: number;
   /** Every required step is done. */
@@ -116,14 +130,14 @@ export function phonePathFor(tier: CrankleadsTier, facts: Pick<SetupFacts, "catc
   return "ai_receptionist";
 }
 
-/** The required steps for a tier + phone path, in wizard order. */
-export function requiredSetupSteps(tier: CrankleadsTier, phonePath: PhonePath): SetupStepKey[] {
-  const steps: SetupStepKey[] = ["services", "phone"];
-  steps.push(phonePath === "missed_call_catcher" ? "forwarding" : "test_call");
-  if (tier !== "catch") steps.push("payments");
-  steps.push("website");
-  if (phonePath === "missed_call_catcher") steps.push("automations");
-  return steps;
+/** The REQUIRED steps for a tier + phone path ("live" = all done). */
+export function requiredSetupSteps(_tier: CrankleadsTier, phonePath: PhonePath): SetupStepKey[] {
+  return phonePath === "missed_call_catcher" ? ["phone", "forwarding", "automations"] : ["phone", "forwarding"];
+}
+
+/** Optional extras, shown but never required (payments only where deposits exist: Close / Front Desk). */
+export function optionalSetupSteps(tier: CrankleadsTier, _phonePath: PhonePath): SetupStepKey[] {
+  return tier === "catch" ? ["services", "website"] : ["services", "payments", "website"];
 }
 
 function stepDone(key: SetupStepKey, facts: SetupFacts, phonePath: PhonePath): boolean {
@@ -133,7 +147,9 @@ function stepDone(key: SetupStepKey, facts: SetupFacts, phonePath: PhonePath): b
     case "phone":
       return phonePath === "missed_call_catcher" ? Boolean(facts.catcherNumber) : Boolean(facts.aiNumber);
     case "forwarding":
-      return Boolean(facts.catcherNumber) && facts.forwardingVerified;
+      return phonePath === "missed_call_catcher"
+        ? Boolean(facts.catcherNumber) && facts.forwardingVerified
+        : Boolean(facts.aiNumber) && (Boolean(facts.aiForwardingVerified) || Boolean(facts.receptionistForwardedCall));
     case "test_call":
       return Boolean(facts.aiNumber) && facts.receptionistCallReceived;
     case "payments":
@@ -161,17 +177,10 @@ function stepCopy(key: SetupStepKey, facts: SetupFacts, phonePath: PhonePath): {
       };
     case "phone":
       return phonePath === "missed_call_catcher"
-        ? { title: "Get your missed-call number", action: "pick your missed-call number" }
-        : { title: "Get your AI receptionist number", action: "get your AI receptionist number" };
-    case "forwarding": {
-      const code = facts.catcherNumber ? buildForwardingInstructions(facts.catcherNumber).recommended.activate : null;
-      return {
-        title: "Turn on call forwarding",
-        action: code
-          ? `set call forwarding (dial ${code} from your business phone)`
-          : "set call forwarding from your business phone",
-      };
-    }
+        ? { title: "Text-back number", action: "get your text-back number (we buy it for you)" }
+        : { title: "AI receptionist number", action: "get your AI receptionist number (we buy it for you)" };
+    case "forwarding":
+      return { title: "Turn on call forwarding", action: "turn on call forwarding (one tap from your business phone)" };
     case "test_call":
       return {
         title: "Make a test call",
@@ -180,11 +189,11 @@ function stepCopy(key: SetupStepKey, facts: SetupFacts, phonePath: PhonePath): {
           : "make a test call to your AI receptionist",
       };
     case "payments":
-      return { title: "Connect payments", action: "connect Stripe so you can take deposits" };
+      return { title: "Connect payments", action: "connect Stripe so you can take deposits and card payments" };
     case "website":
-      return { title: "Add your website form", action: "add your website form and send a test lead" };
+      return { title: "Add the form to your website", action: "add your lead form to your website" };
     case "automations":
-      return { title: "Turn on missed-call text-back", action: "turn on the missed-call text-back" };
+      return { title: "Missed-call text-back on", action: "turn on the missed-call text-back" };
   }
 }
 
@@ -201,24 +210,30 @@ export interface ComputeSetupChecklistInput {
   facts: SetupFacts;
   /** Absolute app origin for deep links (the CrankLeads host), no trailing slash needed. */
   appBaseUrl: string;
+  /** The one-tap forwarding page (/forward/:token) — the forwarding step's deep link when set. */
+  forwardUrl?: string | null;
 }
 
-/** PURE. The ordered required steps for the tier, each done or not, with deep links. */
+/** PURE. The ordered required steps (+ optional extras) for the tier, each done or not, with deep links. */
 export function computeSetupChecklist(input: ComputeSetupChecklistInput): SetupChecklist {
   const base = input.appBaseUrl.replace(/\/+$/, "");
   const phonePath = phonePathFor(input.tier, input.facts);
-  const steps = requiredSetupSteps(input.tier, phonePath).map((key): SetupChecklistStep => {
+  const toStep = (key: SetupStepKey, required: boolean): SetupChecklistStep => {
     const wizardStep = WIZARD_STEP[key];
     const path = setupStepPath(input.organizationId, wizardStep);
+    const deepLink = key === "forwarding" && input.forwardUrl ? input.forwardUrl : `${base}${path}`;
     return {
       key,
+      required,
       ...stepCopy(key, input.facts, phonePath),
       done: stepDone(key, input.facts, phonePath),
       wizardStep,
       path,
-      deepLink: `${base}${path}`,
+      deepLink,
     };
-  });
+  };
+  const steps = requiredSetupSteps(input.tier, phonePath).map((key) => toStep(key, true));
+  const extras = optionalSetupSteps(input.tier, phonePath).map((key) => toStep(key, false));
   const doneCount = steps.filter((s) => s.done).length;
   const nextStep = steps.find((s) => !s.done) ?? null;
   return {
@@ -227,6 +242,7 @@ export function computeSetupChecklist(input: ComputeSetupChecklistInput): SetupC
     tier: input.tier,
     phonePath,
     steps,
+    extras,
     doneCount,
     totalCount: steps.length,
     isLive: nextStep === null,
@@ -263,7 +279,12 @@ export async function loadSetupFacts(ctx: TenantServiceContext, companyId: strin
       .eq("company_id", companyId)
       .eq("active", true),
     db.from("retell_calls").select("id").eq("organization_id", org).eq("company_id", companyId).limit(1),
-    db.from("companies").select("stripe_charges_enabled").eq("organization_id", org).eq("id", companyId).maybeSingle(),
+    db
+      .from("companies")
+      .select("stripe_charges_enabled, brand_reply_phone, owner_phone_e164")
+      .eq("organization_id", org)
+      .eq("id", companyId)
+      .maybeSingle(),
     db
       .from("public_form_keys")
       .select("id")
@@ -301,14 +322,27 @@ export async function loadSetupFacts(ctx: TenantServiceContext, companyId: strin
   const catcher = voiceRows.find((row) => row.provider === "twilio" && row.mode === "missed_call_catcher") ?? null;
   const ai = voiceRows.find((row) => row.mode === "ai_receptionist") ?? null;
 
+  const companyRow = company.data as { stripe_charges_enabled: boolean; brand_reply_phone: string | null; owner_phone_e164: string | null } | null;
+  const receptionistForwardedCall =
+    ai && (calls.data ?? []).length > 0 && !ai.forwarding_verified_at
+      ? await hasFrontDeskForwardingEvidence(db, {
+          organizationId: org,
+          companyId,
+          aiNumber: ai.phone_e164,
+          businessLine: businessLineOf(companyRow),
+        })
+      : false;
+
   return {
     pricedServices: items.length - unpriced,
     servicesNeedingPrices: unpriced,
     catcherNumber: catcher?.phone_e164 ?? null,
     forwardingVerified: Boolean(catcher?.forwarding_verified_at),
     aiNumber: ai?.phone_e164 ?? null,
+    aiForwardingVerified: Boolean(ai?.forwarding_verified_at),
     receptionistCallReceived: (calls.data ?? []).length > 0,
-    paymentsConnected: Boolean((company.data as { stripe_charges_enabled: boolean } | null)?.stripe_charges_enabled),
+    receptionistForwardedCall,
+    paymentsConnected: Boolean(companyRow?.stripe_charges_enabled),
     websiteLeadReceived: (forms.data ?? []).length > 0 || (!intakeKeys.error && (intakeKeys.data ?? []).length > 0),
     textBackActive: (textBack.data ?? []).length > 0,
   };
@@ -325,6 +359,8 @@ export interface LoadSetupChecklistOptions {
   /** Skip the organizations lookup when the caller already knows the tier. */
   tier?: CrankleadsTier | null;
   appBaseUrl?: string;
+  /** One-tap forwarding page for the forwarding step's link (null → the in-app path). */
+  forwardUrl?: string | null;
 }
 
 /**
@@ -369,5 +405,6 @@ export async function loadSetupChecklist(
     tier,
     facts,
     appBaseUrl: options.appBaseUrl ?? defaultAppBaseUrl(),
+    forwardUrl: options.forwardUrl ?? null,
   });
 }

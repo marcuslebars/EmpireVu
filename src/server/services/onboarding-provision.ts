@@ -1,6 +1,7 @@
 import { UserFacingError } from "@/server/errors";
 import type { Tables } from "@/server/db/database.types";
 import { listCatalogItems } from "@/server/services/quotes/catalog-items";
+import { bookableService, DEFAULT_ONLINE_BOOKING_SETTINGS } from "@/server/services/scheduling/rules";
 import { bookingPageUrl } from "@/server/services/scheduling/urls";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { upsertCompanyVoiceProfile } from "@/server/services/company-voice-profiles";
@@ -29,6 +30,8 @@ export interface ProvisionPhoneInput {
   transferNumber?: string | null;
   /** Ids from a previous run (onboarding_progress data) → update instead of create. */
   existing?: { llmId?: string | null; agentId?: string | null; phoneNumber?: string | null };
+  /** Persist each Retell id as soon as it's created (see ProvisionInput.onCreated). */
+  onCreated?: (ids: { llmId?: string; agentId?: string; phoneNumber?: string }) => Promise<void>;
 }
 
 async function loadCompany(context: TenantServiceContext, companyId: string): Promise<Tables<"companies">> {
@@ -48,6 +51,13 @@ function hoursToText(hours: Tables<"companies">["hours"]): string | null {
   // The wizard stores a freeform summary; honor it directly.
   if (typeof record.summary === "string" && record.summary.trim()) return record.summary.trim();
   if (typeof record.text === "string" && record.text.trim()) return record.text.trim();
+  // Google Places style (written by the done-for-you enrichment): ["Monday: 8:00 AM – 5:00 PM", …].
+  const weekdayText = record.weekdayText ?? record.weekday_text ?? record.weekdayDescriptions;
+  if (Array.isArray(weekdayText)) {
+    const lines = weekdayText.filter((t): t is string => typeof t === "string" && t.trim().length > 0);
+    return lines.length ? lines.join("; ") : null;
+  }
+  if (Array.isArray(record.periods)) return null;
   const entries = Object.entries(record);
   if (entries.length === 0) return null;
   return entries
@@ -112,7 +122,12 @@ export async function provisionPhoneForCompany(
 
   const company = await loadCompany(context, input.companyId);
   const items = await listCatalogItems(context, input.companyId);
-  const services = items.map((i) => i.label);
+  // Each service with its price when the owner (or their own website) gave one — the prompt
+  // tells Marina never to invent a price that isn't listed here.
+  const services = items.map((i) => {
+    const price = bookableService(i, DEFAULT_ONLINE_BOOKING_SETTINGS, false).priceLabel;
+    return price ? `${i.label} — ${price}` : i.label;
+  });
   const baseUrl = (process.env.APP_BASE_URL ?? "").replace(/\/$/, "");
   const webhookUrl = `${baseUrl}/api/retell/webhook`;
   const bookingUrl = bookingPageUrl(company);
@@ -142,6 +157,7 @@ export async function provisionPhoneForCompany(
     areaCode: input.areaCode ?? null,
     attachNumber: input.attachNumber ?? null,
     existing: input.existing,
+    onCreated: input.onCreated,
   });
 
   await upsertRetellVoiceNumber(context, input.companyId, result.phoneNumber, result.agentId, company.name);

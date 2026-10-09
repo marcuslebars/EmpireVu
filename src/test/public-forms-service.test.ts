@@ -20,7 +20,8 @@ const notifyCalls: Array<{ rawLeadsAtCall: number; lead: Row }> = [];
 vi.mock("@/server/supabase/admin", () => ({
   createSupabaseAdminClient: () => fake.client,
 }));
-vi.mock("@/server/services/lead-intake/notify", () => ({
+vi.mock("@/server/services/lead-intake/notify", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/services/lead-intake/notify")>()),
   sendLeadNotification: async (lead: Row) => {
     notifyCalls.push({ rawLeadsAtCall: fake.store.raw_leads.length, lead });
     return true;
@@ -206,6 +207,17 @@ describe("through handleLeadIntake (the same durable path)", () => {
     expect(fake.store.contacts[0]).toMatchObject({ organization_id: "org-K", company_id: "co-K" });
   });
 
+  it("PRIVACY: a CrankLeads org's lead is never copied to the platform operator mailbox", async () => {
+    const org = (fake.store.organizations as Row[]).find((o) => o.id === "org-K")!;
+    org.platform_brand = "crankleads";
+    org.crankleads_tier = "catch";
+    const env = envelopeFor({ name: "Pat Plow", email: "pat@example.com", phone: "705-555-0199" });
+    const res = await handleLeadIntake(JSON.stringify(env), env, { target: { organizationId: "org-K", companyId: "co-K" }, workflowTrigger: { source: "public_form" } });
+    expect(res.ok).toBe(true);
+    expect(fake.store.raw_leads).toHaveLength(1);
+    expect(notifyCalls).toHaveLength(0);
+  });
+
   it("a NEW contact dispatches contact.created stamped source=public_form (guarded as unauthenticated)", async () => {
     const env = envelopeFor({ name: "Pat Plow", email: "pat@example.com" });
     await handleLeadIntake(JSON.stringify(env), env, {
@@ -329,5 +341,20 @@ describe("management helpers", () => {
     ]);
     expect(() => normalizeAllowedOrigins(["javascript:alert(1)"])).toThrow(/not a website address/);
     expect(normalizeOrigin("ftp://example.com")).toBeNull();
+  });
+});
+
+describe("operator lead copy: audience + sender", () => {
+  it("house orgs and unrouted leads → operator; any CrankLeads org or an unknown org → none", async () => {
+    const { leadNotifyAudience, leadFromHeader } = await vi.importActual<typeof import("@/server/services/lead-intake/notify")>("@/server/services/lead-intake/notify");
+    expect(leadNotifyAudience({ platform_brand: "empirevu", crankleads_tier: null }, true)).toBe("operator");
+    expect(leadNotifyAudience({ platform_brand: null, crankleads_tier: null }, true)).toBe("operator");
+    expect(leadNotifyAudience({ platform_brand: "crankleads", crankleads_tier: "catch" }, true)).toBe("none");
+    expect(leadNotifyAudience({ platform_brand: null, crankleads_tier: "close" }, true)).toBe("none");
+    expect(leadNotifyAudience(null, true)).toBe("none");
+    expect(leadNotifyAudience(null, false)).toBe("operator");
+    // The display name is the company's brand, never "EmpireVu".
+    expect(leadFromHeader("A1 Marine Care", { LEAD_FROM_EMAIL: "EmpireVu Leads <leads@example.ca>" } as never)).toBe("A1 Marine Care leads <leads@example.ca>");
+    expect(leadFromHeader(null, {} as never)).not.toMatch(/empire\s*vu/i);
   });
 });

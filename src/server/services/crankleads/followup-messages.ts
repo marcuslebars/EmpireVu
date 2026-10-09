@@ -5,29 +5,34 @@
  * too (appUrl = the CrankLeads app host). Never "EmpireVu" (docs/crankleads-branding.md).
  * No prices (Working Protocol #4). No employee names (Protocol #16) — "your AI receptionist".
  *
- * Short, friendly, specific: every reminder names the exact unfinished steps and links
- * straight to the next one.
+ * Done-for-you (docs/done-for-you.md): we set everything up, so a reminder asks for exactly
+ * ONE thing with ONE no-login link — finish the 60-second quick setup, or tap the forwarding
+ * link. Never a wizard step, never "connect Stripe".
  */
-import { CRANKLEADS_OFFER_NAME, CRANKLEADS_TIER_LABELS, type CrankleadsTier } from "@/server/services/crankleads/config";
-import { APP_PRODUCT_NAME, appHostOf, type RenderedEmail } from "@/server/services/crankleads/emails";
+import { CRANKLEADS_OFFER_NAME } from "@/server/services/crankleads/config";
+import type { RenderedEmail } from "@/server/services/crankleads/emails";
 import type { ReminderStage } from "@/server/services/crankleads/followup-schedule";
 import type { PhonePath } from "@/server/services/crankleads/setup-checklist";
+import { prettyPhone } from "@/lib/carrier-forwarding";
 
 export interface FollowupStepLine {
   title: string;
   action: string;
 }
 
+export type ReminderAction = "quick_setup" | "forwarding" | "other";
+
 export interface ReminderMessageInput {
   stage: ReminderStage;
   ownerName: string;
   businessName: string;
-  /** Unfinished required steps, in order (the first is the next step). Never empty. */
+  /** What the owner should do next: finish the 60-second quick setup, tap the forwarding link, or (rare) something else. */
+  action: ReminderAction;
+  /** The no-login link for that action (/setup/<token>, /forward/<token>, or the in-app step). */
+  actionUrl: string;
+  phonePath: PhonePath;
+  /** Unfinished REQUIRED steps, in order. Never empty. */
   remaining: FollowupStepLine[];
-  /** One-click deep link to the next step's wizard screen. */
-  nextStepUrl: string;
-  /** Set when the owner has never signed in: a one-time set-password link that lands on the next step. */
-  setPasswordUrl: string | null;
   appUrl: string;
   /** "Stop these reminders" link (email footer). */
   stopUrl: string;
@@ -41,81 +46,86 @@ function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || "there";
 }
 
-function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
+function forwardingWhy(phonePath: PhonePath): string {
+  return phonePath === "ai_receptionist" ? "so your AI receptionist picks up the calls you miss" : "so every call you miss gets a text back";
 }
 
-function stepsLeft(n: number): string {
-  return `${n} step${n === 1 ? "" : "s"} left`;
+/** The one sentence that says what to do (shared by the text and the email). */
+function actionSentence(input: ReminderMessageInput): string {
+  switch (input.action) {
+    case "quick_setup":
+      return `We're ready to set up ${input.businessName} for you — we just need 60 seconds of info (your website or Google listing, and your business phone).`;
+    case "forwarding":
+      return `${input.businessName} is one step from live: turn on call forwarding on your business phone ${forwardingWhy(input.phonePath)}. It's one tap.`;
+    case "other":
+      return `${input.businessName} is almost live — next: ${input.remaining[0].action}.`;
+  }
 }
 
-/** "A", "A and B" — longer lists collapse to "A (+2 more)" so a text stays short. */
-function summarizeActions(remaining: FollowupStepLine[]): string {
-  if (remaining.length === 1) return remaining[0].action;
-  if (remaining.length === 2) return `${remaining[0].action} and ${remaining[1].action}`;
-  return `${remaining[0].action} (+${remaining.length - 1} more)`;
+function doneForYouLine(action: ReminderAction): string {
+  return action === "quick_setup"
+    ? "We do the rest for you — your number, your automations and your page."
+    : "We've done the rest for you — your number and your automations are ready.";
 }
 
-const REMINDER_INTRO: Record<ReminderStage, string> = {
-  day1: "You're almost there — a couple of quick steps and your system starts catching leads.",
-  day3: "Quick nudge: your system isn't catching leads yet because setup isn't finished.",
-  day5: "Your system still isn't live. Every missed call until then is a lead that doesn't get a text back.",
-  day10: "Last nudge from us: setup still isn't finished. Want a hand? Reply to this email and we'll walk you through it.",
+/** "Quick nudge: " + sentence ("We're…" → "we're…" after a prefix). */
+function withLead(stage: ReminderStage, sentence: string): string {
+  const lead = REMINDER_LEAD[stage];
+  // Only our own opening word is lower-cased — never the business name.
+  if (!lead || lead.endsWith(". ") || !/^We\b/.test(sentence)) return `${lead}${sentence}`;
+  return `${lead}${sentence.charAt(0).toLowerCase()}${sentence.slice(1)}`;
+}
+
+function actionLabel(action: ReminderAction): string {
+  return action === "quick_setup" ? "Finish the 60-second setup" : action === "forwarding" ? "Turn on forwarding" : "Finish setup";
+}
+
+const REMINDER_LEAD: Record<ReminderStage, string> = {
+  day1: "",
+  day3: "Quick nudge: ",
+  day5: "Your system still isn't live — every missed call until then is a lead that slips away. ",
+  day10: "Last nudge from us: ",
 };
 
 function reminderSubject(input: ReminderMessageInput): string {
-  const left = stepsLeft(input.remaining.length);
-  switch (input.stage) {
-    case "day1":
-      return `${capitalize(left)} to get ${input.businessName} live`;
-    case "day3":
-      return `${input.businessName}: ${left} — next, ${input.remaining[0].action}`;
-    case "day5":
-      return `Your ${CRANKLEADS_OFFER_NAME} system isn't live yet (${left})`;
-    case "day10":
-      return `Need a hand finishing setup? (${left})`;
+  if (input.stage === "day10") return `Want us to finish ${input.businessName}'s setup with you?`;
+  switch (input.action) {
+    case "quick_setup":
+      return `60 seconds to finish setting up ${input.businessName}`;
+    case "forwarding":
+      return `${input.businessName} is one tap from live`;
+    case "other":
+      return `${input.businessName} is almost live`;
   }
 }
 
 export function renderReminderEmail(input: ReminderMessageInput): RenderedEmail {
   const subject = reminderSubject(input);
-  const loginNote = input.setPasswordUrl
-    ? [
-        "",
-        `You haven't set your ${APP_PRODUCT_NAME} password yet (you log in at ${appHostOf(input.appUrl)}) — this link sets it and takes you straight to the next step:`,
-        input.setPasswordUrl,
-        `(It works once and expires. If it has, use "Forgot password" at ${input.appUrl}/forgot-password.)`,
-      ]
-    : [];
+  const helpLine =
+    input.stage === "day10" || input.stage === "day5"
+      ? "Rather we did it with you? Reply to this email with a good time to call and we'll finish it together."
+      : "Questions? Just reply to this email.";
   const body = [
     `Hi ${firstName(input.ownerName)},`,
     "",
-    REMINDER_INTRO[input.stage],
+    withLead(input.stage, actionSentence(input)),
     "",
-    `${capitalize(stepsLeft(input.remaining.length))}:`,
-    ...input.remaining.map((step, i) => `  ${i + 1}. ${capitalize(step.action)}`),
+    `${actionLabel(input.action)}: ${input.actionUrl}`,
     "",
-    `Do the next one now (one click): ${input.nextStepUrl}`,
-    ...loginNote,
-    "",
-    "Questions? Just reply to this email.",
+    doneForYouLine(input.action),
+    helpLine,
     "",
     `— The ${CRANKLEADS_OFFER_NAME} team`,
     "",
     `Don't want these setup reminders? Stop them: ${input.stopUrl}`,
   ].join("\n");
 
-  const button = (href: string, label: string) =>
-    `<p><a href="${escapeHtml(href)}" style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600">${escapeHtml(label)}</a></p>`;
   const html = [
     `<p>Hi ${escapeHtml(firstName(input.ownerName))},</p>`,
-    `<p>${escapeHtml(REMINDER_INTRO[input.stage])}</p>`,
-    `<p><strong>${escapeHtml(capitalize(stepsLeft(input.remaining.length)))}:</strong></p>`,
-    `<ol>${input.remaining.map((step) => `<li>${escapeHtml(capitalize(step.action))}</li>`).join("")}</ol>`,
-    input.setPasswordUrl
-      ? `${button(input.setPasswordUrl, `Set your password and ${input.remaining[0].title.charAt(0).toLowerCase()}${input.remaining[0].title.slice(1)}`)}<p style="font-size:12px;color:#6b7280">This link works once and expires. If it has, use “Forgot password” at ${escapeHtml(input.appUrl)}/forgot-password.</p>`
-      : button(input.nextStepUrl, input.remaining[0].title),
-    `<p>Questions? Just reply to this email.</p><p>— The ${CRANKLEADS_OFFER_NAME} team</p>`,
+    `<p>${escapeHtml(withLead(input.stage, actionSentence(input)))}</p>`,
+    `<p><a href="${escapeHtml(input.actionUrl)}" style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600">${escapeHtml(actionLabel(input.action))}</a></p>`,
+    `<p>${escapeHtml(doneForYouLine(input.action))}</p>`,
+    `<p>${escapeHtml(helpLine)}</p><p>— The ${CRANKLEADS_OFFER_NAME} team</p>`,
     `<p style="font-size:12px;color:#6b7280">Don't want these setup reminders? <a href="${escapeHtml(input.stopUrl)}">Stop them</a>.</p>`,
   ].join("\n");
 
@@ -123,16 +133,24 @@ export function renderReminderEmail(input: ReminderMessageInput): RenderedEmail 
 }
 
 /**
- * The reminder text. Always ends with the deep link + the STOP line (Twilio's carrier-level
+ * The reminder text: one action, one no-login link, and the STOP line (Twilio's carrier-level
  * STOP handling stops further texts from the platform number).
  */
 export function renderReminderSms(input: ReminderMessageInput): string {
-  const left = stepsLeft(input.remaining.length);
-  const lead =
-    input.stage === "day10"
-      ? `${CRANKLEADS_OFFER_NAME}: Hi ${firstName(input.ownerName)}, last nudge — ${input.businessName} still has ${left}: ${summarizeActions(input.remaining)}. Reply to our email if you want a hand.`
-      : `${CRANKLEADS_OFFER_NAME}: Hi ${firstName(input.ownerName)}, ${left} to get ${input.businessName} live: ${summarizeActions(input.remaining)}.`;
-  return `${lead} ${input.nextStepUrl}\nReply STOP to stop these texts.`;
+  const hi = `${CRANKLEADS_OFFER_NAME}: Hi ${firstName(input.ownerName)}, `;
+  let lead: string;
+  switch (input.action) {
+    case "quick_setup":
+      lead = `${input.stage === "day10" ? "last nudge — " : ""}finish your 60-second setup and we'll switch ${input.businessName} on for you:`;
+      break;
+    case "forwarding":
+      lead = `${input.stage === "day10" ? "last nudge — " : ""}${input.businessName} is one tap from live. Turn on call forwarding ${forwardingWhy(input.phonePath)}:`;
+      break;
+    case "other":
+      lead = `${input.businessName} is almost live — next: ${input.remaining[0].action}:`;
+      break;
+  }
+  return `${hi}${lead} ${input.actionUrl}\nReply STOP to stop these texts.`;
 }
 
 // ── "You're live" ─────────────────────────────────────────────────────────────
@@ -142,70 +160,65 @@ export interface LiveMessageInput {
   businessName: string;
   phonePath: PhonePath;
   appUrl: string;
+  /** The text-back / AI receptionist number (E.164), when known. */
+  number: string | null;
+  /** Their generated page (company_sites, published), when there is one. */
+  siteUrl: string | null;
+  /** Email only: a one-time set-password link for an owner who has never signed in (null → appUrl). */
+  setPasswordUrl: string | null;
 }
 
-function liveWhat(phonePath: PhonePath): string {
-  return phonePath === "ai_receptionist"
-    ? "your AI receptionist answers every call, and website leads land in your inbox"
-    : "missed callers get a text back in seconds, and website leads land in your inbox";
+/** What's now working, one line each (email bullets; the text uses the first). */
+export function liveWorking(input: Pick<LiveMessageInput, "phonePath" | "number" | "siteUrl">): string[] {
+  const number = input.number ? ` at ${prettyPhone(input.number)}` : "";
+  const lines =
+    input.phonePath === "ai_receptionist"
+      ? [`Calls you miss go to your AI receptionist${number}. It answers, takes the details and texts you a summary.`]
+      : [`Calls you miss are forwarded to your text-back number${number}. The caller gets a text from you in seconds.`];
+  lines.push("Every new lead lands in your inbox, and the follow-ups and reminders are switched on.");
+  if (input.siteUrl) lines.push(`Your new page is live: ${input.siteUrl}`);
+  return lines;
 }
 
 export function renderLiveEmail(input: LiveMessageInput): RenderedEmail {
   const subject = `🎉 You're live — ${input.businessName} is catching leads`;
+  const working = liveWorking(input);
+  const login = input.setPasswordUrl
+    ? [`Set your password and log in (works once): ${input.setPasswordUrl}`, `Afterwards, log in any time at ${input.appUrl}`]
+    : [`Log in any time: ${input.appUrl}`];
   const body = [
     `Hi ${firstName(input.ownerName)},`,
     "",
-    `🎉 You're live! Setup is done: ${liveWhat(input.phonePath)}.`,
+    "🎉 You're live! Here's what's working now:",
+    ...working.map((line) => `  • ${line}`),
     "",
-    `Every new lead shows up in ${APP_PRODUCT_NAME}: ${input.appUrl}`,
+    ...login,
     "",
-    "No more setup reminders from us. Questions? Just reply to this email.",
+    "Questions? Just reply to this email.",
     "",
     `— The ${CRANKLEADS_OFFER_NAME} team`,
   ].join("\n");
+  const linkify = (line: string) =>
+    escapeHtml(line).replace(/(https?:\/\/[^\s<]+)/g, (url) => `<a href="${url}">${url}</a>`);
   const html = [
     `<p>Hi ${escapeHtml(firstName(input.ownerName))},</p>`,
-    `<p>🎉 <strong>You're live!</strong> Setup is done: ${escapeHtml(liveWhat(input.phonePath))}.</p>`,
-    `<p>Every new lead shows up in ${APP_PRODUCT_NAME}: <a href="${escapeHtml(input.appUrl)}">${escapeHtml(input.appUrl)}</a></p>`,
-    `<p>No more setup reminders from us. Questions? Just reply to this email.</p><p>— The ${CRANKLEADS_OFFER_NAME} team</p>`,
+    `<p>🎉 <strong>You're live!</strong> Here's what's working now:</p>`,
+    `<ul>${working.map((line) => `<li>${linkify(line)}</li>`).join("")}</ul>`,
+    input.setPasswordUrl
+      ? `<p><a href="${escapeHtml(input.setPasswordUrl)}" style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600">Set your password and log in</a></p><p style="font-size:12px;color:#6b7280">The button works once. Afterwards, log in at ${escapeHtml(input.appUrl)}.</p>`
+      : `<p>Log in any time: <a href="${escapeHtml(input.appUrl)}">${escapeHtml(input.appUrl)}</a></p>`,
+    `<p>Questions? Just reply to this email.</p><p>— The ${CRANKLEADS_OFFER_NAME} team</p>`,
   ].join("\n");
   return { subject, body, html, fromName: CRANKLEADS_OFFER_NAME };
 }
 
+/** Never carries a set-password link (texts get forwarded and previewed) — the plain app URL only. */
 export function renderLiveSms(input: LiveMessageInput): string {
-  return `${CRANKLEADS_OFFER_NAME}: 🎉 You're live! ${input.businessName} is set up — ${liveWhat(input.phonePath)}. ${input.appUrl}`;
-}
-
-// ── Operator: buyer stuck after the day-10 reminder ──────────────────────────
-
-export interface OperatorStuckEmailInput {
-  businessName: string;
-  tier: CrankleadsTier;
-  ownerName: string;
-  ownerEmail: string;
-  ownerPhone: string;
-  organizationId: string;
-  provisionedAt: string;
-  steps: Array<{ title: string; done: boolean }>;
-  appUrl: string;
-}
-
-export function renderOperatorStuckEmail(input: OperatorStuckEmailInput): RenderedEmail {
-  const left = input.steps.filter((s) => !s.done).length;
-  const subject = `${CRANKLEADS_OFFER_NAME} buyer stuck: ${input.businessName} (${CRANKLEADS_TIER_LABELS[input.tier]}) — ${stepsLeft(left)} after 10 business days`;
-  const body = [
-    subject,
-    "",
-    "They got the day-1/3/5/10 reminders (email + text) and still haven't finished setup. A personal call usually fixes it.",
-    "",
-    `Owner: ${input.ownerName} <${input.ownerEmail}> ${input.ownerPhone}`,
-    `Organization: ${input.organizationId}`,
-    `Provisioned: ${input.provisionedAt}`,
-    "",
-    "Setup checklist:",
-    ...input.steps.map((s) => `  [${s.done ? "x" : " "}] ${s.title}`),
-    "",
-    `Ops: ${input.appUrl}/internal/ops`,
-  ].join("\n");
-  return { subject, body, html: `<pre style="font-family:ui-monospace,monospace">${escapeHtml(body)}</pre>`, fromName: CRANKLEADS_OFFER_NAME };
+  const number = input.number ? ` ${prettyPhone(input.number)}` : "";
+  const what =
+    input.phonePath === "ai_receptionist"
+      ? `calls you miss now go to your AI receptionist${number}`
+      : `missed callers now get a text back from${number || " your text-back number"}`;
+  const site = input.siteUrl ? ` Your new page: ${input.siteUrl}` : "";
+  return `${CRANKLEADS_OFFER_NAME}: 🎉 You're live! ${input.businessName}: ${what}.${site} Log in: ${input.appUrl}`;
 }

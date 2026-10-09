@@ -1,4 +1,12 @@
-/** Lead notification email via Resend. Never throws — the caller treats it as best-effort. */
+/**
+ * The OPERATOR copy of a new lead, via Resend. Never throws — the caller treats it as best-effort.
+ *
+ * Privacy: this mailbox (LEAD_NOTIFY_EMAIL / OWNER_EMAIL) belongs to the platform operator. Only
+ * HOUSE orgs (EmpireVu-branded tenants such as A1, and leads we couldn't route to any org) may
+ * be copied here. A CrankLeads org's leads never are — its owner is alerted by the org's own
+ * new-lead automation (new-lead-owner-alert). The caller decides with `leadNotifyAudience`.
+ * The sender name is the company's own brand, never "EmpireVu".
+ */
 
 import type { LeadLineItem } from "./envelope";
 
@@ -59,10 +67,38 @@ function buildText(lead: NotifyLead): string {
   return parts.filter((p) => p !== null).join("\n");
 }
 
+export type LeadNotifyAudience = "operator" | "none";
+
+/**
+ * Who may get the operator copy: house orgs (platform_brand not 'crankleads', no CrankLeads
+ * tier) and unrouted leads → "operator"; any CrankLeads org → "none". PURE.
+ */
+export function leadNotifyAudience(org: { platform_brand: string | null; crankleads_tier: string | null } | null, routed: boolean): LeadNotifyAudience {
+  if (!routed) return "operator";
+  if (!org) return "none"; // unknown org → fail closed (never leak a tenant's lead)
+  if (org.platform_brand === "crankleads" || org.crankleads_tier) return "none";
+  return "operator";
+}
+
+/** "Name <addr>" | "addr" → "addr". */
+function emailAddressOf(raw: string | null | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  const m = value.match(/<([^>]+)>/);
+  return (m ? m[1] : value).trim() || null;
+}
+
+/** The sender: the company's brand as the display name (never EmpireVu), on our lead address. */
+export function leadFromHeader(companyName: string | null, env: NodeJS.ProcessEnv = process.env): string {
+  const address = emailAddressOf(env.LEAD_FROM_EMAIL) ?? emailAddressOf(env.OUTBOUND_FROM_EMAIL) ?? "leads@a1marinecare.ca";
+  const name = (companyName?.trim() || "New lead").replace(/[<>"\r\n]/g, "").slice(0, 60);
+  return `${name} leads <${address}>`;
+}
+
 export async function sendLeadNotification(lead: NotifyLead): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY;
   const to = process.env.LEAD_NOTIFY_EMAIL ?? process.env.OWNER_EMAIL;
-  const from = process.env.LEAD_FROM_EMAIL ?? "EmpireVu Leads <leads@a1marinecare.ca>";
+  const from = leadFromHeader(lead.companyName);
 
   if (!apiKey || !to) {
     console.warn("[intake] RESEND_API_KEY or LEAD_NOTIFY_EMAIL not set — skipping notification email");

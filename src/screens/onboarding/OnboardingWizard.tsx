@@ -10,6 +10,8 @@ import { ForwardingTestPanel } from "@/components/onboarding/ForwardingTestPanel
 import { PhoneModeStep } from "@/components/onboarding/PhoneModeStep";
 import { HelpButton } from "@/components/help/HelpPanel";
 import { useOrg } from "@/lib/org-context";
+import { SetupProgressScreen } from "@/components/onboarding/SetupProgress";
+import { useSetupProgress } from "@/lib/dfy-api";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "@/components/ui/sonner";
 import { relativeTime } from "@/lib/format";
@@ -545,7 +547,7 @@ function OrgGate({ onCreated }: { onCreated: (id: string) => void }) {
 }
 
 // ── Wizard shell ──────────────────────────────────────────────────────────────
-export default function OnboardingWizard() {
+function SelfServeWizard() {
   const navigate = useNavigate();
   const brand = useBrand();
   const [searchParams] = useSearchParams();
@@ -698,4 +700,28 @@ export default function OnboardingWizard() {
       </div>
     </div>
   );
+}
+
+/**
+ * /onboarding. CrankLeads orgs are set up FOR them (docs/done-for-you.md): they get the
+ * "We're setting you up" progress view instead of the wizard. Everyone else (self-serve
+ * signups, house orgs, an account with no org yet) keeps the wizard.
+ */
+export default function OnboardingWizard() {
+  const [searchParams] = useSearchParams();
+  const { session } = useAuth();
+  const { organizationId, setOrganizationId } = useOrg();
+  const requestedOrg = searchParams.get("org");
+  useEffect(() => {
+    if (!requestedOrg || requestedOrg === organizationId) return;
+    if ((session?.organizations ?? []).some((o) => o.id === requestedOrg)) setOrganizationId(requestedOrg);
+  }, [requestedOrg, organizationId, session, setOrganizationId]);
+  const switching = Boolean(requestedOrg && requestedOrg !== organizationId && (session?.organizations ?? []).some((o) => o.id === requestedOrg));
+  const { data: setupProgress, isLoading, isError } = useSetupProgress(switching ? null : organizationId);
+
+  if (organizationId && !isError && (switching || isLoading)) {
+    return <div className="min-h-screen flex items-center justify-center bg-background"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
+  }
+  if (organizationId && setupProgress) return <SetupProgressScreen view={setupProgress} />;
+  return <SelfServeWizard />;
 }
