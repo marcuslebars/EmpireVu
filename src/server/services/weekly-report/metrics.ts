@@ -6,6 +6,7 @@ import {
   fetchScorecardInputs,
   type ScorecardInputs,
 } from "@/server/services/monthly-scorecard/metrics";
+import { SMS_AGENT_SENDER } from "@/server/services/front-desk/contracts";
 import type { TenantServiceContext } from "@/server/services/shared";
 
 /**
@@ -20,10 +21,10 @@ import type { TenantServiceContext } from "@/server/services/shared";
  *  - `computeWeeklyMetrics` — PURE: rows in, numbers out (fixture-tested).
  *
  * Definitions:
- *  - textConversations: AI-carried customer text conversations with an AI reply this week
- *    (sms_conversations.last_ai_reply_at in the week). A conversation that also got an AI
- *    reply after the week ended counts in the later week only (last_ai_reply_at is a single
- *    timestamp) — an undercount, which is the safe direction for a proof-of-value report.
+ *  - textReplies: texts the AI wrote and sent this week (message_log.sent_by = 'sms_agent',
+ *    status sent). textConversations: customers who got at least one of those this week (one
+ *    per contact), plus any sms_conversations whose last_ai_reply_at falls in the week (rows
+ *    from before sent_by existed).
  *  - approvalsAsked: owner_approvals created this week; approvalsApproved: decided this week
  *    with status approved/executed.
  *  - callsAnswered: inbound retell_calls created this week, minus voicemail and calls under
@@ -68,7 +69,9 @@ export function hoursSavedAssumptionsText(): string {
 }
 
 export interface FrontDeskInputs {
-  conversations: Array<{ lastAiReplyAt: string | null }>;
+  conversations: Array<{ contactId?: string | null; lastAiReplyAt: string | null }>;
+  /** Texts the AI sent (message_log.sent_by = 'sms_agent'). Optional for older fixtures. */
+  aiTexts?: Array<{ contactId: string | null; at: string }>;
   approvals: Array<{ createdAt: string; status: string; decidedAt: string | null }>;
   calls: Array<{ direction: string | null; at: string; durationMs: number | null; inVoicemail: boolean | null }>;
   invoicePayments: Array<{ receivedAt: string; amountCents: number; status: string }>;
@@ -77,7 +80,7 @@ export interface FrontDeskInputs {
 }
 
 export function emptyFrontDeskInputs(): FrontDeskInputs {
-  return { conversations: [], approvals: [], calls: [], invoicePayments: [], hours: null };
+  return { conversations: [], aiTexts: [], approvals: [], calls: [], invoicePayments: [], hours: null };
 }
 
 export interface HoursSaved {
@@ -94,6 +97,8 @@ export interface WeeklyReportMetrics {
   range: PeriodRange;
   timeZone: string;
   textConversations: number;
+  /** AI-written texts sent this week (absent on reports stored before it was counted). */
+  textReplies?: number;
   approvals: { asked: number; approved: number };
   calls: { answered: number; afterHours: number | null; minutes: number };
   missedCalls: { caught: number; textedBack: number };
@@ -180,7 +185,13 @@ export function computeWeeklyMetrics(input: {
   const toMs = Date.parse(range.to);
   const card = computeScorecardMetrics(input.scorecard, range);
 
-  const textConversations = frontDesk.conversations.filter((c) => inRange(c.lastAiReplyAt, fromMs, toMs)).length;
+  const aiTexts = (frontDesk.aiTexts ?? []).filter((t) => inRange(t.at, fromMs, toMs));
+  const talkedTo = new Set<string>();
+  aiTexts.forEach((t, i) => talkedTo.add(t.contactId ? `c:${t.contactId}` : `t:${i}`));
+  frontDesk.conversations.forEach((c, i) => {
+    if (inRange(c.lastAiReplyAt, fromMs, toMs)) talkedTo.add(c.contactId ? `c:${c.contactId}` : `v:${i}`);
+  });
+  const textConversations = talkedTo.size;
   const approvalsAsked = frontDesk.approvals.filter((a) => inRange(a.createdAt, fromMs, toMs)).length;
   const approvalsApproved = frontDesk.approvals.filter(
     (a) => (a.status === "approved" || a.status === "executed") && inRange(a.decidedAt, fromMs, toMs),
@@ -215,6 +226,7 @@ export function computeWeeklyMetrics(input: {
     range,
     timeZone,
     textConversations,
+    textReplies: aiTexts.length,
     approvals: { asked: approvalsAsked, approved: approvalsApproved },
     calls: { answered: answered.length, afterHours, minutes: card.receptionist.minutes },
     missedCalls: card.missedCalls,
@@ -277,10 +289,18 @@ export async function fetchFrontDeskInputs(
   const org = context.organizationId;
   const db = context.supabase;
 
-  const [conversations, approvalsCreated, approvalsDecided, calls, payments, companyRows] = await Promise.all([
+  const [aiTexts, conversations, approvalsCreated, approvalsDecided, calls, payments, companyRows] = await Promise.all([
+    tolerant(
+      "message_log (AI texts)",
+      db.from("message_log").select("id, contact_id, created_at")
+        .eq("organization_id", org).eq("company_id", companyId)
+        .eq("sent_by", SMS_AGENT_SENDER).eq("channel", "sms").eq("direction", "outbound").eq("status", "sent")
+        .gte("created_at", range.from).lt("created_at", range.to)
+        .limit(ROW_LIMIT),
+    ),
     tolerant(
       "sms_conversations",
-      db.from("sms_conversations").select("id, last_ai_reply_at")
+      db.from("sms_conversations").select("id, contact_id, last_ai_reply_at")
         .eq("organization_id", org).eq("company_id", companyId)
         .gte("last_ai_reply_at", range.from).lt("last_ai_reply_at", range.to)
         .limit(ROW_LIMIT),
@@ -322,7 +342,11 @@ export async function fetchFrontDeskInputs(
   }
 
   return {
-    conversations: (conversations as Array<{ last_ai_reply_at: string | null }>).map((row) => ({ lastAiReplyAt: row.last_ai_reply_at })),
+    conversations: (conversations as Array<{ contact_id: string | null; last_ai_reply_at: string | null }>).map((row) => ({
+      contactId: row.contact_id,
+      lastAiReplyAt: row.last_ai_reply_at,
+    })),
+    aiTexts: (aiTexts as Array<{ contact_id: string | null; created_at: string }>).map((row) => ({ contactId: row.contact_id, at: row.created_at })),
     approvals: [...approvalsById.values()].map((row) => ({ createdAt: row.created_at, status: row.status, decidedAt: row.decided_at })),
     calls: (calls as Array<{ direction: string | null; created_at: string; duration_ms: number | null; in_voicemail: boolean | null }>).map(
       (row) => ({ direction: row.direction, at: row.created_at, durationMs: row.duration_ms, inVoicemail: row.in_voicemail }),

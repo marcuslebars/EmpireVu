@@ -177,7 +177,11 @@ function buildLines(m: WeeklyReportMetrics): Line[] {
             .join(" · ") || null
         : null,
   });
-  lines.push({ label: "Customer text conversations handled", value: String(m.textConversations) });
+  lines.push({
+    label: "Customer text conversations handled",
+    value: String(m.textConversations),
+    note: m.textReplies ? `${m.textReplies} ${m.textReplies === 1 ? "text" : "texts"} sent by your assistant` : null,
+  });
   if (m.approvals.asked > 0 || m.approvals.approved > 0) {
     lines.push({ label: "Things it checked with you first", value: String(m.approvals.asked), note: `${m.approvals.approved} approved` });
   }

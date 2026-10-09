@@ -10,6 +10,7 @@ export interface WeeklyReportMetrics {
   weekStart: string;
   timeZone: string;
   textConversations: number;
+  textReplies?: number;
   approvals: { asked: number; approved: number };
   calls: { answered: number; afterHours: number | null; minutes: number };
   missedCalls: { caught: number; textedBack: number };

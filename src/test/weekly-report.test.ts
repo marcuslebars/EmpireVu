@@ -39,6 +39,7 @@ import {
   computeWeeklyMetrics,
   emptyFrontDeskInputs,
   emptyWeeklyMetrics,
+  fetchFrontDeskInputs,
   HOURS_SAVED_ASSUMPTIONS,
   isAfterHours,
   type WeeklyReportMetrics,
@@ -673,5 +674,52 @@ describe("in-app view + test send", () => {
     expect(sends(db)).toHaveLength(0);
     const real = await runWeeklyReports(db.client, { nowMs: MON_0830, companyId: CO_1, respectSendWindow: true });
     expect(real[0]).toMatchObject({ result: "sent" });
+  });
+});
+
+describe("AI texts counted from message_log.sent_by", () => {
+  const range = weekRangeForKey(TZ, WEEK);
+
+  it("textReplies = AI texts sent in the week; textConversations = customers who got one (plus older conversation rows)", () => {
+    const frontDesk = {
+      ...emptyFrontDeskInputs(),
+      aiTexts: [
+        { contactId: "c-1", at: "2026-10-06T14:00:00.000Z" },
+        { contactId: "c-1", at: "2026-10-06T14:05:00.000Z" },
+        { contactId: "c-2", at: "2026-10-08T20:00:00.000Z" },
+        { contactId: "c-3", at: "2026-10-12T14:00:00.000Z" }, // next week
+      ],
+      conversations: [
+        { contactId: "c-2", lastAiReplyAt: "2026-10-08T20:00:00.000Z" }, // same customer — not double-counted
+        { contactId: "c-4", lastAiReplyAt: "2026-10-09T20:00:00.000Z" }, // a reply logged before sent_by existed
+      ],
+    };
+    const m = computeWeeklyMetrics({ scorecard: emptyScorecardInputs(), frontDesk, range, weekStart: WEEK, timeZone: TZ });
+    expect(m.textReplies).toBe(3);
+    expect(m.textConversations).toBe(3);
+  });
+
+  it("fetchFrontDeskInputs reads only this company's sent AI texts in the week", async () => {
+    const row = (over: Record<string, unknown>) => ({
+      organization_id: "org-1", company_id: "co-1", contact_id: "c-1", channel: "sms", direction: "outbound", status: "sent",
+      sent_by: "sms_agent", created_at: "2026-10-06T14:00:00.000Z", ...over,
+    });
+    const db = createFakeDb({
+      message_log: [
+        row({ id: "m1" }),
+        row({ id: "m2", contact_id: "c-2" }),
+        row({ id: "m3", sent_by: null }), // staff
+        row({ id: "m4", status: "failed" }),
+        row({ id: "m5", direction: "inbound", sent_by: null }),
+        row({ id: "m6", company_id: "co-2" }),
+        row({ id: "m7", organization_id: "org-2", company_id: "co-x" }),
+        row({ id: "m8", created_at: "2026-10-13T14:00:00.000Z" }),
+      ],
+    });
+    const inputs = await fetchFrontDeskInputs({ organizationId: "org-1", actorProfileId: null, supabase: db.client } as never, "co-1", range);
+    expect(inputs.aiTexts).toEqual([
+      { contactId: "c-1", at: "2026-10-06T14:00:00.000Z" },
+      { contactId: "c-2", at: "2026-10-06T14:00:00.000Z" },
+    ]);
   });
 });

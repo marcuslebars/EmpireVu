@@ -77,7 +77,11 @@ function WeekDetail({ week, assumptions }: { week: WeeklyReportWeek; assumptions
             .filter(Boolean)
             .join(" · ") || null}
         />
-        <Row label="Customer text conversations handled" value={String(m.textConversations)} />
+        <Row
+          label="Customer text conversations handled"
+          value={String(m.textConversations)}
+          hint={m.textReplies ? `${m.textReplies} ${m.textReplies === 1 ? "text" : "texts"} sent by your assistant` : null}
+        />
         <Row label="Things it checked with you first" value={String(m.approvals.asked)} hint={m.approvals.asked ? `${m.approvals.approved} approved` : null} />
         <Row label="Missed calls caught" value={String(m.missedCalls.caught)} hint={m.missedCalls.caught ? `${m.missedCalls.textedBack} texted back` : null} />
         <Row label="New leads" value={String(m.leads)} />
