@@ -59,7 +59,7 @@ report (on/off, text and/or email, send a test).
 
 1. **Migrations, in order** (Supabase SQL editor; all additive, rollbacks in `supabase/rollback/`):
    `20261009100000_front_desk_ai.sql` → `20261009110000_sms_agent.sql` →
-   `20261009120000_owner_channel.sql` → `20261009130000_voice_ai_answering.sql` →
+   `20261009121000_owner_channel.sql` → `20261009130000_voice_ai_answering.sql` →
    `20261009150000_front_desk_wiring.sql` (makes `call_answering_notices` service-role only) →
    `20261009160000_front_desk_hardening.sql` (see [Hardening](#hardening)).
    The weekly report has no migration of its own (its table is in `20261009100000`).
@@ -413,11 +413,11 @@ and the last week's decisions. `GET /api/organizations/:org/approvals` (members,
 admins; same decide path, `decidedVia 'app'`; service role pinned to the caller's org — listed
 here as a sanctioned service-role surface).
 
-### Schema (migration `20261009120000_owner_channel.sql`)
+### Schema (migration `20261009121000_owner_channel.sql`)
 
 `platform_sms_opt_outs (phone_e164 pk, opted_out_at, opted_in_at, source_ref)` — service role
 only; plus indexes for the approvals sweep and per-phone `owner_command_log` lookups. Rollback in
-`supabase/rollback/20261009120000_owner_channel.down.sql`.
+`supabase/rollback/20261009121000_owner_channel.down.sql`.
 
 ### Not yet
 

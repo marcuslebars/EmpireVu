@@ -8,7 +8,7 @@
 -- 2. Indexes for the approvals sweep (pending + unnotified / pending + expiring) and for the
 --    per-phone owner_command_log lookups (recent context, "which business?" follow-ups).
 --
--- Additive / idempotent. Rollback: supabase/rollback/20261009120000_owner_channel.down.sql
+-- Additive / idempotent. Rollback: supabase/rollback/20261009121000_owner_channel.down.sql
 
 create table if not exists public.platform_sms_opt_outs (
   phone_e164 text primary key,
