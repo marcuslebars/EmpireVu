@@ -24,6 +24,13 @@ export interface FakeDb {
   unique: Record<string, string[][]>;
   /** Make the next `op` on `table` return this error (once). */
   failNext(table: string, op: RecordedQuery["op"], error?: { message: string; code?: string }): void;
+  /** Answer `client.rpc(name, args)` (default: `{ data: [], error: null }`). */
+  onRpc(handler: (name: string, args: Record<string, unknown>) => { data: unknown; error: unknown }): void;
+}
+
+function likeToRegExp(pattern: string, flags: string): RegExp {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".");
+  return new RegExp(`^${escaped}$`, flags);
 }
 
 /** Read a column, following PostgREST JSON paths: `a->b->>c` (text) / `a->b` (json). */
@@ -67,6 +74,8 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
     let rangeFrom = 0;
     let rangeTo = Number.POSITIVE_INFINITY;
     let wantRows = true;
+    const sorts: Array<{ column: string; ascending: boolean }> = [];
+    let limitTo: number | null = null;
 
     const filter = (kind: string, column: string, value: unknown, pred: (row: Row) => boolean) => {
       recorded.filters.push({ kind, column, value });
@@ -116,7 +125,17 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
         }
         default: {
           const hit = matches();
-          const sliced = hit.slice(rangeFrom, rangeTo + 1).map((r) => ({ ...r }));
+          if (sorts.length > 0) {
+            hit.sort((a, b) => {
+              for (const s of sorts) {
+                const c = cmp(a[s.column], b[s.column]);
+                if (c !== 0) return s.ascending ? c : -c;
+              }
+              return 0;
+            });
+          }
+          let sliced = hit.slice(rangeFrom, rangeTo + 1).map((r) => ({ ...r }));
+          if (limitTo != null) sliced = sliced.slice(0, limitTo);
           return { data: sliced, error: null, count: hit.length };
         }
       }
@@ -137,8 +156,18 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
       is: (column: string, value: unknown) => filter("is", column, value, (row) => (row[column] ?? null) === value),
       not: (column: string, _op: string, value: unknown) =>
         filter("not", column, value, (row) => (row[column] ?? null) !== value),
-      order: () => api,
-      limit: () => api,
+      like: (column: string, pattern: string) =>
+        filter("like", column, pattern, (row) => typeof row[column] === "string" && likeToRegExp(pattern, "").test(row[column] as string)),
+      ilike: (column: string, pattern: string) =>
+        filter("ilike", column, pattern, (row) => typeof row[column] === "string" && likeToRegExp(pattern, "i").test(row[column] as string)),
+      order: (column: string, options?: { ascending?: boolean }) => {
+        sorts.push({ column, ascending: options?.ascending !== false });
+        return api;
+      },
+      limit: (n: number) => {
+        limitTo = n;
+        return api;
+      },
       range: (from: number, to: number) => {
         rangeFrom = from;
         rangeTo = to;
@@ -184,9 +213,10 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
     return api;
   }
 
+  let rpcHandler: ((name: string, args: Record<string, unknown>) => { data: unknown; error: unknown }) | null = null;
   const client = {
     from: (table: string) => builder(table),
-    rpc: () => Promise.resolve({ data: [], error: null }),
+    rpc: (name: string, args: Record<string, unknown> = {}) => Promise.resolve(rpcHandler ? rpcHandler(name, args) : { data: [], error: null }),
   };
 
   return {
@@ -196,6 +226,9 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
     client: client as never,
     failNext(table, op, error = { message: `injected ${op} failure on ${table}` }) {
       failures.push({ table, op, error });
+    },
+    onRpc(handler) {
+      rpcHandler = handler;
     },
   };
 }
