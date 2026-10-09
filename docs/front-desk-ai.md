@@ -1,5 +1,124 @@
 # The AI front desk
 
+CrankLeads replaces the front desk: an assistant that texts the business's customers, answers
+the calls the owner can't take, checks with the owner by text before anything they'd want a say
+in, and tells them every Monday what it did. Four parts — [Text conversations](#text-conversations-sms-agent),
+[Owner by text](#owner-by-text), [Phone answering](#phone-answering), [Weekly report](#weekly-report) —
+wired together as described in [How the parts fit](#how-the-parts-fit).
+
+## What the owner and their customers experience
+
+**A customer texts the business number** ("how much for a seasonal contract for a double
+driveway in Midland?"). Within seconds they get one reply from that same number, in the
+business's name: "Hi, it's Northshore Snow & Lawn's automated assistant. Our seasonal snow
+contract for a double driveway is $650 + HST…". Prices come only from the price list. Photos
+they send are looked at. The owner is not pinged for every text — their "forward customer texts
+to me" relay stays quiet while the assistant is handling the customer.
+
+**The customer wants something only the owner can decide** ("can you do it for $500?"). The
+customer hears "Let me check with Dana and get right back to you." Dana gets a text from the
+CrankLeads number: "Jamie Lee: asks if we can do the seasonal contract for $500. Reply Y to
+approve, N to skip." She replies "Y but $575" — Jamie gets a $575 + HST quote link from the
+business number, and Dana gets "Sent Jamie Lee the $575 + HST quote." A "no" (with or without a
+note) sends Jamie a polite "Dana will be in touch"; Dana's note is never passed on.
+
+**Something needs a person** (a complaint, an emergency, a refund, "can I talk to someone"). The
+assistant says the owner will be in touch, stops replying to that customer, and texts the owner
+right away with the customer's words. The owner replies from the app or by text ("tell Jamie
+we'll be there at 9"); the assistant stays out of that conversation for 3 days or until the owner
+turns it back on (inbox **Let AI handle it**, or text "AI back on for Jamie").
+
+**The owner runs the day by text** to the CrankLeads number: "what's on tomorrow", "who's waiting
+on me", "move Jamie to Friday 9" (always "…? Reply Y to confirm" first), "tell Jamie we'll be
+there at 9" (goes out from the business number), "pause all texts".
+
+**A call the owner can't take** forwards to the business's CrankLeads number. On every plan an AI
+picks up in the business's name, says it's an automated assistant and the call may be recorded,
+takes the message (Front Desk: also quotes from the price list and books). After the call the
+owner gets one text ("📞 Your AI assistant took a call: Casey Morgan · 705-555-0177. Seasonal
+contract, 88 Bay St, Midland. Wants a callback this afternoon.") and the caller gets one
+follow-up text. If the caller texts back, the texting assistant already knows what the call was
+about. If the AI can't connect, or the month's minutes are used up, callers get the voicemail +
+instant text-back as before (and the owner one "minutes used up" notice that month).
+
+**Monday 8 am** the owner gets a three-line text and a full email: calls answered, text
+conversations, things it checked with them, quotes, bookings, and an estimate of the time saved
+(stated as an estimate, with its assumptions).
+
+**House (non-CrankLeads) orgs** see none of this unless they switch it on in Settings → AI front
+desk: no AI texts, calls keep the voicemail behaviour, no weekly report.
+
+**Settings → AI front desk** is one panel per company: Text conversations (on/off, how much it may
+do alone), Phone answering (AI vs voicemail, this month's minutes, what the AI says), Weekly
+report (on/off, text and/or email, send a test).
+
+## Setup checklist for Marcus
+
+1. **Migrations, in order** (Supabase SQL editor; all additive, rollbacks in `supabase/rollback/`):
+   `20261009100000_front_desk_ai.sql` → `20261009110000_sms_agent.sql` →
+   `20261009120000_owner_channel.sql` → `20261009130000_voice_ai_answering.sql`.
+   (The weekly report needs no migration of its own; the wiring pass added none.)
+2. **Env** (web + worker unless noted):
+   - already set: `ANTHROPIC_API_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `APP_BASE_URL`, `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`, `RETELL_API_KEY`;
+   - `RETELL_INTAKE_ENABLED=1` (turns on AI phone answering — without it every call keeps voicemail);
+   - `RETELL_FUNCTION_SECRET` (already used by Marina's tools; also signs the AI-answer call metadata unless `VOICE_AI_TOKEN_SECRET` is set);
+   - `RETELL_MESSAGE_AGENT_ID` + `RETELL_MESSAGE_LLM_ID` (web) — from step 4;
+   - `AI_PRICE_SONNET_INPUT_PER_MTOK` / `_OUTPUT_` / `_CACHE_READ_` / `_CACHE_WRITE_PER_MTOK` (worker) — Sonnet's list price, so front-desk AI cost isn't booked at Opus rates;
+   - optional: `AI_MODEL_SMS_AGENT`, `AI_MODEL_OWNER_AGENT` (default `claude-sonnet-5-5`), `SMS_AGENT_*` caps, `TWILIO_INBOUND_SMS_URL`, `AI_ANSWER_*`, `RETELL_SIP_DOMAIN`, `VOICE_AI_TOKEN_SECRET`.
+3. **Twilio — platform number Messaging webhook:** on `TWILIO_FROM_NUMBER` (or its Messaging
+   Service) set "A message comes in" → `POST {APP_BASE_URL}/api/twilio/sms/inbound` (exactly the
+   URL signatures are checked against; else set `TWILIO_INBOUND_SMS_URL`). Without it owners'
+   "Y" replies go nowhere. If Twilio Advanced Opt-Out answers HELP, turn that reply off. Make sure
+   the account may dial SIP URIs (`<Dial><Sip>`) and geo-permissions allow it.
+4. **Retell message agent:** `npm run job:retell-message-agent` (dry run — read the config), then
+   `npm run job:retell-message-agent -- --apply`; put the printed `RETELL_MESSAGE_AGENT_ID` /
+   `RETELL_MESSAGE_LLM_ID` on the web service. In the Retell dashboard check: webhook
+   `{APP_BASE_URL}/api/retell/webhook`, the `alert_owner` tool has the secret header, voice.
+5. **Verify Retell field names on the first apply:** the job and the receptionist re-sync send
+   `general_tools`, `begin_message`, `response_engine`, `webhook_url`, `post_call_analysis_data`,
+   and `register-phone-call` sends `agent_id`, `metadata`, `retell_llm_dynamic_variables`. They were written from Retell's docs but never run
+   against the live API from here — if the apply errors, or the dashboard doesn't show the
+   tools / analysis fields, fix the field names before switching any company on. Then place one
+   real test call (below) and check the post-call webhook's `call_analysis.custom_analysis_data`
+   keys match `caller_name, callback_number, job_description, service_address, urgency, …`.
+6. **Existing Front Desk receptionists:** concierge → **Re-sync AI receptionist** (or let the
+   done-for-you switch-on do it).
+7. **Smoke test (a Catch/Close test company):** text the business number a price question →
+   one AI reply; ask for a discount → "Reply Y" text to the owner's cell from the platform
+   number → reply "Y but $575" → quote link; call the business line and let it forward → AI picks
+   up → owner text + one follow-up text; text back → the reply knows the call. Set the company to
+   voicemail in Settings and call again → the old greeting.
+8. **End-to-end locally:** `scripts/e2e-dfy/frontdesk.sh` runs all of the above (and the weekly
+   report, the minutes cap and a house org) against a local stack with fakes — see
+   `scripts/e2e-dfy/README.md`.
+
+## How the parts fit
+
+- **One inbound router** (`twilio/inbound-sms.ts`): customer text → `message_log` (with MMS
+  `media`) → `contact.sms_received` → `runSmsAgentForInbound(…, messageLogId)`; owner texts (to
+  the platform number or their own business number) → the owner channel.
+- **One way to create an approval** (`front-desk/approvals.ts insertApproval`): the agent's
+  `createApproval` (TTL per kind, `payload.urgent = true` for a booking today, then
+  `notifyOwnerOfApproval`) and the owner channel's (command confirmations) both use it, so short
+  codes come from one sequence.
+- **One owner per approval transition:** `decideApproval` / `expireApproval` (owner channel) claim
+  the decision (`pending → approved / rejected / expired`, `decided_*`); `executeApprovedAction`
+  (agent) records the outcome (`executed / failed / rejected / expired` + `result`) or sends it
+  back to `pending` (clearing `decided_*`) when the owner must clarify ("Y about 700"). The decide
+  path only fills in an outcome for `owner_command` rows or when the executor never recorded one.
+- **Phone → text:** the post-call follow-up is logged with `message_log.sent_by = 'voice_agent'`;
+  the conversation is seeded (`collected.source = "phone_call"`, a "Phone call … (AI answered)"
+  summary line) and the texting AI is told about the call. Its own first text still discloses it's
+  automated.
+- **Relay quieting:** the owner's "forward customer texts" recipe is skipped while the AI handles
+  the customer, and for the very text the AI handed off (the hand-off alert already carried it).
+- **Platform opt-out:** a STOP to the platform number stops every platform text
+  (`deliverMessage(smsFrom: "platform")` checks `platform_sms_opt_outs`): owner channel, setup
+  reminders, done-for-you forwarding / page texts, the weekly report.
+- **Weekly report** counts the AI's texts from `message_log.sent_by = 'sms_agent'`.
+- **Models:** `ai/config.ts getSmsAgentModel / getOwnerAgentModel`; usage priced per model
+  family (`AI_PRICE_SONNET_*`).
+
 ## Text conversations (SMS agent)
 
 An AI assistant that texts a business's customers back and forth, in the business's name, from
@@ -295,9 +414,8 @@ only; plus indexes for the approvals sweep and per-phone `owner_command_log` loo
 
 - Profiles have no phone, so only `companies.owner_phone_e164` identifies an owner (an org
   admin's phone can't be matched until one is stored).
-- Platform texts sent by other modules (e.g. CrankLeads setup reminders through
-  `deliverMessage(smsFrom: "platform")`) don't check `platform_sms_opt_outs` yet; Twilio's own
-  opt-out still blocks them at the carrier.
+- (Done in the wiring pass: every `deliverMessage(smsFrom: "platform")` sender now checks
+  `platform_sms_opt_outs`.)
 - Photos the owner texts aren't used by commands yet (they get a one-line reply).
 
 ## Phone answering
@@ -516,8 +634,8 @@ Code: `src/server/services/weekly-report/metrics.ts` (`computeWeeklyMetrics` is 
 | --- | --- |
 | Calls answered by your AI | Inbound `retell_calls` created in the week, excluding voicemail and calls under 5 s. |
 | After hours | Of those, how many started outside `companies.hours`. The hours are read with `dfy/hours.ts`, which takes the earliest open to the latest close on open days. If the hours can't be read, this shows `null` and we claim none. |
-| Customer text conversations | `sms_conversations` whose `last_ai_reply_at` falls in the week. This undercounts a conversation the AI replied to again after the week ended. |
-| Things it checked with you first | `owner_approvals` created in the week. "Approved" counts rows decided in the week with status `approved` or `executed`. |
+| Customer text conversations | Customers who got at least one AI-written text in the week (`message_log.sent_by = 'sms_agent'`, status sent), plus `sms_conversations` whose `last_ai_reply_at` falls in the week (older rows). `textReplies` = the number of those texts ("N texts sent by your assistant"). |
+| Things it checked with you first | `owner_approvals` created in the week, except `owner_command` (the owner confirming their own "move Jamie…"). "Approved" counts rows decided in the week with status `approved` or `executed`. |
 | Missed calls caught / texted back, new leads, quotes sent/approved ($), jobs booked, reviews requested | The monthly scorecard's definitions (`fetchScorecardInputs` / `computeScorecardMetrics`) applied to the week. |
 | Deposits & payments collected | Quote deposits paid in the week, plus `invoice_payments` with status `succeeded` received in the week. |
 | Time saved (estimate) | See below. Always labelled as an estimate. |

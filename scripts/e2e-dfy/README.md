@@ -42,3 +42,29 @@ operator links `http://localhost:55439`. Chromium resolves `*.localhost` itself;
 
 The run ends with each buyer's message timeline (Toronto time, channel, first line), the operator
 emails, PASS/FAIL per step and the screenshot list; `e2e-results.json` lands next to the shots.
+
+## Phase 1 front desk (`frontdesk.sh` / `frontdesk.ts`)
+
+`scripts/e2e-dfy/frontdesk.sh` starts a fresh stack with `RETELL_INTAKE_ENABLED=1`, a shared
+message agent id, `RETELL_FUNCTION_SECRET` and a 200 ms SMS-agent coalesce, then drives
+docs/front-desk-ai.md end to end. Shots go to `$E2E_FRONTDESK_SHOTS` (default
+`$E2E_ROOT/frontdesk-shots`).
+
+- Seeding: a Close purchase through the signed Stripe webhook + billing worker, price list
+  ($650 double-driveway contract, $250 spring cleanup), the real done-for-you `switchOnEverything`
+  (so the owner's "forward customer texts" relay is ON), `live_at`; an existing customer Jamie
+  Lee; a house org with its own catcher number.
+- The "model" (fakes.mjs `smsAgent` / `ownerAgent`) follows the Anthropic tool-use protocol and
+  builds replies only from what it was sent (tool results, the fenced "Already collected" data),
+  so a reply that mentions the caller's address proves the call context reached the model. It
+  captures `images` per request (MMS → image block).
+- Fakes added: Twilio MMS media (`…/Messages/MM…/Media/ME…`, Basic auth required), Retell
+  `POST /v2/register-phone-call` (returns a `call_id`; `GET /__retell/registered` lists what was
+  registered), `POST /__control {"retellRegisterFail": true}` to make registration fail.
+- Steps: price question → one AI reply; discount → approval → owner "Y but $575" → quote link;
+  MMS; complaint → hand-off; owner commands (agenda, move + Y, "tell Jamie"); forwarded call →
+  `<Dial><Sip>` → signed Retell `call_analyzed` → lead, owner alert, one follow-up, caller texts
+  back; register failure → voicemail; minutes used up → voicemail + one notice; screenshots
+  (inbox, Approvals card, Settings → AI front desk) at 1280 and 390; clock → Monday 08:05 →
+  weekly report text + email, second run silent, report page shots; house org untouched. Ends
+  with the message timeline.
