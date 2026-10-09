@@ -345,12 +345,12 @@ otherwise it's an answer and goes to the conversation.
 - **Quiet hours** 21:00–08:00 company local: non-urgent approvals wait; the scheduler sweep sends
   them once quiet hours end. Urgent (sent any time): kinds `same_day_booking`, `urgent_callback`,
   `emergency`, or any approval with `payload.urgent = true`.
-- Replies: `Y`, `YES`, `OK`, `N`, `NO` (also yep/yup/okay/approve, nope/skip), with an optional code
-  (`Y 2`, `N2`) and an optional note (`Y but $700`, `N tell them next week` → `ownerNote`, passed
-  through verbatim minus leading punctuation). One pending → that one. Several → the code is
-  required (we reply with the list) — except a bare `Y`/`N` within 10 minutes of the owner's own
-  "…? Reply Y to confirm", which answers that confirmation. Nothing pending → "Nothing waiting on
-  you right now." (a reply with a note and nothing pending is treated as a command).
+- Replies (strict — see [Hardening](#hardening)): the bare word `Y`/`YES`/`OK`/`N`/`NO` (and close
+  variants) with an optional code (`Y 2`, `N2`), or a yes + one clear price (`Y but $700` →
+  `ownerNote`). Anything else is a command, or "Did you mean …?" when it starts like an answer.
+  Only approvals already texted to this phone count. One waiting → that one; several → the code is
+  required (we reply with the list). Owner-command confirmations take their 4-digit code, not Y.
+  Nothing waiting → "Nothing waiting on you right now."
 - **Decide path** (`decideApproval`, shared by SMS, the app and expiry): claim with a conditional
   update (`status = 'pending'` → `approved`/`rejected`, `decided_*`), so a double "Y" or a text
   racing an app click runs once ("Already approved: …"). Then `owner_command` approvals run here
@@ -360,8 +360,8 @@ otherwise it's an answer and goes to the conversation.
 - **Expiry:** an approval past `expires_at` is closed as `expired` (`decided_via 'expiry'`) and
   `executeApprovedAction` runs with `approved: false` so the customer isn't left hanging. The
   owner replying to an expired one is told so.
-- Short codes: lowest free 1..99 per company among pending rows, assigned lazily
-  (`ensureShortCodes`) if the creator didn't set one. `createApproval()` is available to any part
+- Short codes: one per-company sequence, never reused within 7 days (assigned at insert;
+  `ensureShortCodes` fills any legacy row). `createApproval()` is available to any part
   that wants a coded row.
 - Scheduler: `sweepOwnerApprovals` runs every tick (one line in `scheduler.ts`).
 
@@ -376,9 +376,9 @@ A small Claude tool-use loop (≤ 6 rounds, `AI_MODEL_OWNER_AGENT`), usage recor
 | `waiting_on_me` | pending approvals (with codes), conversations handed to the owner (`sms_conversations.state='owner'`), customer texts with no reply (`ui_inbox_v.needs_reply`) |
 | `find_customer` | by name or phone, with their next booking |
 | `find_open_times` | open slots (booking windows, else hourly online-booking settings) |
-| `propose_reschedule` | **confirm first**: only to an open time; creates an `owner_command` approval → "Move Dana Jones (Thu, Oct 8, 9:00 a.m.) to Fri, Oct 9, 9:00 a.m.? Reply Y to confirm" |
-| `propose_cancel` | **always confirms** the same way |
-| `text_customer` | sends the owner's message from the company number via `deliverMessage` (consent-checked), then `markOwnerTakeover` → the AI stays quiet |
+| `propose_reschedule` | **confirm first**: only to an open time; creates an `owner_command` approval → "Move Dana Jones (Thu, Oct 8, 9:00 a.m.) to Fri, Oct 9, 9:00 a.m.? Reply 4821 to confirm, or N to leave it" |
+| `propose_cancel` | **always confirms** the same way (4-digit code) |
+| `text_customer` | echoes the exact message ("Send to Jamie Lee: "…"? Reply 4821 to confirm"); on the code it goes out from the company number via `deliverMessage` (consent-checked), then `markOwnerTakeover` → the AI stays quiet |
 | `set_ai_for_customer` / `set_ai_for_business` | `setConversationAi` / `ai_settings.sms_agent.enabled` |
 | `pause_all_texts` / `resume_all_texts` | AI off + this company's active automations with a `send_sms` action paused; what was paused is kept in `ai_settings.owner_pause` and restored exactly |
 
@@ -393,7 +393,7 @@ the same way.
 
 ### Security
 
-- Identity = phone match on `companies.owner_phone_e164` only (profiles have no phone column).
+- Identity = phone match on a VERIFIED `companies.owner_phone_e164` (profiles have no phone column); changing it needs a texted code (Settings → AI front desk).
 - The model never picks a company: the scope is resolved before the loop; every booking/contact
   id it passes is re-read with `organization_id` + `company_id` of that scope (another company's
   id → "not found"). Booking moves/cancels always need the owner's "Y".
