@@ -36,7 +36,9 @@ export function AiFrontDeskSectionCard({
   description,
   aside,
   children,
+  className,
 }: {
+  className?: string;
   icon: ReactNode;
   title: string;
   description: string;
@@ -44,7 +46,7 @@ export function AiFrontDeskSectionCard({
   children?: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-border bg-background/40 p-4">
+    <section className={cn("rounded-lg border border-border bg-background/40 p-4", className)}>
       <div className="flex items-start gap-3">
         <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center shrink-0 text-muted-foreground">{icon}</div>
         <div className="flex-1 min-w-0">

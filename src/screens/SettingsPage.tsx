@@ -30,6 +30,7 @@ import { OnlineBookingSettings } from "@/components/settings/OnlineBookingSettin
 import { AccountingSettings } from "@/components/settings/AccountingSettings";
 import { WebsiteSettings } from "@/components/settings/WebsiteSettings";
 import { AiFrontDeskSettings } from "@/components/settings/AiFrontDeskSettings";
+import { AI_FRONT_DESK_SECTIONS } from "@/components/settings/ai-front-desk-sections";
 
 const sections = [
   { id: "org", label: "Organization", icon: Building2, description: "Manage organization name, slug, and companies" },
@@ -430,7 +431,7 @@ export default function SettingsPage() {
           ) : active === "packs" ? (
             <IndustryPackSettings />
           ) : active === "front-desk" ? (
-            <AiFrontDeskSettings />
+            <AiFrontDeskSettings sections={AI_FRONT_DESK_SECTIONS} />
           ) : active === "voice" ? (
             <VoiceSettings />
           ) : active === "members" ? (

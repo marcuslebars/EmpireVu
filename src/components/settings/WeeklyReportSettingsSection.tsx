@@ -6,6 +6,7 @@ import { toast } from "@/components/ui/sonner";
 import { useCompanies } from "@/lib/api-hooks";
 import { useOrg } from "@/lib/org-context";
 import { cn } from "@/lib/utils";
+import { AiFrontDeskSectionCard } from "@/components/settings/AiFrontDeskSettings";
 import {
   useSendWeeklyReportTest,
   useUpdateWeeklyReportSettings,
@@ -84,21 +85,14 @@ export function WeeklyReportSettingsSection({
   ];
 
   return (
-    <section className={cn("p-4 rounded-xl border border-border bg-card", className)} aria-labelledby="weekly-report-heading">
-      <div className="flex items-start gap-3">
-        <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center shrink-0">
-          <CalendarClock className="w-4 h-4 text-muted-foreground" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h3 id="weekly-report-heading" className="text-sm font-semibold text-foreground">
-            Weekly report
-          </h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Every Monday at 8 am: what your front desk handled last week — calls answered, texts, quotes, bookings, and an estimate of the time it saved you.
-          </p>
-        </div>
-        {data && (
-          <label className="flex items-center gap-2 shrink-0">
+    <AiFrontDeskSectionCard
+      className={className}
+      icon={<CalendarClock className="w-4 h-4" />}
+      title="Weekly report"
+      description="Every Monday at 8 am: what your front desk handled last week — calls answered, texts, quotes, bookings, and an estimate of the time it saved you."
+      aside={
+        data ? (
+          <label className="flex items-center gap-2">
             <Switch
               checked={data.enabled}
               disabled={!canManage || update.isPending}
@@ -107,22 +101,22 @@ export function WeeklyReportSettingsSection({
             />
             <span className="text-sm font-medium text-foreground w-7">{data.enabled ? "On" : "Off"}</span>
           </label>
-        )}
-      </div>
-
+        ) : null
+      }
+    >
       {isLoading ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground mt-4">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading…
         </div>
       ) : isError || !data ? (
-        <div className="mt-4 text-sm text-muted-foreground">
+        <div className="text-sm text-muted-foreground">
           Couldn't load the weekly report settings.{" "}
           <button type="button" className="text-primary underline" onClick={() => refetch()}>
             Try again
           </button>
         </div>
       ) : (
-        <div className={cn("mt-4 space-y-4", !data.enabled && "opacity-60")}>
+        <div className={cn("space-y-4", !data.enabled && "opacity-60")}>
           <fieldset className="space-y-2" disabled={!canManage || !data.enabled || update.isPending}>
             <legend className="text-xs font-medium text-muted-foreground mb-1">How it arrives</legend>
             {channelOptions.map((option) => (
@@ -157,7 +151,7 @@ export function WeeklyReportSettingsSection({
           {!canManage && <p className="text-xs text-muted-foreground">Only owners and admins can change this.</p>}
         </div>
       )}
-    </section>
+    </AiFrontDeskSectionCard>
   );
 }
 

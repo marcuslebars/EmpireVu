@@ -1,9 +1,11 @@
+import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, PhoneCall, Voicemail } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
 import { apiFetch } from "@/lib/api-client";
+import { AiFrontDeskSectionCard } from "@/components/settings/AiFrontDeskSettings";
 
 /**
  * Settings → AI front desk → Call answering (docs/front-desk-ai.md → "## Phone answering").
@@ -102,15 +104,21 @@ export function CallAnsweringSettingsSection({
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not save"),
   });
 
+  const frame = (children: ReactNode, description = "What happens when you can't take a call.") => (
+    <AiFrontDeskSectionCard icon={<PhoneCall className="w-4 h-4" />} title="Phone answering" description={description}>
+      {children}
+    </AiFrontDeskSectionCard>
+  );
+
   if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground p-4">
-        <Loader2 className="w-4 h-4 animate-spin" /> Loading call answering…
-      </div>
+    return frame(
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+      </div>,
     );
   }
   if (error || !data) {
-    return <p className="text-sm text-destructive p-4">Couldn't load call answering settings.</p>;
+    return frame(<p className="text-sm text-muted-foreground">Couldn't load these settings.</p>);
   }
 
   const choose = (mode: CallAnsweringMode) => {
@@ -130,15 +138,8 @@ export function CallAnsweringSettingsSection({
     { mode: "voicemail", title: "Voicemail only", body: "Callers hear a short greeting, leave a voicemail, and get the instant text-back.", icon: Voicemail },
   ];
 
-  return (
-    <section className="p-4 rounded-xl border border-border bg-card space-y-4" aria-labelledby="call-answering-heading">
-      <div>
-        <h3 id="call-answering-heading" className="text-sm font-semibold text-foreground">
-          Call answering
-        </h3>
-        <p className="text-xs text-muted-foreground">What happens when {data.companyName} misses a call.</p>
-      </div>
-
+  return frame(
+    <div className="space-y-4">
       <div role="radiogroup" aria-label="Call answering mode" className="grid gap-2 sm:grid-cols-2">
         {options.map((option) => {
           const selected = data.mode === option.mode;
@@ -203,7 +204,8 @@ export function CallAnsweringSettingsSection({
           </ul>
         </div>
       </div>
-    </section>
+    </div>,
+    `What happens when ${data.companyName} misses a call.`,
   );
 }
 
