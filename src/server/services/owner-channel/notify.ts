@@ -2,7 +2,7 @@ import type { Tables } from "@/server/db/database.types";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { replyInstruction } from "@/server/services/front-desk/approval-text";
 import { ensureShortCodes, expireApproval, isExpired } from "./approvals";
-import { DEFAULT_TIMEZONE, findOwnerCompanies, isQuietHours, sendOwnerSms } from "./common";
+import { DEFAULT_TIMEZONE, findOwnerCompanies, isQuietHours, OWNER_ALERTS_SUMMARY, ownerAlertGate, sendOwnerSms } from "./common";
 
 /**
  * Approval kinds that may text the owner during quiet hours (21:00–08:00 company local).
@@ -45,6 +45,14 @@ export async function notifyOwnerOfApproval(admin: AdminClient, approvalId: stri
 
     const timeZone = company.timezone?.trim() || DEFAULT_TIMEZONE;
     if (isQuietHours(nowMs, timeZone) && !isUrgentApproval(row)) return { notified: false };
+    // Over this hour's owner-text budget: hold it (the sweep sends it when the hour rolls over).
+    const gate = await ownerAlertGate(admin, row.company_id);
+    if (gate !== "send") {
+      if (gate === "summary") {
+        await sendOwnerSms(admin, { to: ownerPhone, body: OWNER_ALERTS_SUMMARY, organizationId: row.organization_id, companyId: row.company_id, platformBrand: null });
+      }
+      return { notified: false };
+    }
 
     // Claim: only one caller gets to send.
     const { data: claimed } = await admin

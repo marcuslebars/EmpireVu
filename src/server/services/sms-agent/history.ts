@@ -114,3 +114,38 @@ export async function countAiReplies(
   if (company.error) throw company.error;
   return { conversation: conv.count ?? 0, company: company.count ?? 0 };
 }
+
+/**
+ * Recent traffic with one contact (bot-loop guard): AI replies to them, texts from them, and
+ * the most times one exact text was repeated, within `windowMs`.
+ */
+export async function recentTraffic(
+  admin: AdminClient,
+  key: { organizationId: string; companyId: string; contactId: string },
+  now: Date,
+  windowMs: number,
+): Promise<{ aiReplies: number; inbound: number; maxRepeat: number }> {
+  const since = new Date(now.getTime() - windowMs).toISOString();
+  const { data, error } = await (admin as Db)
+    .from("message_log")
+    .select("direction, sent_by, body")
+    .eq("organization_id", key.organizationId)
+    .eq("company_id", key.companyId)
+    .eq("contact_id", key.contactId)
+    .eq("channel", "sms")
+    .gte("created_at", since)
+    .limit(200);
+  if (error) throw error;
+  const rows = (data ?? []) as Array<{ direction: string; sent_by: string | null; body: string | null }>;
+  const inbound = rows.filter((r) => r.direction === "inbound");
+  const counts = new Map<string, number>();
+  for (const r of inbound) {
+    const k = (r.body ?? "").trim().toLowerCase();
+    if (k) counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  return {
+    aiReplies: rows.filter((r) => r.direction === "outbound" && r.sent_by === SMS_AGENT_SENDER).length,
+    inbound: inbound.length,
+    maxRepeat: Math.max(0, ...counts.values()),
+  };
+}

@@ -1198,3 +1198,64 @@ describe("no customer text is silently lost", () => {
     expect((await sweepUnansweredTexts(db.client, clock, deps(scripted([]).client))).retried).toBe(0);
   });
 });
+
+describe("cost and abuse limits", () => {
+  const OTHER = "44444444-4444-4444-4444-444444444444";
+  function rateLimiter() {
+    const hits = new Map<string, number>();
+    db.onRpc((name, args) => {
+      if (name !== "consume_rate_limit") return { data: null, error: null };
+      const n = (hits.get(String(args.p_key)) ?? 0) + 1;
+      hits.set(String(args.p_key), n);
+      return { data: n <= Number(args.p_limit), error: null };
+    });
+  }
+
+  it("past the company's daily cap: no text to the customer, and the owner hears once a day (not per text)", async () => {
+    rateLimiter();
+    for (let i = 0; i < 3; i++) {
+      db.tables.message_log.push({ id: `old-${i}`, organization_id: ORG, company_id: CO, contact_id: OTHER, channel: "sms", direction: "outbound", status: "sent", sent_by: "sms_agent", body: "x", created_at: new Date(T0 - 3_600_000 + i).toISOString() });
+    }
+    const capped = (client: ModelClient) => deps(client, { limits: () => ({ ...deps(client).limits(), perCompanyPerDay: 3 }) });
+    const model = scripted([{ text: "never" }]);
+    const first = await runSmsAgent(db.client, inbound("price?").sms, capped(model.client));
+    expect(first).toMatchObject({ replied: false, skipped: "capped" });
+    db.tables.contacts.push({ ...(db.tables.contacts[0] as Row), id: OTHER, phone: "+17055550777", first_name: "Sam" });
+    const second = inbound("hello", { contact_id: OTHER });
+    await runSmsAgent(db.client, { ...second.sms, contactId: OTHER, from: "+17055550777" }, capped(model.client));
+    expect(model.calls).toHaveLength(0);
+    expect(rec.texts).toHaveLength(0);
+    expect(rec.ownerAlerts.filter((a) => /daily limit/.test(a))).toHaveLength(1);
+    expect(conversation().state).toBe("owner");
+  });
+
+  it("a bot loop (another auto-responder) is stopped quietly and handed to the owner", async () => {
+    for (let i = 0; i < 6; i++) {
+      db.tables.message_log.push({ id: `ai-${i}`, organization_id: ORG, company_id: CO, contact_id: CONTACT, channel: "sms", direction: "outbound", status: "sent", sent_by: "sms_agent", body: "Thanks! How can we help?", created_at: new Date(T0 - 60_000 + i * 1000).toISOString() });
+    }
+    const model = scripted([{ text: "never" }]);
+    const out = await runSmsAgent(db.client, inbound("Thank you for your message. We will reply shortly.").sms, deps(model.client));
+    expect(out).toMatchObject({ skipped: "loop", handedOff: true });
+    expect(model.calls).toHaveLength(0);
+    expect(rec.texts).toHaveLength(0);
+    expect(rec.ownerAlerts[0]).toMatch(/automated back-and-forth/);
+    expect(conversation().state).toBe("owner");
+  });
+
+  it("the same text over and over is a loop too", async () => {
+    for (let i = 0; i < 2; i++) inbound("STATUS?");
+    const model = scripted([{ text: "never" }]);
+    const out = await runSmsAgent(db.client, inbound("status?").sms, deps(model.client));
+    expect(out.skipped).toBe("loop");
+  });
+
+  it("owner alerts are budgeted per company: 30/hour, then one summary, then nothing", async () => {
+    rateLimiter();
+    const { ownerAlertGate } = await import("@/server/services/owner-channel/common");
+    const results: string[] = [];
+    for (let i = 0; i < 33; i++) results.push(await ownerAlertGate(db.client, CO));
+    expect(results.filter((r) => r === "send")).toHaveLength(30);
+    expect(results[30]).toBe("summary");
+    expect(results.slice(31)).toEqual(["drop", "drop"]);
+  });
+});

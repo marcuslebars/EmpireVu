@@ -157,6 +157,22 @@ export async function consumeLimit(admin: AdminClient, key: string, limit: numbe
   }
 }
 
+/** Owner alerts + approval texts per company per hour (everything past it is held / summarised). */
+export const OWNER_ALERTS_PER_HOUR = 30;
+
+/**
+ * Per-company owner-alert budget: "send" while under OWNER_ALERTS_PER_HOUR; the first one over it
+ * becomes ONE summary ("summary"); the rest are dropped this hour ("drop") — a flood of customer
+ * texts (or a bot) can't turn into a flood of owner texts. Fails open.
+ */
+export async function ownerAlertGate(admin: AdminClient, companyId: string): Promise<"send" | "summary" | "drop"> {
+  if (await consumeLimit(admin, `owner_alerts:${companyId}`, OWNER_ALERTS_PER_HOUR, 3600)) return "send";
+  return (await consumeLimit(admin, `owner_alerts_over:${companyId}`, 1, 3600)) ? "summary" : "drop";
+}
+
+export const OWNER_ALERTS_SUMMARY =
+  "Lots going on - I've sent you the most I will this hour. The rest are waiting in the app (Inbox and Approvals).";
+
 // ── Texting the owner ─────────────────────────────────────────────────────────
 
 // Approval texts (≤440 + code + instruction + a business name) must never be cut.

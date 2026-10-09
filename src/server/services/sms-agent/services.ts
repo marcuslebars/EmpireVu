@@ -6,6 +6,7 @@
 import type { Tables } from "@/server/db/database.types";
 import { zonedInstant, type BusyBooking } from "@/server/services/booking-windows";
 import { SMS_AGENT_SENDER, type AdminClient } from "@/server/services/front-desk/contracts";
+import { OWNER_ALERTS_SUMMARY, ownerAlertGate } from "@/server/services/owner-channel/common";
 import { notifyOnlineBooking } from "@/server/services/push/notify";
 import { priceQuoteForCompany, type QuotePricing, type QuoteServiceInput } from "@/server/services/quotes/pricing";
 import { quoteLinkForCompanyId } from "@/server/services/quotes/public-url";
@@ -368,6 +369,10 @@ export const defaultAgentServices: AgentServices = {
 
   async alertOwner(admin, facts, body, subject) {
     try {
+      // Per-company budget (30/hour, then one summary): a flood can't flood the owner.
+      const gate = await ownerAlertGate(admin, facts.companyId);
+      if (gate === "drop") return { sent: false };
+      if (gate === "summary") body = OWNER_ALERTS_SUMMARY;
       const ctx = serviceContext(admin, facts);
       const { data: company } = await (admin as Db)
         .from("companies")

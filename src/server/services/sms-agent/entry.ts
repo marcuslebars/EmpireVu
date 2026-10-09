@@ -47,7 +47,8 @@ import {
   stripPlatformNames,
   toPlainText,
 } from "@/server/services/sms-agent/guard";
-import { countAiReplies, hasInboundAfter, loadHistory, newCustomerMessages, type LoggedMessage } from "@/server/services/sms-agent/history";
+import { countAiReplies, hasInboundAfter, loadHistory, newCustomerMessages, recentTraffic, type LoggedMessage } from "@/server/services/sms-agent/history";
+import { consumeLimit } from "@/server/services/owner-channel/common";
 import { fetchMmsImages, type FetchedImage } from "@/server/services/sms-agent/media";
 import { buildConversationTurn, buildSystemPrompt } from "@/server/services/sms-agent/prompt";
 import { defaultAgentServices, withinOwnerHours, type AgentContact, type AgentServices, type CompanyRef } from "@/server/services/sms-agent/services";
@@ -95,6 +96,7 @@ export type SmsAgentSkipReason =
   | "already_handled"
   | "busy"
   | "capped"
+  | "loop"
   | "error";
 
 export interface SmsAgentOutcome {
@@ -222,15 +224,44 @@ async function runInner(admin: AdminClient, sms: InboundCustomerSms, deps: SmsAg
     return { replied: false, skipped: "already_handled" };
   }
 
+  // Bot loops: another auto-responder (or a script) texting back and forth with us. Stop
+  // quietly (no text to them), give it to the owner.
+  const traffic = await recentTraffic(admin, key, now, limits.loopWindowMs ?? 10 * 60_000);
+  if (traffic.aiReplies >= (limits.loopMaxReplies ?? 6) || traffic.inbound >= (limits.loopMaxInbound ?? 10) || traffic.maxRepeat >= 3) {
+    const facts = await deps.loadFacts(admin, sms.companyId);
+    await handOff(admin, deps, facts, conv, contact, {
+      reason: "this looks like an automated back-and-forth (lots of texts in a few minutes), so the assistant stopped replying",
+      customerText: body,
+      tellCustomer: null,
+      handledAt: receivedAt,
+    });
+    return { replied: false, skipped: "loop", handedOff: true };
+  }
+
   // Daily caps → the owner takes it from here.
   const counts = await countAiReplies(admin, key, now);
-  if (counts.conversation >= limits.perConversationPerDay || counts.company >= limits.perCompanyPerDay) {
+  if (counts.company >= limits.perCompanyPerDay) {
+    // Past the company's daily cap: no more AI texts to ANY customer today; their texts go to
+    // the owner as before (the relay is on for 'owner' conversations), and the owner hears
+    // about the cap once a day — not once per text.
+    await updateConversation(admin, conv.id, { state: "owner", owner_takeover_at: now.toISOString(), last_error: "daily reply limit reached for the business", last_handled_inbound_at: receivedAt });
+    if (await consumeLimit(admin, `sms_agent_company_cap:${sms.companyId}`, 1, 86_400)) {
+      const facts = await deps.loadFacts(admin, sms.companyId);
+      await deps.services.alertOwner(
+        admin,
+        facts,
+        `Your assistant has sent ${limits.perCompanyPerDay} texts in the last 24 hours, its daily limit, so it has stopped answering new customer texts for now. They come to you as usual until it resets.`,
+      );
+    }
+    return { replied: false, skipped: "capped", handedOff: true };
+  }
+  if (counts.conversation >= limits.perConversationPerDay) {
     const facts = await deps.loadFacts(admin, sms.companyId);
-    const which = counts.conversation >= limits.perConversationPerDay ? "this conversation" : "today across your business";
     await handOff(admin, deps, facts, conv, contact, {
-      reason: `the assistant hit its reply limit for ${which}`,
+      reason: "the assistant hit its reply limit for this conversation",
       customerText: body,
       tellCustomer: `Thanks for your patience. ${ownerLabel(facts) === "the owner" ? "Someone from the team" : ownerLabel(facts)} will follow up with you directly.`,
+      handledAt: receivedAt,
     });
     return { replied: true, skipped: "capped", handedOff: true };
   }
@@ -510,10 +541,15 @@ async function handOff(
   facts: BusinessFacts,
   conv: ConversationRow,
   contact: AgentContact,
-  input: { reason: string; customerText: string; tellCustomer: string | null },
+  input: { reason: string; customerText: string; tellCustomer: string | null; handledAt?: string },
 ): Promise<void> {
   const nowIso = deps.services.now().toISOString();
-  await updateConversation(admin, conv.id, { state: "owner", owner_takeover_at: nowIso, last_error: input.reason });
+  await updateConversation(admin, conv.id, {
+    state: "owner",
+    owner_takeover_at: nowIso,
+    last_error: input.reason,
+    ...(input.handledAt ? { last_handled_inbound_at: input.handledAt } : {}),
+  });
   if (input.tellCustomer) {
     try {
       await deps.services.textCustomer(admin, facts, contact, input.tellCustomer);

@@ -101,6 +101,10 @@ export interface SmsAgentLimits {
   leaseMs: number;
   /** Owner takeover lasts this long without an explicit "AI back on". */
   takeoverMs: number;
+  /** Bot-loop guard: in this window, this many AI replies to one contact or inbound texts from it → hand off. */
+  loopWindowMs?: number;
+  loopMaxReplies?: number;
+  loopMaxInbound?: number;
 }
 
 export function smsAgentLimits(): SmsAgentLimits {
@@ -112,5 +116,8 @@ export function smsAgentLimits(): SmsAgentLimits {
     coalesceMs: envInt("SMS_AGENT_COALESCE_MS", 4_000),
     leaseMs: 120_000,
     takeoverMs: 72 * 3_600_000,
+    loopWindowMs: envInt("SMS_AGENT_LOOP_WINDOW_MS", 10 * 60_000),
+    loopMaxReplies: envInt("SMS_AGENT_LOOP_MAX_REPLIES", 6),
+    loopMaxInbound: envInt("SMS_AGENT_LOOP_MAX_INBOUND", 10),
   };
 }
