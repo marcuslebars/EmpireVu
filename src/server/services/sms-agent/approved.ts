@@ -153,9 +153,18 @@ export async function executeApprovedAction(
 
     if (plan.ok === false && plan.clarify === true) {
       // Ask the owner again; leave it pending so "Y 2 $700" can come back in.
+      // Back to pending is the only "un-decide": clear the decision so the next "Y 2 $700" is
+      // a fresh claim by the owner channel's decideApproval.
       await db
         .from("owner_approvals")
-        .update({ execution_claimed_at: null, status: "pending", result: { message: plan.ownerMessage, needsClarification: true } })
+        .update({
+          execution_claimed_at: null,
+          status: "pending",
+          decided_at: null,
+          decided_via: null,
+          decided_by: null,
+          result: { message: plan.ownerMessage, needsClarification: true },
+        })
         .eq("id", approval.id);
       return { ok: false, message: plan.ownerMessage, detail: { needsClarification: true } };
     }
@@ -196,17 +205,18 @@ export async function executeApprovedAction(
   }
 }
 
+/**
+ * Record the outcome (status + result). The decision itself (decided_at / via / by) belongs to
+ * whoever claimed the row — the owner channel's decideApproval / expireApproval — so it is only
+ * filled in here when nobody has (a direct call without the decide path).
+ */
 async function finish(db: Db, id: string, status: string, decision: ApprovalDecision, result: Record<string, unknown>): Promise<void> {
+  await db.from("owner_approvals").update({ status, result }).eq("id", id);
   await db
     .from("owner_approvals")
-    .update({
-      status,
-      result,
-      decided_at: new Date().toISOString(),
-      decided_via: decision.decidedVia,
-      decided_by: decision.decidedBy,
-    })
-    .eq("id", id);
+    .update({ decided_at: new Date().toISOString(), decided_via: decision.decidedVia, decided_by: decision.decidedBy })
+    .eq("id", id)
+    .is("decided_at", null);
 }
 
 async function planFor(admin: AdminClient, approval: OwnerApprovalRow, decision: ApprovalDecision, deps: ApprovedActionDeps): Promise<Plan> {

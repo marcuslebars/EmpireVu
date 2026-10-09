@@ -13,6 +13,7 @@ import type {
   ExecuteResult,
   OwnerApprovalRow,
 } from "@/server/services/front-desk/contracts";
+import { insertApproval } from "@/server/services/front-desk/approvals";
 import { executeApprovedAction } from "@/server/services/sms-agent/approved";
 import { executeOwnerCommand, OWNER_COMMAND_KIND } from "./owner-commands";
 
@@ -125,31 +126,21 @@ export interface NewApprovalInput {
   notified?: boolean;
 }
 
-/** Create a pending approval with a short code. */
+/** Create a pending approval with a short code (the shared insert — front-desk/approvals.ts). */
 export async function createApproval(admin: AdminClient, input: NewApprovalInput): Promise<ApprovalDbRow> {
-  const now = Date.now();
-  const { data, error } = await admin
-    .from("owner_approvals")
-    .insert({
-      organization_id: input.organizationId,
-      company_id: input.companyId,
-      contact_id: input.contactId ?? null,
-      kind: input.kind,
-      summary: input.summary,
-      payload: toJson(input.payload),
-      requested_by: input.requestedBy,
-      status: "pending",
-      created_at: new Date(now).toISOString(),
-      expires_at: new Date(now + input.expiresInMinutes * 60_000).toISOString(),
-      notified_at: input.notified ? new Date(now).toISOString() : null,
-    })
-    .select("*")
-    .single();
-  if (error) throw error;
-  const row = data as ApprovalDbRow;
-  await ensureShortCodes(admin, input.companyId);
-  const { data: fresh } = await admin.from("owner_approvals").select("*").eq("id", row.id).maybeSingle();
-  return ((fresh as ApprovalDbRow | null) ?? row);
+  const now = new Date();
+  return insertApproval(admin, {
+    organizationId: input.organizationId,
+    companyId: input.companyId,
+    contactId: input.contactId ?? null,
+    kind: input.kind,
+    summary: input.summary,
+    payload: input.payload,
+    requestedBy: input.requestedBy,
+    createdAt: now,
+    expiresAt: new Date(now.getTime() + input.expiresInMinutes * 60_000),
+    notifiedAt: input.notified ? now : null,
+  });
 }
 
 // ── Deciding ──────────────────────────────────────────────────────────────────
@@ -186,6 +177,30 @@ async function storeResult(admin: AdminClient, row: ApprovalDbRow, decision: App
 }
 
 /**
+ * After the run: who records the outcome. owner_command rows → here. Every other kind →
+ * executeApprovedAction already did (status executed / failed / rejected / expired + result, or
+ * back to 'pending' when it asked the owner to clarify), so we don't write over it; we only
+ * fill in an outcome when the executor never recorded one (it crashed mid-way).
+ */
+async function settle(
+  admin: AdminClient,
+  claimed: ApprovalDbRow,
+  decision: ApprovalDecision,
+  result: ExecuteResult,
+  fallbackStatus: ApprovalStatus,
+): Promise<ApprovalDbRow> {
+  if (claimed.kind === OWNER_COMMAND_KIND) {
+    await storeResult(admin, claimed, decision, result, fallbackStatus);
+    return { ...claimed, status: fallbackStatus };
+  }
+  const { data } = await admin.from("owner_approvals").select("*").eq("id", claimed.id).maybeSingle();
+  const current = data as ApprovalDbRow | null;
+  if (current && (current.status === "pending" || current.result != null)) return current;
+  await storeResult(admin, claimed, decision, result, fallbackStatus);
+  return { ...claimed, status: fallbackStatus };
+}
+
+/**
  * Expire one pending approval: claim it (status 'expired', decided_via 'expiry'), then tell the
  * executor it was NOT approved so the customer isn't left hanging. Idempotent.
  */
@@ -203,8 +218,8 @@ export async function expireApproval(admin: AdminClient, row: ApprovalDbRow, now
   // An owner's own command confirmation that timed out needs no follow-up.
   const result =
     claimed.kind === OWNER_COMMAND_KIND ? { ok: true, message: "Expired — nothing changed." } : await runApproval(admin, claimed, decision);
-  await storeResult(admin, claimed, decision, result, "expired");
-  return { outcome: "expired", approval: claimed, result, message };
+  const settled = await settle(admin, claimed, decision, result, "expired");
+  return { outcome: "expired", approval: settled, result, message };
 }
 
 function alreadyLine(row: ApprovalDbRow): string {
@@ -239,6 +254,7 @@ export async function decideApproval(
       decided_at: new Date(nowMs).toISOString(),
       decided_via: decision.decidedVia,
       decided_by: decision.decidedBy,
+      result: null, // a clarification question from an earlier round isn't the outcome
     })
     .eq("id", row.id)
     .eq("status", "pending")
@@ -252,9 +268,9 @@ export async function decideApproval(
 
   const result = await runApproval(admin, claimed, decision);
   const status: ApprovalStatus = decision.approved ? (result.ok ? "executed" : "failed") : "rejected";
-  await storeResult(admin, claimed, decision, result, status);
+  const settled = await settle(admin, claimed, decision, result, status);
   const fallback = decision.approved ? "Done." : "OK, skipped.";
-  return { outcome: "done", approval: { ...claimed, status }, result, message: result.message?.trim() || fallback };
+  return { outcome: "done", approval: settled, result, message: result.message?.trim() || fallback };
 }
 
 /** "1) Quote for Dana: $650 · 2) Book Sam Fri 9am" — for "which one?" replies. */

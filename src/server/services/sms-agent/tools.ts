@@ -166,6 +166,7 @@ async function askOwner(
       kind,
       summary: `${customerName(state.contact)}: ${summary}`,
       payload: { ...payload, customerName: customerName(state.contact) },
+      timeZone: state.facts.timeZone,
     },
     state.approvalDeps,
   );
