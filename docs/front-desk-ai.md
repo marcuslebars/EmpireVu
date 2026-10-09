@@ -56,8 +56,9 @@ report (on/off, text and/or email, send a test).
 
 1. **Migrations, in order** (Supabase SQL editor; all additive, rollbacks in `supabase/rollback/`):
    `20261009100000_front_desk_ai.sql` → `20261009110000_sms_agent.sql` →
-   `20261009120000_owner_channel.sql` → `20261009130000_voice_ai_answering.sql`.
-   (The weekly report needs no migration of its own; the wiring pass added none.)
+   `20261009120000_owner_channel.sql` → `20261009130000_voice_ai_answering.sql` →
+   `20261009150000_front_desk_wiring.sql` (makes `call_answering_notices` service-role only).
+   The weekly report has no migration of its own (its table is in `20261009100000`).
 2. **Env** (web + worker unless noted):
    - already set: `ANTHROPIC_API_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `APP_BASE_URL`, `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`, `RETELL_API_KEY`;
    - `RETELL_INTAKE_ENABLED=1` (turns on AI phone answering — without it every call keeps voicemail);

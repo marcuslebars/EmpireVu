@@ -312,7 +312,8 @@ the deploy that ships them, or the matching writes fail against the live DB.
 | `20261009100000_front_desk_ai.sql` | AI front desk shared schema: `companies.ai_settings`, `message_log.media`, `sms_conversations`, `owner_approvals`, `owner_command_log`, `weekly_report_sends` | Additive. Apply first of the four Phase 1 migrations, before deploying web + worker. Rollback: `supabase/rollback/20261009100000_front_desk_ai.down.sql` |
 | `20261009110000_sms_agent.sql` | SMS agent: conversation lease (`lock_until`/`lock_token`), `last_handled_inbound_at`, `message_log.sent_by`, `owner_approvals.execution_claimed_at` | Additive; after `20261009100000`. Rollback in `supabase/rollback/` |
 | `20261009120000_owner_channel.sql` | Owner by text: `platform_sms_opt_outs` (service-role only) + indexes | Additive; after `20261009110000` |
-| `20261009130000_voice_ai_answering.sql` | AI phone answering: `missed_calls` AI states/columns, `call_answering_notices` (service-role only) | Additive; after `20261009120000`. Full checklist: [front-desk-ai.md → Setup checklist for Marcus](front-desk-ai.md#setup-checklist-for-marcus) |
+| `20261009130000_voice_ai_answering.sql` | AI phone answering: `missed_calls` AI states/columns, `call_answering_notices` | Additive; after `20261009120000` |
+| `20261009150000_front_desk_wiring.sql` | `call_answering_notices` → service-role only (drops the member read policy) | After `20261009130000`. Rollback in `supabase/rollback/`. Full checklist: [front-desk-ai.md → Setup checklist for Marcus](front-desk-ai.md#setup-checklist-for-marcus) |
 
 Until `ai_drafts` exists, the AI tab's Analyze button and the `ai_analyze`
 automation both fail on the insert.
