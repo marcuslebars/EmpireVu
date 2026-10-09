@@ -12,6 +12,7 @@ import { quotePublicBaseUrlFor } from "@/server/services/quotes/config";
 import { bookingPageUrl } from "@/server/services/scheduling/urls";
 import { loadCallForTemplate, ownerClockTime, prettyPhone } from "@/server/services/retell/call-summary";
 import { boatFromSnapshot, DEFAULT_AGENT_NAME, formatDollars } from "@/server/services/retell/caller-lookup";
+import { isSmsAgentHandling } from "@/server/services/sms-agent/takeover";
 
 type TraceEntityRow =
   | Tables<"activity_events">
@@ -178,6 +179,14 @@ export async function buildWorkflowEventContext(
 
   const fields = readCommonFields(activityEvent, entityRow, relatedEntityRow);
   await addQuoteAndCallFields(context, activityEvent, entityRow, fields);
+  // contact.sms_received: is the AI front desk answering this customer? (Then the owner's
+  // "forward customer texts to me" relay stays quiet — see processor.ts.)
+  if (activityEvent.event_type === "contact.sms_received" && activityEvent.company_id && activityEvent.entity_id) {
+    fields.sms_agent_handling = await isSmsAgentHandling(context.supabase as never, {
+      companyId: activityEvent.company_id,
+      contactId: activityEvent.entity_id,
+    });
+  }
 
   return {
     activityEvent,

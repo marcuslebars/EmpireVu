@@ -45,7 +45,7 @@ async function loadCompany(context: TenantServiceContext, companyId: string): Pr
   return data as Tables<"companies">;
 }
 
-function hoursToText(hours: Tables<"companies">["hours"]): string | null {
+export function hoursToText(hours: Tables<"companies">["hours"]): string | null {
   if (!hours || typeof hours !== "object") return null;
   const record = hours as Record<string, unknown>;
   // The wizard stores a freeform summary; honor it directly.

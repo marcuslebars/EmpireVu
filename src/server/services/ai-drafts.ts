@@ -5,13 +5,13 @@ import type { Inserts, Json, Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import { ValidationError } from "@/server/organizations/context";
 import { sendEmail } from "@/server/outbound/email";
-import { sendSms } from "@/server/outbound/sms";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { analyzeContact } from "@/server/services/ai";
 import { createBooking } from "@/server/services/bookings";
 import { notifyDraftReady } from "@/server/services/push/notify";
 import { assertContactInOrganization, insertRow, type TenantServiceContext } from "@/server/services/shared";
 import { recordUsageSafe } from "@/server/services/usage";
+import { deliverMessage } from "@/server/services/workflow-engine/messaging";
 
 export type AiDraft = Tables<"ai_drafts">;
 
@@ -291,13 +291,32 @@ export async function sendDraftSms(
     throw new ValidationError("This contact has no phone number to send to.");
   }
 
-  let smsResult: { sid: string | null } | undefined;
-  try {
-    smsResult = await sendSms({ body, to: contact.phone });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await updateDraftRow(context, draftId, { sms_error: message, sms_status: "failed" });
-    throw error;
+  // Through deliverMessage like every other customer text: consent (CASL) is checked, it goes
+  // out from the company's own number, the first text gets the STOP footer, and it's logged in
+  // message_log (so it shows in the inbox) and metered.
+  const result = await deliverMessage({
+    context,
+    channel: "sms",
+    to: contact.phone,
+    body,
+    companyId: draft.company_id ?? contact.company_id,
+    contactId: contact.id,
+    consentContact: contact,
+  });
+
+  if (result.status !== "sent") {
+    const reason = result.reason ?? result.status;
+    await updateDraftRow(context, draftId, { sms_error: reason, sms_status: "failed" });
+    if (result.status === "blocked") {
+      throw new ValidationError(
+        reason === "opted_out"
+          ? "Not sent — this contact has opted out of texts."
+          : reason === "no_consent" || reason === "consent_expired"
+            ? "Not sent — we don't have this contact's OK to text them."
+            : `Not sent — ${reason}.`,
+      );
+    }
+    throw new Error(reason);
   }
 
   const sent = await updateDraftRow(context, draftId, {
@@ -306,19 +325,7 @@ export async function sendDraftSms(
     sms_status: "sent",
   });
 
-  await recordDraftEvent(context, sent, "ai_draft.sms_sent", { to: contact.phone });
-
-  // Meter the customer SMS (Task 6). Best-effort.
-  await recordUsageSafe({
-    organizationId: context.organizationId,
-    companyId: draft.company_id,
-    kind: "sms_sent",
-    quantity: 1,
-    unit: "message",
-    provider: "twilio",
-    providerRef: smsResult?.sid ?? null,
-    metadata: { draftId: draft.id },
-  });
+  await recordDraftEvent(context, sent, "ai_draft.sms_sent", { to: contact.phone, providerRef: result.providerRef ?? null });
 
   return sent;
 }

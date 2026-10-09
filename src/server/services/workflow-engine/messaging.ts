@@ -217,6 +217,11 @@ export interface DeliverMessageInput {
    * own number from texting the owner its lead alerts.
    */
   smsFrom?: "company" | "platform";
+  /**
+   * Who wrote it, stored on message_log.sent_by — "sms_agent" for the AI front desk (the inbox
+   * labels those "Assistant"). Omit for staff / automation messages.
+   */
+  sentBy?: string | null;
 }
 
 export interface DeliverMessageResult {
@@ -238,6 +243,7 @@ export async function deliverMessage(input: DeliverMessageInput): Promise<Delive
     direction: "outbound" as const,
     provider: providerFor(channel),
     workflow_run_id: input.workflowRunId ?? null,
+    ...(input.sentBy ? { sent_by: input.sentBy } : {}),
   };
 
   if (!input.to) {

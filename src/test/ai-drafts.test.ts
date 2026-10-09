@@ -108,6 +108,10 @@ function seed(draftOverrides: Row = {}) {
         last_name: "Boater",
         email: "jane@example.com",
         phone: "+15550002222",
+        // She asked for a quote: implied consent to reply (CASL).
+        sms_consent_at: new Date().toISOString(),
+        consent_source: "implied_inquiry",
+        sms_opt_out_at: null,
       },
     ],
     ai_drafts: [
@@ -140,7 +144,7 @@ function setup(draftOverrides: Row = {}) {
 
 beforeEach(() => {
   sendEmailMock.mockReset().mockResolvedValue(undefined);
-  sendSmsMock.mockReset().mockResolvedValue(undefined);
+  sendSmsMock.mockReset().mockResolvedValue({ sid: "SM-draft" });
   setup();
 });
 
@@ -210,14 +214,35 @@ describe("sending a drafted email", () => {
 });
 
 describe("sending a drafted SMS", () => {
-  it("sends to the contact's phone and marks it sent", async () => {
+  it("sends to the contact's phone through deliverMessage (STOP footer, message_log) and marks it sent", async () => {
     const result = await sendDraftSms(context, "draft-1");
 
     expect(sendSmsMock).toHaveBeenCalledWith({
       to: "+15550002222",
-      body: "Hi Jane — A1 Marine Care here.",
+      body: "Hi Jane — A1 Marine Care here.\nReply STOP to opt out",
     });
     expect(result.sms_status).toBe("sent");
+    const logged = fake.store.message_log ?? [];
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({ channel: "sms", direction: "outbound", status: "sent", contact_id: "contact-1", company_id: "co-care" });
+  });
+
+  it("sends from the company's own number when it has one", async () => {
+    fake.store.voice_numbers = [
+      { organization_id: "org-a1", company_id: "co-care", provider: "twilio", active: true, phone_e164: "+17055550100", mode: "missed_call_catcher" },
+    ];
+    await sendDraftSms(context, "draft-1");
+    expect(sendSmsMock.mock.calls[0][0]).toMatchObject({ from: "+17055550100" });
+  });
+
+  it("refuses an opted-out contact: nothing sent, draft marked failed, attempt logged as blocked", async () => {
+    fake.store.contacts[0].sms_opt_out_at = "2026-07-01T00:00:00.000Z";
+
+    await expect(sendDraftSms(context, "draft-1")).rejects.toThrow(/opted out/);
+    expect(sendSmsMock).not.toHaveBeenCalled();
+    expect(fake.store.ai_drafts[0].sms_status).toBe("failed");
+    expect(fake.store.ai_drafts[0].sms_error).toBe("opted_out");
+    expect(fake.store.message_log?.[0]).toMatchObject({ status: "blocked", error: "opted_out" });
   });
 
   it("refuses to send the same SMS twice", async () => {

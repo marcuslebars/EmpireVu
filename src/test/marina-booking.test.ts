@@ -15,6 +15,8 @@ import { parseRetellFunctionBody } from "@/server/services/retell/functions";
 import {
   runAvailability,
   runBook,
+  bookForTenant,
+  availabilityForTenant,
   runDepositLink,
   type BookingDeps,
   type BookingTenant,
@@ -261,6 +263,28 @@ describe("book_wrap_date", () => {
       reason: "missing_info",
       missing: ["date", "window"],
     });
+  });
+});
+
+describe("tenant-taking cores (shared with the text-message agent)", () => {
+  it("availabilityForTenant answers the same as the phone tool, without a call", async () => {
+    const { deps } = fakeDeps();
+    const viaCall = await runAvailability(req({ preferred_date: "2026-10-02", preferred_window: "afternoon" }), deps);
+    const direct = await availabilityForTenant(TENANT, { preferred_date: "2026-10-02", preferred_window: "afternoon" }, deps);
+    expect(direct).toEqual(viaCall);
+    expect(deps.resolveBookingTenant).toHaveBeenCalledTimes(1);
+  });
+
+  it("bookForTenant books off the phone with its own source and no call id", async () => {
+    const { deps, inserted } = fakeDeps();
+    const res = await bookForTenant(TENANT, { quote_id: QUOTE_ID, date: "2026-09-29", window: "morning" }, deps, {
+      callId: null,
+      source: "sms_agent",
+      bookedBy: "Booked by the text-message assistant.",
+    });
+    expect(res).toMatchObject({ ok: true, booking_id: "booking_1" });
+    expect(deps.findBookingForCall).not.toHaveBeenCalled();
+    expect(inserted[0]).toMatchObject({ callId: null, source: "sms_agent", description: expect.stringMatching(/^Booked by the text-message assistant\./) });
   });
 });
 

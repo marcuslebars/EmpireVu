@@ -459,6 +459,7 @@ export interface Database {
           expires_at: string | null;
           created_at: string;
           updated_at: string;
+          execution_claimed_at: string | null;
         };
         Insert: {
           id?: string;
@@ -480,6 +481,7 @@ export interface Database {
           expires_at?: string | null;
           created_at?: string;
           updated_at?: string;
+          execution_claimed_at?: string | null;
         };
         Update: {
           id?: string;
@@ -501,6 +503,7 @@ export interface Database {
           expires_at?: string | null;
           created_at?: string;
           updated_at?: string;
+          execution_claimed_at?: string | null;
         };
         Relationships: [];
       };
@@ -559,6 +562,9 @@ export interface Database {
           last_error: string | null;
           created_at: string;
           updated_at: string;
+          lock_until: string;
+          lock_token: string | null;
+          last_handled_inbound_at: string | null;
         };
         Insert: {
           id?: string;
@@ -575,6 +581,9 @@ export interface Database {
           last_error?: string | null;
           created_at?: string;
           updated_at?: string;
+          lock_until?: string;
+          lock_token?: string | null;
+          last_handled_inbound_at?: string | null;
         };
         Update: {
           id?: string;
@@ -591,6 +600,9 @@ export interface Database {
           last_error?: string | null;
           created_at?: string;
           updated_at?: string;
+          lock_until?: string;
+          lock_token?: string | null;
+          last_handled_inbound_at?: string | null;
         };
         Relationships: [];
       };
@@ -3248,6 +3260,7 @@ export interface Database {
           subject: string | null;
           to_addr: string | null;
           workflow_run_id: string | null;
+          sent_by: string | null;
         };
         Insert: {
           media?: Json | null;
@@ -3267,6 +3280,7 @@ export interface Database {
           subject?: string | null;
           to_addr?: string | null;
           workflow_run_id?: string | null;
+          sent_by?: string | null;
         };
         Update: {
           media?: Json | null;
@@ -3286,6 +3300,7 @@ export interface Database {
           subject?: string | null;
           to_addr?: string | null;
           workflow_run_id?: string | null;
+          sent_by?: string | null;
         };
         Relationships: [];
       };

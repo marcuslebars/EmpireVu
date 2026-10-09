@@ -27,6 +27,7 @@ import { matchActiveWorkflows } from "@/server/services/workflow-engine/matcher"
 import type {
   WorkflowCondition,
   WorkflowConditionResult,
+  WorkflowEventContext,
   WorkflowExecutionSummary,
 } from "@/server/services/workflow-engine/types";
 
@@ -94,16 +95,26 @@ async function executeWorkflowForEvent(
     }
   }
 
-  const { matched, results } = evaluateWorkflowConditions(definition.conditions, eventContext);
+  const evaluated = evaluateWorkflowConditions(definition.conditions, eventContext);
+  const { results } = evaluated;
+  // The AI front desk is answering this customer: the per-text relay to the owner stays quiet
+  // (the owner still hears about hand-offs, approvals and bookings/quotes — sms-agent/entry.ts).
+  const aiHandling = isRelayQuietedByAgent(workflow, eventContext);
+  const matched = evaluated.matched && !aiHandling;
 
   logs.push({
     at: nowIso(),
     details: {
       matched,
       results: toJson(results),
+      ...(aiHandling ? { sms_agent_handling: true } : {}),
     },
     level: matched ? "info" : "warn",
-    message: matched ? "Workflow conditions matched." : "Workflow conditions did not match.",
+    message: aiHandling
+      ? "Skipped: the AI front desk is handling this customer's texts."
+      : matched
+        ? "Workflow conditions matched."
+        : "Workflow conditions did not match.",
   });
 
   const runContextJson = buildRunContextJson(workflow, eventContext, results);
@@ -584,4 +595,11 @@ export async function resumeWorkflowRun(
       });
     }
   }
+}
+
+/** Recipes that relay every customer text to the owner — quiet while the AI front desk answers. */
+const RELAYS_QUIETED_BY_SMS_AGENT = new Set(["customer-text-to-owner"]);
+
+export function isRelayQuietedByAgent(workflow: Pick<Tables<"workflows">, "slug">, eventContext: WorkflowEventContext): boolean {
+  return RELAYS_QUIETED_BY_SMS_AGENT.has(workflow.slug) && eventContext.fields.sms_agent_handling === true;
 }

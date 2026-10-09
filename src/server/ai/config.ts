@@ -36,3 +36,12 @@ export function getHelpModel(): string {
 export function getReceiptsModel(): string {
   return process.env.AI_MODEL_RECEIPTS?.trim() || DEFAULT_MODEL;
 }
+
+/**
+ * The AI front desk's text conversations with customers (sms-agent/, docs/front-desk-ai.md).
+ * A fast, cheaper model by default — replies must land within seconds. If you change it, set
+ * AI_PRICE_* to match so the usage ledger stays honest.
+ */
+export function getSmsAgentModel(): string {
+  return process.env.AI_MODEL_SMS_AGENT?.trim() || "claude-sonnet-5-5";
+}

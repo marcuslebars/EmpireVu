@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone, Send, Copy, Trash2, Mail, CreditCard, Landmark, Package, Receipt, ListChecks, Star, CalendarCheck, Globe, BookOpenCheck, AppWindow } from "lucide-react";
+import { Building2, Users, Bell, Puzzle, Palette, Link2, Loader2, Phone, Send, Copy, Trash2, Mail, CreditCard, Landmark, Package, Receipt, ListChecks, Star, CalendarCheck, Globe, BookOpenCheck, AppWindow, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
 import { useOrg } from "@/lib/org-context";
@@ -29,10 +29,12 @@ import { VisitSettings } from "@/components/settings/VisitSettings";
 import { OnlineBookingSettings } from "@/components/settings/OnlineBookingSettings";
 import { AccountingSettings } from "@/components/settings/AccountingSettings";
 import { WebsiteSettings } from "@/components/settings/WebsiteSettings";
+import { AiFrontDeskSettings } from "@/components/settings/AiFrontDeskSettings";
 
 const sections = [
   { id: "org", label: "Organization", icon: Building2, description: "Manage organization name, slug, and companies" },
   { id: "packs", label: "Industry pack", icon: Package, description: "Apply a starter pack for your trade and price its services" },
+  { id: "front-desk", label: "AI front desk", icon: Bot, description: "Your assistant that answers customer texts and calls" },
   { id: "voice", label: "Voice (Marina)", icon: Phone, description: "Set each company's outbound agent, caller ID, and system prompt" },
   { id: "members", label: "Members & Permissions", icon: Users, description: "Manage team roles and access controls" },
   { id: "billing", label: "Billing & Plans", icon: CreditCard, description: "Manage your subscription and plan" },
@@ -427,6 +429,8 @@ export default function SettingsPage() {
             <OrganizationSettings />
           ) : active === "packs" ? (
             <IndustryPackSettings />
+          ) : active === "front-desk" ? (
+            <AiFrontDeskSettings />
           ) : active === "voice" ? (
             <VoiceSettings />
           ) : active === "members" ? (
