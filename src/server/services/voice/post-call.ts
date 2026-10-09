@@ -24,6 +24,7 @@ import type { Json, Tables } from "@/server/db/database.types";
 import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
 import type { RetellCallFields } from "@/server/services/retell/lead-adapter";
 import { toE164 } from "@/server/services/retell/payload";
+import { withPlatformBrand } from "@/server/services/quotes/public-url";
 import { bookingPageUrl } from "@/server/services/scheduling/urls";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { isAnonymousCaller } from "@/server/services/twilio/missed-call";
@@ -232,18 +233,19 @@ async function claimColumn(
 
 type CompanyForPostCall = Pick<
   Tables<"companies">,
-  "id" | "name" | "owner_email" | "owner_phone_e164" | "quote_public_base_url" | "online_booking_settings"
->;
+  "id" | "organization_id" | "name" | "owner_email" | "owner_phone_e164" | "quote_public_base_url" | "online_booking_settings"
+> & { platform_brand?: string | null };
 
 async function loadCompany(admin: AdminClient, tenant: { organizationId: string; companyId: string }): Promise<CompanyForPostCall | null> {
   const { data, error } = await admin
     .from("companies")
-    .select("id, name, owner_email, owner_phone_e164, quote_public_base_url, online_booking_settings")
+    .select("id, organization_id, name, owner_email, owner_phone_e164, quote_public_base_url, online_booking_settings")
     .eq("organization_id", tenant.organizationId)
     .eq("id", tenant.companyId)
     .maybeSingle();
   if (error) throw error;
-  return (data as CompanyForPostCall | null) ?? null;
+  // + the org's platform brand (the CrankLeads link host for the booking link).
+  return ((await withPlatformBrand(admin, data as CompanyForPostCall | null)) as CompanyForPostCall | null) ?? null;
 }
 
 function bookingUrlFor(company: CompanyForPostCall): string | null {

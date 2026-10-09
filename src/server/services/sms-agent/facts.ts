@@ -10,6 +10,7 @@ import { hoursToText } from "@/server/services/onboarding-provision";
 import { getPack } from "@/server/services/packs";
 import { parseAppliedIndustryPack } from "@/server/services/packs/types";
 import { quotePublicBaseUrlFor } from "@/server/services/quotes/config";
+import { withPlatformBrand } from "@/server/services/quotes/public-url";
 import {
   bookableService,
   flatPrice,
@@ -178,7 +179,7 @@ export async function loadBusinessFacts(admin: AdminClient, companyId: string): 
     bookingMode,
     bookingPolicy,
     onlineBooking,
-    bookingUrl: onlineBooking.enabled ? `${quotePublicBaseUrlFor({ quote_public_base_url: c.quote_public_base_url })}/book/${c.id}` : null,
+    bookingUrl: onlineBooking.enabled ? `${quotePublicBaseUrlFor(await withPlatformBrand(db, { organization_id: c.organization_id, quote_public_base_url: c.quote_public_base_url }))}/book/${c.id}` : null,
     cancellationPolicy: text(c.cancellation_policy_text),
     quoteTerms: text(c.quote_terms_text),
     qualifyingQuestions: pack?.receptionist.qualifyingQuestions ?? [],

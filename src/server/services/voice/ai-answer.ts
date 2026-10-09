@@ -268,11 +268,11 @@ function bookingEnabled(company: CompanyFacts): boolean {
 }
 
 /** All values are strings (Retell's rule); an empty string removes the placeholder. Pure. */
-export function buildAnswerDynamicVariables(company: CompanyFacts, companyName: string | null): Record<string, string> {
+export function buildAnswerDynamicVariables(company: CompanyFacts, companyName: string | null, platformBrand: string | null = null): Record<string, string> {
   const name = (companyName ?? company.name ?? "").trim() || "the business";
   const applied = parseAppliedIndustryPack(company.industry_pack);
   const pack = applied ? getPack(applied.id) : null;
-  const bookingLink = bookingEnabled(company) ? bookingPageUrl(company) : "";
+  const bookingLink = bookingEnabled(company) ? bookingPageUrl({ ...company, platform_brand: platformBrand }) : "";
   return {
     company_name: name,
     business_type: pack?.name ?? "",
@@ -480,7 +480,7 @@ export async function decideCallAnswering(admin: AdminClient, input: DecideInput
       agentKind: ownAgent ? "receptionist" : "message",
       allowance,
       timeLimitSeconds: aiCallTimeLimitSeconds(remaining),
-      dynamicVariables: buildAnswerDynamicVariables(state.company, input.companyName),
+      dynamicVariables: buildAnswerDynamicVariables(state.company, input.companyName, state.org.platform_brand === "crankleads" || state.org.crankleads_tier ? "crankleads" : state.org.platform_brand),
       timeZone,
     };
   } catch (err) {
