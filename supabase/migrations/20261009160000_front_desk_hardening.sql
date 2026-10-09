@@ -68,3 +68,13 @@ create index if not exists owner_phone_verifications_company_idx
   on public.owner_phone_verifications (company_id, created_at desc);
 alter table public.owner_phone_verifications enable row level security;
 revoke all on public.owner_phone_verifications from anon, authenticated;
+
+-- ── 3. No customer text is silently lost ────────────────────────────────────────
+-- last_inbound_at is stamped when a customer text arrives (before the turn); the scheduler's
+-- recovery sweep (sms-agent/entry.ts sweepUnansweredTexts) re-runs any 'ai' conversation whose
+-- newest text was never handled, a bounded number of times per text, then tells the owner once.
+alter table public.sms_conversations add column if not exists recovery_attempts integer not null default 0;
+alter table public.sms_conversations add column if not exists recovery_inbound_at timestamptz;
+alter table public.sms_conversations add column if not exists recovery_alerted_at timestamptz;
+create index if not exists sms_conversations_recovery_idx
+  on public.sms_conversations (last_inbound_at) where state = 'ai';

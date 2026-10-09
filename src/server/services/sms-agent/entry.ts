@@ -147,12 +147,33 @@ export async function runSmsAgentForInbound(admin: AdminClient, sms: InboundCust
   return runSmsAgent(admin, sms, defaultSmsAgentDeps);
 }
 
+function laterOf(a: string | null, b: string): string {
+  return a && Date.parse(a) >= Date.parse(b) ? a : b;
+}
+
+/** Record that a customer text arrived (last_inbound_at only moves forward). */
+async function stampInbound(admin: AdminClient, conv: ConversationRow, receivedAt: string): Promise<ConversationRow> {
+  if (conv.last_inbound_at && Date.parse(conv.last_inbound_at) >= Date.parse(receivedAt)) return conv;
+  await updateConversation(admin, conv.id, { last_inbound_at: receivedAt });
+  return { ...conv, last_inbound_at: receivedAt };
+}
+
 /** The full flow with injectable deps (tests). Never throws. */
 export async function runSmsAgent(admin: AdminClient, sms: InboundCustomerSms, deps: SmsAgentDeps): Promise<SmsAgentOutcome> {
   try {
     return await runInner(admin, sms, deps);
   } catch (err) {
     console.error("[sms-agent] failed before the turn:", err instanceof Error ? err.message : err);
+    // Leave a trace the recovery sweep can pick up (when the agent is on for this company).
+    try {
+      const settings = await loadSmsAgentSettings(admin, sms.companyId);
+      if (settings && smsAgentActive(settings)) {
+        const conv = await ensureConversation(admin, { organizationId: sms.organizationId, companyId: sms.companyId, contactId: sms.contactId });
+        await stampInbound(admin, conv, sms.receivedAt);
+      }
+    } catch {
+      /* the sweep can't help if the DB is down; the error is logged above */
+    }
     return { replied: false, skipped: "error" };
   }
 }
@@ -172,13 +193,24 @@ async function runInner(admin: AdminClient, sms: InboundCustomerSms, deps: SmsAg
   let conv = await ensureConversation(admin, key);
   const body = sms.body ?? "";
   const hasMedia = (sms.media ?? []).length > 0;
+  const receivedAt = await inboundCreatedAt(admin, sms);
+  // Stamp the text as waiting BEFORE anything can fail or lose the lease race: the recovery
+  // sweep (sweepUnansweredTexts) re-runs any 'ai' conversation whose newest text was never handled.
+  conv = await stampInbound(admin, conv, receivedAt);
+  const markSkipped = () => updateConversation(admin, conv.id, { last_handled_inbound_at: laterOf(conv.last_handled_inbound_at, receivedAt) });
 
   const state = effectiveState(conv, now, limits.takeoverMs);
   if (state === "owner") return { replied: false, skipped: "owner" };
   if (state === "paused") return { replied: false, skipped: "paused" };
-  if (!hasMedia && (!body.trim() || isAutoReply(body))) return { replied: false, skipped: "not_for_agent" };
+  if (!hasMedia && (!body.trim() || isAutoReply(body))) {
+    await markSkipped();
+    return { replied: false, skipped: "not_for_agent" };
+  }
   if (state === "closed") {
-    if (!hasMedia && isAcknowledgement(body)) return { replied: false, skipped: "closed" };
+    if (!hasMedia && isAcknowledgement(body)) {
+      await markSkipped();
+      return { replied: false, skipped: "closed" };
+    }
   }
   if (conv.state !== state || state === "closed") {
     // A lapsed takeover, or a closed conversation the customer re-opened with a real message.
@@ -186,7 +218,6 @@ async function runInner(admin: AdminClient, sms: InboundCustomerSms, deps: SmsAg
     conv = { ...conv, state: "ai", owner_takeover_at: null };
   }
 
-  const receivedAt = await inboundCreatedAt(admin, sms);
   if (conv.last_handled_inbound_at && Date.parse(conv.last_handled_inbound_at) >= Date.parse(receivedAt)) {
     return { replied: false, skipped: "already_handled" };
   }
@@ -229,6 +260,9 @@ async function runInner(admin: AdminClient, sms: InboundCustomerSms, deps: SmsAg
       currentToken = null;
       const after = await findConversation(admin, key);
       if (!after || !(await hasInboundAfter(admin, key, after.last_handled_inbound_at))) break;
+      // More texts came in. Take the lease again (if another worker took it, that worker answers
+      // them). After the last round, anything still unanswered is stamped (last_inbound_at >
+      // last_handled_inbound_at) and the recovery sweep picks it up — it is never just dropped.
       currentToken = await claimTurn(admin, conv.id, deps.services.now(), limits.leaseMs);
     }
   } finally {
@@ -511,4 +545,107 @@ export function summarize(contact: AgentContact, collected: Record<string, unkno
   // Keep what the phone AI recorded about the customer's calls (voice/post-call.ts seedConversation).
   const callLines = (previous ?? "").split("\n").filter((l) => l.startsWith("Phone call ")).slice(-2);
   return [...callLines, line.slice(0, 400)].join("\n");
+}
+
+// ── Recovery: no customer text is silently lost ─────────────────────────────────
+
+/** A text unanswered this long (and with no turn running) is retried by the sweep. */
+export const RECOVERY_GRACE_MS = 2 * 60_000;
+/** Retries per unanswered text before the owner is told instead. */
+export const RECOVERY_MAX_ATTEMPTS = 2;
+
+interface RecoveryRow extends ConversationRow {
+  recovery_attempts?: number | null;
+  recovery_inbound_at?: string | null;
+  recovery_alerted_at?: string | null;
+}
+
+/**
+ * Scheduler pass: conversations in state 'ai' whose newest customer text was never handled
+ * (last_inbound_at > last_handled_inbound_at), with no turn running (lease expired) and older
+ * than ~2 minutes — a crashed worker, a pre-turn error, a turn loop that ran out of rounds. Each
+ * gets the turn re-run (claimed per text, at most RECOVERY_MAX_ATTEMPTS times); after that the
+ * owner is told once and the conversation is theirs. Never throws.
+ */
+export async function sweepUnansweredTexts(admin: AdminClient, nowMs: number = Date.now(), deps: SmsAgentDeps = defaultSmsAgentDeps): Promise<{ retried: number; alerted: number }> {
+  let retried = 0;
+  let alerted = 0;
+  try {
+    const nowIso = new Date(nowMs).toISOString();
+    const { data, error } = await (admin as Db)
+      .from("sms_conversations")
+      .select("*")
+      .eq("state", "ai")
+      .not("last_inbound_at", "is", null)
+      .lt("last_inbound_at", new Date(nowMs - RECOVERY_GRACE_MS).toISOString())
+      .gt("last_inbound_at", new Date(nowMs - 24 * 3_600_000).toISOString())
+      .lt("lock_until", nowIso)
+      .order("last_inbound_at", { ascending: true })
+      .limit(25);
+    if (error) throw error;
+    const rows = ((data ?? []) as RecoveryRow[]).filter(
+      (r) => r.last_inbound_at && (!r.last_handled_inbound_at || Date.parse(r.last_handled_inbound_at) < Date.parse(r.last_inbound_at)),
+    );
+    for (const row of rows) {
+      const sameText = row.recovery_inbound_at === row.last_inbound_at;
+      const attempts = sameText ? Number(row.recovery_attempts ?? 0) : 0;
+      if (attempts >= RECOVERY_MAX_ATTEMPTS) {
+        if (sameText && row.recovery_alerted_at) continue;
+        // Claim the alert so two workers don't both tell the owner.
+        const { data: claimed } = await (admin as Db)
+          .from("sms_conversations")
+          .update({ recovery_alerted_at: nowIso, state: "owner", owner_takeover_at: nowIso, last_error: "assistant couldn't answer (recovery gave up)" })
+          .eq("id", row.id)
+          .eq("state", "ai")
+          .is("recovery_alerted_at", null)
+          .select("id");
+        if (((claimed ?? []) as unknown[]).length !== 1) continue;
+        const ref = await companyRef(admin, row);
+        const { data: contact } = await (admin as Db).from("contacts").select("first_name, last_name, phone").eq("id", row.contact_id).maybeSingle();
+        const c = contact as { first_name: string | null; last_name: string | null; phone: string | null } | null;
+        const who = [c?.first_name && !/^\+?\d/.test(c.first_name) ? c.first_name : null, c?.last_name].filter(Boolean).join(" ") || c?.phone || "A customer";
+        await deps.services.alertOwner(admin, ref, `${who}${c?.phone ? ` (${c.phone})` : ""} texted and the assistant couldn't answer, so it's yours - please reply to them.`);
+        alerted++;
+        continue;
+      }
+      // Claim this retry (attempt counter for THIS text) with a conditional update.
+      let claim = (admin as Db)
+        .from("sms_conversations")
+        .update({ recovery_attempts: attempts + 1, recovery_inbound_at: row.last_inbound_at, ...(sameText ? {} : { recovery_alerted_at: null }) })
+        .eq("id", row.id)
+        .lt("lock_until", nowIso);
+      claim = sameText ? claim.eq("recovery_attempts", row.recovery_attempts ?? 0) : claim;
+      const { data: got } = await claim.select("id");
+      if (((got ?? []) as unknown[]).length !== 1) continue;
+      const { data: msgs } = await (admin as Db)
+        .from("message_log")
+        .select("id, body, created_at, provider_ref")
+        .eq("organization_id", row.organization_id)
+        .eq("contact_id", row.contact_id)
+        .eq("direction", "inbound")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      const last = ((msgs ?? []) as Array<{ id: string; body: string | null; created_at: string }>)[0];
+      if (!last) continue;
+      await runSmsAgent(
+        admin,
+        {
+          organizationId: row.organization_id,
+          companyId: row.company_id,
+          contactId: row.contact_id,
+          messageLogId: last.id,
+          from: "",
+          to: "",
+          body: last.body ?? "",
+          media: [],
+          receivedAt: last.created_at,
+        },
+        deps,
+      );
+      retried++;
+    }
+  } catch (err) {
+    console.error("[sms-agent] recovery sweep failed:", err instanceof Error ? err.message : err);
+  }
+  return { retried, alerted };
 }

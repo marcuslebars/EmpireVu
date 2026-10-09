@@ -17,7 +17,7 @@ import type { ModelClient } from "@/server/services/sms-agent/agent";
 import { executeApprovedAction, parseOwnerNote, type ApprovedActionDeps } from "@/server/services/sms-agent/approved";
 import { nextShortCode } from "@/server/services/sms-agent/approvals";
 import { effectiveState } from "@/server/services/sms-agent/conversation";
-import { runSmsAgent, type SmsAgentDeps } from "@/server/services/sms-agent/entry";
+import { runSmsAgent, sweepUnansweredTexts, type SmsAgentDeps } from "@/server/services/sms-agent/entry";
 import { loadBusinessFacts } from "@/server/services/sms-agent/facts";
 import {
   ensureDisclosure,
@@ -1151,5 +1151,50 @@ describe("owner takeover mid-turn", () => {
     expect(rec.texts).toHaveLength(1);
     expect(conversation().state).toBe("owner");
     expect(conversation().last_ai_reply_at).toBeTruthy();
+  });
+});
+
+describe("no customer text is silently lost", () => {
+  it("a turn that dies (worker crash / pre-turn error) leaves the text stamped; the sweep re-runs it", async () => {
+    const { sms } = inbound("Are you taking new customers in Orillia?");
+    const crash = await runSmsAgent(db.client, sms, deps(scripted([]).client, { sleep: async () => { throw new Error("worker killed"); } }));
+    expect(crash.skipped).toBe("error");
+    expect(conversation().last_inbound_at).toBeTruthy();
+    expect(conversation().last_handled_inbound_at).toBeFalsy();
+    expect(rec.texts).toHaveLength(0);
+
+    // Not yet: inside the 2-minute grace / the dead turn's lease.
+    expect((await sweepUnansweredTexts(db.client, clock + 30_000, deps(scripted([]).client))).retried).toBe(0);
+
+    clock += 5 * 60_000;
+    const model = scripted([{ text: "Yes - we cover Orillia. What's the address?" }]);
+    const res = await sweepUnansweredTexts(db.client, clock, deps(model.client));
+    expect(res.retried).toBe(1);
+    expect(rec.texts).toHaveLength(1);
+    expect(rec.texts[0].body).toMatch(/Orillia/);
+    expect(Date.parse(conversation().last_handled_inbound_at as string)).toBeGreaterThanOrEqual(Date.parse(conversation().last_inbound_at as string));
+    // Handled: the next sweep does nothing.
+    clock += 5 * 60_000;
+    expect((await sweepUnansweredTexts(db.client, clock, deps(scripted([]).client))).retried).toBe(0);
+  });
+
+  it("bounded: after the retries keep failing, the owner is told once and the conversation is theirs", async () => {
+    const { sms } = inbound("hello?");
+    const broken = () => deps(scripted([]).client, { sleep: async () => { throw new Error("still broken"); } });
+    await runSmsAgent(db.client, sms, broken());
+    for (let i = 0; i < 4; i++) {
+      clock += 5 * 60_000;
+      await sweepUnansweredTexts(db.client, clock, broken());
+    }
+    expect(rec.ownerAlerts.filter((a) => /couldn't answer/.test(a))).toHaveLength(1);
+    expect(conversation().state).toBe("owner");
+    expect(conversation().recovery_attempts).toBe(2);
+  });
+
+  it("an auto-reply / empty text is marked handled so the sweep doesn't chase it", async () => {
+    const { sms } = inbound("I'm driving with Do Not Disturb on. I'll see your message when I get where I'm going.");
+    await runSmsAgent(db.client, sms, deps(scripted([]).client));
+    clock += 5 * 60_000;
+    expect((await sweepUnansweredTexts(db.client, clock, deps(scripted([]).client))).retried).toBe(0);
   });
 });

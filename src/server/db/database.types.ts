@@ -634,6 +634,9 @@ export interface Database {
           lock_until: string;
           lock_token: string | null;
           last_handled_inbound_at: string | null;
+          recovery_attempts: number;
+          recovery_inbound_at: string | null;
+          recovery_alerted_at: string | null;
         };
         Insert: {
           id?: string;
@@ -653,6 +656,9 @@ export interface Database {
           lock_until?: string;
           lock_token?: string | null;
           last_handled_inbound_at?: string | null;
+          recovery_attempts?: number;
+          recovery_inbound_at?: string | null;
+          recovery_alerted_at?: string | null;
         };
         Update: {
           id?: string;
@@ -672,6 +678,9 @@ export interface Database {
           lock_until?: string;
           lock_token?: string | null;
           last_handled_inbound_at?: string | null;
+          recovery_attempts?: number;
+          recovery_inbound_at?: string | null;
+          recovery_alerted_at?: string | null;
         };
         Relationships: [];
       };

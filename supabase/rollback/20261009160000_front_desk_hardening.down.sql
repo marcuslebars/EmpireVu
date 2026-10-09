@@ -7,3 +7,7 @@ drop trigger if exists companies_owner_phone_unverify on public.companies;
 drop function if exists public.companies_owner_phone_unverify();
 grant update (owner_phone_e164) on public.companies to authenticated;
 alter table public.companies drop column if exists owner_phone_verified_at;
+drop index if exists public.sms_conversations_recovery_idx;
+alter table public.sms_conversations drop column if exists recovery_alerted_at;
+alter table public.sms_conversations drop column if exists recovery_inbound_at;
+alter table public.sms_conversations drop column if exists recovery_attempts;
