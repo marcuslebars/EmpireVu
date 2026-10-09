@@ -13,6 +13,14 @@ import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 export type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
+/**
+ * message_log.sent_by for texts the AI front desk wrote: the texting AI, and the phone AI's
+ * post-call follow-up. The inbox labels both "Assistant"; the SMS agent reads both as its own.
+ */
+export const SMS_AGENT_SENDER = "sms_agent";
+export const VOICE_AGENT_SENDER = "voice_agent";
+export const AI_SENDERS: readonly string[] = [SMS_AGENT_SENDER, VOICE_AGENT_SENDER];
+
 /** A picture (MMS) on an inbound text. */
 export interface InboundMedia {
   url: string;

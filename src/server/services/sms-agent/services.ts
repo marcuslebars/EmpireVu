@@ -5,7 +5,7 @@
  */
 import type { Tables } from "@/server/db/database.types";
 import { zonedInstant, type BusyBooking } from "@/server/services/booking-windows";
-import type { AdminClient } from "@/server/services/front-desk/contracts";
+import { SMS_AGENT_SENDER, type AdminClient } from "@/server/services/front-desk/contracts";
 import { notifyOnlineBooking } from "@/server/services/push/notify";
 import { priceQuoteForCompany, type QuotePricing, type QuoteServiceInput } from "@/server/services/quotes/pricing";
 import { quoteLinkForCompanyId } from "@/server/services/quotes/public-url";
@@ -32,7 +32,7 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = any;
 
-export const SMS_AGENT_SENDER = "sms_agent";
+export { SMS_AGENT_SENDER };
 
 export interface AgentContact extends ConsentContact {
   id: string;

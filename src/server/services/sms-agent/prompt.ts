@@ -150,7 +150,13 @@ export function buildConversationTurn(input: {
   parts.push(`Customer on file: ${input.customerName ?? "name unknown"}${input.customerPhone ? `, texting from ${input.customerPhone}` : ""}.`);
   const collected = Object.entries(input.collected).filter(([k]) => !k.startsWith("_"));
   if (collected.length) parts.push(`Already collected: ${fence(JSON.stringify(Object.fromEntries(collected)).slice(0, 800))}`);
-  if (input.summary) parts.push(`Running summary: ${fence(input.summary.slice(0, 500))}`);
+  if (input.collected.source === "phone_call") {
+    parts.push(
+      `Earlier phone call: this customer called${typeof input.collected.last_call_at === "string" ? ` (${input.collected.last_call_at})` : ""} and the business's phone assistant took their message — what they said is in "Already collected" and the running summary. Pick up from there; don't ask again for details you already have.`,
+    );
+  }
+  // The tail: the newest lines (e.g. the latest phone call) matter most.
+  if (input.summary) parts.push(`Running summary: ${fence(input.summary.length > 500 ? `…${input.summary.slice(-499)}` : input.summary)}`);
   const older = input.history.filter((m) => !input.newMessages.some((n) => n.id === m.id));
   parts.push(`<conversation>\n${older.map(line).join("\n") || "(no earlier messages)"}\n</conversation>`);
   parts.push(`<customer_messages>\n${input.newMessages.map(line).join("\n")}\n</customer_messages>`);

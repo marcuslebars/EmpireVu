@@ -5,13 +5,15 @@
 import type { AdminClient, InboundMedia } from "@/server/services/front-desk/contracts";
 import { readMediaColumn } from "@/server/services/sms-agent/media";
 import type { HistoryMessage } from "@/server/services/sms-agent/prompt";
-import { SMS_AGENT_SENDER } from "@/server/services/sms-agent/services";
+import { AI_SENDERS, SMS_AGENT_SENDER } from "@/server/services/front-desk/contracts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = any;
 
 export interface LoggedMessage extends HistoryMessage {
   media: InboundMedia[];
+  /** message_log.sent_by (outbound): "sms_agent", "voice_agent" (the phone AI's follow-up) or null. */
+  sentBy: string | null;
 }
 
 interface MessageLogRow {
@@ -48,10 +50,11 @@ export async function loadHistory(
     return {
       id: r.id,
       at: r.created_at,
-      from: r.direction === "inbound" ? "customer" : r.sent_by === SMS_AGENT_SENDER ? "assistant" : "staff",
+      from: r.direction === "inbound" ? "customer" : r.sent_by && AI_SENDERS.includes(r.sent_by) ? "assistant" : "staff",
       body: r.body ?? "",
       pictures: media.length,
       media,
+      sentBy: r.direction === "inbound" ? null : r.sent_by,
     };
   });
 }

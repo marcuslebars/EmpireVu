@@ -19,7 +19,7 @@
  */
 import { isAIConfigured, type AiUsageMeta } from "@/server/ai/claude";
 import { getSmsAgentModel } from "@/server/ai/config";
-import type { AdminClient, InboundCustomerSms } from "@/server/services/front-desk/contracts";
+import { SMS_AGENT_SENDER, type AdminClient, type InboundCustomerSms } from "@/server/services/front-desk/contracts";
 import { recordAiUsageSafe } from "@/server/services/usage";
 import { runAgentTurn, defaultModelClient, type ModelClient, type AgentTurnOutput } from "@/server/services/sms-agent/agent";
 import { createApproval, defaultApprovalDeps, type ApprovalDeps } from "@/server/services/sms-agent/approvals";
@@ -270,7 +270,9 @@ async function runOneTurn(
   let output: AgentTurnOutput | null = null;
   try {
     facts = await deps.loadFacts(admin, conv.company_id);
-    const firstAiMessage = !conv.last_ai_reply_at && !history.some((m) => m.from === "assistant");
+    // The texting AI's first text discloses it's automated — even after a phone-AI follow-up
+    // (that one went out under the business's name after a call that disclosed it).
+    const firstAiMessage = !conv.last_ai_reply_at && !history.some((m) => m.from === "assistant" && m.sentBy === SMS_AGENT_SENDER);
     const now = deps.services.now();
     const images = await deps.fetchImages(fresh.flatMap((m) => m.media));
     const turnState: TurnState = {
@@ -452,5 +454,7 @@ export function summarize(contact: AgentContact, collected: Record<string, unkno
   if (effects.ended) parts.push("wrapped up");
   const line = parts.join(" · ");
   if (!q && !b && !effects.approvals.length && !effects.handedOff && previous) return previous;
-  return line.slice(0, 400);
+  // Keep what the phone AI recorded about the customer's calls (voice/post-call.ts seedConversation).
+  const callLines = (previous ?? "").split("\n").filter((l) => l.startsWith("Phone call ")).slice(-2);
+  return [...callLines, line.slice(0, 400)].join("\n");
 }

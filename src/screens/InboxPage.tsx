@@ -133,7 +133,7 @@ function ThreadItem({ item, orgId, contact }: { item: ConversationThreadItem; or
           )}
           <p className="text-sm whitespace-pre-wrap break-words">{item.body}</p>
           <div className={cn("flex items-center gap-1 mt-1", outbound ? "text-primary-foreground/70 justify-end" : "text-muted-foreground")}>
-            {(item.metadata as { sentBy?: string } | null)?.sentBy === "sms_agent" && (
+            {["sms_agent", "voice_agent"].includes((item.metadata as { sentBy?: string } | null)?.sentBy ?? "") && (
               <span className="flex items-center gap-0.5 text-[10px] font-semibold mr-1">
                 <Bot className="w-2.5 h-2.5" /> Assistant
               </span>

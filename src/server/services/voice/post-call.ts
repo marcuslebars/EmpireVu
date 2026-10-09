@@ -31,6 +31,7 @@ import { deliverMessage, resolveOwnerContacts, type ConsentContact, type Deliver
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { prettyPhone } from "@/server/services/retell/call-summary";
 import type { VerifiedAnswerTenant } from "@/server/services/voice/ai-answer";
+import { VOICE_AGENT_SENDER } from "@/server/services/front-desk/contracts";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 type MissedCallRow = Tables<"missed_calls">;
@@ -395,6 +396,7 @@ export async function handleAnsweredCall(
         companyId: tenant.companyId,
         contactId,
         consentContact: contact,
+        sentBy: VOICE_AGENT_SENDER,
       });
       followUp = result.status === "sent" ? "sent" : result.status === "blocked" ? "skipped" : "failed";
       if (result.status !== "sent") followUpText = null;

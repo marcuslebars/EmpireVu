@@ -861,3 +861,51 @@ describe("MMS pictures", () => {
     expect((conversation().collected as Row).photos).toHaveLength(1);
   });
 });
+
+describe("runSmsAgent — after the phone AI took a call (voice/post-call.ts seed)", () => {
+  it("a caller who got the post-call follow-up text and replies gets an AI reply that knows the call", async () => {
+    const { seedConversation } = await import("@/server/services/voice/post-call");
+    await seedConversation(db.client, {
+      organizationId: ORG,
+      companyId: CO,
+      contactId: CONTACT,
+      details: {
+        name: "Jamie Lee", callbackNumber: PHONE, job: "Seasonal snow contract, double driveway", address: "14 Pine St, Midland",
+        urgency: "normal", wantsCallback: true, wantsBookingLink: false, callbackTime: "this afternoon", doNotText: false,
+        summary: "Jamie wants a seasonal contract for a double driveway in Midland.",
+      },
+      callId: "call_abc",
+      at: new Date(T0 - 3_600_000),
+      followUpText: "Hi Jamie, thanks for calling Northshore. Someone will call you back this afternoon.",
+    });
+    // What Postgres fills in (20261009110000: lock_until default epoch) — the fake DB has no defaults.
+    const seeded = conversation();
+    expect(seeded).toMatchObject({ state: "ai" });
+    seeded.lock_until ??= "1970-01-01T00:00:00.000Z";
+    seeded.ai_turns ??= 0;
+    // The phone AI's follow-up text (deliverMessage sentBy: "voice_agent").
+    db.tables.message_log.push({
+      id: "out-call", organization_id: ORG, company_id: CO, contact_id: CONTACT, channel: "sms", direction: "outbound", status: "sent",
+      body: "Hi Jamie, thanks for calling Northshore. Someone will call you back this afternoon.", created_at: new Date(T0 - 3_500_000).toISOString(), sent_by: "voice_agent",
+    });
+
+    const { sms } = inbound("Actually can you just text me the price?");
+    const model = scripted([{ tools: [{ name: "get_price_list", input: {} }] }, { text: "Our residential seasonal contract is $650 + HST for the season." }]);
+    const outcome = await runSmsAgent(db.client, sms, deps(model.client));
+
+    expect(outcome.replied).toBe(true);
+    const user = userTextOf(model.calls[0]);
+    expect(user).toMatch(/Earlier phone call/);
+    expect(user).toContain("double driveway");
+    expect(user).toContain("14 Pine St, Midland");
+    expect(user).toMatch(/Phone call .* \(AI answered\)/);
+    expect(user).toMatch(/<message from="you \(assistant\)"[^>]*>Hi Jamie, thanks for calling/);
+    // The texting AI's first text still says it's automated.
+    expect(rec.texts[0].body).toMatch(/automated assistant/i);
+    expect(rec.texts[0].body).toContain("$650");
+    const conv = conversation();
+    expect(conv.ai_turns).toBe(1);
+    expect((conv.collected as Row).source).toBe("phone_call");
+    expect(conv.summary).toMatch(/Phone call/);
+  });
+});

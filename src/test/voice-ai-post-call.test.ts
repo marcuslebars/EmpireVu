@@ -164,7 +164,8 @@ describe("handleAnsweredCall", () => {
     expect(db().tables.missed_calls[0]).toMatchObject({ text_back_status: "ai_handled", contact_id: CONTACT, lead_id: "lead_1" });
 
     expect(toCaller()).toHaveLength(1);
-    expect(toCaller()[0]).toMatchObject({ channel: "sms", companyId: COMPANY, contactId: CONTACT });
+    // sent_by "voice_agent": the inbox labels it Assistant and the texting AI reads it as its own words.
+    expect(toCaller()[0]).toMatchObject({ channel: "sms", companyId: COMPANY, contactId: CONTACT, sentBy: "voice_agent" });
     expect(String(toCaller()[0].body)).toBe(
       "Hi Jamie, thanks for calling Northshore Plumbing. We got your message about leaking kitchen tap — someone will call you back this afternoon. Reply here if anything changes.",
     );
