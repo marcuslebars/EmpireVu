@@ -33,6 +33,7 @@ import {
   samePhone,
   sendOwnerSms,
   setPlatformOptOut,
+  signaturePrefix,
 } from "@/server/services/owner-channel/common";
 import { handleOwnerInboundSms } from "@/server/services/owner-channel/entry";
 import { runSmsAgentForInbound } from "@/server/services/sms-agent/entry";
@@ -106,6 +107,18 @@ export function classifySmsKeyword(body: string): SmsKeyword | null {
 interface VoiceNumberTenant {
   organization_id: string;
   company_id: string;
+}
+
+/**
+ * A plain-words opt-out ("stop texting me", "please don't text me again", "unsubscribe me",
+ * "remove me from your list"). Conservative: the WHOLE text must be the request (with a
+ * please/thanks at most), so "don't text me after 9pm" or "I asked them to stop texting me
+ * about it" aren't. PURE.
+ */
+export function isFreeTextOptOut(body: string): boolean {
+  const t = (body ?? "").toLowerCase().replace(/[‘’]/g, "'").replace(/\s+/g, " ").trim();
+  if (!t || t.length > 80) return false;
+  return /^(?:(?:please|pls|plz|hi|hey|hello)[,!.]?\s+)?(?:(?:please|pls)\s+)?(?:stop (?:texting|messaging|sending (?:me )?(?:texts|messages)) me|stop (?:texting|messaging)|stop sending (?:me )?(?:texts|messages)|(?:don'?t|do not|dont) (?:text|message|contact|sms) me(?: again| anymore| any more)?|never (?:text|message|contact) me again|unsubscribe(?: me)?|remove me from (?:your|the|this) (?:list|texts|text list|contact list|mailing list)|take me off (?:your|the|this) (?:list|texts|text list|contact list)|opt me out|no more (?:texts|messages))(?:\s*(?:,|\.|!)?\s*(?:please|pls|thanks|thank you|thx|ty))?[\s.!]*$/.test(t);
 }
 
 async function resolveSmsTenant(admin: AdminClient, toNumber: string): Promise<VoiceNumberTenant | null> {
@@ -211,7 +224,15 @@ async function handlePlatformInbound(admin: AdminClient, fields: InboundSmsField
     const first = owned[0] ?? null;
     if (!(await logPlatformText(admin, fields, "help", { organizationId: first?.organizationId, companyId: first?.companyId }))) return;
     if (!(await consumeLimit(admin, `platform_help:${last10}`, 3, 86_400))) return;
-    if (first) {
+    // HELP is answered even for a phone that texted STOP to us (CTIA): then it goes out
+    // directly, past the opt-out-respecting senders.
+    if (await isPlatformOptedOut(admin, fields.from)) {
+      try {
+        await sendSms({ to: fields.from, body: first ? `${signaturePrefix(first.platformBrand)}${PLATFORM_HELP_OWNER}` : PLATFORM_UNKNOWN_SENDER });
+      } catch (err) {
+        console.error("[inbound-sms] platform HELP reply failed:", err instanceof Error ? err.message : err);
+      }
+    } else if (first) {
       await sendOwnerSms(admin, { to: fields.from, body: PLATFORM_HELP_OWNER, organizationId: first.organizationId, companyId: first.companyId, platformBrand: first.platformBrand });
     } else {
       await sendPlatformTextNoTenant(admin, fields.from, PLATFORM_UNKNOWN_SENDER);
@@ -425,6 +446,40 @@ export async function handleInboundSms(payload: unknown): Promise<void> {
 
   if (keyword === "help") {
     await replyToHelp(admin, context, company, contact);
+    return;
+  }
+
+  // "Please don't text me again" — honoured like STOP (opt-out + timeline), with ONE short
+  // confirmation from the business, and no AI reply. Twilio only knows the STOP keywords.
+  if (isFreeTextOptOut(fields.body) && !contact.sms_opt_out_at) {
+    await admin
+      .from("contacts")
+      .update({ sms_opt_out_at: new Date().toISOString() })
+      .eq("organization_id", tenant.organization_id)
+      .eq("id", contact.id);
+    await createActivityEvent(context, {
+      companyId: tenant.company_id,
+      entityType: "contact",
+      entityId: contact.id,
+      eventType: "contact.sms_opted_out",
+      metadata: { from: fields.from, providerRef: fields.messageSid, via: "free_text" },
+    });
+    if (contact.phone) {
+      const name = company.brand_from_name?.trim() || company.name;
+      try {
+        await deliverMessage({
+          context,
+          channel: "sms",
+          to: contact.phone,
+          body: `You won't get more texts from ${name}. Reply START if you change your mind.`,
+          companyId: company.id,
+          contactId: contact.id,
+          consentContact: null, // the confirmation of their own opt-out
+        });
+      } catch (err) {
+        console.error("[inbound-sms] opt-out confirmation failed:", err instanceof Error ? err.message : err);
+      }
+    }
     return;
   }
 

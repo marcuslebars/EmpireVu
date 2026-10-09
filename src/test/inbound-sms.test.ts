@@ -185,6 +185,24 @@ describe("handleInboundSms — customer on a company number", () => {
     expect(runSmsAgentForInbound).not.toHaveBeenCalled();
   });
 
+  it("free-text opt-outs are honoured like STOP, with one confirmation and no AI reply", async () => {
+    const { isFreeTextOptOut } = await import("@/server/services/twilio/inbound-sms");
+    for (const body of ["stop texting me", "Please don't text me again.", "unsubscribe me", "remove me from your list", "Pls stop texting me, thanks", "do not text me anymore", "no more texts please"]) {
+      expect(isFreeTextOptOut(body), body).toBe(true);
+    }
+    for (const body of ["don't text me after 9pm", "I asked them to stop texting me about it", "stop by tomorrow?", "can you remove the stump from my list of jobs", "Stop the plow at the end of the driveway"]) {
+      expect(isFreeTextOptOut(body), body).toBe(false);
+    }
+    seed({ contacts: [{ id: "c-1", organization_id: "org-1", company_id: "co-1", phone_last10: "7055550123", phone: CUSTOMER, sms_opt_out_at: null }] });
+    await handleInboundSms(payload({ Body: "Please don't text me again" }));
+    expect(db.tables.contacts[0].sms_opt_out_at).toBeTruthy();
+    expect(runSmsAgentForInbound).not.toHaveBeenCalled();
+    expect(emitActivityEventAndDispatch).not.toHaveBeenCalled();
+    expect(createActivityEvent).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ eventType: "contact.sms_opted_out" }));
+    expect(deliverMessage).toHaveBeenCalledTimes(1);
+    expect((deliverMessage.mock.calls[0][0] as { body: string }).body).toBe("You won't get more texts from Northshore Lawn. Reply START if you change your mind.");
+  });
+
   it("is idempotent — a MessageSid already logged is a no-op", async () => {
     seed({ message_log: [{ id: "m0", provider: "twilio", provider_ref: "SM123" }] });
     await handleInboundSms(payload());
@@ -252,9 +270,11 @@ describe("handleInboundSms — the platform number", () => {
     expect(db.tables.platform_sms_opt_outs[0].opted_out_at).toBeTruthy();
     expect(handleOwnerInboundSms).not.toHaveBeenCalled();
 
-    // HELP while opted out: an owner gets help via sendOwnerSms, which respects the opt-out.
+    // HELP while opted out: still answered (CTIA), directly — nothing else goes to them.
     await handleInboundSms(payload({ From: OWNER, To: PLATFORM, Body: "HELP", MessageSid: "SM2" }));
     expect(deliverMessage).not.toHaveBeenCalled();
+    expect(sendSms).toHaveBeenCalledTimes(1);
+    expect(sendSms.mock.calls[0][0]).toMatchObject({ to: OWNER, body: expect.stringMatching(/^CrankLeads: This is your front desk line/) });
 
     // "Yes" while opted out = opt back in.
     await handleInboundSms(payload({ From: OWNER, To: PLATFORM, Body: "yes", MessageSid: "SM3" }));
