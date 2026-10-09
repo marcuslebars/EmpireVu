@@ -6,6 +6,7 @@ import type { Json, Tables } from "@/server/db/database.types";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { sendDailyDigests } from "@/server/services/push/digest";
 import { processOwnerDigests } from "@/server/services/owner-digest";
+import { sweepOwnerApprovals } from "@/server/services/owner-channel/notify";
 import { runDoneForYouSweep } from "@/server/services/dfy/orchestrator";
 import { processSetupFollowups, SETUP_FOLLOWUP_INTERVAL_MS } from "@/server/services/crankleads/setup-followups";
 import { runGeneratedSitesPass } from "@/server/services/dfy/site-generator";
@@ -390,6 +391,7 @@ export async function runScheduler(
   );
   // Done-for-you CrankLeads: quick setup → enrichment → switch-on → page → follow-ups.
   await runDoneForYouPasses(admin, nowMs);
+  await guarded("owner approvals", null, () => sweepOwnerApprovals(admin, nowMs)); // expire + morning sends (docs/front-desk-ai.md)
   // Daily operator health email (docs/operator-health.md) — at/after 07:30 BUSINESS_TIMEZONE,
   // once per day (claimed in operator_health_reports before sending), throttled like the
   // follow-ups and self-guarded.

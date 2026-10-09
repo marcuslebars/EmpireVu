@@ -546,6 +546,33 @@ export interface Database {
         };
         Relationships: [];
       };
+      platform_sms_opt_outs: {
+        Row: {
+          phone_e164: string;
+          opted_out_at: string | null;
+          opted_in_at: string | null;
+          source_ref: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          phone_e164: string;
+          opted_out_at?: string | null;
+          opted_in_at?: string | null;
+          source_ref?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          phone_e164?: string;
+          opted_out_at?: string | null;
+          opted_in_at?: string | null;
+          source_ref?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       sms_conversations: {
         Row: {
           id: string;
