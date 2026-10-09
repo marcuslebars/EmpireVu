@@ -61,7 +61,10 @@ async function tenantFromCompany(
     .eq("id", companyId)
     .maybeSingle();
   const slug = (data as { slug: string } | null)?.slug ?? null;
-  return { organizationId, companyId, sourceSite: sourceSiteForCompanySlug(slug) ?? "" };
+  // A1 brands keep their legacy tag; every other company is tagged with its own slug (the
+  // lead envelope requires a non-empty sourceSite — an empty one made a pinned call's lead
+  // schema-invalid: no contact, so no consent check / conversation for the caller).
+  return { organizationId, companyId, sourceSite: sourceSiteForCompanySlug(slug) ?? slug ?? "retell" };
 }
 
 /**
