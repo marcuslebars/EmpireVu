@@ -11,6 +11,7 @@
 import { button, DEFAULT_PRIMARY, esc, shell, footerText, type EmailBrand, type RenderedEmail } from "@/server/services/quotes/emails";
 import { formatCalendarDate, formatMoney, type InvoiceBrand, type InvoiceDocument, type InvoicePaymentOptions } from "./document";
 import type { StatementDocument } from "./pdf";
+import { fillReminderTemplate, type ReminderValues } from "@/lib/reminder-template";
 
 export function emailBrand(brand: InvoiceBrand): EmailBrand {
   return {
@@ -158,43 +159,82 @@ ${footerText(brand)}`;
   };
 }
 
+export interface ReminderWording {
+  subject: string | null;
+  message: string | null;
+}
+
+/** The values a custom reminder template can use. */
+export function reminderValues(doc: InvoiceDocument, opts: { firstName: string | null; daysOverdue: number }): ReminderValues {
+  return {
+    first_name: opts.firstName ?? "there",
+    customer_name: doc.billTo.name || "there",
+    invoice_number: doc.invoiceNumber ?? "",
+    amount_due: formatMoney(doc.balanceCents, doc.currency),
+    due_date: formatCalendarDate(doc.dueDate) ?? "",
+    days_overdue: String(Math.max(opts.daysOverdue, 0)),
+    company_name: doc.brand.name,
+  };
+}
+
+/** Plain text with blank-line paragraphs → email paragraphs (escaped, single newlines kept). */
+function paragraphsHtml(text: string): string {
+  return text
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p>${esc(p).replace(/\n/g, "<br />")}</p>`)
+    .join("\n");
+}
+
 /**
- * Overdue reminder. `index` is 0 for the first reminder. Tone stays polite; the
- * later ones are plainer, not threatening — there's a relationship to keep.
+ * A payment reminder. `index` is 0 for the first one. Overdue reminders use the
+ * brand's own wording when it has set some, else the built-in: polite first, plainer
+ * later, never threatening — there's a relationship to keep. A reminder sent by hand
+ * BEFORE the due date (daysOverdue <= 0) always says "is due on …".
  */
 export function renderInvoiceReminder(
   doc: InvoiceDocument,
-  opts: { firstName: string | null; daysOverdue: number; index: number },
+  opts: { firstName: string | null; daysOverdue: number; index: number; wording?: ReminderWording | null },
 ): RenderedEmail {
   const brand = emailBrand(doc.brand);
   const primary = brand.primaryColor || DEFAULT_PRIMARY;
   const ref = doc.invoiceNumber ? ` ${doc.invoiceNumber}` : "";
   const due = formatCalendarDate(doc.dueDate);
   const amount = formatMoney(doc.balanceCents, doc.currency);
-  const lead =
-    opts.index === 0
+  const overdue = opts.daysOverdue > 0;
+  const values = reminderValues(doc, opts);
+  const custom = overdue && opts.wording?.message ? fillReminderTemplate(opts.wording.message, values).trim() : null;
+  const customSubject = overdue && opts.wording?.subject ? fillReminderTemplate(opts.wording.subject, values).replace(/\s+/g, " ").trim() : null;
+
+  const lead = !overdue
+    ? `A friendly reminder that invoice${ref} for ${amount} is due${due ? (opts.daysOverdue === 0 ? " today" : ` on ${due}`) : " soon"}. If you've already paid, thank you — please ignore this.`
+    : opts.index === 0
       ? `A friendly reminder that invoice${ref} for ${amount} was due${due ? ` on ${due}` : ""}. If you've already paid, thank you — please ignore this.`
       : `Invoice${ref} for ${amount} is now ${opts.daysOverdue} days past due. Please arrange payment at your earliest convenience, or reply to let us know if there's a problem.`;
+  const intro = custom ?? `${greet(opts.firstName)}\n\n${lead}`;
   const offline = offlineLines(doc);
 
   const html = shell(
     brand,
-    `<p>${esc(greet(opts.firstName))}</p>
-<p>${esc(lead)}</p>
+    `${paragraphsHtml(intro)}
 ${summaryTable(doc)}
 ${button(doc.publicUrl, hasOnline(doc.payment) ? "Pay Invoice" : "View Invoice", primary)}
 ${offline.html}`,
   );
-  const text = `${greet(opts.firstName)}
-
-${lead}
+  const text = `${intro}
 
 Amount due: ${amount}
 ${doc.publicUrl}
 ${offline.text ? `\n${offline.text}\n` : ""}
 ${footerText(brand)}`;
+  const builtInSubject = !overdue
+    ? `Reminder: invoice${ref} is due${due ? (opts.daysOverdue === 0 ? " today" : ` ${due}`) : ""}`
+    : opts.index === 0
+      ? `Reminder: invoice${ref} is due`
+      : `Past due: invoice${ref} (${amount})`;
   return {
-    subject: opts.index === 0 ? `Reminder: invoice${ref} is due` : `Past due: invoice${ref} (${amount})`,
+    subject: customSubject || builtInSubject,
     html,
     text,
     ...common(brand),

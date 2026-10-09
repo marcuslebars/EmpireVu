@@ -16,7 +16,11 @@ import {
   CreditCard,
   Download,
   ExternalLink,
+  Eye,
   FileText,
+  BellOff,
+  BellRing,
+  MailOpen,
   Loader2,
   MessageSquare,
   Pencil,
@@ -25,10 +29,18 @@ import {
 } from "lucide-react";
 
 import { Modal } from "@/components/ui/Modal";
+import { Switch } from "@/components/ui/switch";
 import { ErrorState, LoadingCards } from "@/components/ui/StateViews";
 import { toast } from "@/components/ui/sonner";
 import { formatDate, relativeTime } from "@/lib/format";
-import { useInvoice, useRemoveInvoicePayment, useSendInvoice, useVoidInvoice } from "@/lib/invoice-hooks";
+import {
+  useInvoice,
+  useRemoveInvoicePayment,
+  useSendInvoice,
+  useSendInvoiceReminderNow,
+  useSetInvoiceRemindersPaused,
+  useVoidInvoice,
+} from "@/lib/invoice-hooks";
 import {
   PAYMENT_METHOD_LABELS,
   formatCents,
@@ -38,6 +50,7 @@ import {
   type InvoiceEvent,
   type InvoicePayment,
   type PaymentMethod,
+  type ReminderSchedule,
 } from "@/lib/invoices-api";
 import { useOrgId } from "@/lib/org-context";
 import { cn } from "@/lib/utils";
@@ -50,6 +63,36 @@ import { SendInvoiceDialog } from "./SendInvoiceDialog";
 import { actionBtnCls, errorMessage, inputCls, labelCls, sectionLabelCls, secondaryBtnCls, toastDeliveryOutcomes } from "./invoice-ui";
 
 // ─── Activity labels ─────────────────────────────────────────────────────────
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
+}
+
+function emailLabel(kind: string | null): string {
+  if (kind === "invoice") return "Invoice email";
+  const r = /^reminder-(\d+)$/.exec(kind ?? "");
+  return r ? `Reminder email ${r[1]}` : "Email";
+}
+
+/** One line for where reminders stand, written for the owner. */
+function reminderLine(r: ReminderSchedule): { text: string; tone?: "muted" | "warn" } {
+  switch (r.state) {
+    case "scheduled":
+      return { text: `Next automatic reminder ${formatYmd(r.nextDate, "long")} (${ordinal(r.nextNumber ?? 1)} of ${r.total}).` };
+    case "paused":
+      return { text: "Automatic reminders are off for this invoice.", tone: "muted" };
+    case "off":
+      return { text: "Automatic reminders are off for this company — turn them on in Settings → Invoices.", tone: "muted" };
+    case "done":
+      return { text: `All ${r.total} automatic reminder${r.total === 1 ? "" : "s"} have gone out.`, tone: "muted" };
+    case "no_email":
+      return { text: "No email address on this invoice, so no reminders can go out.", tone: "warn" };
+    default:
+      return { text: "", tone: "muted" };
+  }
+}
 
 function metaStr(meta: Record<string, unknown> | null, key: string): string | null {
   const v = meta?.[key];
@@ -97,8 +140,19 @@ function describeEvent(e: InvoiceEvent, currency: string): { title: string; deta
       return { title: "Pay link texted", detail: to };
     case "sms_failed":
       return { title: "Text failed", detail: join(to, reason), tone: "bad" };
-    case "viewed":
-      return { title: "Viewed by the customer", detail: null };
+    case "viewed": {
+      const n = metaNum(m, "count");
+      return {
+        title: n && n > 1 ? `Customer opened the invoice again (${ordinal(n)} time)` : "Customer opened the invoice",
+        detail: metaStr(m, "device"),
+      };
+    }
+    case "email_opened":
+      return { title: `${emailLabel(metaStr(m, "email"))} opened`, detail: join(metaStr(m, "device"), "some email apps report this on their own") };
+    case "reminders_paused":
+      return { title: "Automatic reminders turned off for this invoice", detail: null };
+    case "reminders_resumed":
+      return { title: "Automatic reminders turned back on", detail: null };
     case "checkout_started":
       return { title: "Customer started paying online", detail: join(money, methodLabel(m)) };
     case "payment_received":
@@ -129,7 +183,7 @@ function describeEvent(e: InvoiceEvent, currency: string): { title: string; deta
     case "receipt_failed":
       return { title: "Receipt email failed", detail: reason, tone: "bad" };
     case "reminder_sent":
-      return { title: "Reminder sent", detail: to };
+      return { title: m?.manual === true ? "Reminder sent by hand" : "Reminder sent", detail: to };
     case "reminder_failed":
       return { title: "Reminder failed", detail: reason, tone: "bad" };
     case "overdue": {
@@ -249,6 +303,8 @@ export function InvoiceDetailSheet({
   const { data: detail, isLoading, isError, error, refetch } = useInvoice(orgId, invoiceId);
   const removePayment = useRemoveInvoicePayment(orgId);
   const sendInvoice = useSendInvoice(orgId);
+  const setRemindersPaused = useSetInvoiceRemindersPaused(orgId);
+  const remindNow = useSendInvoiceReminderNow(orgId);
   const [dialog, setDialog] = useState<DialogKind>(null);
   const open = Boolean(invoiceId);
 
@@ -320,6 +376,30 @@ export function InvoiceDetailSheet({
     } catch (err) {
       toast.error(errorMessage(err, "Couldn't text the pay link."));
     }
+  };
+
+  const toggleReminders = (on: boolean) => {
+    if (!invoice) return;
+    setRemindersPaused.mutate(
+      { invoiceId: invoice.id, paused: !on },
+      {
+        onSuccess: () => toast.success(on ? "Automatic reminders back on for this invoice" : "Automatic reminders off for this invoice"),
+        onError: (err) => toast.error(errorMessage(err, "Couldn't change reminders.")),
+      },
+    );
+  };
+
+  const sendReminderNow = () => {
+    if (!invoice) return;
+    const to = invoice.bill_to.email;
+    if (!window.confirm(`Email a payment reminder${to ? ` to ${to}` : ""} now? Your scheduled reminders carry on as planned.`)) return;
+    remindNow.mutate(
+      { invoiceId: invoice.id },
+      {
+        onSuccess: (r) => (r.delivered ? toast.success(`Reminder sent${r.to ? ` to ${r.to}` : ""}`) : toast.error(r.reason ?? "The reminder didn't send.")),
+        onError: (err) => toast.error(errorMessage(err, "Couldn't send the reminder.")),
+      },
+    );
   };
 
   const confirmRemovePayment = (p: InvoicePayment) => {
@@ -462,14 +542,117 @@ export function InvoiceDetailSheet({
               {invoice.sent_at && (
                 <div>
                   <p className={sectionLabelCls}>Sent</p>
-                  <p className="text-xs font-medium text-foreground">
-                    {relativeTime(invoice.sent_at)}
-                    {invoice.first_viewed_at ? ` · viewed ${relativeTime(invoice.first_viewed_at)}` : ""}
-                  </p>
+                  <p className="text-xs font-medium text-foreground">{relativeTime(invoice.sent_at)}</p>
                 </div>
               )}
             </div>
           </div>
+
+          {/* Seen by the customer */}
+          {invoice.sent_at && invoice.status !== "void" && (
+            <div className="rounded-xl border border-border/60 p-3 space-y-2" data-testid="invoice-opens">
+              <p className={sectionLabelCls}>Seen by the customer</p>
+              <div className="flex items-start gap-2">
+                <Eye className={cn("w-3.5 h-3.5 mt-0.5 shrink-0", invoice.view_count > 0 ? "text-primary" : "text-muted-foreground")} />
+                <p className="text-xs text-foreground">
+                  {invoice.view_count > 0 ? (
+                    <>
+                      Opened the invoice{" "}
+                      <span className="font-semibold">
+                        {invoice.view_count === 1 ? "once" : `${invoice.view_count} times`}
+                      </span>
+                      {invoice.last_viewed_at && (
+                        <span className="text-muted-foreground" title={new Date(invoice.last_viewed_at).toLocaleString()}>
+                          {" "}· {invoice.view_count === 1 ? "" : "last "}
+                          {relativeTime(invoice.last_viewed_at)}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">Hasn't opened the invoice yet</span>
+                  )}
+                </p>
+              </div>
+              {detail.events.some((e) => e.event_type === "email_sent" || e.event_type === "reminder_sent") && (
+                <div className="flex items-start gap-2">
+                  <MailOpen className={cn("w-3.5 h-3.5 mt-0.5 shrink-0", invoice.email_open_count > 0 ? "text-primary" : "text-muted-foreground")} />
+                  <p className="text-xs text-foreground">
+                    {invoice.email_open_count > 0 ? (
+                      <>
+                        Opened your emails{" "}
+                        <span className="font-semibold">{invoice.email_open_count === 1 ? "once" : `${invoice.email_open_count} times`}</span>
+                        {invoice.last_email_opened_at && (
+                          <span className="text-muted-foreground" title={new Date(invoice.last_email_opened_at).toLocaleString()}>
+                            {" "}· {invoice.email_open_count === 1 ? "" : "last "}
+                            {relativeTime(invoice.last_email_opened_at)}
+                          </span>
+                        )}
+                        <span className="block text-[10px] text-muted-foreground mt-0.5">
+                          A hint, not proof — some email apps (like Apple Mail) report an open on their own.
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">No email opens yet (some email apps block this)</span>
+                    )}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Payment reminders */}
+          {detail.reminders.state !== "closed" && (
+            <div className="rounded-xl border border-border/60 p-3 space-y-2.5" data-testid="invoice-reminders">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  {detail.reminders.paused ? (
+                    <BellOff className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  ) : (
+                    <BellRing className="w-3.5 h-3.5 text-primary shrink-0" />
+                  )}
+                  <p className="text-xs font-semibold text-foreground">Automatic reminders</p>
+                </div>
+                <Switch
+                  checked={!detail.reminders.paused}
+                  onCheckedChange={toggleReminders}
+                  disabled={setRemindersPaused.isPending}
+                  aria-label="Automatic reminders for this invoice"
+                />
+              </div>
+              {reminderLine(detail.reminders).text && (
+                <p
+                  className={cn(
+                    "text-[11px]",
+                    reminderLine(detail.reminders).tone === "warn" ? "text-[hsl(var(--warning))]" : reminderLine(detail.reminders).tone === "muted" ? "text-muted-foreground" : "text-foreground/80",
+                  )}
+                >
+                  {reminderLine(detail.reminders).text}
+                  {detail.reminders.state === "off" && (
+                    <>
+                      {" "}
+                      <button type="button" onClick={() => navigate("/settings/invoices")} className="text-primary hover:underline">
+                        Open settings
+                      </button>
+                    </>
+                  )}
+                </p>
+              )}
+              {detail.reminders.lastSentAt && (
+                <p className="text-[11px] text-muted-foreground">
+                  Last reminder sent {relativeTime(detail.reminders.lastSentAt)}
+                  {detail.reminders.sentCount > 0 ? ` · ${detail.reminders.sentCount} of ${detail.reminders.total} scheduled sent` : ""}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={sendReminderNow}
+                disabled={!detail.reminders.canSendNow || remindNow.isPending}
+                className={cn(actionBtnCls, "w-full justify-center")}
+              >
+                {remindNow.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send a reminder now
+              </button>
+            </div>
+          )}
 
           {/* Line items + amounts */}
           <div className="space-y-2">

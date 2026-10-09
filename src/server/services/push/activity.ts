@@ -95,6 +95,14 @@ export function pushMessageForEvent(event: ActivityEvent, contactName: string | 
         category: "payments",
         data: { ...base, screen: "quote", recordId: event.entity_id },
       };
+    case "invoice.viewed":
+      return {
+        title: name ? `${name} opened their invoice` : "Invoice opened",
+        body: metadataString(event, "invoiceNumber") ? `Invoice ${metadataString(event, "invoiceNumber")} — first look just now.` : "The customer just opened it for the first time.",
+        category: "payments",
+        // The app has no invoice screen yet: land on the customer (the event's anchor).
+        data: event.entity_type === "contact" ? { ...base, screen: "contact", recordId: event.entity_id } : { ...base, screen: "notifications" },
+      };
     default:
       return null;
   }

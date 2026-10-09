@@ -23,7 +23,9 @@ import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { loadCompanyForInvoice, recordInvoiceEvent, type CompanyForInvoice, type Db, type InvoiceRow } from "./common";
 import { buildInvoiceDocument, formatMoney } from "./document";
 import { renderInvoiceReminder, renderInvoiceSent, renderPaymentReceipt, renderStatement } from "./emails";
+import { emailOpenPixelUrl, withOpenPixel, type EmailKind } from "./opens";
 import { renderInvoicePdf, renderStatementPdf } from "./pdf";
+import { parseInvoiceSettings } from "./settings";
 import { buildStatement } from "./statement";
 
 export interface DeliveryOutcome {
@@ -67,6 +69,15 @@ function base64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64");
 }
 
+/**
+ * The customer-facing HTML with the open-tracking image added. Only the emails that go
+ * to the CUSTOMER get one — never the brand's own copy, or the owner reading their copy
+ * would look like the customer opening it.
+ */
+function trackedHtml(html: string, publicUrl: string, kind: EmailKind): string {
+  return withOpenPixel(html, emailOpenPixelUrl(publicUrl, kind));
+}
+
 function pdfName(invoice: InvoiceRow): string {
   return `${(invoice.invoice_number ?? "invoice").replace(/[^A-Za-z0-9-]/g, "")}.pdf`;
 }
@@ -89,7 +100,7 @@ export async function sendInvoiceEmail(invoiceId: string): Promise<DeliveryOutco
       to,
       subject: mail.subject,
       body: mail.text,
-      html: mail.html,
+      html: trackedHtml(mail.html, doc.publicUrl, "invoice"),
       fromName: mail.fromName ?? undefined,
       replyTo: mail.replyTo ?? undefined,
       attachments: [{ filename: pdfName(b.invoice), content: base64(pdf) }],
@@ -245,31 +256,59 @@ export async function sendPaymentReceiptEmail(paymentId: string): Promise<Delive
   }
 }
 
-/** One overdue reminder. The caller (reminder job) owns the "which one, and when". */
-export async function sendInvoiceReminderEmail(invoiceId: string, opts: { index: number; daysOverdue: number }): Promise<DeliveryOutcome> {
+export interface ReminderSendOptions {
+  /** 0-based: which reminder this is (drives the built-in wording). */
+  index: number;
+  daysOverdue: number;
+  /** Sent by a person from the invoice (not the daily schedule). */
+  manual?: boolean;
+  actorProfileId?: string | null;
+}
+
+/**
+ * One payment reminder, in the brand's own wording when it has set some. The caller
+ * (the daily job, or "Send reminder now") owns the "which one, and when".
+ */
+export async function sendInvoiceReminderEmail(invoiceId: string, opts: ReminderSendOptions): Promise<DeliveryOutcome> {
   const db = admin();
+  const meta = { index: opts.index, daysOverdue: opts.daysOverdue, ...(opts.manual ? { manual: true } : {}) };
   try {
     const b = await loadBundle(db, invoiceId);
     if (!b) return { delivered: false, reason: "Invoice not found." };
     const doc = buildInvoiceDocument(b.invoice, b.company);
     const to = doc.billTo.email;
-    if (!to) return { delivered: false, reason: "No email address on file." };
-    const mail = renderInvoiceReminder(doc, { firstName: firstName(b.contact), daysOverdue: opts.daysOverdue, index: opts.index });
+    if (!to) {
+      await safeEvent(db, invoiceId, "reminder_failed", { reason: "No email address on file.", ...meta });
+      return { delivered: false, reason: "No email address on file." };
+    }
+    const settings = parseInvoiceSettings(b.company?.invoice_settings ?? null);
+    const mail = renderInvoiceReminder(doc, {
+      firstName: firstName(b.contact),
+      daysOverdue: opts.daysOverdue,
+      index: opts.index,
+      wording: { subject: settings.reminderSubject, message: settings.reminderMessage },
+    });
     const pdf = await renderInvoicePdf(doc);
     await sendEmail({
       to,
       subject: mail.subject,
       body: mail.text,
-      html: mail.html,
+      html: trackedHtml(mail.html, doc.publicUrl, `reminder-${opts.index + 1}`),
       fromName: mail.fromName ?? undefined,
       replyTo: mail.replyTo ?? undefined,
       attachments: [{ filename: pdfName(b.invoice), content: base64(pdf) }],
     });
-    await recordInvoiceEvent(db, { organizationId: b.invoice.organization_id, invoiceId, eventType: "reminder_sent", metadata: { to, ...opts } });
+    await recordInvoiceEvent(db, {
+      organizationId: b.invoice.organization_id,
+      invoiceId,
+      eventType: "reminder_sent",
+      actorProfileId: opts.actorProfileId ?? null,
+      metadata: { to, ...meta },
+    });
     return { delivered: true, reason: null, to };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    await safeEvent(db, invoiceId, "reminder_failed", { reason, ...opts });
+    await safeEvent(db, invoiceId, "reminder_failed", { reason, ...meta });
     return { delivered: false, reason };
   }
 }

@@ -10,7 +10,7 @@
  */
 
 const CONTACT_EMAIL = "hello@empirevu.com";
-const LAST_UPDATED = "20 September 2026";
+const LAST_UPDATED = "9 October 2026";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -72,6 +72,13 @@ export default function PrivacyPolicyPage() {
             <li>
               <span className="text-foreground">App activity:</span> actions taken in the app —
               records created and changed, automation runs — kept as an activity timeline.
+            </li>
+            <li>
+              <span className="text-foreground">Invoice opens:</span> when a business sends an invoice
+              through EmpireVu, we record when its customer opens the invoice page or the invoice and
+              reminder emails (the emails contain a small image that reports the open), with a general
+              device type such as &ldquo;iPhone&rdquo;. No IP address or location is kept. The business
+              sees this on the invoice.
             </li>
             <li>
               <span className="text-foreground">Payment details:</span> handled by Stripe. Card

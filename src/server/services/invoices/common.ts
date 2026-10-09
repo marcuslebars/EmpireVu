@@ -170,7 +170,7 @@ export async function recordInvoiceEvent(
   }
 }
 
-export type InvoiceTriggerType = "invoice.sent" | "invoice.paid" | "invoice.overdue" | "invoice.payment_failed";
+export type InvoiceTriggerType = "invoice.sent" | "invoice.viewed" | "invoice.paid" | "invoice.overdue" | "invoice.payment_failed";
 
 /**
  * Emit an invoice.* workflow trigger, anchored to the contact (else the company).

@@ -8,6 +8,8 @@
  */
 import { z } from "zod";
 
+import { REMINDER_MESSAGE_MAX, REMINDER_SUBJECT_MAX } from "@/lib/reminder-template";
+
 export const PAYMENT_METHODS = ["card", "bank_debit", "etransfer", "cheque", "cash", "other"] as const;
 export type InvoicePaymentMethod = (typeof PAYMENT_METHODS)[number];
 
@@ -64,6 +66,14 @@ export const invoiceSettingsSchema = z.object({
   /** Overdue reminders (days AFTER the due date). */
   remindersEnabled: z.boolean().optional().nullable(),
   reminderDays: z.array(z.number().int().min(1).max(180)).max(6).optional().nullable(),
+  /**
+   * The brand's own reminder wording, with {placeholders} (lib/reminder-template).
+   * Blank = the built-in wording (friendly first, plainer after). Used for overdue
+   * reminders; a reminder sent by hand before the due date keeps the built-in
+   * "is due on …" wording, since "past due" wording would be wrong.
+   */
+  reminderSubject: optionalText(REMINDER_SUBJECT_MAX),
+  reminderMessage: optionalText(REMINDER_MESSAGE_MAX),
 });
 
 export type InvoiceSettingsInput = z.input<typeof invoiceSettingsSchema>;
@@ -84,6 +94,8 @@ export interface InvoiceSettings {
   acceptCash: boolean;
   remindersEnabled: boolean;
   reminderDays: number[];
+  reminderSubject: string | null;
+  reminderMessage: string | null;
   autoInvoiceOnComplete: "off" | "draft" | "send";
   sendCopy: boolean;
   copyEmail: string | null;
@@ -127,6 +139,8 @@ export function parseInvoiceSettings(raw: unknown): InvoiceSettings {
     acceptCash: s.acceptCash ?? false,
     remindersEnabled: s.remindersEnabled ?? true,
     reminderDays,
+    reminderSubject: s.reminderSubject ?? null,
+    reminderMessage: s.reminderMessage ?? null,
     autoInvoiceOnComplete: s.autoInvoiceOnComplete ?? "off",
     sendCopy: s.sendCopy ?? false,
     copyEmail: typeof s.copyEmail === "string" && s.copyEmail.trim() ? s.copyEmail.trim().toLowerCase() : null,
