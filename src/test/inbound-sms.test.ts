@@ -237,6 +237,28 @@ describe("handleInboundSms — the owner on their own company number", () => {
   });
 });
 
+describe("handleInboundSms — a platform number that is also a business's own line", () => {
+  const shared = () =>
+    seed({ voice_numbers: [{ organization_id: "org-1", company_id: "co-1", phone_e164: PLATFORM, provider: "twilio", active: true }] });
+
+  it("a customer's text goes to that business (stored, emitted), never the owners-only reply", async () => {
+    shared();
+    await handleInboundSms(payload({ To: PLATFORM }));
+    expect(db.tables.message_log[0]).toMatchObject({ direction: "inbound", provider_ref: "SM123" });
+    expect(emitActivityEventAndDispatch).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ eventType: "contact.sms_received" }));
+    expect(db.tables.owner_command_log).toHaveLength(0);
+    expect(sendSms).not.toHaveBeenCalled();
+    expect(handleOwnerInboundSms).not.toHaveBeenCalled();
+  });
+
+  it("that business's owner still reaches the owner channel", async () => {
+    shared();
+    await handleInboundSms(payload({ To: PLATFORM, From: OWNER, Body: "today" }));
+    expect(handleOwnerInboundSms).toHaveBeenCalledWith(db.client, expect.objectContaining({ companyId: "co-1", viaPlatformNumber: false }));
+    expect(db.tables.message_log).toHaveLength(0);
+  });
+});
+
 describe("handleInboundSms — the platform number", () => {
   it("an owner texting the platform number → owner channel (no voice_numbers row needed)", async () => {
     await handleInboundSms(payload({ From: OWNER, To: PLATFORM, Body: "N 2" }));

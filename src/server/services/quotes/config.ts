@@ -68,9 +68,9 @@ export function normalizeBaseUrl(raw: string): string {
 /**
  * The quote-link origin for ONE company: its own `quote_public_base_url` when set
  * (e.g. https://quotes.a1marinecare.ca); else, for a CrankLeads org (pass its
- * `platform_brand`), QUOTE_PUBLIC_BASE_URL_CRANKLEADS when set — a neutral host so a
- * CrankLeads business's customers never land on the EmpireVu domain (the domain is Marcus's
- * pick; docs/front-desk-ai.md); else the platform-wide publicBaseUrl.
+ * `platform_brand`), QUOTE_PUBLIC_BASE_URL_CRANKLEADS, else CRANKLEADS_APP_BASE_URL (https://app.crankleads.com)
+ * — so a CrankLeads business's customers never land on the EmpireVu domain; else the
+ * platform-wide publicBaseUrl.
  *
  * Several brands share one EmpireVu deployment, so a single env origin would put
  * every brand's customer links on one brand's domain. Tolerates a company row from
@@ -80,7 +80,9 @@ export function quotePublicBaseUrlFor(company: { quote_public_base_url?: unknown
   const own = typeof company?.quote_public_base_url === "string" ? company.quote_public_base_url.trim() : "";
   if (own) return normalizeBaseUrl(own);
   if (company?.platform_brand === "crankleads") {
-    const crank = process.env.QUOTE_PUBLIC_BASE_URL_CRANKLEADS?.trim();
+    // CrankLeads customers' links live on the CrankLeads domain (app.crankleads.com serves the
+    // same public /q and /book pages). QUOTE_PUBLIC_BASE_URL_CRANKLEADS overrides it.
+    const crank = process.env.QUOTE_PUBLIC_BASE_URL_CRANKLEADS?.trim() || process.env.CRANKLEADS_APP_BASE_URL?.trim();
     if (crank) return normalizeBaseUrl(crank);
   }
   return getQuotesConfig().publicBaseUrl;

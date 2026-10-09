@@ -70,10 +70,9 @@ report (on/off, text and/or email, send a test).
    - `RETELL_MESSAGE_AGENT_ID` + `RETELL_MESSAGE_LLM_ID` (web) — from step 4;
    - `AI_PRICE_SONNET_INPUT_PER_MTOK` / `_OUTPUT_` / `_CACHE_READ_` / `_CACHE_WRITE_PER_MTOK` (worker) — Sonnet's list price, so front-desk AI cost isn't booked at Opus rates;
    - optional: `AI_MODEL_SMS_AGENT`, `AI_MODEL_OWNER_AGENT` (default `claude-sonnet-5-5`), `SMS_AGENT_*` caps (incl. `SMS_AGENT_LOOP_WINDOW_MS` / `_LOOP_MAX_REPLIES` / `_LOOP_MAX_INBOUND`), `TWILIO_INBOUND_SMS_URL`, `AI_ANSWER_*` (incl. `AI_ANSWER_MAX_CALLS_PER_CALLER_DAY`, default 3), `RETELL_SIP_DOMAIN`, `VOICE_AI_TOKEN_SECRET`;
-   - **`QUOTE_PUBLIC_BASE_URL_CRANKLEADS` — decision pending (Marcus):** the host CrankLeads
-     businesses' customers see in quote / booking links. Pick a neutral domain (not empirevu.com),
-     point it at the web service, and set it here; until then links use `QUOTE_PUBLIC_BASE_URL` /
-     `APP_BASE_URL`. A company's own `companies.quote_public_base_url` always wins.
+   - Customer quote / booking links for CrankLeads businesses use the CrankLeads domain
+     (`CRANKLEADS_APP_BASE_URL`, i.e. https://app.crankleads.com — already set). Optional override:
+     `QUOTE_PUBLIC_BASE_URL_CRANKLEADS`. A company's own `companies.quote_public_base_url` always wins.
 3. **Twilio — platform number Messaging webhook:** on `TWILIO_FROM_NUMBER` (or its Messaging
    Service) set "A message comes in" → `POST {APP_BASE_URL}/api/twilio/sms/inbound` (exactly the
    URL signatures are checked against; else set `TWILIO_INBOUND_SMS_URL`). Without it owners'
@@ -807,4 +806,4 @@ CDN only, without the account's auth. `ai_settings` read-modify-writes are optim
 (`front-desk/ai-settings-write.ts`). Strangers' platform texts keep 200 characters and are pruned
 after 30 days. CrankLeads owners see "AI receptionist", never "Marina" (house tenants keep
 Marina). Customer links: a company's `quote_public_base_url`, else `QUOTE_PUBLIC_BASE_URL_CRANKLEADS`
-for CrankLeads orgs, else the platform default.
+or `CRANKLEADS_APP_BASE_URL` (app.crankleads.com) for CrankLeads orgs, else the platform default.
