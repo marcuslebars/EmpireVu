@@ -438,8 +438,207 @@ export interface Database {
         };
         Relationships: [];
       };
+      owner_approvals: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          contact_id: string | null;
+          conversation_id: string | null;
+          kind: string;
+          summary: string;
+          payload: Json;
+          status: string;
+          short_code: number | null;
+          requested_by: string;
+          notified_at: string | null;
+          decided_at: string | null;
+          decided_via: string | null;
+          decided_by: string | null;
+          result: Json | null;
+          expires_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          contact_id?: string | null;
+          conversation_id?: string | null;
+          kind: string;
+          summary: string;
+          payload?: Json;
+          status?: string;
+          short_code?: number | null;
+          requested_by?: string;
+          notified_at?: string | null;
+          decided_at?: string | null;
+          decided_via?: string | null;
+          decided_by?: string | null;
+          result?: Json | null;
+          expires_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          contact_id?: string | null;
+          conversation_id?: string | null;
+          kind?: string;
+          summary?: string;
+          payload?: Json;
+          status?: string;
+          short_code?: number | null;
+          requested_by?: string;
+          notified_at?: string | null;
+          decided_at?: string | null;
+          decided_via?: string | null;
+          decided_by?: string | null;
+          result?: Json | null;
+          expires_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      owner_command_log: {
+        Row: {
+          id: string;
+          organization_id: string | null;
+          company_id: string | null;
+          from_phone: string;
+          to_phone: string | null;
+          provider_ref: string | null;
+          body: string | null;
+          intent: string | null;
+          result: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id?: string | null;
+          company_id?: string | null;
+          from_phone: string;
+          to_phone?: string | null;
+          provider_ref?: string | null;
+          body?: string | null;
+          intent?: string | null;
+          result?: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string | null;
+          company_id?: string | null;
+          from_phone?: string;
+          to_phone?: string | null;
+          provider_ref?: string | null;
+          body?: string | null;
+          intent?: string | null;
+          result?: Json;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      sms_conversations: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          contact_id: string;
+          state: string;
+          ai_turns: number;
+          last_inbound_at: string | null;
+          last_ai_reply_at: string | null;
+          owner_takeover_at: string | null;
+          collected: Json;
+          summary: string | null;
+          last_error: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          contact_id: string;
+          state?: string;
+          ai_turns?: number;
+          last_inbound_at?: string | null;
+          last_ai_reply_at?: string | null;
+          owner_takeover_at?: string | null;
+          collected?: Json;
+          summary?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          contact_id?: string;
+          state?: string;
+          ai_turns?: number;
+          last_inbound_at?: string | null;
+          last_ai_reply_at?: string | null;
+          owner_takeover_at?: string | null;
+          collected?: Json;
+          summary?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      weekly_report_sends: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          week_start: string;
+          status: string;
+          channels: string[];
+          metrics: Json;
+          sent_at: string | null;
+          last_error: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          week_start: string;
+          status?: string;
+          channels?: string[];
+          metrics?: Json;
+          sent_at?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          week_start?: string;
+          status?: string;
+          channels?: string[];
+          metrics?: Json;
+          sent_at?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       companies: {
         Row: {
+          ai_settings: Json;
           google_place_id: string | null;
           google_rating: number | null;
           google_review_count: number | null;
@@ -495,6 +694,7 @@ export interface Database {
           monthly_scorecard: Json | null;
         };
         Insert: {
+          ai_settings?: Json;
           google_place_id?: string | null;
           google_rating?: number | null;
           google_review_count?: number | null;
@@ -550,6 +750,7 @@ export interface Database {
           monthly_scorecard?: Json | null;
         };
         Update: {
+          ai_settings?: Json;
           google_place_id?: string | null;
           google_rating?: number | null;
           google_review_count?: number | null;
@@ -3030,6 +3231,7 @@ export interface Database {
       };
       message_log: {
         Row: {
+          media: Json | null;
           body: string | null;
           channel: string;
           company_id: string | null;
@@ -3048,6 +3250,7 @@ export interface Database {
           workflow_run_id: string | null;
         };
         Insert: {
+          media?: Json | null;
           body?: string | null;
           channel: string;
           company_id?: string | null;
@@ -3066,6 +3269,7 @@ export interface Database {
           workflow_run_id?: string | null;
         };
         Update: {
+          media?: Json | null;
           body?: string | null;
           channel?: string;
           company_id?: string | null;
