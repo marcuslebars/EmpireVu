@@ -159,7 +159,7 @@ describe("owner commands", () => {
     expect(rescheduleBooking.mock.calls[0][1]).toMatchObject({ bookingId: B_DANA, scheduledFor: "2026-10-09T13:00:00.000Z" });
     expect((rescheduleBooking.mock.calls[0][0] as { organizationId: string }).organizationId).toBe("org-1");
     expect(executeApprovedAction).not.toHaveBeenCalled(); // owner commands are run by the owner channel
-    expect(ownerReplies().at(-1)).toMatch(/Moved Dana Jones to Fri/);
+    expect(ownerReplies().at(-1)).toMatch(/Moved Dana Jones to Fri, Oct 9, 9:00 a\.m\. Want me/);
     expect(db.tables.owner_approvals[0].status).toBe("executed");
   });
 

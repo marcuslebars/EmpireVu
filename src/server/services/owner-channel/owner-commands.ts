@@ -14,6 +14,11 @@ import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } f
 import { ctxFor, DEFAULT_TIMEZONE, shortWhen } from "./common";
 import { contactName, findScopedBooking, openTimesForBooking, type CompanyScope } from "./schedule";
 
+/** "…9:00 a.m." already ends the sentence — don't add a second period. */
+function sentence(text: string): string {
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
 export const OWNER_COMMAND_KIND = "owner_command";
 
 export type OwnerCommandPayload =
@@ -50,7 +55,7 @@ export async function executeOwnerCommand(admin: AdminClient, approval: OwnerApp
   if (payload.action === "reschedule" && payload.startsAt) {
     if (booking.status === "cancelled") return { ok: false, message: "That booking was cancelled — nothing moved." };
     if (Date.parse(booking.scheduled_for) === Date.parse(payload.startsAt)) {
-      return { ok: true, message: `${payload.who ?? "It"} is already at ${shortWhen(payload.startsAt, scope.timeZone)}.` };
+      return { ok: true, message: sentence(`${payload.who ?? "It"} is already at ${shortWhen(payload.startsAt, scope.timeZone)}`) };
     }
     const open = await openTimesForBooking(admin, scope, booking, Date.now());
     const slot = open.find((t) => Date.parse(t.startsAt) === Date.parse(payload.startsAt as string) && (t.windowKey ?? null) === (payload.windowKey ?? null));
@@ -62,7 +67,7 @@ export async function executeOwnerCommand(admin: AdminClient, approval: OwnerApp
     });
     return {
       ok: true,
-      message: `Moved ${payload.who ?? "the booking"} to ${shortWhen(slot.startsAt, scope.timeZone)}. Want me to text them? Say "tell ${(payload.who ?? "them").split(" ")[0]} …".`,
+      message: `${sentence(`Moved ${payload.who ?? "the booking"} to ${shortWhen(slot.startsAt, scope.timeZone)}`)} Want me to text them? Say "tell ${(payload.who ?? "them").split(" ")[0]} …".`,
       detail: { bookingId: booking.id, from: booking.scheduled_for, to: slot.startsAt },
     };
   }
