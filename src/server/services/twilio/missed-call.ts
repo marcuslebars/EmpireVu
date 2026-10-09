@@ -24,6 +24,7 @@ import {
   recordPassiveForwardingProof,
 } from "@/server/services/twilio/forwarding-test";
 import { textBackWindowMinutes, transcriptionEnabled } from "@/server/services/twilio/voice-config";
+import { scheduleAiWatchdog } from "@/server/services/voice/ai-answer";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import { deliverMessage, resolveOwnerContacts } from "@/server/services/workflow-engine/messaging";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
@@ -311,7 +312,7 @@ export interface HandleMissedCallResult {
   /** forwarding_test: the voice webhook flagged this call as the forwarded leg of a
    *  forwarding test (test marked passed; no lead, no text-back). test_caller: a call from
    *  our own test caller ID that wasn't flagged (never a customer — dropped). */
-  status: "emitted" | "suppressed" | "anonymous" | "duplicate" | "forwarding_test" | "test_caller";
+  status: "emitted" | "suppressed" | "anonymous" | "duplicate" | "forwarding_test" | "test_caller" | "ai_pending";
   contactId: string | null;
   leadId: string | null;
 }
@@ -392,6 +393,14 @@ export async function handleMissedCall(payload: unknown, now: number = Date.now(
   if (insertError) throw insertError;
   const row = await loadMissedCall(admin, fields.callSid);
   if (!row) throw new Error(`missed_calls row for ${fields.callSid} not found after insert.`);
+  // (2b) AI answering (docs/front-desk-ai.md → "## Phone answering"): the voice route handed
+  //      this call to the AI and claimed the row first. No lead, no call.missed, no generic
+  //      text-back here — the post-call webhook files the lead and sends ONE follow-up text. A
+  //      watchdog releases the call back to this normal path if no post-call ever arrives.
+  if (row.text_back_status === "ai_pending") {
+    await scheduleAiWatchdog(admin, fields.callSid, new Date(now));
+    return { status: "ai_pending", contactId: row.contact_id, leadId: row.lead_id };
+  }
   if (row.text_back_status !== "pending") {
     return { status: "duplicate", contactId: row.contact_id, leadId: row.lead_id };
   }

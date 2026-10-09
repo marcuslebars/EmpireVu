@@ -3838,6 +3838,36 @@ export interface Database {
         };
         Relationships: [];
       };
+      call_answering_notices: {
+        Row: {
+          id: string;
+          organization_id: string;
+          company_id: string;
+          month: string;
+          kind: string;
+          sent_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          company_id: string;
+          month: string;
+          kind: string;
+          sent_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          company_id?: string;
+          month?: string;
+          kind?: string;
+          sent_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       missed_calls: {
         Row: {
           call_sid: string;
@@ -3864,6 +3894,11 @@ export interface Database {
           transcription_text: string | null;
           updated_at: string;
           voicemail_at: string | null;
+          ai_followup_at: string | null;
+          ai_handoff_at: string | null;
+          ai_released_at: string | null;
+          ai_retell_call_id: string | null;
+          ai_urgent_alerted_at: string | null;
         };
         Insert: {
           call_sid: string;
@@ -3890,6 +3925,11 @@ export interface Database {
           transcription_text?: string | null;
           updated_at?: string;
           voicemail_at?: string | null;
+          ai_followup_at?: string | null;
+          ai_handoff_at?: string | null;
+          ai_released_at?: string | null;
+          ai_retell_call_id?: string | null;
+          ai_urgent_alerted_at?: string | null;
         };
         Update: {
           call_sid?: string;
@@ -3916,6 +3956,11 @@ export interface Database {
           transcription_text?: string | null;
           updated_at?: string;
           voicemail_at?: string | null;
+          ai_followup_at?: string | null;
+          ai_handoff_at?: string | null;
+          ai_released_at?: string | null;
+          ai_retell_call_id?: string | null;
+          ai_urgent_alerted_at?: string | null;
         };
         Relationships: [];
       };

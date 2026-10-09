@@ -13,10 +13,13 @@ import {
   sayVoice,
   transcriptionEnabled,
   twilioSignedUrl,
+  VOICE_AI_HANDOFF_PATH,
   VOICE_RECORDING_PATH,
   voicemailMaxSecondsSetting,
 } from "@/server/services/twilio/voice-config";
+import { startAiAnswer } from "@/server/services/voice/ai-answer";
 import {
+  buildAiHandoffTwiml,
   buildCatcherGreetingTwiml,
   buildForwardingTestLegTwiml,
   emptyTwiml,
@@ -48,8 +51,15 @@ export const dynamic = "force-dynamic";
  *   5) resolve the tenant by the CALLED number (voice_numbers, provider='twilio',
  *      mode='missed_call_catcher') only to say the company's name: unknown number → empty
  *      <Response/> (the job stays stored for ops); a lookup error → generic greeting;
- *   6) answer with TwiML: greeting + <Record> voicemail (recording/transcription callbacks
- *      go to /api/twilio/voice/recording).
+ *   6) AI answering (docs/front-desk-ai.md → "## Phone answering"): when the company's
+ *      call_answering mode is 'ai' and it has minutes left, claim the call (missed_calls row
+ *      'ai_pending' — the worker then sends NO generic text-back), register it with Retell
+ *      (tenant + HMAC token in the call metadata, never anything the caller says) and answer
+ *      <Dial><Sip> to the AI. The <Dial> action (/api/twilio/voice/ai-handoff) falls back to
+ *      the greeting + voicemail if the AI leg doesn't connect. Any failure before that →
+ *      straight to step 7;
+ *   7) otherwise answer with TwiML: greeting + <Record> voicemail (recording/transcription
+ *      callbacks go to /api/twilio/voice/recording).
  * The lead, call.missed and text-back happen in the worker (handleMissedCall).
  */
 export async function POST(request: Request): Promise<Response> {
@@ -110,6 +120,20 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const base = callbackBaseUrl(request);
+  if (tenant) {
+    const answer = await startAiAnswer(admin, { tenant, params });
+    if (answer.kind === "ai") {
+      return twimlResponse(
+        buildAiHandoffTwiml({
+          sipUri: answer.sipUri,
+          actionUrl: `${base}${VOICE_AI_HANDOFF_PATH}?event=dial`,
+          ringTimeoutSeconds: answer.ringTimeoutSeconds,
+          timeLimitSeconds: answer.timeLimitSeconds,
+        }),
+      );
+    }
+  }
+
   const recordingUrl = `${base}${VOICE_RECORDING_PATH}`;
   return twimlResponse(
     buildCatcherGreetingTwiml({

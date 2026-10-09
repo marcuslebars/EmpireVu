@@ -7,6 +7,8 @@ import type { TenantServiceContext } from "@/server/services/shared";
 import { upsertCompanyVoiceProfile } from "@/server/services/company-voice-profiles";
 import { getPack, packReceptionistNotes } from "@/server/services/packs";
 import { parseAppliedIndustryPack } from "@/server/services/packs/types";
+import { buildReceptionistTools, RECEPTIONIST_ANALYSIS_FIELDS } from "@/server/services/retell/receptionist-tools";
+import { retellCountryFor } from "@/server/services/voice/canada";
 import {
   buildReceptionistPrompt,
   createRetellClient,
@@ -108,6 +110,11 @@ async function upsertRetellVoiceNumber(
   if (error) throw error;
 }
 
+/** A1-style marine company: the marine pack, or a shrink-wrap price list. */
+export function isMarineCompany(packId: string | null, serviceKeys: Array<string | null | undefined>): boolean {
+  return packId === "marine" || serviceKeys.some((key) => typeof key === "string" && /^shrink_?wrap/.test(key));
+}
+
 export async function provisionPhoneForCompany(
   context: TenantServiceContext,
   input: ProvisionPhoneInput,
@@ -136,6 +143,13 @@ export async function provisionPhoneForCompany(
   const appliedPack = parseAppliedIndustryPack(company.industry_pack);
   const pack = appliedPack ? getPack(appliedPack.id) : null;
 
+  // Tools (docs/front-desk-ai.md → "## Phone answering"): wired only when the deployment can
+  // serve them (public base URL + the shared function secret). Marine keeps its own quote tool.
+  const functionSecret = process.env.RETELL_FUNCTION_SECRET?.trim() || null;
+  const marine = isMarineCompany(appliedPack?.id ?? null, items.map((i) => i.service_key));
+  const tools = baseUrl && functionSecret ? buildReceptionistTools({ baseUrl, functionSecret, marine }) : null;
+  if (!tools) console.warn("[onboarding] APP_BASE_URL or RETELL_FUNCTION_SECRET unset — receptionist provisioned WITHOUT tools.");
+
   const prompt = buildReceptionistPrompt(
     {
       companyName: company.name,
@@ -144,6 +158,7 @@ export async function provisionPhoneForCompany(
       bookingUrl,
       serviceArea: company.service_area,
       transferNumber: input.transferNumber ?? company.owner_phone_e164,
+      tools: tools ? (marine ? "marine" : "price_list") : null,
     },
     pack ? packReceptionistNotes(pack) : null,
   );
@@ -155,6 +170,9 @@ export async function provisionPhoneForCompany(
     webhookUrl: webhookUrl || null,
     inboundWebhookUrl: baseUrl ? `${baseUrl}/api/retell/inbound` : null,
     areaCode: input.areaCode ?? null,
+    countryCode: retellCountryFor(input.areaCode ?? null, company.brand_reply_phone, company.owner_phone_e164),
+    generalTools: tools,
+    postCallAnalysisData: RECEPTIONIST_ANALYSIS_FIELDS,
     attachNumber: input.attachNumber ?? null,
     existing: input.existing,
     onCreated: input.onCreated,

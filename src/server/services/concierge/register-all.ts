@@ -5,5 +5,6 @@
  */
 import "@/server/services/concierge/actions";
 import "@/server/services/concierge/dfy-actions";
+import "@/server/services/concierge/voice-actions";
 
 export { actionRequestSchema, getConciergeAction, listConciergeActions, runConciergeAction } from "@/server/services/concierge/actions";

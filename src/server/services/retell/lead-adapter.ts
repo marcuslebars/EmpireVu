@@ -25,10 +25,13 @@ import {
 } from "./payload";
 import {
   createRetellAdminClient,
+  pinnedRetellTenant,
   resolveRetellTenant,
   type RetellAdminClient,
   type RetellTenant,
 } from "./tenant";
+import { isVerifiedAnswerTenant, readAnswerMetadata, type VerifiedAnswerTenant } from "@/server/services/voice/ai-answer";
+import { handleAnsweredCall } from "@/server/services/voice/post-call";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The custom_analysis_data field-name contract.
@@ -376,15 +379,32 @@ async function upsertRetellCall(
  * Urgency escalation is carried by the envelope's meta.urgent, which intake turns
  * into a high-priority notification + needs-attention flag.
  */
-async function runPhoneLeadIntake(fields: RetellCallFields, rawPayload: unknown): Promise<RetellIngestResult> {
+interface PhoneLeadIntakeOptions {
+  /** A tenant we already pinned (AI-answered catcher call, token-verified) — skips number/agent/legacy resolution. */
+  tenant?: RetellTenant;
+  /**
+   * Record the call.* triggers on the timeline WITHOUT running workflows. AI-answered catcher
+   * calls do their own owner alert + single follow-up text (voice/post-call.ts), so the
+   * call.missed text-back / call-summary recipes must not fire on top.
+   */
+  triggersEmitOnly?: boolean;
+}
+
+async function runPhoneLeadIntake(
+  fields: RetellCallFields,
+  rawPayload: unknown,
+  options: PhoneLeadIntakeOptions = {},
+): Promise<RetellIngestResult> {
   const cfg = getRetellConfig();
   const admin = createRetellAdminClient();
-  // Inbound tenant: by dialled number → by agent → legacy env (Task 7).
-  const tenant = await resolveRetellTenant(admin, {
-    toNumber: fields.toNumber,
-    agentId: fields.agentId,
-    legacySourceSite: cfg.sourceSite,
-  });
+  // Inbound tenant: pinned by us, else by dialled number → by agent → legacy env (Task 7).
+  const tenant =
+    options.tenant ??
+    (await resolveRetellTenant(admin, {
+      toNumber: fields.toNumber,
+      agentId: fields.agentId,
+      legacySourceSite: cfg.sourceSite,
+    }));
 
   // call_analyzed / capture always carry a call_id; a synthetic id only guards a
   // pathological payload so the raw call is still stored durably.
@@ -413,6 +433,7 @@ async function runPhoneLeadIntake(fields: RetellCallFields, rawPayload: unknown)
           companyId: tenant.companyId,
           contactId: (linked as { contact_id: string | null } | null)?.contact_id ?? null,
           fields,
+          emitOnly: options.triggersEmitOnly,
         });
       }
       return { duplicate: true, leadId: existing.lead_id, callId, urgent: fields.urgent };
@@ -465,6 +486,7 @@ async function runPhoneLeadIntake(fields: RetellCallFields, rawPayload: unknown)
       companyId: tenant.companyId,
       contactId: linkedContactId,
       fields,
+      emitOnly: options.triggersEmitOnly,
     });
   }
 
@@ -512,9 +534,10 @@ export function classifyRetellCall(fields: Pick<RetellCallFields, "durationMs" |
  *  known, else the company. Best-effort — never fails ingest. */
 async function emitRetellCallTriggers(
   admin: RetellAdminClient,
-  args: { organizationId: string | null; companyId: string | null; contactId: string | null; fields: RetellCallFields },
+  args: { organizationId: string | null; companyId: string | null; contactId: string | null; fields: RetellCallFields; emitOnly?: boolean },
 ): Promise<void> {
   if (!args.organizationId) return;
+  const dispatchOptions = args.emitOnly ? { emitOnly: true } : {};
   const anchorId = args.contactId ?? args.companyId;
   if (!anchorId) return;
   const anchorType = args.contactId ? "contact" : "company";
@@ -538,14 +561,19 @@ async function emitRetellCallTriggers(
   };
   try {
     const kind = classifyRetellCall(args.fields);
-    await emitActivityEventAndDispatch(context, {
-      ...base,
-      eventType: kind === "missed" ? "call.missed" : "call.completed",
-    });
+    await emitActivityEventAndDispatch(
+      context,
+      {
+        ...base,
+        eventType: kind === "missed" ? "call.missed" : "call.completed",
+        ...(args.emitOnly ? { metadata: { ...base.metadata, aiAnswered: true } } : {}),
+      },
+      dispatchOptions,
+    );
     if (args.fields.urgent) {
-      await emitActivityEventAndDispatch(context, { ...base, eventType: "call.urgent" });
+      await emitActivityEventAndDispatch(context, { ...base, eventType: "call.urgent" }, dispatchOptions);
     }
-    if (args.companyId && looksAbandoned(args.fields)) {
+    if (!args.emitOnly && args.companyId && looksAbandoned(args.fields)) {
       const callerLast10 = normalizePhoneLast10(args.fields.fromNumber);
       if (callerLast10 && (await shouldSendRecovery(admin, { ...args, companyId: args.companyId, callerLast10 }))) {
         await emitActivityEventAndDispatch(context, {
@@ -633,11 +661,17 @@ export async function announceCallStarted(payload: unknown): Promise<void> {
   const fields = readRetellCallFields(payload);
   if (isOutboundCall(fields) || !getRetellConfig().enabled) return;
   const admin = createRetellAdminClient();
-  const tenant = await resolveRetellTenant(admin, {
-    toNumber: fields.toNumber,
-    agentId: fields.agentId,
-    legacySourceSite: getRetellConfig().sourceSite,
-  });
+  // An AI-answered catcher call carries its tenant in signed metadata; one that claims to and
+  // doesn't verify is never announced (and never falls through to the legacy guess).
+  const answered = readAnswerMetadata(fields.metadata);
+  if (answered && !isVerifiedAnswerTenant(answered)) return;
+  const tenant = isVerifiedAnswerTenant(answered)
+    ? await pinnedRetellTenant(admin, answered.organizationId, answered.companyId)
+    : await resolveRetellTenant(admin, {
+        toNumber: fields.toNumber,
+        agentId: fields.agentId,
+        legacySourceSite: getRetellConfig().sourceSite,
+      });
   if (!tenant.organizationId || !tenant.companyId || tenant.resolvedBy === "legacy") return;
   const context: TenantServiceContext = { organizationId: tenant.organizationId, actorProfileId: null, supabase: admin };
   await emitActivityEventAndDispatch(context, {
@@ -689,7 +723,47 @@ export async function ingestRetellCall(payload: unknown): Promise<RetellWebhookR
   }
 
   if (!cfg.enabled) return { handled: "skipped" };
+
+  // AI-answered catcher call (docs/front-desk-ai.md → "## Phone answering").
+  const answered = readAnswerMetadata(fields.metadata);
+  if (answered) return ingestAnsweredCall(fields, payload, answered);
+
   const result = await runPhoneLeadIntake(fields, payload);
+  return { handled: "inbound", leadId: result.leadId };
+}
+
+/**
+ * A call our catcher handed to the AI. The tenant comes ONLY from the HMAC-verified metadata
+ * we set at registration — a payload that claims to be one but doesn't verify is stored
+ * durably with NO tenant and no lead (never re-routed by number/agent/legacy guess).
+ */
+async function ingestAnsweredCall(
+  fields: RetellCallFields,
+  payload: unknown,
+  answered: VerifiedAnswerTenant | { valid: false },
+): Promise<RetellWebhookResult> {
+  const admin = createRetellAdminClient();
+  if (!isVerifiedAnswerTenant(answered)) {
+    console.error(`[retell] AI-answer call ${fields.callId ?? "?"} has metadata that doesn't verify — stored without a tenant.`);
+    await upsertRetellCall(admin, {
+      callId: fields.callId ?? `retell_nocid_${randomBytes(8).toString("hex")}`,
+      tenant: { organizationId: null, companyId: null, sourceSite: "" },
+      fields,
+      rawPayload: payload,
+    });
+    return { handled: "skipped" };
+  }
+  const tenant = await pinnedRetellTenant(admin, answered.organizationId, answered.companyId);
+  const result = await runPhoneLeadIntake(fields, payload, { tenant, triggersEmitOnly: true });
+  if (isPostCall(fields)) {
+    const { data: linked } = await admin.from("retell_calls").select("contact_id").eq("call_id", result.callId).maybeSingle();
+    await handleAnsweredCall(admin, {
+      tenant: answered,
+      fields,
+      leadId: result.leadId,
+      contactId: (linked as { contact_id: string | null } | null)?.contact_id ?? null,
+    });
+  }
   return { handled: "inbound", leadId: result.leadId };
 }
 
@@ -766,5 +840,13 @@ async function captureOutboundOutcome(fields: RetellCallFields, rawPayload: unkn
 
 /** Mid-call custom-function path: ingest a capture-lead tool invocation. */
 export async function captureRetellLead(payload: unknown): Promise<RetellIngestResult> {
-  return runPhoneLeadIntake(readRetellFunctionFields(payload), payload);
+  const fields = readRetellFunctionFields(payload);
+  // A receptionist answering a catcher call: the tenant is the one in the signed metadata.
+  const answered = readAnswerMetadata(fields.metadata);
+  if (answered) {
+    if (!isVerifiedAnswerTenant(answered)) throw new Error("AI-answer call metadata doesn't verify — not capturing.");
+    const tenant = await pinnedRetellTenant(createRetellAdminClient(), answered.organizationId, answered.companyId);
+    return runPhoneLeadIntake(fields, payload, { tenant, triggersEmitOnly: true });
+  }
+  return runPhoneLeadIntake(fields, payload);
 }

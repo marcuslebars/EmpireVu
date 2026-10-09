@@ -32,6 +32,7 @@
     "job:crankleads-repair-automations": "tsx src/server/jobs/crankleads-repair-tier-automations.ts",
     "job:accounting-sync": "tsx src/server/jobs/accounting-sync.ts",
     "job:operator-health": "tsx src/server/jobs/operator-health.ts",
+    "job:retell-message-agent": "tsx src/server/jobs/retell-message-agent.ts",
     "stripe:setup-crankleads": "node scripts/stripe/setup-crankleads.mjs"
   },
   "dependencies": {
