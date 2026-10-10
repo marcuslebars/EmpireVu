@@ -1,6 +1,7 @@
 import { enqueueInboundWebhookJob } from "@/server/services/inbound-webhook-jobs";
 import { enforceWebhookBackstop } from "@/server/services/rate-limit";
 import { createTwilioAdminClient } from "@/server/services/twilio/inbound-sms";
+import { inboundSmsUrlCandidates } from "@/server/services/twilio/sms-signed-urls";
 import { verifyTwilioSignature } from "@/server/services/twilio/signature";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,12 @@ export async function POST(request: Request): Promise<Response> {
   const params = Object.fromEntries(new URLSearchParams(rawBody));
   const signature = request.headers.get("x-twilio-signature");
 
-  if (!verifyTwilioSignature(inboundSmsUrl(request), params, signature, process.env.TWILIO_AUTH_TOKEN)) {
+  const candidates = inboundSmsUrlCandidates(request);
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!candidates.some((url) => verifyTwilioSignature(url, params, signature, authToken))) {
+    // No secrets logged: which URLs were tried and which number it was for, so a webhook
+    // URL / auth-token mismatch is diagnosable from the logs.
+    console.warn("[twilio] inbound SMS signature rejected", { to: params.To ?? null, tried: candidates });
     return new Response("Invalid signature.", { status: 403 });
   }
 
@@ -52,17 +58,4 @@ function twiml(): Response {
     status: 200,
     headers: { "Content-Type": "text/xml" },
   });
-}
-
-/**
- * The exact URL Twilio signed. Twilio signs the URL configured on the number, which behind
- * a proxy is not request.url (scheme/host differ). Prefer an explicit TWILIO_INBOUND_SMS_URL;
- * else rebuild from APP_BASE_URL + the request path.
- */
-function inboundSmsUrl(request: Request): string {
-  const configured = process.env.TWILIO_INBOUND_SMS_URL?.trim();
-  if (configured) return configured;
-  const base = (process.env.APP_BASE_URL ?? "").replace(/\/$/, "");
-  const url = new URL(request.url);
-  return base ? `${base}${url.pathname}${url.search}` : request.url;
 }
