@@ -42,6 +42,7 @@ import { useBrand } from "@/lib/brand-context";
 import { SetupProgressCard } from "@/components/onboarding/SetupProgress";
 import { ApprovalsCard } from "@/components/approvals/ApprovalsCard";
 import { WeeklyFrontDeskCard } from "@/components/reports/WeeklyFrontDeskCard";
+import { YourNumbersCard } from "@/components/front-desk/YourNumbersCard";
 
 const ONBOARDING_TOTAL_STEPS = 8;
 
@@ -325,6 +326,8 @@ export default function Dashboard() {
 
       <SetupChecklistCard orgId={organizationId} />
       <OnboardingChecklistCard orgId={organizationId} />
+
+      <YourNumbersCard orgId={organizationId} companyId={companyId ?? null} />
 
       <ApprovalsCard orgId={organizationId} companyId={companyId ?? null} />
 

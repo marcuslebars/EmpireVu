@@ -290,6 +290,16 @@ describe("getMissedCallCatcherStatus", () => {
     ]);
   });
 
+  it("includes the number the owner texts (the platform line, pretty)", async () => {
+    process.env.PLATFORM_SMS_NUMBER = "+12898034824";
+    try {
+      const status = await getMissedCallCatcherStatus(ctx(), COMPANY);
+      expect(status.ownerTextNumberPretty).toBe("(289) 803-4824");
+    } finally {
+      delete process.env.PLATFORM_SMS_NUMBER;
+    }
+  });
+
   it("no number yet → null", async () => {
     const status = await getMissedCallCatcherStatus(ctx(), COMPANY);
     expect(status.number).toBeNull();
