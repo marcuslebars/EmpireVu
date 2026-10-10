@@ -20,6 +20,7 @@
 // Claimed numbers are tagged `EmpireVu catcher <companyId>`. The DB backstop is the global
 // UNIQUE on voice_numbers.phone_e164.
 // ─────────────────────────────────────────────────────────────────────────────
+import { platformNumber } from "@/server/outbound/platform-number";
 import type { Tables } from "@/server/db/database.types";
 import { buildForwardingInstructions, prettyPhone, type ForwardingInstructions } from "@/lib/carrier-forwarding";
 import { UserFacingError } from "@/server/errors";
@@ -430,15 +431,19 @@ export interface CatcherStatus {
   configured: boolean;
   number: { id: string; phoneNumber: string; phoneNumberPretty: string; createdAt: string } | null;
   instructions: ForwardingInstructions | null;
+  /** The number the owner texts to run the business by text (the platform number), pretty. */
+  ownerTextNumberPretty: string | null;
 }
 
 export async function getMissedCallCatcherStatus(context: TenantServiceContext, companyId: string): Promise<CatcherStatus> {
   const row = await currentCatcherRow(context, companyId);
+  const ownerLine = platformNumber();
   return {
     configured: Boolean(getTwilioCredentials() && twilioWebhookBaseUrl()),
     number: row
       ? { id: row.id, phoneNumber: row.phone_e164, phoneNumberPretty: prettyPhone(row.phone_e164), createdAt: row.created_at }
       : null,
     instructions: row ? buildForwardingInstructions(row.phone_e164) : null,
+    ownerTextNumberPretty: ownerLine ? prettyPhone(ownerLine) : null,
   };
 }

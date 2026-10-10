@@ -2327,6 +2327,8 @@ export interface MissedCallCatcherStatus {
   configured: boolean;
   number: { id: string; phoneNumber: string; phoneNumberPretty: string; createdAt: string } | null;
   instructions: ForwardingInstructions | null;
+  /** The number the owner texts to run the business by text. */
+  ownerTextNumberPretty?: string | null;
 }
 
 export interface MissedCallCatcherProvisionResult {
