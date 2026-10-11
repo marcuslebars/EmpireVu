@@ -775,3 +775,192 @@ Types: `staff/porting/db-types.ts` until merged into `database.types.ts`.
 - The bill's own date isn't read (the owner confirms "from the last 30 days"; the operator sees the upload date).
 
 ## Hiring & payroll
+
+The Recruiter does the office's hiring and payroll paperwork. It turns the crew's clock-ins into a payroll the owner OKs by text, with Ontario overtime flagged. Y locks the hours and emails a CSV the bookkeeper can load into any payroll tool. It also writes job posts, puts them on the company site with an apply form, sorts applicants against the job's own requirements, and sets up calls once the owner says yes. Code: `src/server/services/staff/recruiter/`. Migration: `20261012130000_staff_recruiter.sql` (rollback in `supabase/rollback/`).
+
+### What the owner sees
+
+- **Monday 08:00, the morning after a pay period ends**, one text from the platform number:
+
+  > #12 Payroll Sep 28 - Oct 11: Ana 40h, Jo 6h, Mike 82h (OT 6h). Total 128h, OT 6h flagged (over 44h/wk). Y locks these hours and emails the CSV to books@acct.ca. Reply Y 12 to lock it and send the CSV, N 12 to skip.
+
+  **Y 12** locks the period's time entries and emails `northshore-roofing-payroll-2026-09-28-to-2026-10-11.csv` to the bookkeeper email (or the account owner). The owner gets back "Locked payroll Sep 28 - Oct 11 (3 people, 128h, OT 6h) and emailed the CSV to books@acct.ca."
+- **Someone forgot to clock out.** The text adds "1 open entry (no clock-out): Ana Tue Oct 6." and the reply line becomes "Fix the open entry in the app and reply Y 12, or reply Y 12 anyway to lock as is. N 12 to skip." A plain **Y** while it's still open locks nothing; it asks again with a fresh code: "Not locked yet: 1 open entry with no clock-out (Ana Tue Oct 6). Fix it in the app, then reply Y 13 - or Y 13 anyway to lock as is (open entries count as 0)." **Y 13 anyway** locks it, and the open entry counts as 0 in the CSV with a note.
+- **"I need a labourer, $22/hr, start Monday"** (to the assistant): `start_hiring` drafts the post and the reply is the question:
+
+  > #14 Job post "Labourer" - $22/hr, Full-time, start Monday, Midland. Duties: …; …. Needs: …; …. Form also asks: "Do you have your Working at Heights ticket?". Y publishes it on your website with an apply form and texts you copy for Indeed/Facebook. Reply Y 14 to post it, N 14 to skip.
+
+  **Y 14** opens `/s/<slug>/jobs/<id>` (or `pages.crankleads.com/<slug>/jobs/<id>`). The owner gets "Posted the Labourer job: <link>. Copy for Indeed/Facebook is in my other text. …", plus a second text: "Copy for Indeed/Facebook: Northshore Roofing is hiring: Labourer ($22/hr, …). You'll: …. You need: …. Apply here: <link>".
+- **Applicants** fill in the form: name, cell, email, experience, availability, driver's licence and own vehicle (yes/no), plus up to 3 job questions. Each one gets "Hi Jo, thanks for applying for the Labourer job at Northshore Roofing. We got your application and we'll be in touch." from the business number.
+- **08:30 the next morning** (only when there are new applicants):
+
+  > Hiring (Northshore Roofing): 5 new applicants for Labourer. Top: Jo P. 5/5 - 3 yrs roofing, has licence; Sam L. 4/5 - …; +3 more. I'll ask you about inviting the top 3. Text "applicants" for the full list.
+
+  This is followed by up to 3 `interview_invite` approvals a day: "Invite Jo Park (705-555-0142) to talk about the Labourer job? Score 5/5 - …. Y texts them: "Hi Jo, Northshore Roofing would like to talk about the Labourer job. When's a good time for a quick call this week?" Their reply comes to you." On **Y** Jo gets exactly that text, and the reply comes to the owner, not the AI.
+- **By text any time:** "who applied?" (`applicants`), "invite Sam" (`invite_applicant`), "close the labourer job" (`close_job`).
+- **House orgs (A1 etc.)** get none of this unless the owner switches it on in Settings → AI front desk → Hiring & payroll.
+
+### Payroll
+
+- **Periods** (`periods.ts`, pure): weekly or bi-weekly from the anchor date (the first day of any one period, default Mon 2026-01-05), or semi-monthly (1st–15th, 16th–end of month). Dates are the company's local calendar days; `starts_at` / `ends_at` are local midnights (DST-safe).
+- **Hours** (`computePayroll`): `time_entries` → `time/logic.ts workedMinutes` (breaks subtracted). An entry counts on the local day it starts.
+  - Which entries are the company's: `company_id` = the company, plus general time (`company_id` null) for the org's first (oldest) company only. That way a multi-company org never counts the same hours twice.
+  - **Open entries** (no clock-out) count as 0 and are listed by person and day.
+  - **Edits since the period ended**: an entry added after the end, or changed after it. A clock-out written within 10 minutes of the change doesn't count, so a shift that ran past midnight isn't flagged.
+  - Job count = distinct bookings.
+- **Ontario overtime** — a *flag*, never a payroll calculation:
+  - Hours past 44 in a work week are flagged at 1.5×.
+  - The work week starts on the anchor's weekday (weekly / bi-weekly) or Monday (semi-monthly).
+  - A work week that straddles the period start counts the earlier days toward the 44. That keeps semi-monthly periods right.
+  - No averaging agreements, exemptions, vacation pay or tax.
+- **The sweep** (`payroll.ts runCompanyPayroll`, `recruiter:payroll` every 5 min):
+  - It runs from 08:00 local on the day after the period ends, caught up for 2 days.
+  - The `pay_periods` row (unique company + start date) is the claim, so each period is asked about once across workers.
+  - A period with no hours becomes `empty` and nothing is asked. A failed read deletes the claim so a later pass retries.
+  - Otherwise it creates a `payroll_period` approval (72 h), notified through `notifyOwnerOfApproval` (quiet hours respected), and the period becomes `awaiting_owner`.
+- **The lock**:
+  - `time/service.ts` (`createManualEntry`, `updateEntry`, `deleteEntry`) checks `staff/recruiter/time-lock.ts` first. A locked entry gives a plain `PayPeriodLockedError`: "Those hours are locked for payroll. An owner or admin can unlock the pay period in Settings > AI front desk > Hiring & payroll."
+  - The `time_entries_pay_period_lock` trigger is the backstop. It refuses any client (browser session) insert, edit or delete inside a locked period (`pay_period_locked`, mapped to the same message).
+  - **Exception:** stopping a clock that was left running is always allowed, so a period locked "anyway" never strands a running clock.
+  - General-time entries are covered by any of the org's locked periods.
+  - The service role and `close_job_time_entries` (SECURITY DEFINER) aren't affected.
+- **Unlock / lock from Settings**: `POST /api/organizations/:org/companies/:company/payroll/periods/:periodId { action: "lock" | "unlock", reason? }` (owners/admins).
+  - Unlock clears the email claim, so re-locking emails a fresh CSV.
+  - Every ask, lock, unlock, CSV email, CSV download and skip is a `pay_period_events` row with who did it (`owner_sms:+1…`, `profile:<uuid>`, `system`).
+- **CSV** (`payrollCsv`): one row per person with columns `employee_name, employee_email, period_start, period_end, regular_hours, ot_hours, total_hours, hourly_rate, gross_estimate, job_count, notes`.
+  - Hours are decimals. The rate comes from `member_pay_rates`.
+  - Gross = regular × rate + OT × 1.5 × rate. It's an estimate before deductions.
+  - Notes: the OT flag, open entries not counted, changed after the period, no pay rate.
+  - Cells are formula-safe (`csvCell`).
+  - Download any period: `GET …/payroll/periods/:periodId/csv` (owners/admins). It's computed fresh from the entries.
+  - The email (Resend `sendEmail` with the CSV attached, sent under the business's name) is claimed by `csv_emailed_at`. A failure still locks, records `csv_email_error`, and tells the owner where to download it.
+
+### Approval kinds
+
+| Kind | Created by | Y | N / expiry |
+| --- | --- | --- | --- |
+| `payroll_period` | the payroll sweep (72 h); an executor re-ask when entries are still open (asked inline to the phone that said Y) | recomputes the hours. Open entries without "anyway" → a fresh `payroll_period` with a new code and the period re-pointed to it; nothing is locked. Otherwise: conditional `status → locked`, CSV email, "Locked payroll … and emailed the CSV to …" | `skipped` / `expired`, nothing locked ("You can lock it or download the CSV in Settings") |
+| `job_post` | owner tool `start_hiring` (asked inline, 48 h) | `awaiting_owner → open` (conditional), the paste copy is texted to the owner once (`owner_texted_at` claim) | `rejected` / `expired` ("Text me what to change … and I'll redraft it") |
+| `interview_invite` | the 08:30 digest (≤ 3 a day; notified normally) or owner tool `invite_applicant` (inline), 48 h | `invited_at` claimed, the exact invite is texted from the business number, and the conversation goes to the owner (an applicant-only contact stays AI-paused; anyone else gets `markOwnerTakeover`) | nothing sent |
+
+"Y 12 anyway" is a new decision note. `parseApprovalReply` accepts `anyway` after a yes. `front-desk/approval-text.ts ANYWAY_NOTE_KINDS` (only `payroll_period`) lets it through in `owner-channel/entry.ts`. Any other kind answers "#12 (…) can't be approved 'anyway'. Reply Y 12 to approve it as it is, or N 12." `replyInstruction` has lines for the three kinds. Every executor is idempotent: a second Y is "already" (owner channel), and a re-run sends nothing (conditional claims).
+
+### Hiring
+
+- **Drafting** (`ai.ts draftJobPost`, model `AI_MODEL_RECRUITER`, default `claude-sonnet-5-5`, usage recorded):
+  - The input is the owner's words, fenced as data, plus the business name, trade and service area. The model returns JSON (title, pay, type, start, location, summary, 3–6 duties, 2–5 requirements, nice-to-haves, up to 3 job questions).
+  - **Pay** is kept only when every amount in it is one the owner typed (`checkedPay`). It's never invented. With no pay, the owner's text says so.
+  - **Human rights guard** (`protectedGroundProblems`): any line touching a ground protected by the Ontario Human Rights Code is dropped. That covers age ("young", "under 35", "recent grads"), sex/gender ("men", "handyman"), family/marital status, origin/citizenship/ancestry ("native English speaker", "Canadian-born"), creed, disability ("able-bodied"), sexual orientation and public assistance. So is "Canadian experience". Job-related lines stay: "lift 50 lbs", "18 or older", "Working at Heights", "G licence", "10-15 years of experience".
+  - No model, a bad answer or a title that fails → a plain template from the owner's words (`templateJobDraft`).
+  - One draft waits at a time. A new `start_hiring` marks the old one `rejected` and supersedes its approval.
+- **Public pages** (`public.ts`, `jobs-render.ts`; routes `src/app/s/[slug]/jobs/route.ts` and `…/jobs/[jobId]/route.ts`):
+  - They're served only for a `published` `company_sites` row whose company has hiring on. The company comes from the slug row only.
+  - A closed job answers 410 "This job is closed". Anything else gets the site's neutral 404.
+  - The pages use the site's colours, and every value goes through `esc` / `safeHref`. Each job page says "This is a current opening." and "We use AI to help sort applications. A person reads every one and makes every decision." (in line with Ontario's 2026 job-posting rules for larger employers).
+  - The apply form is a plain HTML POST to the same URL (no JS needed). POST checks: a streamed 16 KB body cap, rate limits (6/hour per IP, 200/hour per job), honeypot + 3-second minimum fill, and Turnstile when configured.
+  - `site-host.ts` now rewrites `pages-host/<slug>/jobs[/<uuid>]` to these routes.
+  - With no live website, the post still opens. The paste copy says "text <business number>", and texts come to the business line, where the prompt note below applies.
+- **Applying** (`applicants.ts submitApplication`):
+  - `job_applicants` has one row per job + E.164 phone. Applying again refreshes the answers (re-screened), with no second text.
+  - The contact is matched by phone (last 10). A **new** contact is inserted directly, with no `contact.created` event, so no lead automation fires. It gets `metadata { kind: "applicant", applicant_job_ids }`, `consent_source 'job_application'`, and its conversation is set to `paused`: their texts reach the owner through the customer-text relay and never go to the AI as a customer.
+  - An **existing** contact (a customer who applies) keeps its details and its AI. Only `applicant_job_ids` is added.
+- **Confirmation text**: from the company's own number only (no number → `skipped`), 08:00–21:00 local. Later applications wait for the `recruiter:applicants` sweep the next morning, and are dropped after 2 days.
+  - It's transactional (they asked), so opt-outs always win and no 6-month consent expiry applies.
+  - Claimed `pending → sending → sent/skipped/failed`. `message_log.sent_by = 'recruiter'`.
+- **Screening** (`screenApplicant`, `recruiter:applicants` sweep, 20 a pass, at most 3 attempts, the attempt counted before the call):
+  - It scores 1–5 **only against the job's stated requirements, nice-to-haves and duties**.
+  - The model never sees the name, phone or email. Answers are fenced as `<applicant_answers note="data">` with angle brackets stripped. Volunteered ages ("I'm 45", "born in 1974") are redacted.
+  - The prompt forbids considering any protected ground or where experience was gained.
+  - A reason that mentions a protected ground is replaced with the met requirements. No model or a bad answer → `ruleScreening` (licence / vehicle answers against the requirements, how much experience was written).
+  - **Nobody is ever rejected automatically.** The score only orders the owner's list.
+- **Digest** (`runCompanyDigest`, `recruiter:digest` every 5 min):
+  - It runs from 08:30 to 11:00 local, only with new applicants on open jobs and a verified owner cell. It's claimed per local day in `recruiter_sweep_claims`.
+  - The owner gets the text, then every included applicant gets `digest_at`, then interview invites are created for the best ones not yet invited. Invites created by the Recruiter that day count toward the cap of 3. A failed owner text releases the day.
+- **SMS agent prompt note**: "Job applicants …". If the person is asking about a job, an application or an interview, or the history shows the business's applicant texts, the agent never quotes, books or sells, never asks anything personal, and calls `hand_off_to_owner`.
+
+### Owner tools
+
+| Tool | Does |
+| --- | --- |
+| `start_hiring` | `request` (the owner's words), optional `title` / `pay` / `start` / `location` → draft + `job_post` approval. Returns `tell_owner_exactly` (≤ 470 chars, with the code). |
+| `applicants` | Open jobs (or the one named): link, count, new since the digest, the top 8 with score, reason, phone, licence/vehicle, invited. |
+| `invite_applicant` | `applicant` (name words), optional `job` → `interview_invite` (inline). Ambiguous names list the matches. |
+| `close_job` | Closes an open job (by title words, or the only one). The page answers 410. |
+
+Owner prompt notes tell the agent to relay `tell_owner_exactly` word for word, never invent pay, never judge applicants on anything personal, and that payroll locking and unlocking happen by the payroll text or in Settings, not by command.
+
+### Settings
+
+`companies.ai_settings.recruiter`, read only by `staff/recruiter/settings.ts readRecruiterSettings`:
+
+```
+recruiter = {
+  payroll: { enabled, frequency: "weekly" | "biweekly" | "semimonthly", anchor_date: "YYYY-MM-DD", csv_email },
+  hiring:  { enabled },
+  any_on:  boolean   // written by mergeRecruiterSettings: the sweeps' server-side filter for house orgs
+}
+```
+
+- Both switches default **on** for CrankLeads orgs and **off** for house orgs.
+- The defaults are bi-weekly from 2026-01-05. The CSV goes to the org owner's email when no `csv_email` is set.
+- Route: `GET | PATCH /api/organizations/:org/companies/:company/ai-settings/recruiter`.
+  - Members read the settings only. Pay periods, jobs and the fallback email are for owners/admins.
+  - Owners/admins PATCH `{ payroll?: { enabled, frequency, anchorDate, csvEmail (""/null clears) }, hiring?: { enabled } }` (strict; a real date and email). It's merged into `ai_settings.recruiter` only.
+- UI: `src/components/settings/staff/RecruiterSettingsSection.tsx`.
+  - Payroll on/off, the pay period, the anchor, and the CSV email.
+  - Recent pay periods, each with **CSV**, **Unlock** (asks first) and **Lock & email**.
+  - Hiring on/off, a note when the website isn't live, and the job posts with applicant counts and links.
+
+`recruiterActiveFor(admin, { organizationId, companyId })` is true when payroll or hiring is on. The registry uses it to offer the owner tools and prompt notes only there.
+
+### Schema (`20261012130000_staff_recruiter.sql`)
+
+- `pay_periods`: unique `(company_id, start_date)`.
+  - Columns: status `pending | awaiting_owner | locked | unlocked | skipped | expired | empty`, company-level totals (people, minutes, OT, open entries; no per-person hours), lock / unlock / CSV-email fields.
+  - **Every member may read** it (dates and status only), so the timesheet service can say "locked".
+- `pay_period_events`: the audit log. Owners/admins read.
+- `job_postings`: status `draft | awaiting_owner | open | closed | rejected | expired`, duties / requirements / nice-to-haves / questions as jsonb. Members read.
+- `job_applicants`: unique `(job_id, phone)`, with score, reason, screening, the confirmation claim, `digest_at` and the invite fields. **Owners/admins only** (personal information).
+- `recruiter_sweep_claims`: service role only.
+- `time_entry_in_locked_period(org, company, at)` (SECURITY DEFINER, `authenticated` + service role) and the SECURITY INVOKER trigger `time_entries_pay_period_lock`. It's invoker on purpose, so `is_client_role()` sees the caller.
+- Nothing is client-writable. SQL checks: `scripts/sql-tests/zz_recruiter.test.sql` (privileges, plus the lock: deny edit / delete / backdated insert in a locked period, allow stopping a running clock, allow after unlock, the service role unaffected).
+
+Types: `staff/recruiter/db-types.ts` until merged into `database.types.ts`.
+
+### Env
+
+`AI_MODEL_RECRUITER` (default `claude-sonnet-5-5`), `ANTHROPIC_API_KEY` (without it, job posts use the template and screening uses the rules), `RESEND_API_KEY` + `OUTBOUND_FROM_EMAIL` (the CSV email; already set), optional `TURNSTILE_SECRET_KEY` / `TURNSTILE_SITE_KEY` (the apply form), `PAGES_BASE_URL` (already set for the generated sites).
+
+### Sweeps
+
+`recruiter:payroll` (5 min), `recruiter:applicants` (2 min: screening, then confirmation texts), `recruiter:digest` (5 min).
+
+- The companies are loaded at most once per 30 s per worker (`loadRecruiterCompanies`). That's every company of a CrankLeads org, plus house-org companies with `any_on`, active ones only. Reads page past the 1000-row cap.
+
+### Tests
+
+`src/test/staff-recruiter.test.ts` (fake DB, real services; Twilio, Resend and the model faked):
+
+- Period maths, OT (44 h, straddling weeks), open and late-edited entries, the CSV, the summary cap.
+- Settings defaults and house orgs, and registry wiring.
+- **`payroll_period` end to end through `decideApproval`**: lock + email + text, the open-entry re-ask then "Y 2 anyway", N, expiry, a stale code, a bookkeeper email, an email failure.
+- Unlock / lock / CSV download, and the settings view.
+- The lock in `time/service.ts`, including the trigger error mapping.
+- The human rights guard and pay checks.
+- `start_hiring` (model draft stripped, template, withdraw, owner tool), and **`job_post` end to end** (publish + paste copy, N).
+- Pages + apply (escaping, 404/410, hiring off, unpublished site, form checks, contact + paused AI, confirmation from the business number, repeat, existing customer, overnight → morning, opt-out).
+- Screening (no PII to the model, redaction, fencing, protected-ground reason, rules fallback, once per applicant).
+- Digest (08:30, cap 3, once a day), and **`interview_invite` end to end** (exact text, owner gets the reply, idempotent).
+- Owner tools, the "anyway" parse, and the pages-host rewrite.
+
+`src/test/recruiter-route.test.ts`: the settings route (member vs owner, strict PATCH), lock / unlock / CSV routes (roles, 404), and the public pages + apply POST (honeypot, too fast, rate limit, bad phone).
+
+### Not yet
+
+- No payroll provider API and no tax: the CSV is generic (no per-provider templates). Gross is an estimate.
+- OT is the plain 44-hour weekly rule. Averaging agreements, exempt roles and public-holiday pay aren't modelled.
+- Changing the frequency or anchor mid-period starts the new schedule at the next period. A period already asked about isn't redone, and two schedules can overlap once.
+- A pay period belongs to one company. In a multi-company org, general time (no company) is counted for the oldest company only.
+- No "We're hiring" link on the generated home page yet; the jobs page is linked from the paste copy and Settings.
+- No resume upload (the form asks for experience as text). Applicant contacts keep the default contact stage and aren't deleted when a job closes.
+- The SMS agent recognises an existing customer who applied only from the conversation itself (prompt note). Applicant-only contacts are handled deterministically (AI paused).
