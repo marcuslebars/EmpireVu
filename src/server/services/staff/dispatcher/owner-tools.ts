@@ -13,13 +13,13 @@ import type { ToolRunState } from "@/server/services/owner-channel/tools";
 import { BULK_RESCHEDULE_KIND, createDispatchApproval } from "./approvals";
 import { loadDispatchCompany, type DispatchCompany } from "./company";
 import { crewPlanForDay, shortAddress } from "./crew-schedule";
-import { placesGeocoder, ensureCompanyLocation, type Geocoder } from "./geocode";
+import { defaultGeocoder, ensureCompanyLocation, type Geocoder } from "./geocode";
 import { isOpenJob, jobPhrase, loadJobs, serviceLabels } from "./jobs";
 import { buildMoveSummary, type PlannedMove } from "./moves";
 import { isWeatherSensitiveJob } from "./settings";
 import { loadSlotContext, openSlotsFor } from "./slots";
 import { addDays, dayLabel, localDate, localDayRange, shortLabel, timeLabel } from "./time";
-import { assessWindow, getCompanyForecast, openMeteoProvider, weatherConfigured, type WeatherProvider } from "./weather";
+import { assessWindow, getCompanyForecast, defaultWeatherProvider, weatherConfigured, type WeatherProvider } from "./weather";
 
 export interface OwnerToolDeps {
   provider(): WeatherProvider;
@@ -27,8 +27,8 @@ export interface OwnerToolDeps {
 }
 
 export const defaultOwnerToolDeps: OwnerToolDeps = {
-  provider: () => openMeteoProvider(),
-  geocoder: () => placesGeocoder(),
+  provider: () => defaultWeatherProvider(),
+  geocoder: () => defaultGeocoder(),
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

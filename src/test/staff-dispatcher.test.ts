@@ -35,6 +35,7 @@ import {
   clearWeatherMemoryCache,
   getCompanyForecast,
   weatherConfigured,
+  defaultWeatherProvider,
   openMeteoUrl,
   parseOpenMeteo,
   type Forecast,
@@ -351,11 +352,13 @@ describe("weather", () => {
     expect(paid).toMatch(/^https:\/\/customer-api\.open-meteo\.com\/v1\/forecast\?/);
     expect(paid).toContain("apikey=k123");
     expect(paid).toContain("hourly=precipitation_probability%2Cprecipitation%2Cwind_speed_10m%2Ctemperature_2m");
-    // Production without a commercial key: no weather checks (the free API is non-commercial).
+    // Environment Canada needs no key: weather runs in production unless switched off.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(weatherConfigured({ NODE_ENV: "production" })).toBe(false);
-    expect(weatherConfigured({ NODE_ENV: "production", OPEN_METEO_API_KEY: "k" })).toBe(true);
-    expect(weatherConfigured({ NODE_ENV: "test" })).toBe(true);
+    expect(weatherConfigured({ NODE_ENV: "production" })).toBe(true);
+    expect(weatherConfigured({ NODE_ENV: "production", WEATHER_PROVIDER: "off" })).toBe(false);
+    // The free Open-Meteo API is never the default: no key → Environment Canada.
+    expect(defaultWeatherProvider({}).name).toBe("environment-canada");
+    expect(defaultWeatherProvider({ OPEN_METEO_API_KEY: "k" }).name).toBe("open-meteo-commercial");
     warn.mockRestore();
   });
 

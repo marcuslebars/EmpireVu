@@ -17,6 +17,7 @@ const HOSTS = new Set([
   "api.anthropic.com",
   "api.open-meteo.com",
   "customer-api.open-meteo.com",
+  "dd.weather.gc.ca",
   "northshoresnow.ca",
   "www.northshoresnow.ca",
 ]);

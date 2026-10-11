@@ -11,12 +11,12 @@ import { BULK_RESCHEDULE_KIND, FILL_GAP_KIND, WEATHER_RESCHEDULE_KIND } from "./
 import { loadDispatchCompaniesCached, type DispatchCompany } from "./company";
 import { sweepCrewTexts } from "./crew-schedule";
 import { checkGapOfferStillValid, executeFillGap, sweepFillGap } from "./fill-gap";
-import { placesGeocoder } from "./geocode";
+import { defaultGeocoder } from "./geocode";
 import { flushQueuedMessages, queueHasWork } from "./messages";
 import { applyMoves, checkMovedStillValid } from "./moves";
 import { sweepOnOurWay } from "./on-our-way";
 import { dispatcherOwnerTools } from "./owner-tools";
-import { openMeteoProvider } from "./weather";
+import { defaultWeatherProvider } from "./weather";
 import { sweepWeather } from "./weather-sweep";
 
 function byId(companies: DispatchCompany[]): Map<string, DispatchCompany> {
@@ -62,7 +62,7 @@ export const DISPATCHER_SWEEPS: StaffSweep[] = [
   {
     name: "dispatcher:weather",
     intervalMs: 5 * 60_000,
-    run: (admin, nowMs) => withCompanies(admin, nowMs, (cs) => sweepWeather(admin, nowMs, cs, { provider: openMeteoProvider(), geocoder: placesGeocoder() })),
+    run: (admin, nowMs) => withCompanies(admin, nowMs, (cs) => sweepWeather(admin, nowMs, cs, { provider: defaultWeatherProvider(), geocoder: defaultGeocoder() })),
   },
 ];
 

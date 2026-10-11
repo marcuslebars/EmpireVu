@@ -7,6 +7,7 @@
  * key as dfy/places.ts); unset → no geocoding (weather checks are skipped for that company).
  * The HTTP calls sit behind the injectable `Geocoder` seam (tests never touch Google).
  */
+import { environmentCanadaTownGeocoder } from "./environment-canada";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { placesApiKey } from "@/server/services/dfy/places";
 import type { DispatchCompany } from "./company";
@@ -128,3 +129,21 @@ export async function ensureCompanyLocation(admin: AdminClient, company: Dispatc
   company.locationCheckedAt = patch.location_checked_at as string;
   return found;
 }
+
+/**
+ * The geocoder the sweeps use: Google Places when GOOGLE_PLACES_API_KEY is set (exact business
+ * location, falls back to the town list for anything it can't find), else Environment Canada's
+ * forecast-town list (the business's town — close enough for a local forecast).
+ */
+export function defaultGeocoder(): Geocoder {
+  const towns = environmentCanadaTownGeocoder();
+  const places = placesGeocoder();
+  if (!places) return towns;
+  return {
+    placeLocation: (placeId) => places.placeLocation(placeId),
+    async searchLocation(query) {
+      return (await places.searchLocation(query).catch(() => null)) ?? (await towns.searchLocation(query).catch(() => null));
+    },
+  };
+}
+

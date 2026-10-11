@@ -10,7 +10,7 @@
 //   Places   – searchText + details for "Northshore Snow & Lawn" (Midland, ON)
 //   Anthropic– /v1/messages: catalog parse (prices only where the site states them) and site copy
 //   Website  – northshoresnow.ca: home, services (ONE stated price), about, contact, logo.png
-//   Phase 2  – Open-Meteo forecast (rain windows via /__control), Places `location`, the
+//   Phase 2  – Environment Canada citypage weather + Open-Meteo (rain windows via /__control), Places `location`, the
 //              Estimator's vision estimate, Marketer copy, and the staff tools in the scripted
 //              SMS / owner agents (staff.ts)
 import { appendFileSync, mkdirSync } from "node:fs";
@@ -570,6 +570,76 @@ function openMeteo(req, res, path, host) {
   capture({ kind: "weather", host, lat: url.searchParams.get("latitude"), lng: url.searchParams.get("longitude"), apikey: url.searchParams.has("apikey"), hourly: url.searchParams.get("hourly"), timeformat: url.searchParams.get("timeformat") });
   return json(res, 200, { latitude: Number(url.searchParams.get("latitude")), longitude: Number(url.searchParams.get("longitude")), hourly: { time, precipitation_probability: prob, precipitation: mm, wind_speed_10m: wind, temperature_2m: temp } });
 }
+// ── Environment Canada citypage weather (Phase 2 Dispatcher, the default source) ─
+// Site list, a directory listing for any province/hour, and a citypage XML built from the
+// current (fake) time: hourly lop 90 % inside any control.rain window, 0 % outside; day/night
+// periods after the hourly 24 h with PoP 90 % + 15 mm when the period overlaps a rain window.
+const EC_SITES = `Site Names,,,,,
+Codes,English Names,Province Codes,Latitude,Longitude,Nom français
+s0000458,Toronto,ON,43.74N,79.37W,Toronto
+s0000105,Midland,ON,44.75N,79.88W,Midland
+s0000430,Orillia,ON,44.61N,79.42W,Orillia
+`;
+function torontoOffsetHours(ms) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Toronto", timeZoneName: "shortOffset" }).formatToParts(new Date(ms));
+  const tz = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT-5";
+  return Number(tz.replace("GMT", "")) || -5;
+}
+function ecStamp(ms, withSeconds) {
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}${withSeconds ? p(d.getUTCSeconds()) : ""}`;
+}
+function wetAt(fromMs, toMs) {
+  return (control.rain ?? []).some((w) => fromMs < w.toMs && toMs > w.fromMs);
+}
+function ecXml(nowMs) {
+  const H = 3_600_000;
+  const offset = torontoOffsetHours(nowMs);
+  const hour0 = Math.floor(nowMs / H) * H + H;
+  const hourly = [];
+  for (let i = 0; i < 24; i++) {
+    const t = hour0 + i * H;
+    hourly.push(`<hourlyForecast dateTimeUTC="${ecStamp(t, false)}"><condition>x</condition><temperature unitType="metric" units="C">8</temperature><lop category="x" units="%">${wetAt(t, t + H) ? 90 : 0}</lop><wind><speed unitType="metric" units="km/h">15</speed><gust unitType="metric" units="km/h"></gust></wind></hourlyForecast>`);
+  }
+  const local = new Date(nowMs + offset * H);
+  let dayStartLocal = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+  let night = local.getUTCHours() >= 15;
+  const periods = [];
+  for (let i = 0; i < 12; i++) {
+    if (i > 0) {
+      if (night) dayStartLocal += 24 * H;
+      night = !night;
+    }
+    const startUtc = dayStartLocal + (night ? 18 : 6) * H - offset * H;
+    const wet = wetAt(startUtc, startUtc + 12 * H);
+    const name = night ? "Tonight" : "Today";
+    periods.push(`<forecast><period textForecastName="${i === 0 ? name : night ? "Day night" : "Day"}">x</period><abbreviatedForecast><pop units="%">${wet ? 90 : ""}</pop></abbreviatedForecast><temperatures><temperature unitType="metric" units="C" class="${night ? "low" : "high"}">8</temperature></temperatures><winds><wind index="1" rank="major"><speed unitType="metric" units="km/h">15</speed></wind></winds>${wet ? '<precipitation><accumulation><name>rain</name><amount unitType="metric" units="mm">15</amount></accumulation></precipitation>' : ""}</forecast>`);
+  }
+  const zone = offset === -4 ? "EDT" : "EST";
+  return `<?xml version="1.0" encoding="UTF-8"?><siteData><forecastGroup><dateTime name="forecastIssue" zone="UTC" UTCOffset="0"><timeStamp>${ecStamp(nowMs, true)}</timeStamp></dateTime><dateTime name="forecastIssue" zone="${zone}" UTCOffset="${offset}"><timeStamp>${ecStamp(nowMs + offset * H, true)}</timeStamp></dateTime>${periods.join("")}</forecastGroup><hourlyForecastGroup>${hourly.join("")}</hourlyForecastGroup></siteData>`;
+}
+function environmentCanada(req, res, path) {
+  const url = new URL(path, "http://x");
+  if (url.pathname === "/today/citypage_weather/docs/site_list_towns_en.csv") {
+    res.writeHead(200, { "content-type": "text/csv" });
+    return res.end(EC_SITES);
+  }
+  const dir = /^\/today\/citypage_weather\/([A-Z]{2})\/(\d{2})\/$/.exec(url.pathname);
+  if (dir) {
+    const names = ["s0000458", "s0000105", "s0000430"].map((code) => `20990101T000000.0Z_MSC_CitypageWeather_${code}_en.xml`);
+    res.writeHead(200, { "content-type": "text/html" });
+    return res.end(`<html><body><pre>${names.map((n) => `<a href="${n}">${n}</a>`).join("\n")}</pre></body></html>`);
+  }
+  const file = /_MSC_CitypageWeather_(s\d{7})_en\.xml$/.exec(url.pathname);
+  if (file) {
+    capture({ kind: "weather", host: "dd.weather.gc.ca", site: file[1] });
+    res.writeHead(200, { "content-type": "application/xml" });
+    return res.end(ecXml(Date.now()));
+  }
+  return json(res, 404, { error: true, reason: "fake environment canada: no route" });
+}
+
 const retellRegistered = [];
 
 function retell(req, res, path, body) {
@@ -613,6 +683,8 @@ createServer(async (req, res) => {
       case "api.open-meteo.com":
       case "customer-api.open-meteo.com":
         return openMeteo(req, res, path, host);
+      case "dd.weather.gc.ca":
+        return environmentCanada(req, res, path);
       case "northshoresnow.ca":
       case "www.northshoresnow.ca":
         return website(req, res, path);

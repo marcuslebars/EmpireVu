@@ -2,7 +2,7 @@
  * Phase 2 — the AI staff (docs/ai-staff.md), end to end on the done-for-you e2e stack
  * (scripts/e2e-dfy/README.md → "Phase 2 AI staff"). Real local Postgres (every migration) +
  * PostgREST + Next + the app's own worker code (inbound queue drain, runScheduler → the staff
- * sweeps) in this process; Twilio / Anthropic / Google Places / Open-Meteo / Resend / Stripe are
+ * sweeps) in this process; Twilio / Anthropic / Google Places / Environment Canada / Resend / Stripe are
  * the fakes in fakes.mjs (the "model" is scripted and builds every reply only from what it was
  * sent), storage is the gateway's stub. Run with scripts/e2e-dfy/staff.sh.
  *
@@ -637,7 +637,7 @@ async function main(): Promise<void> {
     await tick();
     let got = sinceMark();
     const weather = got.filter((c) => c.kind === "weather");
-    check(weather.length >= 1 && weather[0].timeformat === "unixtime" && /precipitation_probability/.test(String(weather[0].hourly)), `Open-Meteo fetched (${weather.length}) at ${weather[0]?.lat},${weather[0]?.lng}`);
+    check(weather.length >= 1 && weather[0].host === "dd.weather.gc.ca" && weather[0].site === "s0000105", `Environment Canada forecast fetched (${weather.length}) for site ${weather[0]?.site} (Midland)`);
     const { data: co } = await db.from("companies").select("latitude, longitude, location_source").eq("id", dana.companyId!).single();
     check(co?.latitude && co?.location_source === "google_place", `company geocoded from its Google listing (${co?.latitude}, ${co?.longitude}, ${co?.location_source})`);
     const { data: approvals } = await db.from("owner_approvals").select("*").eq("company_id", dana.companyId!).eq("kind", "weather_reschedule");

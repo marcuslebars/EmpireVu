@@ -33,6 +33,7 @@
     "job:crankleads-repair-automations": "tsx src/server/jobs/crankleads-repair-tier-automations.ts",
     "job:accounting-sync": "tsx src/server/jobs/accounting-sync.ts",
     "job:operator-health": "tsx src/server/jobs/operator-health.ts",
+    "job:weather-check": "tsx src/server/jobs/weather-check.ts",
     "job:retell-message-agent": "tsx src/server/jobs/retell-message-agent.ts",
     "stripe:setup-crankleads": "node scripts/stripe/setup-crankleads.mjs"
   },
@@ -74,6 +75,7 @@
     "cmdk": "^1.1.1",
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.6.0",
+    "fast-xml-parser": "5.11.1",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.462.0",
     "next": "^14.2.31",

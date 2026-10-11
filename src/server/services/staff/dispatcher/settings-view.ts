@@ -7,6 +7,7 @@
 import { updateAiSettings } from "@/server/services/front-desk/ai-settings-write";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { placesApiKey } from "@/server/services/dfy/places";
+import { locationQueries } from "./geocode";
 import { loadDispatchCompany } from "./company";
 import type { Db } from "./db-types";
 import { enRouteAutomationActive } from "./on-our-way";
@@ -53,7 +54,7 @@ export async function getDispatchSettingsView(admin: AdminClient, organizationId
     settings: company.settings,
     tradeDefaultSensitivity: defaultWeatherSensitivity({ industryPack: r?.industry_pack ?? null, hints: [r?.name ?? company.businessName] }),
     services: ((items ?? []) as Array<{ service_key: string; label: string; active: boolean }>).filter((i) => i.active !== false).map((i) => ({ key: i.service_key, label: i.label })),
-    location: { known: company.latitude !== null && company.longitude !== null, source: r?.location_source ?? null, canLookUp: Boolean(placesApiKey()) },
+    location: { known: company.latitude !== null && company.longitude !== null, source: r?.location_source ?? null, canLookUp: Boolean(placesApiKey()) || locationQueries(company).length > 0 },
     crew: { members: memberRows.length, withPhone: memberRows.filter((m) => Boolean(m.phone_e164)).length },
     onOurWayAutomationActive: await enRouteAutomationActive(admin, company),
     last30d: { onOurWay: count("on_our_way"), crewTexts: count("crew_schedule", "crew_update"), jobsMoved: count("job_moved"), gapOffers: count("gap_offer") },

@@ -1,10 +1,11 @@
 /**
- * Weather for the Dispatcher: a provider interface with an Open-Meteo implementation (the
- * forecast API: hourly precipitation probability + amount, wind and temperature), a per-company
- * hourly cache, and the PURE risk rule for a job window.
+ * Weather for the Dispatcher: a provider interface, a per-company hourly cache, and the PURE
+ * risk rule for a job window. Providers:
  *
- *   OPEN_METEO_API_KEY set → https://customer-api.open-meteo.com/v1/forecast?…&apikey=… (commercial)
- *   unset                  → https://api.open-meteo.com/v1/forecast (free tier)
+ *   default                → Environment Canada (environment-canada.ts): free for commercial
+ *                            use under the ECCC open-data licence, Canada-wide.
+ *   OPEN_METEO_API_KEY set → Open-Meteo's commercial API (customer-api.open-meteo.com).
+ *   (The free Open-Meteo API is non-commercial, so it's never used in production.)
  *
  * Times are requested as unix seconds in UTC (timeformat=unixtime, timezone=GMT), so a job's
  * window is matched by instant — no local-time parsing, DST-proof.
@@ -14,6 +15,7 @@ import type { DispatchCompany } from "./company";
 import type { Db } from "./db-types";
 import type { LatLng } from "./geocode";
 import type { WeatherThresholds } from "./settings";
+import { environmentCanadaProvider } from "./environment-canada";
 
 export interface HourlyForecast {
   /** Start of the hour (UTC ms). Precipitation is Open-Meteo's "sum of the preceding hour". */
@@ -85,16 +87,24 @@ export function openMeteoUrl(location: LatLng, days: number, apiKey: string | nu
 let warnedFreeTier = false;
 
 /**
- * The free Open-Meteo endpoint is for non-commercial use: in production (NODE_ENV=production)
- * without OPEN_METEO_API_KEY there are no weather checks (warned once per process).
+ * Weather checks can run: Environment Canada needs no key, so always (kept as a seam — e.g. a
+ * future switch to turn weather off platform-wide). WEATHER_PROVIDER=off disables them.
  */
 export function weatherConfigured(env: Record<string, string | undefined> = process.env): boolean {
-  if (env.NODE_ENV !== "production" || env.OPEN_METEO_API_KEY?.trim()) return true;
-  if (!warnedFreeTier) {
-    warnedFreeTier = true;
-    console.warn("[dispatcher] OPEN_METEO_API_KEY is not set - weather checks are off in production (the free Open-Meteo API is non-commercial).");
+  if ((env.WEATHER_PROVIDER ?? "").trim().toLowerCase() === "off") {
+    if (!warnedFreeTier) {
+      warnedFreeTier = true;
+      console.warn("[dispatcher] WEATHER_PROVIDER=off - weather checks are disabled.");
+    }
+    return false;
   }
-  return false;
+  return true;
+}
+
+/** The provider the sweeps use: Open-Meteo's commercial API when a key is set, else Environment Canada. */
+export function defaultWeatherProvider(env: Record<string, string | undefined> = process.env): WeatherProvider {
+  const key = env.OPEN_METEO_API_KEY?.trim();
+  return key ? openMeteoProvider(fetch, key) : environmentCanadaProvider();
 }
 
 export function openMeteoProvider(fetchImpl: FetchLike = fetch, apiKey: string | null = process.env.OPEN_METEO_API_KEY?.trim() || null): WeatherProvider {
@@ -153,7 +163,9 @@ function minOf(values: Array<number | null>): number | null {
 
 /**
  * PURE. Is a job window at risk? Rain: max probability ≥ threshold AND total precipitation ≥
- * threshold mm; wind: max sustained wind ≥ threshold; temperature: min ≤ low or max ≥ high.
+ * threshold mm — when the source gives no amounts for the window (Environment Canada's hourly
+ * forecast is probability-only), probability alone decides; wind: max wind (gusts where the
+ * source has them) ≥ threshold; temperature: min ≤ low or max ≥ high.
  */
 export function assessWindow(forecast: Forecast, startMs: number, endMs: number, t: WeatherThresholds): WeatherRisk {
   const hours = hoursIn(forecast, startMs, endMs);
@@ -168,9 +180,13 @@ export function assessWindow(forecast: Forecast, startMs: number, endMs: number,
   const maxTempC = maxOf(hours.map((h) => h.tempC));
   const kinds: RiskKind[] = [];
   const reasons: string[] = [];
-  if (maxProbability !== null && totalMm !== null && maxProbability >= t.rainProbability && totalMm >= t.rainMm) {
+  // Amounts can only clear a rainy window when every likely-rain hour has one (Environment
+  // Canada's hourly forecast has none; its day/night periods do).
+  const wetHours = hours.filter((h) => h.precipProbability !== null && h.precipProbability >= t.rainProbability);
+  const amountsKnown = wetHours.length > 0 && wetHours.every((h) => h.precipMm !== null);
+  if (maxProbability !== null && maxProbability >= t.rainProbability && (!amountsKnown || (totalMm !== null && totalMm >= t.rainMm))) {
     kinds.push("rain");
-    reasons.push(`rain ${Math.round(maxProbability)}%, ${totalMm} mm`);
+    reasons.push(amountsKnown && totalMm !== null ? `rain ${Math.round(maxProbability)}%, ${totalMm} mm` : `rain ${Math.round(maxProbability)}%`);
   }
   if (maxWindKmh !== null && maxWindKmh >= t.windKmh) {
     kinds.push("wind");

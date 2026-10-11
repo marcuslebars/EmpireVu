@@ -186,10 +186,11 @@ export function DispatcherSettingsSection({ orgId, companyId, canManage }: AiFro
       >
         {s.weather.enabled && (
           <div className="space-y-3 pl-7">
+            <p className="text-[11px] text-muted-foreground">Forecasts: Data Source: Environment and Climate Change Canada.</p>
             {!data.location.known && (
               <p className="text-xs text-amber-600 dark:text-amber-400">
                 {data.location.canLookUp
-                  ? "We'll look up where you are from your Google listing or address before the first check."
+                  ? "We'll work out where you are from your Google listing, address or town before the first check."
                   : "We don't know where your business is yet. Add your address (Organization settings) so we can check the weather."}
               </p>
             )}
