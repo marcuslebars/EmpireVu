@@ -442,3 +442,11 @@ The Marketer brings past customers back and keeps the Google listing active. It 
 **Not yet** — no Google Business Profile API: replies and posts are pasted by the owner (`postReply` is the seam). The Places API only returns 5 "most relevant" reviews and doesn't say whether the owner already replied, so a recent review the owner answered on Google may still get a draft (they can N it). Seasonal / custom campaign kinds exist in the schema but only win-back is drafted. The campaign send window and rate aren't editable in the UI.
 
 Tests: `src/test/marketer.test.ts`, `marketer-consent.test.ts`, `marketer-route.test.ts`.
+
+## Office manager
+
+## Customer import
+
+## Keep your number
+
+## Hiring & payroll
