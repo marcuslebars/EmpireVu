@@ -16,7 +16,7 @@ import type { ApprovalKind } from "@/server/services/front-desk/contracts";
 import { createApproval, type ApprovalDeps } from "@/server/services/sms-agent/approvals";
 import type { ConversationRow } from "@/server/services/sms-agent/conversation";
 import type { BusinessFacts } from "@/server/services/sms-agent/facts";
-import { priceListAmounts } from "@/server/services/sms-agent/facts";
+import { ownerLabel, priceListAmounts } from "@/server/services/sms-agent/facts";
 import { ensureLinks, moneyGuard, stripPlatformNames, toPlainText } from "@/server/services/sms-agent/guard";
 import type { SmsAgentSettings } from "@/server/services/sms-agent/settings";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
@@ -98,9 +98,9 @@ function customerName(contact: AgentContact): string {
   return [first, contact.last_name].filter(Boolean).join(" ") || contact.phone || "a customer";
 }
 
-export function ownerLabel(facts: BusinessFacts): string {
-  return facts.ownerFirstName ?? "the owner";
-}
+// ownerLabel lives in facts.ts so sms-agent/approved.ts can use it without importing this file
+// (which imports the staff registry — see owner-channel/approvals.ts roleApprovalExecutor).
+export { ownerLabel };
 
 const lineSchema = z.object({
   service_key: z.string().min(1).max(100),

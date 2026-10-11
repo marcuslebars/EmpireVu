@@ -40,6 +40,11 @@ export interface PriceListItem {
 
 export type BookingMode = "windows" | "hourly" | "none";
 
+/** How the assistant names the owner to customers ("Dana", else "the owner"). */
+export function ownerLabel(facts: Pick<BusinessFacts, "ownerFirstName">): string {
+  return facts.ownerFirstName ?? "the owner";
+}
+
 export interface BusinessFacts {
   organizationId: string;
   companyId: string;

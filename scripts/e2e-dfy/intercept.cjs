@@ -15,6 +15,8 @@ const HOSTS = new Set([
   "api.resend.com",
   "places.googleapis.com",
   "api.anthropic.com",
+  "api.open-meteo.com",
+  "customer-api.open-meteo.com",
   "northshoresnow.ca",
   "www.northshoresnow.ca",
 ]);

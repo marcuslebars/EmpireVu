@@ -4,8 +4,8 @@
  * can't run it twice), run it, and store the result. One decide path for SMS, the app and
  * expiry (docs/front-desk-ai.md "## Owner by text").
  */
-import { roleApprovalExecutor } from "@/server/services/staff/registry";
 import type { Tables } from "@/server/db/database.types";
+import type { RoleApprovalExecutor } from "@/server/services/staff/types";
 import { toJson } from "@/server/db/json";
 import type {
   AdminClient,
@@ -193,10 +193,22 @@ export interface DecideResult {
   message: string;
 }
 
+/**
+ * The AI staff executor for a kind, if a role owns it. The registry is loaded on first use, not
+ * imported at the top: the role modules import owner-channel/notify → this file, so a static
+ * import here closes a cycle (role module → notify → approvals → registry → role index). A route
+ * that loads a role module first (e.g. the marketing settings route) then ran the role's index
+ * before that module's exports existed (src/test/staff-import-order.test.ts).
+ */
+async function roleApprovalExecutor(kind: string): Promise<RoleApprovalExecutor | null> {
+  const registry = await import("@/server/services/staff/registry");
+  return registry.roleApprovalExecutor(kind);
+}
+
 async function runApproval(admin: AdminClient, row: ApprovalDbRow, decision: ApprovalDecision): Promise<ExecuteResult> {
   try {
     if (row.kind === OWNER_COMMAND_KIND) return await executeOwnerCommand(admin, toApprovalRow(row), decision);
-    const roleExecutor = roleApprovalExecutor(row.kind);
+    const roleExecutor = await roleApprovalExecutor(row.kind);
     if (roleExecutor) return await roleExecutor(admin, toApprovalRow(row), decision);
     return await executeApprovedAction(admin, toApprovalRow(row), decision);
   } catch (err) {
@@ -231,7 +243,7 @@ async function settle(
 ): Promise<ApprovalDbRow> {
   // owner_command and AI staff kinds (staff/registry.ts): the executor doesn't record the
   // outcome, so it's recorded here.
-  if (claimed.kind === OWNER_COMMAND_KIND || roleApprovalExecutor(claimed.kind)) {
+  if (claimed.kind === OWNER_COMMAND_KIND || (await roleApprovalExecutor(claimed.kind))) {
     await storeResult(admin, claimed, decision, result, fallbackStatus);
     return { ...claimed, status: fallbackStatus };
   }

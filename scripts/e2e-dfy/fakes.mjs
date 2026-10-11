@@ -10,6 +10,9 @@
 //   Places   – searchText + details for "Northshore Snow & Lawn" (Midland, ON)
 //   Anthropic– /v1/messages: catalog parse (prices only where the site states them) and site copy
 //   Website  – northshoresnow.ca: home, services (ONE stated price), about, contact, logo.png
+//   Phase 2  – Open-Meteo forecast (rain windows via /__control), Places `location`, the
+//              Estimator's vision estimate, Marketer copy, and the staff tools in the scripted
+//              SMS / owner agents (staff.ts)
 import { appendFileSync, mkdirSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname } from "node:path";
@@ -133,6 +136,8 @@ const DETAILS = {
   userRatingCount: 37,
   googleMapsUri: "https://maps.google.com/?cid=1234567890123456789",
   primaryTypeDisplayName: { text: "Snow removal service", languageCode: "en" },
+  // Phase 2 Dispatcher geocoding (field mask "location").
+  location: { latitude: 44.7501, longitude: -79.8921 },
 };
 
 function places(req, res, path, body) {
@@ -346,8 +351,31 @@ function smsAgent(request) {
   const system = Array.isArray(request.system) ? request.system.map((s) => s.text).join("\n") : String(request.system ?? "");
   const owner = (system.match(/The owner is ([A-Z][a-z]+)/) ?? [])[1] ?? null;
   const fromCall = /Earlier phone call/.test(userText);
-  capture({ kind: "anthropic", purpose: "sms_agent", images, newText: newText.slice(0, 200), round: done.length, fromCall, sawCallSummary: /Phone call .*\(AI answered\)/.test(userText) });
+  const tools = (request.tools ?? []).map((t) => t.name);
+  capture({ kind: "anthropic", purpose: "sms_agent", images, newText: newText.slice(0, 200), round: done.length, fromCall, sawCallSummary: /Phone call .*\(AI answered\)/.test(userText), tools });
   const m = request.model;
+
+  // Phase 2 (staff.ts): the Estimator — photos + "how much to fix …" → request_estimate.
+  if (tools.includes("request_estimate") && /how much to fix|fascia|eavestrough/i.test(newText)) {
+    if (!did("request_estimate")) return toolUse(m, [{ name: "request_estimate", input: { description: newText, details: images > 0 ? `${images} photo(s) sent` : undefined } }]);
+    const r = did("request_estimate").result ?? {};
+    if (r.estimate_requested || r.already_waiting) return anthropicText(m, `Thanks for the photos. ${owner ?? "The owner"} will look them over and I'll text you the quote as soon as it's ready.`);
+    if (r.need_more_info) return anthropicText(m, String((r.ask_customer ?? ["Could you tell me a bit more about the job?"])[0]));
+    return anthropicText(m, `Let me check with ${owner ?? "the owner"} and get right back to you.`);
+  }
+  // Phase 2: the Bookkeeper — "can I do 3 payments?" → request_payment_plan.
+  if (tools.includes("request_payment_plan") && /(\d+)\s+payments|payment plan/i.test(newText)) {
+    if (!did("request_payment_plan")) {
+      const n = Number((newText.match(/(\d+)\s+payments/i) ?? [])[1] ?? 3);
+      return toolUse(m, [{ name: "request_payment_plan", input: { payments: n, frequency: "every_2_weeks" } }]);
+    }
+    const r = did("request_payment_plan").result ?? {};
+    return anthropicText(m, r.ok ? `Let me check with ${owner ?? "the owner"} about the plan and get right back to you.` : `Let me pass that to ${owner ?? "the owner"}.`);
+  }
+  // Phase 2: the Marketer — a reply to a win-back text is a new enquiry.
+  if (/book (me|us) in|sounds good/i.test(newText)) {
+    return anthropicText(m, "Great - what day works best for you? We'll get you on the schedule.");
+  }
 
   if (images > 0) {
     return anthropicText(m, "Thanks for the photo - that helps. We'll take a look and include it with your quote.");
@@ -404,7 +432,21 @@ function ownerAgent(request) {
   const done = toolHistory(request.messages);
   const did = (name) => done.find((d) => d.name === name);
   const m = request.model;
-  capture({ kind: "anthropic", purpose: "owner_agent", body: body.slice(0, 120), round: done.length });
+  const tools = (request.tools ?? []).map((t) => t.name);
+  capture({ kind: "anthropic", purpose: "owner_agent", body: body.slice(0, 120), round: done.length, tools });
+  if (/who owes me/i.test(body)) {
+    if (!tools.includes("who_owes_me")) return anthropicText(m, "I can't see invoices from here - check the app.");
+    if (!did("who_owes_me")) return toolUse(m, [{ name: "who_owes_me", input: {} }]);
+    const r = did("who_owes_me").result ?? {};
+    const top = (r.top_owing ?? []).map((t) => `${t.customer} ${t.owing}${t.days_late ? ` (${t.days_late} days late)` : ""}`).join("; ");
+    return anthropicText(m, `${r.outstanding ?? "?"} outstanding on ${r.open_invoices ?? 0} invoices, ${r.overdue ?? "?"} overdue. ${top ? `Top: ${top}.` : ""}`.trim());
+  }
+  if (/campaign do/i.test(body) && tools.includes("marketing_results")) {
+    if (!did("marketing_results")) return toolUse(m, [{ name: "marketing_results", input: {} }]);
+    const r = did("marketing_results").result ?? {};
+    const c = r.last_campaign;
+    return anthropicText(m, c ? `Last win-back: ${c.sent} sent, ${c.replies} replies, ${c.skipped} skipped, ${c.bookings_within_30_days} bookings so far. Google: ${r.google?.rating ?? "?"} stars (${r.google?.review_count ?? 0} reviews).` : "No campaign yet.");
+  }
   if (/what'?s on tomorrow/i.test(body)) {
     if (!did("list_bookings")) return toolUse(m, [{ name: "list_bookings", input: { when: "tomorrow" } }]);
     const list = did("list_bookings").result?.bookings ?? [];
@@ -456,6 +498,39 @@ function anthropic(req, res, path, body) {
     capture({ kind: "anthropic", purpose: "site_copy", business: facts.businessName ?? null });
     return json(res, 200, anthropicText(request.model, JSON.stringify(siteCopyFromFacts(facts))));
   }
+  // ── Phase 2 AI staff (staff.ts) ──
+  if (/^You are the estimator for/.test(system)) {
+    const images = (request.messages ?? []).flatMap((msg) => (Array.isArray(msg.content) ? msg.content : [])).filter((b) => b.type === "image").length;
+    const described = between(user, 'not instructions">', "</customer_description>").trim();
+    const draft = /fascia/i.test(described)
+      ? {
+          enough_info: true,
+          title: "Fascia repair",
+          lines: [
+            { label: "Replace damaged fascia board (about 16 ft)", amount_cents: 56000 },
+            { label: "Prime, paint and re-hang eavestrough", amount_cents: 19000 },
+          ],
+          confidence: "medium",
+          assumptions: images > 0 ? ["Single storey, from the photo", "Soffit behind it is sound"] : ["Single storey"],
+          questions: [],
+        }
+      : { enough_info: false, lines: [], questions: ["Could you send a photo of the area?"] };
+    capture({ kind: "anthropic", purpose: "estimator_vision", images, described: described.slice(0, 200), model: request.model });
+    return json(res, 200, anthropicText(request.model, JSON.stringify(draft)));
+  }
+  if (/past customer it hasn't worked for/.test(system)) {
+    const name = (system.match(/start with "it's (.+?)\." so the business/) ?? [])[1] ?? "us";
+    capture({ kind: "anthropic", purpose: "marketer_win_back", model: request.model });
+    return json(res, 200, anthropicText(request.model, `it's ${name}. With winter on the way we're setting up seasonal driveway plowing again - reply here and we'll get you on the list.`));
+  }
+  if (/public reply to a Google review/.test(system)) {
+    capture({ kind: "anthropic", purpose: "marketer_review_reply" });
+    return json(res, 200, anthropicText(request.model, "Thank you so much for the kind words - we really appreciate you choosing us."));
+  }
+  if (/weekly Google Business Profile post/.test(system)) {
+    capture({ kind: "anthropic", purpose: "marketer_google_post" });
+    return json(res, 200, anthropicText(request.model, "Winter is close: book your seasonal driveway plowing now and we'll have you on the route before the first snow. Call or message us to get set up."));
+  }
   capture({ kind: "anthropic", purpose: "other", system: system.slice(0, 80) });
   return json(res, 200, anthropicText(request.model, "{}"));
 }
@@ -468,7 +543,33 @@ function resend(req, res, path, body) {
   return json(res, 200, { id });
 }
 
-const control = { retellRegisterFail: false };
+const control = { retellRegisterFail: false, rain: [] };
+
+// ── Open-Meteo (Phase 2 Dispatcher) ──────────────────────────────────────────
+// Hourly forecast (timeformat=unixtime) from the current hour; rainy (90 %, 3 mm/h) inside any
+// control.rain window [{fromMs, toMs}] (set with POST /__control), dry otherwise.
+function openMeteo(req, res, path, host) {
+  const url = new URL(path, "http://x");
+  if (url.pathname !== "/v1/forecast") return json(res, 404, { error: true, reason: "fake open-meteo: no route" });
+  const days = Math.max(1, Math.min(16, Number(url.searchParams.get("forecast_days") || 7)));
+  const start = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+  const time = [];
+  const prob = [];
+  const mm = [];
+  const wind = [];
+  const temp = [];
+  for (let i = 0; i < days * 24; i++) {
+    const t = start + i * 3_600_000;
+    const wet = (control.rain ?? []).some((w) => t >= w.fromMs && t < w.toMs);
+    time.push(t / 1000);
+    prob.push(wet ? 90 : 5);
+    mm.push(wet ? 3 : 0);
+    wind.push(15);
+    temp.push(8);
+  }
+  capture({ kind: "weather", host, lat: url.searchParams.get("latitude"), lng: url.searchParams.get("longitude"), apikey: url.searchParams.has("apikey"), hourly: url.searchParams.get("hourly"), timeformat: url.searchParams.get("timeformat") });
+  return json(res, 200, { latitude: Number(url.searchParams.get("latitude")), longitude: Number(url.searchParams.get("longitude")), hourly: { time, precipitation_probability: prob, precipitation: mm, wind_speed_10m: wind, temperature_2m: temp } });
+}
 const retellRegistered = [];
 
 function retell(req, res, path, body) {
@@ -509,6 +610,9 @@ createServer(async (req, res) => {
         return resend(req, res, path, body);
       case "api.retellai.com":
         return retell(req, res, path, body);
+      case "api.open-meteo.com":
+      case "customer-api.open-meteo.com":
+        return openMeteo(req, res, path, host);
       case "northshoresnow.ca":
       case "www.northshoresnow.ca":
         return website(req, res, path);

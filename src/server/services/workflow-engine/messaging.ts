@@ -26,7 +26,7 @@ function providerFor(channel: MessageChannel): string {
 // See docs/messaging-compliance.md and docs/ai-staff.md → "Marketer".
 const IMPLIED_CONSENT_MS = 6 * 30 * 24 * 60 * 60 * 1000;
 export const PURCHASE_CONSENT_MS = 2 * 365 * 24 * 60 * 60 * 1000;
-const EXPRESS_CONSENT_SOURCES = new Set(["express", "express_optin", "double_optin"]);
+export const EXPRESS_CONSENT_SOURCES: ReadonlySet<string> = new Set(["express", "express_optin", "double_optin"]);
 
 export type ConsentContact = Pick<
   Tables<"contacts">,

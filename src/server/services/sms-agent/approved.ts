@@ -13,10 +13,9 @@
  */
 import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } from "@/server/services/front-desk/contracts";
 import { updateConversation, findConversation, mergeCollected } from "@/server/services/sms-agent/conversation";
-import { loadBusinessFacts, type BusinessFacts } from "@/server/services/sms-agent/facts";
+import { loadBusinessFacts, ownerLabel, type BusinessFacts } from "@/server/services/sms-agent/facts";
 import { extractUrls, finalizeCustomerText } from "@/server/services/sms-agent/guard";
 import { defaultAgentServices, type AgentContact, type AgentServices, type QuoteLine } from "@/server/services/sms-agent/services";
-import { ownerLabel } from "@/server/services/sms-agent/tools";
 import { parseOwnerNote } from "@/server/services/front-desk/owner-note";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

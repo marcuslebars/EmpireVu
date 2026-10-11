@@ -23,7 +23,7 @@ import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { recordUsageSafe } from "@/server/services/usage";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
-import { deliverMessage, STOP_FOOTER } from "@/server/services/workflow-engine/messaging";
+import { deliverMessage, EXPRESS_CONSENT_SOURCES, STOP_FOOTER } from "@/server/services/workflow-engine/messaging";
 import { sendSms } from "@/server/outbound/sms";
 import type { InboundMedia } from "@/server/services/front-desk/contracts";
 import {
@@ -131,6 +131,35 @@ async function resolveSmsTenant(admin: AdminClient, toNumber: string): Promise<V
     .eq("active", true)
     .maybeSingle();
   return (data as VoiceNumberTenant | null) ?? null;
+}
+
+/**
+ * An existing contact's text is a fresh inquiry: stamp implied consent from now (keeping the
+ * source, 'inbound_sms' when there was none). Without it, a contact added by hand (an invoice,
+ * a booking) or a past customer whose implied consent lapsed got NO reply to their own text
+ * (the AI front desk's reply was blocked no_consent / consent_expired) — e.g. a customer asking
+ * for a payment plan, or replying to a win-back text. Never touches an opted-out contact or
+ * express consent (which doesn't expire). New contacts get this in findOrCreateContact.
+ */
+export async function recordInquiryConsent(admin: AdminClient, organizationId: string, contact: Tables<"contacts">): Promise<void> {
+  if (contact.sms_opt_out_at) return;
+  if (contact.consent_source && EXPRESS_CONSENT_SOURCES.has(contact.consent_source)) return;
+  const now = new Date().toISOString();
+  const consentSource = contact.consent_source ?? "inbound_sms";
+  const update = admin
+    .from("contacts")
+    .update({ sms_consent_at: now, consent_source: consentSource })
+    .eq("organization_id", organizationId)
+    .eq("id", contact.id)
+    .is("sms_opt_out_at", null);
+  // Only if the source is still what we read (a concurrent opt-in to express is never undone).
+  const { error } = await (contact.consent_source ? update.eq("consent_source", contact.consent_source) : update.is("consent_source", null));
+  if (error) {
+    console.error("[inbound-sms] recording inquiry consent failed:", error.message);
+    return;
+  }
+  contact.sms_consent_at = now;
+  contact.consent_source = consentSource;
 }
 
 async function findOrCreateContact(
@@ -497,6 +526,10 @@ export async function handleInboundSms(payload: unknown): Promise<void> {
     }
     return;
   }
+
+  // A customer texting the business is an inquiry (docs/messaging-compliance.md: implied
+  // consent, 6 months from the inquiry). Record it, as intake does for a call or a form.
+  await recordInquiryConsent(admin, tenant.organization_id, contact);
 
   // A normal reply → the workflow trigger. Any auto-reply a workflow sends is still
   // consent-checked downstream (deliverMessage), so an opted-out sender can't be texted.

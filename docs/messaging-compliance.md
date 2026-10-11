@@ -27,6 +27,8 @@ Owner alerts (`notify_owner`) and messages to a literal address the workflow aut
 
 Existing contacts that carry a `source` in metadata (intake / Retell leads) were backfilled with `sms_consent_at = created_at` and `consent_source = 'implied_inquiry'` — they demonstrably initiated contact. Manually-added contacts were left with no consent, so a message to them is refused until they opt in. Going forward, the intake and public-booking paths stamp implied consent on new inquiry contacts.
 
+**A customer's own text is an inquiry.** An inbound SMS from a new number creates the contact with `consent_source = 'inbound_sms'`. An inbound text (not STOP/START/HELP or a plain-words opt-out) from an existing contact stamps `sms_consent_at = now` — keeping its `consent_source`, `'inbound_sms'` when it had none — so a manually added customer (an invoice, a booking) or a past customer whose implied consent lapsed can be answered (`twilio/inbound-sms.ts recordInquiryConsent`). Express consent and opted-out contacts are never touched.
+
 ## STOP
 
 Under CRTC rules every commercial SMS must offer an unsubscribe. The **first** outbound SMS to a contact (per `message_log` history) automatically appends `Reply STOP to opt out`. Inbound processing (Task 11): the inbound-SMS webhook recognizes `STOP/STOPALL/UNSUBSCRIBE/CANCEL/END/QUIT` (sets `sms_opt_out_at`, emits `contact.sms_opted_out`, and never triggers an auto-reply) and `START/YES/UNSTOP` (clears the opt-out, sets `sms_consent_at`). Twilio also sends its own carrier-level STOP/START confirmation; EmpireVu adds no auto-reply of its own. Every outbound send still re-checks `checkConsent`, so a manual `sms_opt_out_at` set by hand is honoured too.
