@@ -60,7 +60,7 @@ export interface SetupProgressView {
   items: SetupProgressItem[];
   forwarding: { done: boolean; url: string | null };
   quickSetupUrl: string | null;
-  extras: Array<{ key: "prices" | "payments"; label: string; done: boolean; path: string }>;
+  extras: Array<{ key: "prices" | "payments" | "import"; label: string; done: boolean; path: string }>;
 }
 
 /** null for orgs that aren't CrankLeads purchases. */

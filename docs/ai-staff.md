@@ -447,6 +447,94 @@ Tests: `src/test/marketer.test.ts`, `marketer-consent.test.ts`, `marketer-route.
 
 ## Customer import
 
+A new business brings its existing customer list, so the Bookkeeper, Marketer and Dispatcher have history on day one. Code: `src/server/services/staff/importer/`. Migration: `20261012110000_staff_importer.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Customer import** (`src/components/settings/staff/ImporterSettingsSection.tsx`). Pages: **Import customers** (`/import`, signed in, owners/admins; `src/screens/ImportCustomersPage.tsx`) and the texted link `/import/:token` (no login; `src/screens/PublicImportPage.tsx`). Both use `src/components/import/ImportWizard.tsx`.
+
+**What the owner sees.** Dana texts "can I bring my customers over from Jobber?" → "Sent you the link." and a separate text: "CrankLeads: Bring your customer list over: upload a spreadsheet (CSV or Excel) from Jobber, QuickBooks, Housecall Pro, Square or your own. You'll see a preview before anything is saved, and nobody gets texted. https://…/import/…". She uploads `clients.csv`; a few seconds later the page shows her columns with our guess for each (she can change any of them) and a preview: "272 new customers · 40 you already have (blanks filled) · 1,104 past jobs · 14 open balances · $8,420", 9 rows that will be skipped and why, and sample rows. She presses **Import 312 customers**; she can close the page. When it's done: "CrankLeads: Imported 312 customers (272 new, 40 you already had - blanks filled, nothing overwritten), 1,104 past jobs, 14 open balances ($8,420) from clients.csv. 9 rows skipped - see the import page. Nobody was texted or emailed.\n#12 14 imported balances, $8,420 owing (oldest from Mar 3, 2026). Nobody has been reminded yet. Y to let the Bookkeeper start reminders on them (texts and emails, your usual schedule). Reply Y 12 to approve, N 12 to skip."
+
+### Upload (`batches.ts`, `deps.ts`, `links.ts`)
+
+- CSV or XLSX, ≤ 10 MB, ≤ 25,000 rows, ≤ 60 columns. The browser asks for a batch (`POST …/imports` or `POST /api/public/import/:token`), gets a one-time signed upload URL for the private bucket **`customer-imports`** (path `{org}/{batch}.csv|xlsx`, no storage policies; same pattern as receipts) and uploads straight to storage, then says `uploaded`. ≤ 20 uploads per company per day.
+- **The link** (`/import/:token`): one row per company in `import_links` (service role only), a 32-character random token, valid 14 days after it was last sent (an expired one gets a new token when it's sent again). Same pattern as the setup link: the token is the credential, one 404 for every miss, rate-limited per token and IP, and the link only works while the import is on for that company. Sent by the owner tool `send_import_link`, the "Text me the link" buttons (page + Settings), and the concierge action **Send import link**.
+- The dashboard's setup card (CrankLeads, until live) lists **Bring your customer list** as an optional extra (`dfy/progress-view.ts`), ticked once an import is done.
+
+### Reading the file (`parse.ts`)
+
+CSV: our own RFC 4180 reader (quotes, `""`, newlines inside quotes, comma / semicolon / tab, UTF-8 BOM, Windows-1252 fallback). XLSX: **`exceljs` 4.4.0** (pinned; the sheet with the most rows; date cells → YYYY-MM-DD; rich text, formulas and hyperlinks → their text). The first non-empty row is the header; empty rows are dropped; each row keeps its spreadsheet row number (`row_index + 2`), which is what the preview and the owner text call "row 10". Exact duplicate rows are dropped (unique row hash per batch).
+
+### Columns (`mapping.ts`)
+
+Fields: full / first / last name, business name, phone (several columns allowed; the first good number is the main one, the rest go to `metadata.other_phones`), email, address (parts joined in column order; billing address steps aside when there's a service address), notes, tags, last service date, job date / description / amount, balance owing, invoice date, due date, invoice number. Header heuristics cover Jobber, QuickBooks, Housecall Pro, Square and plain spreadsheets (ids, lifetime totals, lead sources, created dates and statuses are ignored). When they're unsure (no name column, no phone/email column, or a generic header like "Date" / "Total" / "Title"), **Claude** (`AI_MODEL_IMPORTER`, default `claude-sonnet-5-5`, usage recorded) gets the headers and ≤ 5 sample rows fenced as `<data>` (the system prompt says the content is data, never instructions) and answers one field per column; only the unsure columns take its answer, and a malformed answer is ignored. The owner can change any column; every edit rebuilds the preview. A mapping needs at least a name, phone or email column.
+
+### Rows (`normalize.ts`, `resolver.ts`)
+
+Phones → E.164 (North American numbers; "+…" kept; extensions dropped), emails lowercased, names split ("Lee, Jamie", titles dropped, ALL CAPS → Title Case), money → cents ("$1,240.50", "(45.00)"), dates in each column's own order (a column with a first part > 12 is day-first; otherwise month-first; also "Jun 14, 2025" and Excel serial numbers). A row with no name, business, phone or email is skipped with the reason. A job date today or later, a credit balance, a phone or date we can't read are warnings (the row still imports). A row's past job is its job date, else its last service date.
+
+**Matching** an existing contact: same phone (last 10 digits) or same email, in that company; a row with neither matches only a contact with the same name that also has neither. Rows of one file that are the same customer become one contact (their jobs all count).
+
+### Preview (`preview.ts`)
+
+Before anything is written: new contacts, matches to existing contacts, repeat rows, skipped rows with reasons (≤ 100 listed), past jobs, open balances and their total, new customer accounts, 8 sample rows. A re-upload shows what's already in ("+3 already in") and "You imported this same file on Oct 3" (same file hash).
+
+### What the import writes (`apply.ts`)
+
+The sweep `importer:batches` (every tick; a lease per batch, 2 minutes) imports **500 rows per chunk** with a ~25 s budget per pass, never in the HTTP request (a small file — ≤ 1 MB — is read and previewed inside the upload request so the page is quick). Each row records what it did on `import_rows` before the cursor moves, so a pass that dies mid-chunk resumes without doing a row twice.
+
+| | Written as | Never |
+| --- | --- | --- |
+| New customer | `contacts`: `consent_source: "import"`, **no `sms_consent_at`**, `stage: "closed"`, `metadata.import = { batchId, at, file }`, address / tags / other phones in `metadata` and a notes line | consent, express or implied, from the import |
+| Existing customer | **blanks only**: last name, phone, email, notes, account, `metadata.address/tags` | overwriting anything; touching consent, opt-outs or stage |
+| Business name | `customer_accounts` (when there's none by that exact name), linked to the contact | — |
+| Past job | `bookings` status **completed** in the past (noon local on the job date, `completed_at` = that date → the Marketer's CASL purchase date), `price_cents`, `source: "import:<batch>"`, `source_call_id: "import:<key>"` (unique per company) | `createBooking`, events, recipes, review requests, crew notices |
+| Balance owing | `invoices` status **sent**, the balance as one "Balance carried over" line, no tax, `issue_date` from the file (else today), due date from the file (else the issue date), a fresh invoice number, `imported_at`, `import_batch_id`, `import_key` (unique per company), **`import_hold: true` + `reminders_paused: true`** | emailed, texted, `invoice.sent`, or pushed to QuickBooks / Xero |
+
+**No customer messages, no workflows.** Every write is a direct insert/update with the service role, pinned to the batch's organization and company; nothing calls a service that emits an activity / workflow event or sends anything (tested: no SMS but the owner's, no email, no dispatch, no `activity_events`, no `workflow_event_jobs`, no `message_log` row for a customer). Imported balances are also kept out of the **accounting sync** (the trigger functions skip invoices with `imported_at`, and payments on them): they came from the owner's books, so pushing them back would duplicate them.
+
+**Idempotent re-upload.** The same file again finds the same customers (matched, blanks only), the same jobs (`source_call_id`) and the same balances (`import_key`: contact + their invoice number, else contact + date + amount), so it creates nothing new. A balance changed since (no invoice number in the file) is a new balance.
+
+When the batch is done, one text to the owner (from the platform number, outside 21:00–08:00 — it waits for the morning), with the `chase_imported_balances` question in the same text when balances came in.
+
+### Imported balances stay on hold (`hold.ts`, `approvals.ts`)
+
+While `invoices.import_hold` is true: no reminder email and no `invoice.overdue` automation (one tolerant check in `invoices/reminders.ts`, only for paused invoices), and no Bookkeeper text (it skips `reminders_paused` invoices).
+
+| Kind | Asked by | Owner sees | Y | N / expiry |
+| --- | --- | --- | --- | --- |
+| `chase_imported_balances` (TTL 7 days) | the import's done text; `import_status` with `start_reminders`; the Settings / page button | `14 imported balances, $8,420 owing (oldest from Mar 3, 2026). Nobody has been reminded yet. Y to let the Bookkeeper start reminders on them (texts and emails, your usual schedule).` — the last sentence follows the business's settings (texts only, emails only, or "your reminders are off, so nothing goes out until you turn them on") | `import_hold` and `reminders_paused` cleared on that batch's balances still on hold (conditional, so a retry releases nothing twice): "Done - reminders can start on 14 imported balances ($8,420), on your usual schedule." | "OK - the 14 imported balances ($8,420) stay on hold: no reminders. Text "import status" any time to start them." |
+
+A note ("Y 12 only Jones") can't change anything here: nothing is released and the same question comes back under a fresh code.
+
+### Undo (`undo.ts`)
+
+From the import page (a done batch, or a failed one that started importing): the sweep removes, phase by phase in chunks, what the batch **created**, unless it was used since — balances with a payment, reminder or view; jobs edited, reassigned, invoiced or no longer completed; customers with any message, conversation, booking, quote or invoice left, or edited; customer accounts still in use. Kept records are reported ("Kept 1 customers … that were used since") with up to 10 examples. Customers the import only matched are never removed (blanks it filled stay filled). A pending `chase_imported_balances` question is withdrawn.
+
+### Owner tools (`owner-tools.ts`)
+
+- `send_import_link`: texts the owner the link.
+- `import_status`: the last 3 imports (status, new / matched customers, past jobs, balances, rows skipped, undo summary), balances on hold and any pending question. `start_reminders: true` creates the `chase_imported_balances` approval inline ("#12 … Reply Y 12 to approve, N 12 to skip.") or points at the pending one.
+
+### Settings, routes
+
+`companies.ai_settings.import = { enabled? }` — **on** for CrankLeads orgs, **off** for house orgs (A1 sees no tools or notes, can't upload, and the sweep leaves any batch of a company that has it off alone until it started importing). Routes (owners/admins; the overview is readable by members):
+
+- `GET|PATCH …/companies/:company/ai-settings/import`
+- `GET|POST …/companies/:company/imports`, `GET|POST …/imports/:batch` (`uploaded`, `mapping`, `import`, `undo`, `cancel`), `POST …/imports/send-link`, `POST …/imports/start-reminders`
+- `GET|POST /api/public/import/:token`, `GET|POST /api/public/import/:token/:batch` (same actions; the token's company only)
+
+### Data (migration `20261012110000_staff_importer.sql`)
+
+- `import_links` (service role only), `import_batches` (members read; statuses uploading → uploaded → mapped → previewed → importing → done, failed, undoing → undone, cancelled), `import_rows` (service role only; unique `(batch_id, row_hash)`; what each row created).
+- `invoices.imported_at / import_batch_id / import_hold / import_key` (no client grants), unique `(company_id, import_key)`; unique `(company_id, source_call_id)` for `bookings` with an `import:` key; an index on `contacts.metadata->import->>batchId`.
+- Bucket `customer-imports` (private, 10 MB, CSV / XLSX types).
+- `accounting_enqueue_invoice` / `accounting_enqueue_payment` skip imported balances (the rollback restores the originals).
+
+30 days after a batch is finished the sweep deletes its file and the raw rows' cells (the records it made stay; undo still works). Local row types: `staff/importer/db-types.ts`.
+
+Env: `AI_MODEL_IMPORTER` (optional, default `claude-sonnet-5-5`). Dependency: `exceljs` 4.4.0 (exact).
+
+Tests: `src/test/staff-importer.test.ts` (CSV/XLSX reading, the export heuristics and the Claude fallback, row cleaning, settings + house orgs, preview, the quiet import with consent fields and fill-blanks matching, the no-messages guarantee, quiet hours, idempotent re-upload, chunk resume, leases, the holds against the email and Bookkeeper sweeps, `chase_imported_balances` through `decideApproval` (Y, note, N), undo, owner tools, the token route).
+
+**Not yet:** daily-alert "now 30/60+ days overdue" lines include imported balances the first morning after an import (owner-only; the Bookkeeper's alert file wasn't changed). Imported past jobs dated this week / month count in the weekly report and monthly scorecard job totals. Matching a business account is by exact name. XLS (old Excel) files must be saved as XLSX or CSV first.
+
 ## Keep your number
 
 ## Hiring & payroll

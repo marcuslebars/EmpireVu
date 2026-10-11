@@ -32,7 +32,7 @@ export interface SetupProgressView {
   /** Set while the 60-second quick setup is unanswered. */
   quickSetupUrl: string | null;
   /** Optional, never required. */
-  extras: Array<{ key: "prices" | "payments"; label: string; done: boolean; path: string }>;
+  extras: Array<{ key: "prices" | "payments" | "import"; label: string; done: boolean; path: string }>;
 }
 
 interface Inputs {
@@ -43,6 +43,8 @@ interface Inputs {
   progress: Pick<DfyProgress, "switched_on_at" | "number_flagged_at"> | null;
   numberPretty: string | null;
   forwardUrl: string | null;
+  /** Customer import (staff/importer): shown as an optional extra when known; done = a finished import. */
+  imports?: { done: boolean } | null;
 }
 
 /** PURE: the view from what we've read (render-tested via the screen). */
@@ -96,6 +98,7 @@ export function buildSetupProgressView(input: Inputs): SetupProgressView {
       ...(checklist.tier === "catch"
         ? []
         : [{ key: "payments" as const, label: "Connect payments", done: Boolean(step("payments")?.done), path: "/settings?section=payments" }]),
+      ...(input.imports ? [{ key: "import" as const, label: "Bring your customer list", done: input.imports.done, path: "/import" }] : []),
     ],
   };
 }
@@ -116,7 +119,7 @@ export async function loadSetupProgressView(
   const checklist = await loadSetupChecklist(ctx);
   if (!checklist) return null;
   const { organizationId, companyId } = checklist;
-  const [intake, site, progress] = await Promise.all([
+  const [intake, site, progress, imports] = await Promise.all([
     ctx.supabase.from("setup_intakes").select("status").eq("organization_id", organizationId).eq("company_id", companyId).maybeSingle(),
     ctx.supabase.from("company_sites").select("status, slug").eq("organization_id", organizationId).eq("company_id", companyId).maybeSingle(),
     ctx.supabase
@@ -125,6 +128,14 @@ export async function loadSetupProgressView(
       .eq("organization_id", organizationId)
       .eq("company_id", companyId)
       .maybeSingle(),
+    // Optional "Bring your customer list" link; missing table / no access → no link.
+    (ctx.supabase as unknown as { from(t: string): any }) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .from("import_batches")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("company_id", companyId)
+      .eq("status", "done")
+      .limit(1),
   ]);
   let forwardUrl: string | null = null;
   let intakeToken: string | null = null;
@@ -159,5 +170,6 @@ export async function loadSetupProgressView(
     progress: progress.error ? null : ((progress.data as Inputs["progress"]) ?? null),
     numberPretty: number ? prettyPhone(number) : null,
     forwardUrl,
+    imports: imports.error ? null : { done: ((imports.data ?? []) as unknown[]).length > 0 },
   });
 }

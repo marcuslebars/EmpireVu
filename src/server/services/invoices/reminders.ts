@@ -13,6 +13,8 @@
  *      invoice per run, so turning reminders on never sends a backlog at once.
  *      An invoice with its own reminders paused is skipped (it still turns overdue), and so is
  *      one the AI Bookkeeper holds (a promise to pay / a payment plan — staff/bookkeeper/hold.ts).
+ *      An imported balance on hold (staff/importer/hold.ts) gets neither the overdue event nor
+ *      emails until the owner OKs reminders for it.
  *      The Bookkeeper's reminder TEXTS stamp last_reminder_at too, so an email never goes out on
  *      the same day as a text (the "already reminded today" check below).
  *
@@ -27,6 +29,7 @@ import { addDays, daysBetween, dueReminderIndex, isOpenStatus } from "./math";
 import { sendInvoiceReminderEmail } from "./notify";
 import { parseInvoiceSettings, type InvoiceSettings } from "./settings";
 import { isCollectionsHold } from "@/server/services/staff/bookkeeper/hold";
+import { isImportHold } from "@/server/services/staff/importer/hold";
 
 export interface ReminderSweepResult {
   scanned: number;
@@ -64,6 +67,9 @@ export async function sweepInvoiceReminders(now = new Date(), limit = 1000): Pro
     const today = todayFor(company, now);
     const daysOverdue = daysBetween(inv.due_date, today);
     if (daysOverdue <= 0) continue;
+    // An imported balance the owner hasn't OK'd for reminders yet: no overdue automation, no email
+    // (staff/importer/hold.ts). Only paused invoices can be on that hold, so others skip the read.
+    if (inv.reminders_paused && (await isImportHold(db, inv.organization_id, inv.id))) continue;
 
     // 1. invoice.overdue, once.
     const { data: prior } = await db

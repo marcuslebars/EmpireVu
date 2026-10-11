@@ -24,6 +24,7 @@ import PublicLeadFormPage from "@/screens/PublicLeadFormPage";
 import AcceptInvitePage from "@/screens/AcceptInvitePage";
 import CrankleadsWelcomePage from "@/screens/CrankleadsWelcomePage";
 import SetupIntakePage from "@/screens/SetupIntakePage";
+import PublicImportPage from "@/screens/PublicImportPage";
 import SignInPage from "./screens/SignInPage";
 import SignUpPage from "./screens/SignUpPage";
 import OAuthCallbackPage from "./screens/OAuthCallbackPage";
@@ -51,6 +52,7 @@ import ReportsAttributionPage from "./screens/ReportsAttributionPage";
 import ReportsMonthlyPage from "./screens/ReportsMonthlyPage";
 import ReportsWeeklyPage from "./screens/ReportsWeeklyPage";
 import SettingsPage from "./screens/SettingsPage";
+import ImportCustomersPage from "./screens/ImportCustomersPage";
 import NotFound from "./screens/NotFound";
 import ConciergeListPage from "./screens/concierge/ConciergeListPage";
 import ConciergeDetailPage from "./screens/concierge/ConciergeDetailPage";
@@ -341,6 +343,8 @@ function AppRoutes() {
       <Route path="/welcome/crankleads" element={<CrankleadsWelcomePage />} />
       {/* Done-for-you quick setup (texted after purchase). Public: the token is the credential. */}
       <Route path="/setup/:token" element={<SetupIntakePage />} />
+      {/* Customer import from the texted link (docs/ai-staff.md → "Customer import"). No login. */}
+      <Route path="/import/:token" element={<PublicImportPage />} />
       {/* Done-for-you one-tap call forwarding (docs/done-for-you.md). Public: the token is the credential. */}
       <Route path="/forward/:token" element={<ForwardPage />} />
       {/* Operator-only concierge console (OPERATOR_EMAILS); everyone else sees NotFound. */}
@@ -504,6 +508,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <ReportsWeeklyPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/import"
+          element={
+            <ProtectedRoute>
+              <ImportCustomersPage />
             </ProtectedRoute>
           }
         />
