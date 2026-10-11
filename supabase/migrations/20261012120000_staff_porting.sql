@@ -57,6 +57,11 @@ create table if not exists public.number_port_requests (
   rejection_reason text,
   -- Numbers already attached to the company as business lines (completion sweep).
   attached_numbers text[] not null default '{}',
+  -- Twilio account snapshot at "Mark submitted": numbers already there are never auto-attached.
+  twilio_snapshot_at timestamptz,
+  preexisting_numbers text[] not null default '{}',
+  -- An operator started working the port (reveal / download / copy): the owner's form locks.
+  operator_opened_at timestamptz,
   created_via text not null default 'settings' check (created_via in ('settings', 'owner_text', 'operator')),
   -- Owner status texts: the status whose text is due, and the last one sent (idempotent).
   notify_status text,
@@ -72,6 +77,11 @@ create table if not exists public.number_port_requests (
   updated_at timestamptz not null default now(),
   foreign key (company_id, organization_id) references public.companies (id, organization_id) on delete cascade
 );
+-- Columns added after the first draft of this migration (re-runnable on either version).
+alter table public.number_port_requests add column if not exists twilio_snapshot_at timestamptz;
+alter table public.number_port_requests add column if not exists preexisting_numbers text[] not null default '{}';
+alter table public.number_port_requests add column if not exists operator_opened_at timestamptz;
+
 -- One open port per company (a rejected port is reopened by the owner, not replaced).
 create unique index if not exists number_port_requests_open_idx
   on public.number_port_requests (company_id)

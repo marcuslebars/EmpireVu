@@ -11,11 +11,11 @@
 import { z } from "zod";
 
 import { registerConciergeAction } from "@/server/services/concierge/actions";
-import { cancelPort, markRejected, markSubmitted, revealSecrets, setFocDate, startPort } from "@/server/services/staff/porting/service";
+import { cancelPort, markOperatorOpened, markRejected, markSubmitted, revealSecrets, setFocDate, startPort } from "@/server/services/staff/porting/service";
 import { STATUS_LABELS } from "@/server/services/staff/porting/status";
 
 /** Run from the Ports page (they need a port id), so the account page doesn't show them as buttons. */
-export const PORT_PANEL_ACTIONS = ["port_reveal_secrets", "port_mark_submitted", "port_set_foc", "port_mark_rejected", "port_cancel"] as const;
+export const PORT_PANEL_ACTIONS = ["port_opened", "port_reveal_secrets", "port_mark_submitted", "port_set_foc", "port_mark_rejected", "port_cancel"] as const;
 
 const portId = z.string().uuid();
 
@@ -36,11 +36,24 @@ registerConciergeAction({
 });
 
 registerConciergeAction({
+  name: "port_opened",
+  label: "Start the Twilio form (locks the owner's form)",
+  schema: z.object({ portId }).strict(),
+  async run(ctx, input) {
+    await markOperatorOpened(ctx.admin, { organizationId: ctx.organizationId, companyId: ctx.companyId }, input.portId, ctx.nowMs);
+    return { message: "Owner's form locked while you copy it into Twilio.", audit: { portId: input.portId } };
+  },
+});
+
+registerConciergeAction({
   name: "port_reveal_secrets",
   label: "Reveal account number + PIN",
   schema: z.object({ portId }).strict(),
   async run(ctx, input) {
-    const secrets = await revealSecrets(ctx.admin, { organizationId: ctx.organizationId, companyId: ctx.companyId }, input.portId);
+    const scope = { organizationId: ctx.organizationId, companyId: ctx.companyId };
+    const secrets = await revealSecrets(ctx.admin, scope, input.portId);
+    // The operator is working it now: the owner's form locks (what's pasted is what was signed).
+    await markOperatorOpened(ctx.admin, scope, input.portId, ctx.nowMs);
     return {
       message: "Revealed (logged). Paste them only into the Twilio port form.",
       result: secrets,

@@ -61,6 +61,9 @@ export function operatorPortView(port: NumberPortRow, company: { name: string | 
   if (preSubmit && billAge !== null && billAge > DOC_MAX_AGE_MS) warnings.push("Bill was uploaded over 30 days ago - ask for a newer one.");
   if (port.pin_status === "call") warnings.push(port.account_number_enc ? "Call the owner for the PIN." : "Call the owner for the account number and PIN (no encryption key when they filled it in).");
   if (port.secrets_purged_at) warnings.push("Account number and PIN were purged.");
+  for (const n of port.preexisting_numbers ?? []) warnings.push(`${n} was already in the Twilio account when submitted, so it's never attached automatically - check and attach it by hand.`);
+  if ((port.status === "submitted" || port.status === "foc_scheduled") && !port.twilio_snapshot_at) warnings.push("No Twilio snapshot at submit - attach the number by hand when it lands.");
+  if (port.status === "ready" && port.operator_opened_at) warnings.push("The owner's form is locked while you work on it.");
 
   const address = port.service_address;
   const form: TwilioFormField[] = [

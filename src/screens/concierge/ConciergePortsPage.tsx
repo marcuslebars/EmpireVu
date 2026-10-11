@@ -53,6 +53,15 @@ function PortCard({ port }: { port: OperatorPortView }) {
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed"),
   });
   const busy = act.isPending;
+  // The first copy locks the owner's form (so what goes into Twilio is what was signed).
+  const [opened, setOpened] = useState(false);
+  const copyField = (text: string, what: string) => {
+    if (!opened && port.status === "ready") {
+      setOpened(true);
+      void runConciergeAction(port.organizationId, "port_opened", { portId: port.id }, port.companyId).catch(() => setOpened(false));
+    }
+    void copy(text, what);
+  };
 
   const openFile = async (kind: "loa" | "bill") => {
     try {
@@ -101,7 +110,7 @@ function PortCard({ port }: { port: OperatorPortView }) {
       <div className="mt-4 rounded-md border border-border">
         <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-2">
           <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Copy for Twilio form</span>
-          <Button size="sm" variant="ghost" className="h-7" onClick={() => void copy(copyAll, "All fields")}>
+          <Button size="sm" variant="ghost" className="h-7" onClick={() => copyField(copyAll, "All fields")}>
             <Copy className="mr-1 h-3.5 w-3.5" /> Copy all
           </Button>
         </div>
@@ -116,7 +125,7 @@ function PortCard({ port }: { port: OperatorPortView }) {
                 <dt className="text-xs text-muted-foreground">{f.label}</dt>
                 <dd className={cn("min-w-0 whitespace-pre-wrap break-words", revealed !== null && "font-mono")}>{value || "—"}</dd>
                 {copyable && value ? (
-                  <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => void copy(value, f.label)} aria-label={`Copy ${f.label}`}>
+                  <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => copyField(value, f.label)} aria-label={`Copy ${f.label}`}>
                     <Copy className="h-3.5 w-3.5" />
                   </button>
                 ) : (

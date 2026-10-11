@@ -19,8 +19,8 @@
  */
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { toE164 } from "@/server/services/retell/payload";
-import { platformNumber } from "@/server/outbound/platform-number";
 import { BUSINESS_LINE_MODE, type Db } from "@/server/services/staff/porting/db-types";
+import { platformNumbers } from "@/server/services/staff/porting/guards";
 import { readPortingSettings, type RingSettings } from "@/server/services/staff/porting/settings";
 import { VOICE_BUSINESS_LINE_PATH as BUSINESS_LINE_PATH, VOICE_INBOUND_PATH as INBOUND_PATH } from "@/server/services/twilio/voice-config";
 import { DEFAULT_SAY_VOICE, escapeXml } from "@/server/services/twilio/voice-twiml";
@@ -44,10 +44,7 @@ export interface BusinessLineTenant {
 async function ourNumbers(admin: AdminClient, organizationId: string): Promise<Set<string>> {
   const { data } = await (admin as Db).from("voice_numbers").select("phone_e164").eq("organization_id", organizationId);
   const set = new Set(((data ?? []) as Array<{ phone_e164: string }>).map((r) => r.phone_e164));
-  for (const env of [platformNumber(), process.env.TWILIO_FROM_NUMBER]) {
-    const e = toE164(env ?? null);
-    if (e) set.add(e);
-  }
+  for (const e of platformNumbers()) set.add(e);
   return set;
 }
 
@@ -83,21 +80,30 @@ export async function resolveBusinessLineTenant(admin: AdminClient, calledNumber
 
   const { data: companyData } = await db
     .from("companies")
-    .select("name, owner_phone_e164, ai_settings")
+    .select("name, owner_phone_e164, owner_phone_verified_at, ai_settings")
     .eq("organization_id", number.organization_id)
     .eq("id", number.company_id)
     .maybeSingle();
-  const company = companyData as { name: string | null; owner_phone_e164: string | null; ai_settings: unknown } | null;
+  const company = companyData as { name: string | null; owner_phone_e164: string | null; owner_phone_verified_at: string | null; ai_settings: unknown } | null;
+  // Only a VERIFIED owner cell is rung (an unverified one might not be the owner's at all).
+  const ownerPhone = company?.owner_phone_e164 && company.owner_phone_verified_at ? company.owner_phone_e164 : null;
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", number.organization_id).maybeSingle();
   const ring = readPortingSettings(company?.ai_settings, { crankleads: (org as { platform_brand: string | null } | null)?.platform_brand === "crankleads" }).ring;
 
   let crewPhones: Array<string | null> = [];
   if (ring.crew) {
-    const { data: members } = await db
-      .from("organization_memberships")
-      .select("phone_e164")
+    // This company's people when company memberships exist for it, else the org's; oldest
+    // members first (deterministic, and the 5-number cap keeps the longest-serving).
+    const { data: companyMembers } = await db
+      .from("company_memberships")
+      .select("profile_id")
       .eq("organization_id", number.organization_id)
-      .limit(20);
+      .eq("company_id", number.company_id)
+      .limit(100);
+    const profileIds = ((companyMembers ?? []) as Array<{ profile_id: string }>).map((m) => m.profile_id);
+    let query = db.from("organization_memberships").select("profile_id, phone_e164, joined_at").eq("organization_id", number.organization_id);
+    if (profileIds.length > 0) query = query.in("profile_id", profileIds);
+    const { data: members } = await query.order("joined_at", { ascending: true }).order("profile_id", { ascending: true }).limit(50);
     crewPhones = ((members ?? []) as Array<{ phone_e164: string | null }>).map((m) => m.phone_e164);
   }
   const exclude = await ourNumbers(admin, number.organization_id);
@@ -108,7 +114,7 @@ export async function resolveBusinessLineTenant(admin: AdminClient, calledNumber
     companyName: company?.name?.trim() || number.brand_label || "your business",
     businessLine: number.phone_e164,
     ring,
-    targets: ring.enabled ? ringTargets({ ownerPhone: company?.owner_phone_e164 ?? null, crewPhones, crew: ring.crew, exclude }) : [],
+    targets: ring.enabled ? ringTargets({ ownerPhone, crewPhones, crew: ring.crew, exclude }) : [],
   };
 }
 
@@ -205,7 +211,9 @@ export async function markOutcome(admin: AdminClient, callSid: string, outcome: 
 export function wasAnswered(input: { dialCallStatus: string | null; dialBridged: string | null; call: { screen: boolean; accepted_at: string | null } | null }): boolean {
   if (input.dialCallStatus !== "completed") return false;
   if (input.dialBridged === "false") return false;
-  if (!input.call) return input.dialBridged === "true";
+  // Twilio says the legs were bridged: someone took it (even if recording the press-1 failed).
+  if (input.dialBridged === "true") return true;
+  if (!input.call) return false;
   return input.call.screen ? Boolean(input.call.accepted_at) : true;
 }
 

@@ -49,6 +49,9 @@ export interface NumberPortRow {
   foc_date: string | null;
   rejection_reason: string | null;
   attached_numbers: string[];
+  twilio_snapshot_at: string | null;
+  preexisting_numbers: string[];
+  operator_opened_at: string | null;
   created_via: "settings" | "owner_text" | "operator";
   /** The owner text due: "<status>@<iso>" (a new key per transition); sent when notified_status catches up. */
   notify_status: string | null;

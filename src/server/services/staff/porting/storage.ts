@@ -27,6 +27,8 @@ export interface PortingStorage {
   upload(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
   signedUrl(path: string, downloadName: string): Promise<string | null>;
   remove(paths: string[]): Promise<void>;
+  /** Full paths of the files directly in `folder` (no trailing slash). */
+  listFolder(folder: string): Promise<string[]>;
 }
 
 export function portFolder(organizationId: string, portId: string): string {
@@ -72,6 +74,11 @@ export function supabasePortingStorage(admin: AdminClient): PortingStorage {
       const { data, error } = await bucket().createSignedUrl(path, READ_URL_TTL_SECONDS, { download: downloadName });
       if (error || !data?.signedUrl) return null;
       return data.signedUrl as string;
+    },
+    async listFolder(folder) {
+      const { data, error } = await bucket().list(folder, { limit: 1000 });
+      if (error) throw error;
+      return ((data ?? []) as Array<{ name: string }>).map((o) => `${folder}/${o.name}`);
     },
     async remove(paths) {
       if (paths.length === 0) return;
