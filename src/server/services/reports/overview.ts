@@ -8,6 +8,7 @@ import { z } from "zod";
 import { resolveCompanyTimeZone } from "@/server/services/attribution";
 import { ValidationError } from "@/server/organizations/context";
 import { daysBetween } from "@/server/services/invoices/math";
+import { isImportedPastJob, isReportableLead } from "@/server/services/reports/exclusions";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { buildPeriod, computeOverview, isYmd, MAX_RANGE_DAYS, type OverviewInputs, type OverviewPeriod, type OverviewReport } from "./overview-logic";
 
@@ -101,7 +102,7 @@ export async function fetchOverviewInputs(ctx: TenantServiceContext, period: Ove
     readAll((a, b) => {
       let q = db
           .from("bookings")
-          .select("id, scheduled_for, status, contact_id")
+          .select("id, scheduled_for, status, contact_id, source_call_id")
           .eq("organization_id", org)
           .gte("scheduled_for", period.prevFrom)
           .lt("scheduled_for", period.to);
@@ -129,7 +130,7 @@ export async function fetchOverviewInputs(ctx: TenantServiceContext, period: Ove
       return q.order("approved_at", { ascending: true }).range(a, b);
     }),
     readAll((a, b) => {
-      let q = db.from("contacts").select("id, created_at").eq("organization_id", org).gte("created_at", period.prevFrom).lt("created_at", period.to);
+      let q = db.from("contacts").select("id, created_at, consent_source").eq("organization_id", org).gte("created_at", period.prevFrom).lt("created_at", period.to);
       if (companyId) q = q.eq("company_id", companyId);
       return q.order("created_at", { ascending: true }).range(a, b);
     }),
@@ -234,7 +235,8 @@ export async function fetchOverviewInputs(ctx: TenantServiceContext, period: Ove
       .filter((i) => i.issue_date && i.status !== "draft" && i.status !== "void" && !depositInvoiceIds.has(i.id))
       .map((i) => ({ issueDate: i.issue_date as string, totalCents: i.total_cents, currency: i.currency })),
     open: open.map((o) => ({ balanceCents: o.balance_due_cents, pendingCents: o.pending_payment_cents, dueDate: o.due_date, currency: o.currency })),
-    bookings: bookings.map((b) => ({ scheduledFor: b.scheduled_for, status: b.status, contactId: b.contact_id })),
+    // Imported past jobs and imported / applicant contacts aren't activity (reports/exclusions.ts).
+    bookings: bookings.filter((b) => !isImportedPastJob(b)).map((b) => ({ scheduledFor: b.scheduled_for, status: b.status, contactId: b.contact_id })),
     quotes: [...quotesById.values()].map((q) => ({
       sentAt: q.sent_at,
       approvedAt: q.approved_at,
@@ -243,7 +245,7 @@ export async function fetchOverviewInputs(ctx: TenantServiceContext, period: Ove
       approvedTotalCents: q.approved_total_cents,
       totalCents: q.total_cents,
     })),
-    newContacts: contacts.map((c) => c.created_at),
+    newContacts: contacts.filter((c) => isReportableLead(c)).map((c) => c.created_at),
     timeEntries: timeEntries.map((e) => ({
       profileId: e.profile_id,
       bookingId: e.booking_id,

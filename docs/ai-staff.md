@@ -578,7 +578,7 @@ A new business brings its existing customer list, so the Bookkeeper, Marketer an
 
 ### Reading the file (`parse.ts`)
 
-CSV: our own RFC 4180 reader (quotes, `""`, newlines inside quotes, comma / semicolon / tab, UTF-8 BOM, Windows-1252 fallback). XLSX: **`exceljs` 4.4.0** (pinned; the sheet with the most rows; date cells → YYYY-MM-DD; rich text, formulas and hyperlinks → their text). The first non-empty row is the header; empty rows are dropped; each row keeps its spreadsheet row number (`row_index + 2`), which is what the preview and the owner text call "row 10". Exact duplicate rows are dropped (unique row hash per batch).
+CSV: our own RFC 4180 reader (quotes, `""`, newlines inside quotes, comma / semicolon / tab, UTF-8 BOM, Windows-1252 fallback). XLSX: **`exceljs` 4.4.0** (pinned), **streamed** (`WorkbookReader`) and stopped past 25,000 rows — a whole-workbook load of a 10 MB, 240k-row file takes ~900 MB, so it's never loaded whole; the shared-strings part (kept in memory) is size-checked from the zip directory first (≤ 32 MB). The sheet with the most rows wins; date cells → YYYY-MM-DD; rich text, formulas and hyperlinks → their text. The first non-empty row is the header; empty rows are dropped; each row keeps its spreadsheet row number (`row_index + 2`), which is what the preview and the owner text call "row 10". Exact duplicate rows are dropped (unique row hash per batch).
 
 ### Columns (`mapping.ts`)
 
@@ -588,7 +588,7 @@ Fields: full / first / last name, business name, phone (several columns allowed;
 
 Phones → E.164 (North American numbers; "+…" kept; extensions dropped), emails lowercased, names split ("Lee, Jamie", titles dropped, ALL CAPS → Title Case), money → cents ("$1,240.50", "(45.00)"), dates in each column's own order (a column with a first part > 12 is day-first; otherwise month-first; also "Jun 14, 2025" and Excel serial numbers). A row with no name, business, phone or email is skipped with the reason. A job date today or later, a credit balance, a phone or date we can't read are warnings (the row still imports). A row's past job is its job date, else its last service date.
 
-**Matching** an existing contact: same phone (last 10 digits) or same email, in that company; a row with neither matches only a contact with the same name that also has neither. Rows of one file that are the same customer become one contact (their jobs all count).
+**Matching** an existing contact: same phone (last 10 digits) or same email, in that company, **and a name that fits** (missing parts don't disagree; "Pat" fits "Patricia"). When the phone/email belongs to someone with a clearly different name (a shared family line, a typo), the row is **not** merged: it becomes its own contact (with that phone/email too) and the preview lists it ("same phone or email as Jamie Lee but a different name - added as a separate customer"). A row with no phone and no email is never matched by name — two John Smiths stay two; it only matches the contact an earlier upload made from the very same row (`metadata.import.rowKey`), so a re-upload still adds nobody. Rows of one file that are the same person become one contact (their jobs all count).
 
 ### Preview (`preview.ts`)
 
@@ -596,7 +596,7 @@ Before anything is written: new contacts, matches to existing contacts, repeat r
 
 ### What the import writes (`apply.ts`)
 
-The sweep `importer:batches` (every tick; a lease per batch, 2 minutes) imports **500 rows per chunk** with a ~25 s budget per pass, never in the HTTP request (a small file — ≤ 1 MB — is read and previewed inside the upload request so the page is quick). Each row records what it did on `import_rows` before the cursor moves, so a pass that dies mid-chunk resumes without doing a row twice.
+The sweep `importer:batches` (every tick; a lease per batch, 2 minutes; every save is conditional on the lease AND the status the step started from, so an owner's Cancel / Undo is never overwritten; companies with the import off are passed over when picking work, so they can't crowd out others) imports **500 rows per chunk** with a ~25 s budget per pass, never in the HTTP request (a small file — ≤ 1 MB — is read and previewed inside the upload request so the page is quick). Each row records what it did on `import_rows` before the cursor moves, so a pass that dies mid-chunk resumes without doing a row twice. Every pass is **counted before it runs** (`import_batches.failures`, reset when the step finishes), so a file that takes the worker down still uses up its tries: reading/previewing gives up after 3 ("We couldn't read that file…"), importing / undoing after 10 — the batch goes to `failed` and the owner is texted ("Your customer import of clients.csv stopped after 4,500 of 12,000 rows … Open the import page to undo what got in, or try the file again."); undo stays available.
 
 | | Written as | Never |
 | --- | --- | --- |
@@ -606,7 +606,9 @@ The sweep `importer:batches` (every tick; a lease per batch, 2 minutes) imports 
 | Past job | `bookings` status **completed** in the past (noon local on the job date, `completed_at` = that date → the Marketer's CASL purchase date), `price_cents`, `source: "import:<batch>"`, `source_call_id: "import:<key>"` (unique per company) | `createBooking`, events, recipes, review requests, crew notices |
 | Balance owing | `invoices` status **sent**, the balance as one "Balance carried over" line, no tax, `issue_date` from the file (else today), due date from the file (else the issue date), a fresh invoice number, `imported_at`, `import_batch_id`, `import_key` (unique per company), **`import_hold: true` + `reminders_paused: true`** | emailed, texted, `invoice.sent`, or pushed to QuickBooks / Xero |
 
-**No customer messages, no workflows.** Every write is a direct insert/update with the service role, pinned to the batch's organization and company; nothing calls a service that emits an activity / workflow event or sends anything (tested: no SMS but the owner's, no email, no dispatch, no `activity_events`, no `workflow_event_jobs`, no `message_log` row for a customer). Imported balances are also kept out of the **accounting sync** (the trigger functions skip invoices with `imported_at`, and payments on them): they came from the owner's books, so pushing them back would duplicate them.
+**No customer messages, no workflows.** Every write is a direct insert/update with the service role, pinned to the batch's organization and company; nothing calls a service that emits an activity / workflow event or sends anything (tested: no SMS but the owner's, no email, no dispatch, no `activity_events`, no `workflow_event_jobs`, no `message_log` row for a customer). Imported balances are also kept out of the **accounting sync** — the triggers skip invoices with `imported_at` (and payments on them), "Sync now" / settings-save backfill (`accounting/connections.ts queueBackfill`) leaves them out, and the engine (`syncInvoice`, so `syncPayment` too) skips them: they came from the owner's books, so pushing them back would duplicate them.
+
+**Reports.** Imported contacts (and the Recruiter's applicants: `consent_source` `import` / `job_application`) aren't new leads, and imported past jobs (`source_call_id` `import:…`) aren't jobs done in the period — in the monthly scorecard (and so the weekly report, which reuses its inputs) and the Reports overview (`reports/exclusions.ts`). A1's own cutover import uses `a1:…` keys, so its numbers are unchanged.
 
 **Idempotent re-upload.** The same file again finds the same customers (matched, blanks only), the same jobs (`source_call_id`) and the same balances (`import_key`: contact + their invoice number, else contact + date + amount), so it creates nothing new. A balance changed since (no invoice number in the file) is a new balance.
 
@@ -614,7 +616,7 @@ When the batch is done, one text to the owner (from the platform number, outside
 
 ### Imported balances stay on hold (`hold.ts`, `approvals.ts`)
 
-While `invoices.import_hold` is true: no reminder email and no `invoice.overdue` automation (one tolerant check in `invoices/reminders.ts`, only for paused invoices), and no Bookkeeper text (it skips `reminders_paused` invoices).
+While `invoices.import_hold` is true: no reminder email and no `invoice.overdue` automation — the email sweep's query leaves held rows out (`import_hold is false or null`), whether or not someone un-paused the invoice by hand, so held rows never use up its 1,000-row limit for other businesses — and no Bookkeeper text (it skips `reminders_paused` invoices) and no morning-alert overdue line.
 
 | Kind | Asked by | Owner sees | Y | N / expiry |
 | --- | --- | --- | --- | --- |
@@ -624,7 +626,7 @@ A note ("Y 12 only Jones") can't change anything here: nothing is released and t
 
 ### Undo (`undo.ts`)
 
-From the import page (a done batch, or a failed one that started importing): the sweep removes, phase by phase in chunks, what the batch **created**, unless it was used since — balances with a payment, reminder or view; jobs edited, reassigned, invoiced or no longer completed; customers with any message, conversation, booking, quote or invoice left, or edited; customer accounts still in use. Kept records are reported ("Kept 1 customers … that were used since") with up to 10 examples. Customers the import only matched are never removed (blanks it filled stay filled). A pending `chase_imported_balances` question is withdrawn.
+From the import page (a done batch, or a failed one that started importing): the sweep removes, phase by phase in chunks, what the batch **created**, unless it was used since — balances with a payment, reminder or view, or edited since (note: releasing the hold with Y also counts as a change); jobs edited, reassigned, invoiced or no longer completed; customers with any message, conversation, booking, quote or invoice left, or edited; customer accounts still in use. Kept records are reported ("Kept 1 customers … that were used since") with up to 10 examples. Customers the import only matched are never removed (blanks it filled stay filled). A pending `chase_imported_balances` question is withdrawn.
 
 ### Owner tools (`owner-tools.ts`)
 
@@ -641,7 +643,7 @@ From the import page (a done batch, or a failed one that started importing): the
 
 ### Data (migration `20261012110000_staff_importer.sql`)
 
-- `import_links` (service role only), `import_batches` (members read; statuses uploading → uploaded → mapped → previewed → importing → done, failed, undoing → undone, cancelled), `import_rows` (service role only; unique `(batch_id, row_hash)`; what each row created).
+- `import_links` (service role only), `import_batches` (owners/admins read — samples hold raw customer rows, like the API; statuses uploading → uploaded → mapped → previewed → importing → done, failed, undoing → undone, cancelled), `import_rows` (service role only; unique `(batch_id, row_hash)`; what each row created).
 - `invoices.imported_at / import_batch_id / import_hold / import_key` (no client grants), unique `(company_id, import_key)`; unique `(company_id, source_call_id)` for `bookings` with an `import:` key; an index on `contacts.metadata->import->>batchId`.
 - Bucket `customer-imports` (private, 10 MB, CSV / XLSX types).
 - `accounting_enqueue_invoice` / `accounting_enqueue_payment` skip imported balances (the rollback restores the originals).
@@ -652,7 +654,9 @@ Env: `AI_MODEL_IMPORTER` (optional, default `claude-sonnet-5-5`). Dependency: `e
 
 Tests: `src/test/staff-importer.test.ts` (CSV/XLSX reading, the export heuristics and the Claude fallback, row cleaning, settings + house orgs, preview, the quiet import with consent fields and fill-blanks matching, the no-messages guarantee, quiet hours, idempotent re-upload, chunk resume, leases, the holds against the email and Bookkeeper sweeps, `chase_imported_balances` through `decideApproval` (Y, note, N), undo, owner tools, the token route).
 
-**Not yet:** daily-alert "now 30/60+ days overdue" lines include imported balances the first morning after an import (owner-only; the Bookkeeper's alert file wasn't changed). Imported past jobs dated this week / month count in the weekly report and monthly scorecard job totals. Matching a business account is by exact name. XLS (old Excel) files must be saved as XLSX or CSV first.
+Customer accounts match by name in any case ("ORTIZ HOLDINGS" is "Ortiz Holdings").
+
+**Not yet:** XLS (old Excel) files must be saved as XLSX or CSV first.
 
 ## Keep your number
 

@@ -1,8 +1,9 @@
 /**
  * The import's hold on automatic reminders: an imported open balance (invoices.import_hold) gets
  * no reminder email, no Bookkeeper text and no invoice.overdue automation until the owner says Y
- * to chase_imported_balances. Read by the email reminder sweep (invoices/reminders.ts). The
- * Bookkeeper's text sweep already skips these: an imported balance is also reminders_paused.
+ * to chase_imported_balances. The email reminder sweep (invoices/reminders.ts) filters held rows
+ * out in its query; the Bookkeeper's text sweep skips them (an imported balance is also
+ * reminders_paused). This per-invoice check is for one-off reads.
  *
  * No runtime imports: it must stay safe to import from the invoices module. Tolerant: any error
  * (e.g. the column isn't migrated yet) means "no hold", so reminders behave exactly as before.

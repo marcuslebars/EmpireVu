@@ -314,6 +314,8 @@ export async function queueBackfill(
       .eq("organization_id", conn.organization_id)
       .neq("status", "draft")
       .neq("status", "void")
+      // Imported balances came from the owner's books (staff/importer): never pushed back.
+      .is("imported_at", null)
       .gte("issue_date", conn.sync_start_date)
       .limit(5000);
     for (const i of invs ?? []) if (!done.has(`invoice:${i.id}`)) queue.push(["invoice", i.id]);

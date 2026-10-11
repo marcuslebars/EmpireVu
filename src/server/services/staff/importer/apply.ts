@@ -25,7 +25,7 @@ import { parseInvoiceSettings, formatInvoiceNumber } from "@/server/services/inv
 import type { Db, ImportBatchRow, ImportField, RowOutcome } from "./db-types";
 import { isUniqueViolation } from "./deps";
 import { balanceKey, buildRecord, displayName, jobKey, type DateOrder, type ImportRecord } from "./normalize";
-import { existingAccounts, loadBatchRows } from "./preview";
+import { conflictNote, existingAccounts, loadBatchRows } from "./preview";
 import { ContactResolver, type KnownContact } from "./resolver";
 import type { ImportCompany } from "./settings";
 import { must } from "./util";
@@ -92,7 +92,7 @@ async function ensureAccount(ctx: Ctx, r: ImportRecord, rowNumber: number): Prom
 }
 
 async function createContact(ctx: Ctx, r: ImportRecord, accountId: string | null): Promise<string> {
-  const metadata: Record<string, unknown> = { import: { batchId: ctx.batch.id, at: ctx.nowIso, file: sourceLabel(ctx.batch) } };
+  const metadata: Record<string, unknown> = { import: { batchId: ctx.batch.id, at: ctx.nowIso, file: sourceLabel(ctx.batch), rowKey: r.rowKey } };
   if (r.address) metadata.address = r.address;
   if (r.otherPhones.length) metadata.other_phones = r.otherPhones;
   if (r.tags.length) metadata.tags = r.tags;
@@ -276,7 +276,8 @@ async function applyRow(ctx: Ctx, resolver: ContactResolver, index: number, cell
   const r = built.record;
   const write: RowWrite = { ...empty, reason: r.warnings.length ? r.warnings.join("; ").slice(0, 500) : null };
 
-  const known = resolver.find(r);
+  const { known, conflict } = resolver.find(r);
+  if (conflict) write.reason = [write.reason, conflictNote(conflict)].filter(Boolean).join("; ").slice(0, 500);
   const account = await ensureAccount(ctx, r, rowNumber);
   if (account) {
     write.account_id = account.id;
@@ -291,7 +292,7 @@ async function applyRow(ctx: Ctx, resolver: ContactResolver, index: number, cell
     resolver.link(known, r);
   } else {
     contactId = await createContact(ctx, r, account?.id ?? null);
-    resolver.remember(contactId, r, { customer_account_id: account?.id ?? null, metadata: { import: { batchId: ctx.batch.id } } });
+    resolver.remember(contactId, r, { customer_account_id: account?.id ?? null, metadata: { import: { batchId: ctx.batch.id, rowKey: r.rowKey } } });
     write.outcome = "created";
     write.contact_created = true;
   }

@@ -41,8 +41,11 @@ export const BATCHES_PER_DAY = 20;
 /** Files and raw rows are deleted this long after a batch is finished. */
 export const PURGE_AFTER_MS = 30 * 86_400_000;
 const INSERT_CHUNK = 500;
-/** Read/preview failures before a batch is marked failed. */
-const MAX_FAILURES = 5;
+/**
+ * Passes a step may start without finishing before the batch is marked failed. Counted BEFORE the
+ * step runs, so a pass that takes the worker down (out of memory on a hostile file) still counts.
+ */
+export const MAX_ATTEMPTS: Partial<Record<BatchStatus, number>> = { uploaded: 3, mapped: 3, importing: 10, undoing: 10 };
 /** Files up to this size are read and previewed inside the upload request (snappier page). */
 const INLINE_BYTES = 1_000_000;
 /** …and a fresh preview after a column change, up to this many rows. */
@@ -289,9 +292,19 @@ async function claimLease(admin: AdminClient, batch: Batch, nowMs: number): Prom
   return ((data ?? []) as unknown[]).length > 0 ? lease : null;
 }
 
-/** Save under the lease (a stale holder's write changes nothing). Returns the fresh row, or null when we lost the lease. */
+/**
+ * Save under the lease AND the status the step started from (a stale holder's write, or one racing
+ * an owner's Cancel / Undo, changes nothing). Returns the fresh row, or null when either moved.
+ */
 async function save(admin: AdminClient, batch: Batch, lease: string, patch: Record<string, unknown>): Promise<Batch | null> {
-  const { data, error } = await (admin as Db).from("import_batches").update(patch).eq("organization_id", batch.organization_id).eq("id", batch.id).eq("lease_id", lease).select("*");
+  const { data, error } = await (admin as Db)
+    .from("import_batches")
+    .update(patch)
+    .eq("organization_id", batch.organization_id)
+    .eq("id", batch.id)
+    .eq("lease_id", lease)
+    .eq("status", batch.status)
+    .select("*");
   if (error) throw error;
   return ((data ?? []) as Batch[])[0] ?? null;
 }
@@ -497,50 +510,94 @@ export async function advanceBatch(admin: AdminClient, batch: Batch, company: Im
   let current: Batch | null = { ...batch, lease_id: lease };
   try {
     while (current && Date.now() - started < budget) {
-      const b: Batch = current;
+      let b: Batch = current;
       const left = budget - (Date.now() - started);
-      if (b.status === "uploaded" && allowed("uploaded")) current = await parseStep(admin, b, company, lease, deps);
-      else if (b.status === "mapped" && allowed("mapped")) current = await previewStep(admin, b, company, lease, deps);
-      else if (b.status === "importing" && allowed("importing")) current = await importStep(admin, b, company, lease, deps, left);
-      else if (b.status === "undoing" && allowed("undoing")) current = await undoingStep(admin, b, lease, deps);
+      const limit = MAX_ATTEMPTS[b.status];
+      if (limit !== undefined && allowed(b.status)) {
+        if ((b.failures ?? 0) >= limit) {
+          current = await giveUp(admin, b, company, lease, deps);
+          break;
+        }
+        const counted = await save(admin, b, lease, { failures: (b.failures ?? 0) + 1 });
+        if (!counted) break;
+        b = counted;
+      }
+      let next: Batch | null;
+      if (b.status === "uploaded" && allowed("uploaded")) next = await parseStep(admin, b, company, lease, deps);
+      else if (b.status === "mapped" && allowed("mapped")) next = await previewStep(admin, b, company, lease, deps);
+      else if (b.status === "importing" && allowed("importing")) next = await importStep(admin, b, company, lease, deps, left);
+      else if (b.status === "undoing" && allowed("undoing")) next = await undoingStep(admin, b, lease, deps);
       else if (b.status === "done" && !b.owner_notified_at && allowed("done")) {
-        const after = await notifyStep(admin, b, company, lease, deps);
-        current = after;
+        current = await notifyStep(admin, b, company, lease, deps);
         break;
       } else if (wantsPurge(b, deps.now()) && !options.steps) {
         current = await purgeStep(admin, b, lease, deps);
         break;
       } else break;
+      // The step finished: its attempt doesn't count against it.
+      current = next && (next.failures ?? 0) > 0 ? ((await save(admin, next, lease, { failures: 0 })) ?? next) : next;
     }
   } catch (err) {
     const message = errorText(err);
     console.error("[importer] batch step failed", batch.id, message);
-    // Keep the status (the next pass retries) but say what happened; a file we can't even read
-    // after a few tries is given up on (importing / undoing keep retrying — they're half done).
-    const b = current ?? batch;
-    const failures = (b.failures ?? 0) + 1;
-    const giveUp = failures >= MAX_FAILURES && (b.status === "uploaded" || b.status === "mapped");
-    await save(admin, b, lease, { error: message.slice(0, 300), failures, ...(giveUp ? { status: "failed" } : {}) }).catch(() => undefined);
+    // Keep the status (the next pass retries — the attempt was already counted) but say what happened.
+    await save(admin, current ?? batch, lease, { error: message.slice(0, 300) }).catch(() => undefined);
   } finally {
     await (admin as Db).from("import_batches").update({ leased_until: null }).eq("organization_id", batch.organization_id).eq("id", batch.id).eq("lease_id", lease);
   }
   return current ?? batch;
 }
 
+/** Too many passes died on this step: mark it failed and (for a half-done import / undo) tell the owner. PURE text. */
+export function stuckText(b: Pick<ImportBatchRow, "status" | "file_name" | "cursor" | "total_rows">): string | null {
+  const file = b.file_name.slice(0, 60);
+  if (b.status === "importing") {
+    const done = Math.max(0, Math.min(b.cursor + 1, b.total_rows));
+    return `Your customer import of ${file} stopped after ${done.toLocaleString("en-CA")} of ${b.total_rows.toLocaleString("en-CA")} rows - we kept hitting a problem. Nothing more will be added and nobody was texted. Open the import page to undo what got in, or try the file again.`;
+  }
+  if (b.status === "undoing") return `Undoing your import of ${file} kept hitting a problem, so it stopped part way. Open the import page to try the undo again.`;
+  return null;
+}
+
+async function giveUp(admin: AdminClient, b: Batch, company: ImportCompany, lease: string, deps: ImporterDeps): Promise<Batch | null> {
+  const text = stuckText(b);
+  const reason = b.status === "uploaded" || b.status === "mapped" ? "We couldn't read that file. Save it again as .csv and try again, or split it into smaller files." : `Stopped after ${b.failures ?? 0} tries${b.error ? `: ${b.error}` : ""}`.slice(0, 300);
+  const failed = await save(admin, b, lease, { status: "failed", error: reason, ...(b.status === "importing" ? { counts: await tallyCounts(admin, b) } : {}), owner_notified_at: new Date(deps.now()).toISOString() });
+  if (failed && text && company.ownerPhone) {
+    await deps.textOwner(admin, { to: company.ownerPhone, body: text, organizationId: company.organizationId, companyId: company.companyId, platformBrand: company.platformBrand });
+  }
+  return failed;
+}
+
 // ── The sweep ─────────────────────────────────────────────────────────────────────
 
-/** Batches with work to do (oldest first), plus finished ones due a purge. */
-async function batchesWithWork(admin: AdminClient, nowMs: number): Promise<Batch[]> {
+const WORK_COLUMNS = "id, organization_id, company_id, status, owner_notified_at, purged_at, updated_at, created_at";
+const PER_SWEEP = 20;
+const CANDIDATES = 200;
+
+/**
+ * Batches with work to do (oldest first), plus finished ones due a purge. Candidates are read
+ * light, and a batch of a company that has the import switched off (before it started importing)
+ * is passed over HERE — so a pile of those can never crowd out the batches that can move.
+ */
+async function batchesWithWork(admin: AdminClient, nowMs: number, enabled: (orgId: string, companyId: string) => Promise<boolean>): Promise<Batch[]> {
   const db = admin as Db;
-  const out = new Map<string, Batch>();
-  const active = must(await db.from("import_batches").select("*").in("status", ["uploaded", "mapped", "importing", "undoing"]).order("updated_at", { ascending: true }).limit(20)) as Batch[];
-  for (const b of active) out.set(b.id, b);
-  const toNotify = must(await db.from("import_batches").select("*").eq("status", "done").is("owner_notified_at", null).order("updated_at", { ascending: true }).limit(20)) as Batch[];
-  for (const b of toNotify) out.set(b.id, b);
+  type Light = Pick<Batch, "id" | "organization_id" | "company_id" | "status" | "owner_notified_at" | "purged_at" | "updated_at" | "created_at">;
+  const candidates = new Map<string, Light>();
+  const active = must(await db.from("import_batches").select(WORK_COLUMNS).in("status", ["uploaded", "mapped", "importing", "undoing"]).order("updated_at", { ascending: true }).limit(CANDIDATES)) as Light[];
+  const toNotify = must(await db.from("import_batches").select(WORK_COLUMNS).eq("status", "done").is("owner_notified_at", null).order("updated_at", { ascending: true }).limit(CANDIDATES)) as Light[];
   const old = new Date(nowMs - PURGE_AFTER_MS).toISOString();
-  const stale = must(await db.from("import_batches").select("*").in("status", ["done", "undone", "cancelled", "failed"]).is("purged_at", null).lt("updated_at", old).limit(20)) as Batch[];
-  for (const b of stale) out.set(b.id, b);
-  return [...out.values()];
+  const stale = must(await db.from("import_batches").select(WORK_COLUMNS).in("status", ["done", "undone", "cancelled", "failed"]).is("purged_at", null).lt("updated_at", old).limit(PER_SWEEP)) as Light[];
+  for (const b of [...active, ...toNotify, ...stale]) candidates.set(b.id, b);
+  const picked: string[] = [];
+  for (const b of candidates.values()) {
+    if (picked.length >= PER_SWEEP) break;
+    const startedWork = b.status === "importing" || b.status === "undoing" || b.status === "done";
+    if (!startedWork && !wantsPurge(b as Batch, nowMs) && !(await enabled(b.organization_id, b.company_id))) continue;
+    picked.push(b.id);
+  }
+  if (picked.length === 0) return [];
+  return must(await db.from("import_batches").select("*").in("id", picked)) as Batch[];
 }
 
 /**
@@ -553,14 +610,18 @@ export async function runImportSweep(admin: AdminClient, nowMs: number = Date.no
   const budget = options.budgetMs ?? 25_000;
   const advanced: string[] = [];
   const stepDeps: ImporterDeps = { ...deps, now: () => nowMs + (Date.now() - started) };
-  for (const batch of await batchesWithWork(admin, nowMs)) {
+  const companies = new Map<string, Promise<ImportCompany | null>>();
+  const companyOf = (orgId: string, companyId: string) => {
+    if (!companies.has(companyId)) companies.set(companyId, loadImportCompany(admin, orgId, companyId).catch(() => null));
+    return companies.get(companyId)!;
+  };
+  const enabled = async (orgId: string, companyId: string) => (await companyOf(orgId, companyId))?.settings.enabled === true;
+  for (const batch of await batchesWithWork(admin, nowMs, enabled)) {
     const left = budget - (Date.now() - started);
     if (left <= 0) break;
     try {
-      const company = await loadImportCompany(admin, batch.organization_id, batch.company_id);
+      const company = await companyOf(batch.organization_id, batch.company_id);
       if (!company) continue;
-      const startedWork = batch.status === "importing" || batch.status === "undoing" || batch.status === "done";
-      if (!company.settings.enabled && !startedWork && !wantsPurge(batch, nowMs)) continue;
       await advanceBatch(admin, batch, company, stepDeps, { budgetMs: left });
       advanced.push(batch.id);
     } catch (err) {

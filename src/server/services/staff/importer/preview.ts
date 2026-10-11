@@ -6,11 +6,17 @@
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db, ImportBatchRow, ImportField, ImportPreview, PreviewSample } from "./db-types";
 import { balanceKey, buildRecord, dateOrdersFor, displayName, jobKey, type DateOrder, type ImportRecord } from "./normalize";
-import { ContactResolver } from "./resolver";
+import { ContactResolver, type KnownContact } from "./resolver";
 import { chunks, readAllPages } from "./util";
 
 export const MAX_ISSUES = 100;
 export const MAX_SAMPLES = 8;
+
+/** The owner-facing note for a row whose phone/email is on someone with a different name. PURE. */
+export function conflictNote(conflict: Pick<KnownContact, "first_name" | "last_name">): string {
+  const who = [conflict.first_name, conflict.last_name].filter(Boolean).join(" ") || "another customer";
+  return `same phone or email as ${who} but a different name - added as a separate customer`;
+}
 
 export interface LoadedRow {
   row_index: number;
@@ -47,14 +53,22 @@ export async function existingKeys(admin: AdminClient, scope: { organizationId: 
   return { jobs, balances };
 }
 
-/** Business names that already have a customer account (exact name, this org). */
+/**
+ * Business names that already have a customer account in this org (any case: "ORTIZ HOLDINGS" is
+ * "Ortiz Holdings"). Reads the org's live accounts once (id + name) and matches in memory —
+ * PostgREST has no case-insensitive IN. Keys are lowercased names.
+ */
 export async function existingAccounts(admin: AdminClient, organizationId: string, names: string[]): Promise<Map<string, string>> {
-  const db = admin as Db;
   const out = new Map<string, string>();
-  for (const list of chunks([...new Set(names)])) {
-    const { data, error } = await db.from("customer_accounts").select("id, name").eq("organization_id", organizationId).in("name", list).is("archived_at", null);
-    if (error) throw error;
-    for (const r of (data ?? []) as Array<{ id: string; name: string }>) if (!out.has(r.name.toLowerCase())) out.set(r.name.toLowerCase(), r.id);
+  const wanted = new Set(names.map((n) => n.trim().toLowerCase()).filter(Boolean));
+  if (wanted.size === 0) return out;
+  const rows = await readAllPages<{ id: string; name: string }>(
+    (from, to) => (admin as Db).from("customer_accounts").select("id, name").eq("organization_id", organizationId).is("archived_at", null).order("id", { ascending: true }).range(from, to),
+    50_000,
+  );
+  for (const r of rows) {
+    const key = r.name.trim().toLowerCase();
+    if (wanted.has(key) && !out.has(key)) out.set(key, r.id);
   }
   return out;
 }
@@ -111,7 +125,8 @@ export async function computePreview(admin: AdminClient, input: PreviewInput): P
     const r = b.result.record;
     let match: PreviewSample["match"];
     let contactId: string;
-    const known = resolver.find(r);
+    const { known, conflict } = resolver.find(r);
+    if (conflict && preview.issues.length < MAX_ISSUES) preview.issues.push({ row: b.index + 2, reason: conflictNote(conflict) });
     if (known && known.source === "db") {
       match = "existing";
       contactId = known.id;
