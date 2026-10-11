@@ -8,6 +8,7 @@ import { z } from "zod";
 import { handleRoute } from "@/server/api/route";
 import { ConciergeNotFoundError, requireOperator } from "@/server/services/concierge/auth";
 import { loadPortForOperator } from "@/server/services/staff/porting/operator";
+import { markOperatorOpened } from "@/server/services/staff/porting/service";
 import { supabasePortingStorage } from "@/server/services/staff/porting/storage";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
@@ -35,6 +36,8 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
       detail: { status: "ok", portId: port.id },
     });
     if (auditError) throw new Error(`concierge: audit write failed: ${auditError.message}`);
+    // The operator is working it now: the owner's form locks.
+    await markOperatorOpened(admin, { organizationId: port.organization_id, companyId: port.company_id }, port.id);
 
     const ext = path.slice(path.lastIndexOf(".") + 1);
     const url = await supabasePortingStorage(admin).signedUrl(path, `${kind === "loa" ? "LOA" : "phone-bill"}-${port.numbers[0]?.replace(/\D/g, "") ?? port.id}.${ext}`);

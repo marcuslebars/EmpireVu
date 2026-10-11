@@ -150,6 +150,38 @@ describe("a call to a ported business line", () => {
     expect(ringTargets({ ownerPhone: CATCHER, crewPhones: [CREW, CREW, "junk"], crew: true, exclude: new Set([CATCHER]) })).toEqual([CREW]);
   });
 
+  it("an UNVERIFIED owner cell is never rung (straight to the catcher path / AI)", async () => {
+    seed();
+    db.tables.companies[0].owner_phone_verified_at = null;
+    expect(await (await businessLine(twilioRequest(BL, call()))).text()).toBe(FALL_THROUGH);
+  });
+
+  it("crew ringing is scoped to the company's members when company memberships exist, oldest first", async () => {
+    seed({ porting: { ring: { crew: true } } });
+    const OTHER = "+17055556666";
+    db.tables.organization_memberships = [
+      { organization_id: ORG, profile_id: "p-late", phone_e164: OTHER, joined_at: "2026-09-01T00:00:00Z" },
+      { organization_id: ORG, profile_id: "p-crew", phone_e164: CREW, joined_at: "2026-01-01T00:00:00Z" },
+      { organization_id: ORG, profile_id: "p-elsewhere", phone_e164: "+17055554444", joined_at: "2025-01-01T00:00:00Z" },
+    ];
+    // Org-wide (no company memberships): every member with a cell, oldest first.
+    let xml = await (await businessLine(twilioRequest(BL, call()))).text();
+    expect(xml.match(/\+1\d{10}(?=<\/Number>)/g)).toEqual([OWNER, "+17055554444", CREW, OTHER]);
+    // Company memberships exist: only this company's people.
+    db.tables.company_memberships = [
+      { organization_id: ORG, company_id: CO, profile_id: "p-late" },
+      { organization_id: ORG, company_id: CO, profile_id: "p-crew" },
+    ];
+    xml = await (await businessLine(twilioRequest(BL, call({ CallSid: "CA0123456789abcdef0123456789abcdee" })))).text();
+    expect(xml.match(/\+1\d{10}(?=<\/Number>)/g)).toEqual([OWNER, CREW, OTHER]);
+  });
+
+  it("Twilio says bridged → answered, even if recording the press-1 failed", () => {
+    expect(wasAnswered({ dialCallStatus: "completed", dialBridged: "true", call: { screen: true, accepted_at: null } })).toBe(true);
+    expect(wasAnswered({ dialCallStatus: "completed", dialBridged: "true", call: null })).toBe(true);
+    expect(wasAnswered({ dialCallStatus: "no-answer", dialBridged: "true", call: null })).toBe(false);
+  });
+
   it("ring off, no owner cell, or a number that isn't a business line → the catcher path", async () => {
     seed({ porting: { ring: { enabled: false } } });
     expect(await (await businessLine(twilioRequest(BL, call()))).text()).toBe(FALL_THROUGH);

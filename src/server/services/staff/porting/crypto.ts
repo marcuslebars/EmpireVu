@@ -13,6 +13,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 const VERSION = "v1";
+const TAG_BYTES = 16;
 let warned = false;
 
 /** The 32-byte key, or null when PORTING_ENCRYPTION_KEY is unset or not 32 bytes of base64. */
@@ -36,7 +37,7 @@ export function encryptionAvailable(): boolean {
 
 export function encryptSecret(plain: string, aad: string, key: Buffer): string {
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: TAG_BYTES });
   cipher.setAAD(Buffer.from(aad, "utf8"));
   const data = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
@@ -49,10 +50,14 @@ export function decryptSecret(cipherText: string | null | undefined, aad: string
   const parts = cipherText.split(".");
   if (parts.length !== 4 || parts[0] !== VERSION) return null;
   try {
-    const [, iv, tag, data] = parts;
-    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64url"));
+    const [, ivText, tagText, data] = parts;
+    const iv = Buffer.from(ivText, "base64url");
+    const tag = Buffer.from(tagText, "base64url");
+    // A truncated tag would weaken the authentication: only full 16-byte tags (and 12-byte IVs).
+    if (tag.length !== TAG_BYTES || iv.length !== 12) return null;
+    const decipher = createDecipheriv("aes-256-gcm", key, iv, { authTagLength: TAG_BYTES });
     decipher.setAAD(Buffer.from(aad, "utf8"));
-    decipher.setAuthTag(Buffer.from(tag, "base64url"));
+    decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(Buffer.from(data, "base64url")), decipher.final()]).toString("utf8");
   } catch {
     return null;

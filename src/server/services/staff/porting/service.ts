@@ -24,6 +24,7 @@ import { appBaseUrlFor } from "@/server/services/platform-brand";
 import { toE164 } from "@/server/services/retell/payload";
 import { decryptSecret, encryptSecret, lastFour, portingKey } from "@/server/services/staff/porting/crypto";
 import type { Db, NumberPortRow, PinStatus, PortStatus, ServiceAddress } from "@/server/services/staff/porting/db-types";
+import { checkPortable, portableMessage } from "@/server/services/staff/porting/guards";
 import { buildLoaPdf } from "@/server/services/staff/porting/loa";
 import { loadPortingCompany, type PortingCompany } from "@/server/services/staff/porting/settings";
 import {
@@ -36,6 +37,7 @@ import {
   STATUS_LABELS,
 } from "@/server/services/staff/porting/status";
 import { BILL_TYPES, billPathFor, isPortPath, loaPathFor, supabasePortingStorage, type PortingStorage } from "@/server/services/staff/porting/storage";
+import { createTwilioNumbersClient, getTwilioCredentials, type TwilioNumbersClient } from "@/server/services/twilio/provision";
 import { readCallAnsweringSettings } from "@/server/services/voice/answering-settings";
 
 export type Scope = { organizationId: string; companyId: string };
@@ -43,10 +45,17 @@ export type Scope = { organizationId: string; companyId: string };
 export interface PortingDeps {
   storage: (admin: AdminClient) => PortingStorage;
   sendOwner: typeof sendOwnerSms;
+  /** The Twilio numbers client (snapshot at submit, completion sweep); null when not configured. */
+  twilio: () => TwilioNumbersClient | null;
+}
+
+export function defaultTwilioClient(): TwilioNumbersClient | null {
+  const creds = getTwilioCredentials();
+  return creds ? createTwilioNumbersClient(creds) : null;
 }
 
 export function defaultPortingDeps(): PortingDeps {
-  return { storage: supabasePortingStorage, sendOwner: sendOwnerSms };
+  return { storage: supabasePortingStorage, sendOwner: sendOwnerSms, twilio: defaultTwilioClient };
 }
 
 function depsWith(over?: Partial<PortingDeps>): PortingDeps {
@@ -150,9 +159,21 @@ export async function deliverOwnerText(
   try {
     const key = port.notify_status;
     const status = statusOfKey(key);
-    if (!key || !status || key === port.notified_status) return "none";
+    if (!key || !status) return "none";
+    // Done with this text (sent, or it can never be sent): clear it so the notify sweep only ever
+    // sees pending ones. Conditional on the key, so a newer status's text is never cleared.
+    const clear = async () => {
+      await (admin as Db).from("number_port_requests").update({ notify_status: null }).eq("id", port.id).eq("organization_id", port.organization_id).eq("notify_status", key);
+    };
+    if (key === port.notified_status) {
+      await clear();
+      return "none";
+    }
     const company = await loadPortingCompany(admin, { organizationId: port.organization_id, companyId: port.company_id });
-    if (!company?.ownerPhone || !company.ownerPhoneVerified) return "no_phone";
+    if (!company?.ownerPhone || !company.ownerPhoneVerified) {
+      await clear();
+      return "no_phone";
+    }
     if (!URGENT.includes(status) && isQuietHours(nowMs, company.timeZone)) return "held";
     const text = ownerStatusText(port, status, ownerTextContext(company, port));
     let claim = (admin as Db)
@@ -164,7 +185,10 @@ export async function deliverOwnerText(
     claim = port.notified_status ? claim.eq("notified_status", port.notified_status) : claim.is("notified_status", null);
     const { data: claimed } = await claim.select("id");
     if (((claimed ?? []) as unknown[]).length === 0) return "lost_claim";
-    if (!text) return "none";
+    if (!text) {
+      await clear();
+      return "none";
+    }
     const deps = depsWith(over);
     const result = await deps.sendOwner(admin, {
       to: company.ownerPhone,
@@ -173,19 +197,19 @@ export async function deliverOwnerText(
       companyId: port.company_id,
       platformBrand: company.platformBrand,
     });
-    if (result.status !== "sent") {
-      // Give the claim back so the notify sweep tries again (a blocked owner stays blocked).
-      if (result.status === "failed") {
-        await (admin as Db)
-          .from("number_port_requests")
-          .update({ notified_status: port.notified_status })
-          .eq("id", port.id)
-          .eq("organization_id", port.organization_id)
-          .eq("notified_status", key);
-      }
+    if (result.status === "failed") {
+      // Give the claim back so the notify sweep tries again.
+      await (admin as Db)
+        .from("number_port_requests")
+        .update({ notified_status: port.notified_status })
+        .eq("id", port.id)
+        .eq("organization_id", port.organization_id)
+        .eq("notified_status", key);
       return "failed";
     }
-    return "sent";
+    // Sent, or blocked (the owner opted out of platform texts - retrying won't help).
+    await clear();
+    return result.status === "sent" ? "sent" : "failed";
   } catch (err) {
     console.error("[porting] owner text failed:", err instanceof Error ? err.message : err);
     return "failed";
@@ -234,7 +258,14 @@ export async function startPort(
     return { port: existing, url, created: false, texted: false };
   }
 
-  const wanted = normalizePortNumber(input.number ?? null) ?? normalizePortNumber(company.businessLine);
+  // Never a number that's already ours (the platform line, a catcher, another company's line).
+  const asked = normalizePortNumber(input.number ?? null);
+  if (asked) {
+    const verdict = await checkPortable(admin, scope, asked);
+    if (verdict.reason) throw new ValidationError(portableMessage(verdict.reason));
+  }
+  const line = normalizePortNumber(company.businessLine);
+  const wanted = asked ?? (line && (await checkPortable(admin, scope, line)).ok ? line : null);
   const sendText = input.createdVia !== "owner_text";
   const nowIso = new Date(nowMs).toISOString();
   const key = notifyKey("collecting", nowMs);
@@ -249,8 +280,8 @@ export async function startPort(
     pin_status: "none",
     attached_numbers: [],
     created_via: input.createdVia,
-    notify_status: key,
-    // The owner agent's reply IS the text with the link.
+    // The owner agent's reply IS the text with the link (nothing owed then).
+    notify_status: sendText ? key : null,
     notified_status: sendText ? null : key,
     created_at: nowIso,
     updated_at: nowIso,
@@ -295,8 +326,19 @@ export interface PortFormView {
   rejectionReason: string | null;
 }
 
+/**
+ * The owner may change the form while it's collecting / ready / rejected — but not once an
+ * operator has started on it (revealed, downloaded or copied the details for Twilio's form), so
+ * what goes to the carrier is what was signed. A rejection reopens it (operator_opened_at reset).
+ */
+export function ownerCanEdit(port: Pick<NumberPortRow, "status" | "operator_opened_at">): boolean {
+  return EDITABLE_STATUSES.includes(port.status) && !port.operator_opened_at;
+}
+
+const LOCKED_MESSAGE = "We've started sending this to your carrier, so it can't be changed here. Reply to our text if something's wrong.";
+
 function formView(port: NumberPortRow, company: PortingCompany): PortFormView {
-  const editable = EDITABLE_STATUSES.includes(port.status);
+  const editable = ownerCanEdit(port);
   return {
     businessName: company.name,
     status: port.status,
@@ -343,7 +385,7 @@ export async function createBillUpload(
 ): Promise<{ path: string; token: string; bucket: string } | null> {
   const port = await loadPortByToken(admin, token);
   if (!port) return null;
-  if (!EDITABLE_STATUSES.includes(port.status)) throw new ValidationError("This request can't be changed any more.");
+  if (!ownerCanEdit(port)) throw new ValidationError(LOCKED_MESSAGE);
   const path = billPathFor(port.organization_id, port.id, contentType);
   if (!path) throw new ValidationError("Upload a photo (JPG, PNG, HEIC) or a PDF of the bill.");
   const upload = await depsWith(over).storage(admin).createUploadUrl(path);
@@ -412,7 +454,7 @@ export async function submitPortForm(
   if (!port) return null;
   const company = await loadPortingCompany(admin, { organizationId: port.organization_id, companyId: port.company_id });
   if (!company) return null;
-  if (!EDITABLE_STATUSES.includes(port.status)) throw new ValidationError("This request is already with the carrier, so it can't be changed here. Reply to our text if something's wrong.");
+  if (!ownerCanEdit(port)) throw new ValidationError(LOCKED_MESSAGE);
 
   const parsed = portFormSchema.safeParse(body);
   if (!parsed.success) {
@@ -423,6 +465,10 @@ export async function submitPortForm(
 
   const numbers = [...new Set(input.numbers.map((n) => normalizePortNumber(n)))];
   if (numbers.some((n) => !n)) throw new ValidationError("Enter each number as a 10-digit Canadian or US phone number.");
+  for (const n of numbers as string[]) {
+    const verdict = await checkPortable(admin, { organizationId: port.organization_id, companyId: port.company_id }, n);
+    if (verdict.reason) throw new ValidationError(portableMessage(verdict.reason));
+  }
   const address: ServiceAddress = {
     line1: input.serviceAddress.line1,
     line2: input.serviceAddress.line2?.trim() || null,
@@ -528,10 +574,19 @@ export async function submitPortForm(
     .eq("organization_id", port.organization_id)
     .eq("company_id", port.company_id)
     .eq("status", port.status)
+    .is("operator_opened_at", null)
     .select("*");
   if (error) throw error;
   const saved = ((data ?? []) as NumberPortRow[])[0];
   if (!saved) throw new ValidationError("This request just changed - reload the page.");
+  // A replaced bill is deleted (best effort; the purge sweeps the folder anyway).
+  if (input.billPath && port.bill_path && port.bill_path !== input.billPath) {
+    try {
+      await storage.remove([port.bill_path]);
+    } catch (err) {
+      console.error("[porting] could not delete the replaced bill:", err instanceof Error ? err.message : err);
+    }
+  }
   if (statusChanged) await deliverOwnerText(admin, saved, nowMs, over);
   return formView(saved, company);
 }
@@ -579,7 +634,28 @@ export async function markSubmitted(admin: AdminClient, scope: Scope, portId: st
   const nowMs = input.nowMs ?? Date.now();
   const port = await requirePort(admin, scope, portId);
   if (port.status !== "ready") throw new ValidationError(`Only a ready port can be submitted (this one is "${STATUS_LABELS[port.status]}").`);
-  return transitionPort(admin, port, "submitted", { twilio_port_request_id: input.twilioRequestId, submitted_at: new Date(nowMs).toISOString(), rejection_reason: null }, nowMs, over);
+  // Snapshot the Twilio account: a number already there now is never auto-attached later (only a
+  // number that ARRIVES is the ported one — never the platform line or another tenant's number).
+  const client = depsWith(over).twilio();
+  if (!client) throw new ValidationError("Twilio isn't configured on the server (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN), so the port can't be tracked.");
+  const preexisting: string[] = [];
+  try {
+    for (const phone of port.numbers) {
+      const found = await client.listIncoming({ phoneNumber: phone });
+      if (found.length > 0) preexisting.push(phone);
+    }
+  } catch {
+    throw new ValidationError("Couldn't check the Twilio account - try again.");
+  }
+  const nowIso = new Date(nowMs).toISOString();
+  return transitionPort(
+    admin,
+    port,
+    "submitted",
+    { twilio_port_request_id: input.twilioRequestId, submitted_at: nowIso, rejection_reason: null, twilio_snapshot_at: nowIso, preexisting_numbers: preexisting, operator_opened_at: port.operator_opened_at ?? nowIso },
+    nowMs,
+    over,
+  );
 }
 
 export async function setFocDate(admin: AdminClient, scope: Scope, portId: string, input: { focDate: string; nowMs?: number }, over?: Partial<PortingDeps>): Promise<NumberPortRow> {
@@ -593,7 +669,24 @@ export async function setFocDate(admin: AdminClient, scope: Scope, portId: strin
 export async function markRejected(admin: AdminClient, scope: Scope, portId: string, input: { reason: string; nowMs?: number }, over?: Partial<PortingDeps>): Promise<NumberPortRow> {
   const nowMs = input.nowMs ?? Date.now();
   const port = await requirePort(admin, scope, portId);
-  return transitionPort(admin, port, "rejected", { rejection_reason: input.reason.trim().slice(0, 300), rejected_at: new Date(nowMs).toISOString() }, nowMs, over);
+  // The owner can fix the form again (operator_opened_at reset).
+  return transitionPort(admin, port, "rejected", { rejection_reason: input.reason.trim().slice(0, 300), rejected_at: new Date(nowMs).toISOString(), operator_opened_at: null }, nowMs, over);
+}
+
+/**
+ * An operator started working the port (revealed, downloaded or copied the details): the owner's
+ * form locks, so what goes into Twilio's form is what was signed. Idempotent.
+ */
+export async function markOperatorOpened(admin: AdminClient, scope: Scope, portId: string, nowMs: number = Date.now()): Promise<void> {
+  const { error } = await (admin as Db)
+    .from("number_port_requests")
+    .update({ operator_opened_at: new Date(nowMs).toISOString() })
+    .eq("id", portId)
+    .eq("organization_id", scope.organizationId)
+    .eq("company_id", scope.companyId)
+    .is("operator_opened_at", null)
+    .in("status", ["collecting", "ready"]);
+  if (error) throw error;
 }
 
 export async function cancelPort(

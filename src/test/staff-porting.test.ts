@@ -10,13 +10,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createFakeDb, type FakeDb } from "@/test/helpers/fake-supabase";
 
-const h = vi.hoisted(() => ({ db: null as unknown as { client: unknown } }));
+const h = vi.hoisted(() => ({ db: null as unknown as { client: unknown }, twilio: null as unknown }));
 const sendOwnerSms = vi.fn((..._a: unknown[]) => Promise.resolve({ status: "sent" as "sent" | "failed" | "blocked" }));
 vi.mock("@/server/services/owner-channel/common", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/server/services/owner-channel/common")>();
   return { ...actual, sendOwnerSms: (...a: unknown[]) => sendOwnerSms(...a) };
 });
 vi.mock("@/server/supabase/admin", () => ({ createSupabaseAdminClient: () => h.db.client }));
+// The Twilio numbers client every default path builds (markSubmitted's snapshot, the sweep).
+vi.mock("@/server/services/twilio/provision", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/services/twilio/provision")>();
+  return { ...actual, getTwilioCredentials: () => ({ accountSid: "AC1", authToken: "t" }), createTwilioNumbersClient: () => h.twilio };
+});
 vi.mock("@/server/services/rate-limit", () => ({
   enforceRateLimit: () => Promise.resolve(null),
   enforceWebhookBackstop: () => Promise.resolve(null),
@@ -53,6 +58,8 @@ import type { TwilioIncomingNumber, TwilioNumbersClient } from "@/server/service
 import { getPortingView, updatePortingSettings } from "@/server/services/staff/porting/view";
 import type { ToolRunState } from "@/server/services/owner-channel/tools";
 import { GET as publicGet, POST as publicPost } from "@/app/api/public/port/[token]/route";
+import { ABANDON_AFTER_MS } from "@/server/services/staff/porting/completion";
+import { twilioSideOk } from "@/server/services/staff/porting/guards";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const CO = "22222222-2222-4222-8222-222222222222";
@@ -86,6 +93,9 @@ class FakeStorage implements PortingStorage {
   }
   async signedUrl(path: string) {
     return `https://storage.test/${path}`;
+  }
+  async listFolder(folder: string) {
+    return [...this.files.keys()].filter((p) => p.startsWith(`${folder}/`) && !p.slice(folder.length + 1).includes("/"));
   }
   async remove(paths: string[]) {
     for (const p of paths) {
@@ -141,6 +151,9 @@ beforeEach(() => {
   process.env.CRANKLEADS_APP_BASE_URL = "https://app.crankleads.test";
   process.env.TWILIO_WEBHOOK_BASE_URL = "https://hooks.test";
   storage = new FakeStorage();
+  h.twilio = fakeTwilio([]);
+  delete process.env.PLATFORM_SMS_NUMBER;
+  process.env.TWILIO_FROM_NUMBER = "+16475550000";
   sendOwnerSms.mockReset();
   sendOwnerSms.mockImplementation(() => Promise.resolve({ status: "sent" }));
   seed();
@@ -282,7 +295,8 @@ describe("starting a port", () => {
     expect(String(res.tell_owner_exactly)).toMatch(/^Here's the form to move \(705\) 555-0142 over \(about 5 minutes - have a recent phone bill handy\): https:\/\/app\.crankleads\.test\/port\/\S+ Your calls keep working/);
     expect(sendOwnerSms).not.toHaveBeenCalled();
     expect(ports()[0]).toMatchObject({ created_via: "owner_text" });
-    expect(ports()[0].notified_status).toBe(ports()[0].notify_status);
+    // Nothing owed: the reply was the text.
+    expect(ports()[0].notify_status).toBeNull();
     const st = await status.run(state, {});
     expect(st).toMatchObject({ ok: true, port: { numbers: ["(705) 555-0142"], status: "Waiting for your details" } });
     // Registered with the staff registry.
@@ -362,7 +376,7 @@ describe("the owner's form (/port/:token)", () => {
     await markSubmitted(db.client, scope, port.id, { twilioRequestId: "PX1", nowMs: NOW });
     const view = await getPortView(db.client, port.token, NOW);
     expect(view).toMatchObject({ status: "submitted", editable: false, authorizedName: null, serviceAddress: null, formBusinessName: null });
-    await expect(submitPortForm(db.client, port.token, validForm(), { ip: null, userAgent: null, nowMs: NOW }, deps())).rejects.toThrow(/already with the carrier/);
+    await expect(submitPortForm(db.client, port.token, validForm(), { ip: null, userAgent: null, nowMs: NOW }, deps())).rejects.toThrow(/started sending this to your carrier/);
     Object.assign(ports()[0], { status: "completed", completed_at: new Date(NOW).toISOString() });
     expect(await getPortView(db.client, port.token, NOW + 29 * 86_400_000)).not.toBeNull();
     expect(await getPortView(db.client, port.token, NOW + 31 * 86_400_000)).toBeNull();
@@ -595,5 +609,170 @@ describe("the LOA", () => {
     const doc = await PDFDocument.load(bytes);
     expect(doc.getPageCount()).toBe(1);
     expect(doc.getTitle()).toBe("Letter of Authorization - number port");
+  });
+});
+
+describe("review fixes: what a port may touch, bills, abandoned ports, locking, texts", () => {
+  const A1_LINE = "+17055557777";
+  const PLATFORM = "+16475550000";
+  const CATCHER = "+17055550100";
+
+  async function submitWith(token: string, numbers: string[]) {
+    const up = await createBillUpload(db.client, token, "image/jpeg", deps());
+    storage.files.set(up!.path, new Uint8Array([1]));
+    return submitPortForm(db.client, token, validForm({ numbers, billPath: up!.path }), { ip: null, userAgent: null, nowMs: NOW }, deps());
+  }
+
+  it("the form refuses the platform number, TWILIO_FROM_NUMBER (A1's line, with no voice_numbers row) and the company's own catcher", async () => {
+    process.env.TWILIO_FROM_NUMBER = A1_LINE;
+    process.env.PLATFORM_SMS_NUMBER = PLATFORM;
+    const { port } = await startedPort();
+    await expect(submitWith(port.token, [PLATFORM])).rejects.toThrow(/can't be moved here/);
+    await expect(submitWith(port.token, [A1_LINE])).rejects.toThrow(/can't be moved here/);
+    await expect(submitWith(port.token, [CATCHER])).rejects.toThrow(/already connected/);
+    expect(ports()[0].status).toBe("collecting");
+  });
+
+  it("start never prefills or accepts a number that's already ours", async () => {
+    process.env.TWILIO_FROM_NUMBER = A1_LINE;
+    db.tables.companies[0].brand_reply_phone = A1_LINE;
+    await expect(startPort(db.client, scope, { createdVia: "settings", number: CATCHER, nowMs: NOW }, deps())).rejects.toThrow(/already connected/);
+    const { port } = await startPort(db.client, scope, { createdVia: "settings", nowMs: NOW }, deps());
+    expect(port.numbers).toEqual([]);
+  });
+
+  it("the sweep never touches A1's line, the platform number or a catcher row, even when a port names them", async () => {
+    process.env.TWILIO_FROM_NUMBER = A1_LINE;
+    process.env.PLATFORM_SMS_NUMBER = PLATFORM;
+    db.tables.number_port_requests.push({
+      id: randomUUID(),
+      organization_id: ORG,
+      company_id: CO,
+      token: "t".repeat(32),
+      status: "submitted",
+      numbers: [A1_LINE, PLATFORM, CATCHER],
+      attached_numbers: [],
+      preexisting_numbers: [],
+      twilio_snapshot_at: new Date(NOW).toISOString(),
+      pin_status: "none",
+      created_at: new Date(NOW).toISOString(),
+      updated_at: new Date(NOW).toISOString(),
+    });
+    const twilio = fakeTwilio([
+      { sid: "PN-A1", phone_number: A1_LINE, voice_url: null, sms_url: null },
+      { sid: "PN-P", phone_number: PLATFORM, voice_url: null, sms_url: null },
+      { sid: "PN-C", phone_number: CATCHER, voice_url: "https://hooks.test/api/twilio/voice/inbound", sms_url: "https://hooks.test/api/twilio/sms/inbound", friendly_name: `EmpireVu catcher ${CO}` },
+    ]);
+    expect(await sweepPortCompletions(db.client, NOW, { client: twilio })).toEqual([]);
+    expect(twilio.updates).toEqual([]);
+    expect(db.tables.voice_numbers).toEqual([expect.objectContaining({ id: "vn-catcher", phone_e164: CATCHER, mode: "missed_call_catcher" })]);
+    expect(ports()[0]).toMatchObject({ status: "submitted", attached_numbers: [] });
+    // A1 (house org) is never touched either way.
+    expect(db.tables.voice_numbers.some((v) => v.company_id === HOUSE_CO)).toBe(false);
+  });
+
+  it("refuses catcher-tagged numbers and numbers webhooked elsewhere; a fresh or already-ours number is fine", async () => {
+    const url = "https://hooks.test/api/twilio/voice/business-line";
+    expect(twilioSideOk({ sid: "x", phone_number: LINE }, CO, url)).toBe(true);
+    expect(twilioSideOk({ sid: "x", phone_number: LINE, voice_url: "https://demo.twilio.com/welcome/voice/" }, CO, url)).toBe(true);
+    expect(twilioSideOk({ sid: "x", phone_number: LINE, voice_url: url, friendly_name: `EmpireVu line ${CO}` }, CO, url)).toBe(true);
+    expect(twilioSideOk({ sid: "x", phone_number: LINE, friendly_name: `EmpireVu catcher ${CO}` }, CO, url)).toBe(false);
+    expect(twilioSideOk({ sid: "x", phone_number: LINE, friendly_name: `EmpireVu line ${OTHER_CO}` }, CO, url)).toBe(false);
+    expect(twilioSideOk({ sid: "x", phone_number: LINE, voice_url: "https://other.example/voice" }, CO, url)).toBe(false);
+    expect(twilioSideOk({ sid: "x", phone_number: LINE, sms_url: "https://hooks.test/api/twilio/sms/inbound" }, CO, url)).toBe(false);
+    const twilio = fakeTwilio([]);
+    const port = { organization_id: ORG, company_id: CO, business_name: "x" };
+    expect(await attachBusinessLine(db.client, port, { sid: "PN1", phone_number: LINE, friendly_name: `EmpireVu catcher ${OTHER_CO}` }, twilio, "https://hooks.test")).toBe("taken");
+    expect(await attachBusinessLine(db.client, port, { sid: "PN1", phone_number: LINE, voice_url: "https://elsewhere.test/v" }, twilio, "https://hooks.test")).toBe("taken");
+    expect(await attachBusinessLine(db.client, port, { sid: "PN1", phone_number: CATCHER }, twilio, "https://hooks.test")).toBe("taken");
+    expect(twilio.updates).toEqual([]);
+    expect(db.tables.voice_numbers).toHaveLength(1);
+  });
+
+  it("only numbers that ARRIVE after 'Mark submitted' are attached (a number already in the account never is)", async () => {
+    const port = await readyPort();
+    const present = fakeTwilio([{ sid: "PN1", phone_number: LINE, voice_url: null, sms_url: null }]);
+    h.twilio = present;
+    await markSubmitted(db.client, scope, port.id, { twilioRequestId: "PX1", nowMs: NOW });
+    expect(ports()[0]).toMatchObject({ preexisting_numbers: [LINE], twilio_snapshot_at: new Date(NOW).toISOString() });
+    expect(await sweepPortCompletions(db.client, NOW + 3_600_000, { client: present })).toEqual([]);
+    expect(present.updates).toEqual([]);
+    expect(ports()[0].status).toBe("submitted");
+    expect((await listOperatorPorts(db.client, NOW))[0].warnings.join(" ")).toContain("already in the Twilio account");
+    // A port without a snapshot is never auto-attached.
+    Object.assign(ports()[0], { preexisting_numbers: [], twilio_snapshot_at: null });
+    expect(await sweepPortCompletions(db.client, NOW + 7_200_000, { client: present })).toEqual([]);
+    expect(present.updates).toEqual([]);
+  });
+
+  it("markSubmitted refuses when Twilio can't be checked", async () => {
+    const port = await readyPort();
+    h.twilio = null;
+    await expect(markSubmitted(db.client, scope, port.id, { twilioRequestId: "PX1", nowMs: NOW })).rejects.toThrow(/Twilio isn't configured/);
+    h.twilio = { ...fakeTwilio([]), listIncoming: () => Promise.reject(new Error("503")) };
+    await expect(markSubmitted(db.client, scope, port.id, { twilioRequestId: "PX1", nowMs: NOW })).rejects.toThrow(/Couldn't check the Twilio account/);
+    expect(ports()[0].status).toBe("ready");
+  });
+
+  it("a replaced bill is deleted; the purge deletes every bill file in the folder (abandoned uploads too), keeping the LOA", async () => {
+    const port = await readyPort();
+    const first = String(ports()[0].bill_path);
+    await markRejected(db.client, scope, port.id, { reason: "Bill too old", nowMs: NOW });
+    const up = await createBillUpload(db.client, port.token, "application/pdf", deps());
+    storage.files.set(up!.path, new Uint8Array([2]));
+    await submitPortForm(db.client, port.token, validForm({ accountNumber: null, pin: null, billPath: up!.path }), { ip: null, userAgent: null, nowMs: NOW }, deps());
+    expect(storage.removed).toEqual([first]);
+    // An upload that was never submitted.
+    const stray = await createBillUpload(db.client, port.token, "image/png", deps());
+    storage.files.set(stray!.path, new Uint8Array([3]));
+    Object.assign(ports()[0], { status: "cancelled", cancelled_at: new Date(NOW).toISOString(), updated_at: new Date(NOW).toISOString() });
+    expect(await sweepPortPurge(db.client, NOW + PURGE_AFTER_MS + 60_000, deps())).toBe(1);
+    expect([...storage.removed].sort()).toEqual([first, up!.path, stray!.path].sort());
+    expect([...storage.files.keys()].every((p) => /\/loa-/.test(p))).toBe(true);
+  });
+
+  it("ports left unfinished for 60 days are cancelled (owner texted), then purged 14 days later", async () => {
+    await readyPort();
+    ports()[0].updated_at = new Date(NOW - ABANDON_AFTER_MS - 60_000).toISOString();
+    sendOwnerSms.mockClear();
+    await sweepPortPurge(db.client, NOW, deps());
+    expect(ports()[0]).toMatchObject({ status: "cancelled", cancelled_at: new Date(NOW).toISOString() });
+    expect(texts()[0]).toContain("was cancelled");
+    expect(ports()[0].account_number_enc).toBeTruthy();
+    await sweepPortPurge(db.client, NOW + PURGE_AFTER_MS + 60_000, deps());
+    expect(ports()[0]).toMatchObject({ account_number_enc: null, pin_enc: null, bill_path: null });
+  });
+
+  it("the owner's form locks once an operator starts on it (copy / reveal / submit) and reopens on rejection", async () => {
+    const port = await readyPort();
+    const operator = { email: "ops@crankleads.test", userId: "u-op" };
+    await runConciergeAction(db.client, operator, ORG, { action: "port_opened", companyId: CO, input: { portId: port.id } }, NOW);
+    expect(ports()[0].operator_opened_at).toBeTruthy();
+    expect(await getPortView(db.client, port.token, NOW)).toMatchObject({ status: "ready", editable: false, serviceAddress: null });
+    await expect(submitPortForm(db.client, port.token, validForm(), { ip: null, userAgent: null, nowMs: NOW }, deps())).rejects.toThrow(/started sending this to your carrier/);
+    await expect(createBillUpload(db.client, port.token, "image/jpeg", deps())).rejects.toThrow(/started sending/);
+    await markRejected(db.client, scope, port.id, { reason: "Name mismatch", nowMs: NOW });
+    expect((await getPortView(db.client, port.token, NOW))?.editable).toBe(true);
+    await submitPortForm(db.client, port.token, validForm({ accountNumber: null, pin: null }), { ip: null, userAgent: null, nowMs: NOW }, deps());
+    expect(ports()[0]).toMatchObject({ status: "ready", operator_opened_at: null });
+    await runConciergeAction(db.client, operator, ORG, { action: "port_reveal_secrets", companyId: CO, input: { portId: port.id } }, NOW);
+    expect(ports()[0].operator_opened_at).toBeTruthy();
+  });
+
+  it("a sent owner text is cleared, so the notify sweep only ever sees pending ones", async () => {
+    await startedPort();
+    expect(ports()[0].notify_status).toBeNull();
+    expect(ports()[0].notified_status).toMatch(/^collecting@/);
+    sendOwnerSms.mockClear();
+    await sweepPortNotifications(db.client, NOW + 300_000);
+    expect(sendOwnerSms).not.toHaveBeenCalled();
+  });
+
+  it("decryption refuses a truncated GCM tag", () => {
+    const key = portingKey()!;
+    const [v, iv, tag, data] = encryptSecret(ACCOUNT, "row-1", key).split(".");
+    const short = Buffer.from(tag, "base64url").subarray(0, 12).toString("base64url");
+    expect(decryptSecret([v, iv, short, data].join("."), "row-1", key)).toBeNull();
+    expect(decryptSecret([v, iv, tag, data].join("."), "row-1", key)).toBe(ACCOUNT);
   });
 });

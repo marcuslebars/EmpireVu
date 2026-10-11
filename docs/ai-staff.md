@@ -672,14 +672,15 @@ The owner keeps their existing business number: it moves (ports) from their carr
 6. **Done:** `Done: (705) 555-0142 now rings through us. Calls ring your cell first for 20 seconds (press 1 to take one), then your AI answers. You can turn call forwarding off now - it isn't needed any more.` (Voicemail-mode companies: "…then they get your voicemail and a text back".)
 7. **Cancelled:** `Your number move for (705) 555-0142 was cancelled. Nothing changes: your phone works as before.` Owners can cancel from Settings until it's submitted; after that an operator cancels (and cancels at Twilio).
 
-Owner texts are never more than numbers, dates and what to do: never the account number or PIN. Each status change owes exactly one text (`notify_status` = `"<status>@<time>"`, claimed by a conditional update on `notified_status`); non-urgent ones wait for 08:00 local (quiet hours 21:00–08:00), and a failed send is retried by the `porting:notify` sweep. `number_port_status` (owner tool) answers "where's my number move at?".
+Owner texts are never more than numbers, dates and what to do: never the account number or PIN. Each status change owes exactly one text (`notify_status` = `"<status>@<time>"`, claimed by a conditional update on `notified_status`, and cleared once sent — or once it can never be sent: owner opted out, no verified cell); non-urgent ones wait for 08:00 local (quiet hours 21:00–08:00), and a failed send is retried by the `porting:notify` sweep, which only ever sees pending texts (oldest first). `number_port_status` (owner tool) answers "where's my number move at?".
 
 ### Account number and PIN
 
 - Encrypted at rest with **AES-256-GCM** (`crypto.ts`), key `PORTING_ENCRYPTION_KEY` (32 random bytes, base64), a fresh 12-byte IV per value, and the port row's id as additional authenticated data (a ciphertext copied onto another row won't decrypt). Stored as `v1.<iv>.<tag>.<data>`; only the last 4 digits of the account number are kept in clear for display.
 - **No key (or a malformed one) → neither is collected in the app**: the form says "We'll call you for your account number and PIN" (`pin_status = 'call'`) and the operator calls the owner. (Stricter than the brief, which only required this for the PIN: storing the account number in clear would break "encrypted at rest".)
 - Never logged, never in a text, an approval, the settings view, the form view, the operator queue or an audit row. The only way to read them is the concierge action **Reveal account number + PIN** (`port_reveal_secrets`), which runs through the audited concierge runner: the `operator_actions` row records who revealed them and when (`revealed: { accountNumber: true, pin: true }`), never the values.
-- **Purged** by the `porting:purge` sweep 14 days after the port completes or is cancelled: the ciphertexts are nulled, `secrets_purged_at` is set, and the phone bill is deleted from storage too (it shows the account number). The signed LOA is kept as the record.
+- **Purged** by the `porting:purge` sweep 14 days after the port completes or is cancelled: the ciphertexts are nulled, `secrets_purged_at` is set, and **every** `bill-*` file in the port's storage folder is deleted (the current bill, replaced ones and uploads that were never submitted — they show the account number). A bill replaced on the form is also deleted right away. The signed LOA is kept as the record.
+- **Abandoned ports** (collecting / ready / rejected, untouched for **60 days**, `ABANDON_AFTER_MS`) are cancelled by the same sweep (the owner gets the "cancelled" text), so their details and bill are purged 14 days later.
 
 ### Port requests (`number_port_requests`)
 
@@ -693,7 +694,9 @@ Status `collecting → ready → submitted → foc_scheduled → completed`, or 
 | foc_scheduled | foc_scheduled (new date), rejected, completed, cancelled |
 | rejected | ready (owner fixes + re-signs), cancelled |
 
-Also recorded: carrier, numbers, business name, authorized name, service address, bill path / type / upload time, LOA path / SHA-256 / signed time / typed name / IP / user agent, Twilio port request id, FOC date, rejection reason, attached numbers, who started it (`settings | owner_text | operator`), and a timestamp per status. Once submitted the link shows only the status (no personal details); 30 days after the port ends the link stops working.
+Also recorded: carrier, numbers, business name, authorized name, service address, bill path / type / upload time, LOA path / SHA-256 / signed time / typed name / IP / user agent, Twilio port request id, FOC date, rejection reason, attached numbers, who started it (`settings | owner_text | operator`), and a timestamp per status. **The owner's form locks** as soon as an operator starts on the port — the first copy on the Ports page (concierge action `port_opened`), a reveal, an LOA / bill download, or Mark submitted (`operator_opened_at`) — so what goes into Twilio's form is what was signed; Mark rejected reopens it. A locked or submitted link shows only the status (no personal details); 30 days after the port ends the link stops working.
+
+**Numbers a port may never touch** (`guards.ts`, checked on the form, on start, and again in the completion sweep): the platform number (`PLATFORM_SMS_NUMBER`, `TWILIO_FROM_NUMBER` — a house business's line such as A1's, which may have no `voice_numbers` row — and `TWILIO_FORWARDING_TEST_FROM`); any number with a `voice_numbers` row unless it's already this company's `business_line` (a catcher row is never converted; the form says "already connected to us").
 
 ### The operator step (concierge → **Number ports**, `/concierge/ports`)
 
@@ -707,19 +710,20 @@ Linked from the concierge list header. Every open port (ready first), each with:
 ### Completion (`completion.ts`, sweep `porting:completion`, hourly)
 
 For each `submitted` / `foc_scheduled` port, each number not yet attached is looked up with the injected Twilio provision client's `listIncoming({ phoneNumber })`. When it appears in the account:
-1. Ownership first: if a `voice_numbers` row for it belongs to another company/org, it is **not** touched (logged for an operator).
-2. Its Voice URL → `/api/twilio/voice/business-line`, SMS URL → `/api/twilio/sms/inbound`, FriendlyName `EmpireVu line <companyId>` (distinct from the catcher tag, so it can never be claimed as a catcher).
-3. A `voice_numbers` row (`provider = 'twilio'`, **`mode = 'business_line'`**, the number's SID, active) for the company.
-4. When every number is in: `completed` + the owner's "Done" text. Idempotent (a second pass finds nothing to do). Missing Twilio credentials or `APP_BASE_URL` → the pass is skipped and logged.
+1. **Mark submitted snapshots the Twilio account** (`listIncoming` for each number, `twilio_snapshot_at`, `preexisting_numbers`; it refuses to submit if Twilio can't be checked). Only numbers that **arrive** after that are attached: one already in the account at submit, or a port with no snapshot, is never auto-attached (the Ports page warns; an operator attaches it by hand).
+2. Guards before anything is touched (each refusal logged): not a platform number; no `voice_numbers` row unless it's this company's `business_line`; not FriendlyName-tagged `EmpireVu catcher …` or `EmpireVu line <another company>`; webhooks unset (or Twilio's demo URLs) or already pointing at our `/business-line` route — anything else means the number is in use.
+3. Its Voice URL → `/api/twilio/voice/business-line`, SMS URL → `/api/twilio/sms/inbound`, FriendlyName `EmpireVu line <companyId>` (distinct from the catcher tag, so it can never be claimed as a catcher).
+4. A `voice_numbers` row (`provider = 'twilio'`, **`mode = 'business_line'`**, the number's SID, active) for the company.
+5. When every number is in: `completed` + the owner's "Done" text. Idempotent (a second pass finds nothing to do). Missing Twilio credentials or `APP_BASE_URL` → the pass is skipped and logged.
 
 Call forwarding stays in place until the port completes (the old carrier's service, and with it the forwarding, ends with the port); the "Done" text tells the owner they can turn it off.
 
 ### Calls to the ported line (`business-line.ts`, route `/api/twilio/voice/business-line`)
 
 Signature-verified first (403 otherwise); the tenant comes only from the called number (`voice_numbers` mode `business_line`, active).
-1. **Ring the owner first:** `<Dial timeout="20" answerOnBridge="true" callerId="<caller>" action="…?stage=after">` to the owner's cell (`companies.owner_phone_e164`), plus team members' cells (`organization_memberships.phone_e164`) when **Ring my team's cells too** is on — owner first, deduplicated, at most 5, and never one of our own numbers (the ported line itself, the catcher, the platform number: an owner whose "cell" *is* the ported line goes straight to step 3). The caller hears ringing; the owner sees the caller's number. Nothing is queued as a missed call yet (`business_line_calls` row only).
+1. **Ring the owner first:** `<Dial timeout="20" answerOnBridge="true" callerId="<caller>" action="…?stage=after">` to the owner's cell (`companies.owner_phone_e164`, **only when verified** — an unverified cell is never rung; the call goes straight to step 3 and Settings says so), plus team members' cells (`organization_memberships.phone_e164`; only this company's people when `company_memberships` rows exist for it, oldest member first) when **Ring my team's cells too** is on — owner first, deduplicated, at most 5, and never one of our own numbers (the ported line itself, the catcher, the platform number: an owner whose "cell" *is* the ported line goes straight to step 3). The caller hears ringing; the owner sees the caller's number. Nothing is queued as a missed call yet (`business_line_calls` row only).
 2. **Press 1 to take it** (on by default): each ringing leg gets `<Number url="…?stage=screen&parent=<CallSid>">` → `Call for Northshore Plumbing. Press 1 to take it.` 1 bridges the call and records `accepted_at`; anything else drops only that leg. So a cell's own voicemail never swallows a customer.
-3. **`<Dial>` ends** (`?stage=after`): answered = `DialCallStatus=completed` and (screening off, or someone pressed 1; `DialBridged=false` never counts) → `<Hangup/>`. Anything else (no answer, busy, voicemail picked up without pressing 1) → `<Redirect>` to **`/api/twilio/voice/inbound` — the existing catcher path, unchanged**: the durable job, AI answering (or the greeting + voicemail) and the missed-call text-back. Any error on our side (tenant lookup, DB) also falls through there, so a caller is never lost.
+3. **`<Dial>` ends** (`?stage=after`): answered = `DialCallStatus=completed` and (Twilio's `DialBridged=true`, or screening off, or someone pressed 1; `DialBridged=false` never counts) → `<Hangup/>`. Anything else (no answer, busy, voicemail picked up without pressing 1) → `<Redirect>` to **`/api/twilio/voice/inbound` — the existing catcher path, unchanged**: the durable job, AI answering (or the greeting + voicemail) and the missed-call text-back. Any error on our side (tenant lookup, DB) also falls through there, so a caller is never lost.
 
 The only change to that path: `resolveCatcherTenant` (twilio/missed-call.ts) now matches `mode in ('missed_call_catcher', 'business_line')`, so the redirected call (and its worker job) resolves the company from the ported number. Catcher numbers behave exactly as before (tests: golden greeting TwiML, durable-first ordering, forwarding-test legs).
 
@@ -755,7 +759,7 @@ Prompt note: relay `tell_owner_exactly` word for word; never ask for or repeat t
 - `business_line_calls` (unique `call_sid`: who was rung, screened or not, `accepted_at`, outcome `answered | missed`).
 - Private bucket `porting-docs` (10 MB; PDF, JPEG, PNG, WebP, HEIC/HEIF) with **no storage policies** (service role only, signed URLs).
 - Both tables: RLS on, **all** privileges revoked from `anon` and `authenticated` — every read goes through owner/admin, public-token or operator server routes.
-- Rollback deletes `business_line` voice numbers, restores the old mode check, drops both tables and the bucket (empty it first).
+- Rollback converts `business_line` rows to `missed_call_catcher` (so calls and texts keep resolving the company; re-point those numbers' Voice URL to `/api/twilio/voice/inbound` if the app code is rolled back too), restores the old mode check, drops both tables and the bucket (empty it first).
 
 Types: `staff/porting/db-types.ts` until merged into `database.types.ts`.
 
@@ -765,7 +769,7 @@ Types: `staff/porting/db-types.ts` until merged into `database.types.ts`.
 
 ### Sweeps
 
-`porting:completion` (1 h), `porting:notify` (5 min), `porting:purge` (1 h) — through `runStaffSweeps`; each reads only ports in the relevant statuses.
+`porting:completion` (1 h), `porting:notify` (5 min), `porting:purge` (1 h; also cancels abandoned ports) — through `runStaffSweeps`; each reads only ports in the relevant statuses.
 
 ### Tests
 
@@ -776,7 +780,6 @@ Types: `staff/porting/db-types.ts` until merged into `database.types.ts`.
 - Never run against live Twilio: check the first real port by hand — that the number appears in `listIncoming` after the FOC, that `<Number url>` screening and `DialBridged` behave as documented, and that `callerId` = the caller's number is accepted for Canadian destinations (if Twilio refuses it, drop `callerId` so the owner sees the business line).
 - Outgoing texts still come from the catcher number. Switching the sender to the ported line (so replies come "from the business number") is a one-line change in `resolveCompanySmsFrom`, left out until the ported number's messaging is confirmed on Twilio.
 - The setup checklist, the concierge account page and the forwarding checks still describe the company by its catcher number + forwarding; they don't show the ported line (Settings → Keep your number and the concierge Number ports page do). A forwarding test run by hand after the port would fail (the old carrier line is gone) — don't run one.
-- A `rejected` request the owner never fixes stays open (no auto-cancel); an operator cancels it.
 - The bill's own date isn't read (the owner confirms "from the last 30 days"; the operator sees the upload date).
 
 ## Hiring & payroll

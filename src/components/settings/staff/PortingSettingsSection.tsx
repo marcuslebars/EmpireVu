@@ -145,6 +145,11 @@ export function PortingSettingsSection({ orgId, companyId, canManage }: AiFrontD
                 <span className="block text-xs text-muted-foreground mt-0.5">
                   {data.ownerPhone ? `Rings ${data.ownerPhone}` : "Rings your cell"} with the caller's number. No answer → your AI (or voicemail) takes it, like now.
                 </span>
+                {!data.ownerPhoneVerified && (
+                  <span className="block text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                    Your cell isn't verified yet, so calls go straight to your AI until you verify it (Settings → AI front desk → your cell).
+                  </span>
+                )}
               </span>
             </label>
             <div className={cn("space-y-3 pl-6", !data.ring.enabled && "opacity-60")}>
