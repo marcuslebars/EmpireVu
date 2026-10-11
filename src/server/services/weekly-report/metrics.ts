@@ -76,6 +76,8 @@ export interface FrontDeskInputs {
   approvals: Array<{ createdAt: string; status: string; decidedAt: string | null; kind?: string }>;
   calls: Array<{ direction: string | null; at: string; durationMs: number | null; inVoicemail: boolean | null }>;
   invoicePayments: Array<{ receivedAt: string; amountCents: number; status: string }>;
+  /** Open invoices right now (the Bookkeeper's AR line). Optional for older fixtures. */
+  openInvoices?: Array<{ balanceCents: number; pendingCents: number; dueDate: string | null }>;
   /** companies.hours, any stored shape. */
   hours: unknown;
 }
@@ -107,6 +109,8 @@ export interface WeeklyReportMetrics {
   quotes: { sent: number; approved: number; approvedCents: number };
   jobsBooked: number;
   collected: { cents: number; deposits: number; payments: number };
+  /** Still owed to the business when the report was made (absent when nothing is owed / older reports). */
+  receivable?: { outstandingCents: number; overdueCents: number; overdueCount: number };
   reviewsRequested: number;
   currency: string;
   hoursSaved: HoursSaved;
@@ -214,6 +218,26 @@ export function computeWeeklyMetrics(input: {
   const payments = frontDesk.invoicePayments.filter((p) => p.status === "succeeded" && inRange(p.receivedAt, fromMs, toMs));
   const collectedCents = card.quotes.depositCents + payments.reduce((sum, p) => sum + Number(p.amountCents || 0), 0);
 
+  // What's still owed as of the report (the Monday it goes out): open balances, overdue = past due.
+  let asOf = range.to.slice(0, 10);
+  try {
+    asOf = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(toMs));
+  } catch {
+    // unknown zone: the UTC date of the week's end
+  }
+  let outstandingCents = 0;
+  let overdueCents = 0;
+  let overdueCount = 0;
+  for (const inv of frontDesk.openInvoices ?? []) {
+    const owing = Math.max(0, Number(inv.balanceCents || 0) - Number(inv.pendingCents || 0));
+    if (owing <= 0) continue;
+    outstandingCents += owing;
+    if (inv.dueDate && inv.dueDate < asOf) {
+      overdueCents += owing;
+      overdueCount += 1;
+    }
+  }
+
   const hoursSaved = computeHoursSaved({
     textConversations,
     callsAnswered: answered.length,
@@ -236,6 +260,7 @@ export function computeWeeklyMetrics(input: {
     quotes: { sent: card.quotes.sent, approved: card.quotes.approved, approvedCents: card.quotes.approvedCents },
     jobsBooked: card.jobsBooked,
     collected: { cents: collectedCents, deposits: card.quotes.depositsCollected, payments: payments.length },
+    ...(outstandingCents > 0 ? { receivable: { outstandingCents, overdueCents, overdueCount } } : {}),
     reviewsRequested: card.reviewsRequested,
     currency: card.quotes.currency,
     hoursSaved,
@@ -291,7 +316,7 @@ export async function fetchFrontDeskInputs(
   const org = context.organizationId;
   const db = context.supabase;
 
-  const [aiTexts, conversations, approvalsCreated, approvalsDecided, calls, payments, companyRows] = await Promise.all([
+  const [aiTexts, conversations, approvalsCreated, approvalsDecided, calls, payments, companyRows, openInvoices] = await Promise.all([
     tolerant(
       "message_log (AI texts)",
       db.from("message_log").select("id, contact_id, created_at")
@@ -336,6 +361,13 @@ export async function fetchFrontDeskInputs(
         .limit(ROW_LIMIT),
     ),
     tolerant("companies.hours", db.from("companies").select("hours").eq("organization_id", org).eq("id", companyId).limit(1)),
+    tolerant(
+      "invoices (open)",
+      db.from("invoices").select("balance_due_cents, pending_payment_cents, due_date")
+        .eq("organization_id", org).eq("company_id", companyId)
+        .in("status", ["sent", "viewed", "partially_paid"]).gt("balance_due_cents", 0)
+        .limit(ROW_LIMIT),
+    ),
   ]);
 
   const approvalsById = new Map<string, { kind?: string; created_at: string; status: string; decided_at: string | null }>();
@@ -359,6 +391,11 @@ export async function fetchFrontDeskInputs(
       status: row.status,
     })),
     hours: (companyRows as Array<{ hours: unknown }>)[0]?.hours ?? null,
+    openInvoices: (openInvoices as Array<{ balance_due_cents: number; pending_payment_cents: number | null; due_date: string | null }>).map((row) => ({
+      balanceCents: Number(row.balance_due_cents ?? 0),
+      pendingCents: Number(row.pending_payment_cents ?? 0),
+      dueDate: row.due_date,
+    })),
   };
 }
 

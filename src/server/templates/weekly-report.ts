@@ -203,6 +203,13 @@ function buildLines(m: WeeklyReportMetrics): Line[] {
     value: wholeDollars(m.collected.cents),
     note: m.collected.deposits + m.collected.payments > 0 ? plural(m.collected.deposits + m.collected.payments, "payment", "payments") : null,
   });
+  if (m.receivable && m.receivable.outstandingCents > 0) {
+    lines.push({
+      label: "Still owed to you",
+      value: wholeDollars(m.receivable.outstandingCents),
+      note: m.receivable.overdueCents > 0 ? `${wholeDollars(m.receivable.overdueCents)} overdue (${plural(m.receivable.overdueCount, "invoice", "invoices")})` : null,
+    });
+  }
   lines.push({ label: "Reviews requested", value: String(m.reviewsRequested) });
   return lines;
 }

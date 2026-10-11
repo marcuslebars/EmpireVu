@@ -11,7 +11,10 @@
  *   2. If the brand has reminders on, the next reminder email goes out when the
  *      invoice reaches that many days late (default 1, 7, 14). At most one per
  *      invoice per run, so turning reminders on never sends a backlog at once.
- *      An invoice with its own reminders paused is skipped (it still turns overdue).
+ *      An invoice with its own reminders paused is skipped (it still turns overdue), and so is
+ *      one the AI Bookkeeper holds (a promise to pay / a payment plan — staff/bookkeeper/hold.ts).
+ *      The Bookkeeper's reminder TEXTS stamp last_reminder_at too, so an email never goes out on
+ *      the same day as a text (the "already reminded today" check below).
  *
  * Also here: the per-invoice schedule shown on the invoice ("next reminder Oct 15"),
  * pausing one invoice's reminders, and "Send reminder now".
@@ -23,6 +26,7 @@ import { InvoiceConflictError, InvoiceNotFoundError } from "./errors";
 import { addDays, daysBetween, dueReminderIndex, isOpenStatus } from "./math";
 import { sendInvoiceReminderEmail } from "./notify";
 import { parseInvoiceSettings, type InvoiceSettings } from "./settings";
+import { isCollectionsHold } from "@/server/services/staff/bookkeeper/hold";
 
 export interface ReminderSweepResult {
   scanned: number;
@@ -88,6 +92,7 @@ export async function sweepInvoiceReminders(now = new Date(), limit = 1000): Pro
     if (inv.last_reminder_at && todayFor(company, new Date(inv.last_reminder_at)) === today) continue;
     const index = dueReminderIndex(daysOverdue, settings.reminderDays, inv.reminder_count);
     if (index === null) continue;
+    if (await isCollectionsHold(db, inv.organization_id, inv.id, today)) continue;
 
     // Claim it: only the run that moves the count from N to N+1 sends.
     const { data: claimed } = await db
