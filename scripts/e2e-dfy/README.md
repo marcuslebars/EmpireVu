@@ -107,3 +107,39 @@ and the app's own worker code (inbound queue, workflow events + durable waits, `
   automation's), +5 d the Estimator's own nudge · H house tenant: no texts, no role rows, job not
   moved, owner agent without role tools, and with its texting assistant switched on the model gets
   exactly the Phase 1 tool list. Ends with the message timeline and `N/N steps, N/N checks`.
+
+## Phase 3 office staff (`phase3.sh` / `phase3.ts`)
+
+`scripts/e2e-dfy/phase3.sh` starts a fresh stack on its own ports and data dirs (566xx,
+`E2E_ROOT=/var/tmp/e2e-p3`, `/var/tmp/e2epg-p3`, `/var/tmp/e2esock-p3`, `/var/tmp/e2e-faketime-p3`;
+each can be overridden) with a fixed `PORTING_ENCRYPTION_KEY`, waits for an earlier run's ports to
+free, and drives docs/ai-staff.md's Office manager, Customer import, Keep your number and Hiring &
+payroll. Re-runnable (every run starts from a fresh database); `E2E_STOP=1` stops the stack after.
+`phase3-results.json` goes to `$E2E_PHASE3_OUT` (default `$E2E_ROOT/phase3-out`).
+
+- Clock: the next Saturday 13:05 Toronto, then Sun 07:05 / 08:05 / 10:00 / 18:05, Mon 06:55 /
+  07:01 / 08:05 / 09:30 / 10:00 / 21:30, Tue 07:01 / 08:05 / 08:31.
+- Seeding: a Close purchase + switch-on + live + a published site; Bob (35 days late Sunday), Cara
+  (crosses 30 days Monday), Monday jobs (one assigned to crew Mike), weekly pay periods from the
+  previous Monday (PATCH ai-settings/recruiter), Mike 47.5 h + Ana 6 h clocked, Ana's clock left
+  running Sunday evening; an A1-style house org with the Bookkeeper's alert opted in (texts off),
+  Hank's invoice crossing 30 days Monday, and a baseline of its inbound voice TwiML.
+- Fakes added: `POST /__twilio/incoming` (a number arrives in the Twilio account; `GET` lists them
+  with their webhooks), Resend attachments captured with their decoded text, the owner agent's
+  `briefing_now` ("today"), `start_hiring` ("I need a labourer…") and `start_number_port` ("keep my
+  number"), the Recruiter's job-post draft and screening (captures whether contact details reached
+  the model). The gateway's storage stub gained signed upload URLs, list, remove and signed reads.
+- Steps: I1 send-link → `/api/public/import/<token>` → signed upload → preview → import → sweep →
+  counts, no customer message, done text + `chase_imported_balances` · I2 the email reminder sweep
+  skips held balances while an A1 invoice is reminded · B0 Sunday: no briefing, the 8am alert alone
+  without held balances · P1 platform / catcher numbers refused, start from Settings, the public form
+  (ciphertext only, LOA without secrets) · P2 operator reveal (audited without values) + Mark
+  submitted (Twilio snapshot) → the number arrives → business_line + Done text · P3 business-line
+  call rings the owner first, no answer → catcher path; A1 voice TwiML unchanged, SMS no AI · O1
+  Monday 07:00 exactly one briefing (jobs, overdue without held, the folded 30+ line, "Since
+  Saturday: 1 new lead") · O2/R1 no standalone alert, A1's alert as before, `payroll_period` asked ·
+  R2 Y → re-ask (open entry) → Y anyway → locked + CSV email; locked edits refused, clock-out allowed
+  · O3 "today" → `briefing_now` · I3 no Bookkeeper text on held balances, Y releases · I4 a second
+  import, Undo · H1 `job_post` → Y → `/s/<slug>/jobs` · H2 apply → confirmation, screening, digest,
+  `interview_invite` · H3 late apply → morning confirmation, Tuesday briefing doesn't count
+  applicants, digest, Y → the invite · Z the house org saw none of it.

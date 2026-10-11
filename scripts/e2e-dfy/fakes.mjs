@@ -472,6 +472,22 @@ function ownerAgent(request) {
     }
     return anthropicText(m, `Sent to ${c.name}. The assistant will stay out of that conversation.`);
   }
+  // Phase 3 (phase3.ts): the Office manager, the Recruiter and Keep your number.
+  if (/^\s*today\s*$/i.test(body) && tools.includes("briefing_now")) {
+    if (!did("briefing_now")) return toolUse(m, [{ name: "briefing_now", input: { detail: true } }]);
+    const r = did("briefing_now").result ?? {};
+    return anthropicText(m, `${r.briefing ?? "No briefing."}\n${r.details ?? ""}`.trim());
+  }
+  if (/need a (labourer|laborer|helper)/i.test(body) && tools.includes("start_hiring")) {
+    if (!did("start_hiring")) return toolUse(m, [{ name: "start_hiring", input: { request: body } }]);
+    const r = did("start_hiring").result ?? {};
+    return anthropicText(m, String(r.tell_owner_exactly ?? r.error ?? "Couldn't draft it."));
+  }
+  if (/keep my number/i.test(body) && tools.includes("start_number_port")) {
+    if (!did("start_number_port")) return toolUse(m, [{ name: "start_number_port", input: {} }]);
+    const r = did("start_number_port").result ?? {};
+    return anthropicText(m, String(r.tell_owner_exactly ?? r.error ?? "Couldn't start it."));
+  }
   return anthropicText(m, "I can help with bookings, customers and approvals.");
 }
 
@@ -531,6 +547,35 @@ function anthropic(req, res, path, body) {
     capture({ kind: "anthropic", purpose: "marketer_google_post" });
     return json(res, 200, anthropicText(request.model, "Winter is close: book your seasonal driveway plowing now and we'll have you on the route before the first snow. Call or message us to get set up."));
   }
+  // ── Phase 3 Recruiter (phase3.ts) ──
+  if (/^You write a short, plain job post for/.test(system)) {
+    const owner = between(user, 'note="data">', "</owner_request>").trim();
+    const pay = (owner.match(/\$\d+(?:\.\d+)?\s*\/\s*(?:hr|hour)/i) ?? [null])[0];
+    capture({ kind: "anthropic", purpose: "recruiter_draft", owner: owner.slice(0, 200) });
+    return json(res, 200, anthropicText(request.model, JSON.stringify({
+      title: "Labourer",
+      pay,
+      employment_type: "Full-time",
+      start: /start monday/i.test(owner) ? "Monday" : null,
+      location: "Midland",
+      summary: "General labour on residential snow and lawn jobs around Midland.",
+      duties: ["Shovel and salt walkways", "Load and unload equipment", "Spring and fall yard cleanups"],
+      requirements: ["Able to lift 50 lbs", "Reliable for early-morning starts"],
+      nice_to_have: ["G licence"],
+      custom_questions: ["Can you start at 6am on snow days?"],
+    })));
+  }
+  if (/sort job applications for/.test(system)) {
+    const answers = between(user, '<applicant_answers note="data">', "</applicant_answers>");
+    const roofing = /roof|snow|landscap|lawn/i.test((answers.match(/Experience: (.*)/) ?? [])[1] ?? "");
+    const licence = /Driver's licence: yes/i.test(answers);
+    capture({ kind: "anthropic", purpose: "recruiter_screen", answers: answers.slice(0, 300), sawContact: /\+1\d{10}|@/.test(user) });
+    return json(res, 200, anthropicText(request.model, JSON.stringify({
+      score: roofing && licence ? 5 : roofing || licence ? 4 : 2,
+      reason: roofing ? "3 yrs snow and lawn work, has licence" : "Little related experience",
+      meets: [{ requirement: "Able to lift 50 lbs", met: "unclear" }],
+    })));
+  }
   capture({ kind: "anthropic", purpose: "other", system: system.slice(0, 80) });
   return json(res, 200, anthropicText(request.model, "{}"));
 }
@@ -539,7 +584,9 @@ function anthropic(req, res, path, body) {
 function resend(req, res, path, body) {
   const m = JSON.parse(body || "{}");
   const id = sid("em_");
-  capture({ kind: "email", to: Array.isArray(m.to) ? m.to.join(",") : m.to, from: m.from, subject: m.subject, body: m.text ?? "", html: m.html ?? null, id });
+  // Phase 3: attachments (the payroll CSV) are captured with their decoded text.
+  const attachments = (m.attachments ?? []).map((a) => ({ filename: a.filename, content: typeof a.content === "string" ? Buffer.from(a.content, "base64").toString("utf8").slice(0, 4000) : Array.isArray(a.content?.data) ? Buffer.from(a.content.data).toString("utf8").slice(0, 4000) : null }));
+  capture({ kind: "email", to: Array.isArray(m.to) ? m.to.join(",") : m.to, from: m.from, subject: m.subject, body: m.text ?? "", html: m.html ?? null, id, attachments });
   return json(res, 200, { id });
 }
 
@@ -669,6 +716,15 @@ createServer(async (req, res) => {
       return json(res, 200, control);
     }
     if (url === "/__retell/registered") return json(res, 200, retellRegistered);
+    // Phase 3 (phase3.ts): a number "arrives" in the Twilio account (a completed port-in), and the
+    // account's numbers as Twilio sees them (webhooks, FriendlyName).
+    if (url === "/__twilio/incoming" && req.method === "POST") {
+      const n = { sid: sid("PN"), phone_number: null, friendly_name: null, voice_url: null, sms_url: null, ...JSON.parse(body || "{}") };
+      incoming.set(n.sid, n);
+      capture({ kind: "twilio_port_in", number: n.phone_number });
+      return json(res, 201, n);
+    }
+    if (url === "/__twilio/incoming") return json(res, 200, [...incoming.values()]);
     const host = req.headers["x-e2e-host"] || url.split("/")[1];
     const path = url.slice(1 + String(host).length) || "/";
     switch (host) {
