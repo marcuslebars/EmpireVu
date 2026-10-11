@@ -445,6 +445,124 @@ Tests: `src/test/marketer.test.ts`, `marketer-consent.test.ts`, `marketer-route.
 
 ## Office manager
 
+One text to the owner each morning: today's jobs, weather risk, money, what's waiting on them and how yesterday went. On briefing days it also carries the Bookkeeper's 8am money alert, so the owner gets one text, not two. Code: `src/server/services/staff/office-manager/`. Migration: `20261012100000_staff_office_manager.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Office manager** (`src/components/settings/staff/OfficeManagerSettingsSection.tsx`).
+
+### What the owner sees
+
+At 07:00 (Tuesday), from the platform number to the verified owner cell:
+
+```
+CrankLeads: Morning Dana - Northshore Roofing, Tue Oct 13.
+Today: 4 jobs, first at 8am. Mike 2, Sam 1, 1 unassigned.
+Weather: today rain 90%, 12 mm - 4 jobs at risk.
+Money: $1,250 came in yesterday, $2,480 overdue (2 invoices).
+Payment failed: Jamie Lee $500 (INV-30).
+Now 30+ days overdue: Jamie Lee $1,240 (INV-30).
+Waiting on you: #12 AI estimate for Jamie Lee: Eavestrough repair $750 +...; #13 Record $500 e-Transfer from Bob Jones on INV-9.
+Yesterday: 2 new leads, 2 quotes sent, 1 approved. AI handled 2 text chats and 1 call.
+Reply "today" for details.
+```
+
+Dana texts "today" → the owner agent calls `briefing_now` with `detail: true` and relays every job by crew member, the weather numbers, who's late paying and each approval in full. On a truly quiet day: `Morning Dana - all quiet at Northshore Roofing today (Tue Oct 13): no jobs booked and nothing waiting on you.`
+
+### The parts (`gather.ts`, `compose.ts`)
+
+Each part is read on its own and is tolerant (a failed read leaves that part out and is logged; it never stops the briefing). A part with nothing to say is left out.
+
+| Part | Source |
+| --- | --- |
+| Today | The Dispatcher's `crewPlanForDay` for the local day (pending / confirmed / completed / no-show; cancelled excluded): count, first start, per crew member (first names, busiest first) plus unassigned. |
+| Weather | Only when the Dispatcher's weather check is on for the company (`dispatch.weather.enabled`, and `WEATHER_PROVIDER` isn't `off`) and its location is already stored (the Dispatcher geocodes; the briefing never does). `getCompanyForecast` (the shared hourly cache) + `assessWindow` with the owner's limits: today's and tomorrow's daytime (07:00–19:00 local; today from now) and each weather-sensitive open job's own window. Nothing is fetched otherwise. |
+| Money | Collected since the last briefing day (succeeded invoice payments + quote deposits), and the overdue total and count (`ar.ts` `loadOpenInvoicesWithNames` + `agingSummary`). |
+| Money alert | The Bookkeeper's 8am items not told yet (see below), one line per kind, exactly as the alert words them. |
+| Waiting on you | `listPendingApprovals` (codes assigned first, as `waiting_on_me` does), minus expired ones and owner-command confirmations: up to 3 one-liners, then "+N more". |
+| Yesterday | New leads (contacts created, not imported ones: `consent_source 'import'`), quotes sent / approved, customers the AI texted with (`message_log.sent_by 'sms_agent'`, one per contact) and calls it answered (inbound, not voicemail, 5 s or more — the weekly report's rule). |
+
+"Yesterday" is everything since the previous briefing day, local midnight to midnight: Monday after a Saturday briefing says "Since Saturday" and covers Saturday and Sunday (49 hours across the November DST change).
+
+**Length.** At most 4 SMS segments: 612 GSM-7 characters including the "CrankLeads: " prefix (extension characters count double). The text is flattened to plain ASCII (accents, curly quotes, dashes, emoji), so it is never sent as UCS-2. When it's too long, in order: approval one-liners are shortened, then cut to one, the Yesterday line goes, the crew breakdown goes, tomorrow's weather goes, the approvals become a count, and last the folded money lines are dropped from the end. Money lines that didn't fit are not marked reported, so they come the next morning.
+
+### Once a day (`briefing.ts`)
+
+Sweep `office-manager:briefing`, every 2 minutes. Companies are loaded the Bookkeeper's way (every company of a CrankLeads org, plus house-org companies with `ai_settings.office_manager.enabled = true`, filtered at the query; paused / archived companies skipped). A company is due from its set time until 11:00 local, on its briefing days, with a verified owner cell. Today's rows for the due companies are read in one query per 200 companies, so a company already done costs nothing per pass.
+
+- **Claim, then send.** `owner_briefings` is unique on `(company_id, local_date)`. The row is inserted before anything is read or sent, so two workers send one text (tested with two concurrent passes).
+- **A failed send** marks the row `failed`, which releases it: a later pass re-claims it (conditional update on `status = 'failed'` and the attempt count — one winner) 10 minutes later, up to 3 tries, and only before 11:00. A read error after the claim also releases it.
+- **A STOP to the platform number** makes the row `skipped` (no retries that day). A worker that dies mid-send leaves the row `claimed`, and it isn't retried: one missed briefing beats a double text.
+- `briefing_now` never touches `owner_briefings` and never marks money items.
+
+### The Bookkeeper's 8am alert
+
+- `staff/bookkeeper/daily-alert.ts` (minimal edit): `runDailyMoneyAlerts` skips a company when `briefingTakesMoneyAlert` (`office-manager/settings.ts`) is true. That means the briefing is on, today (local) is a briefing day, the company is active and the owner cell is verified.
+- On other days (Sunday by default), or with the briefing off, the alert goes alone as before.
+- The briefing reads the untold items with the alert's own `collectAlertEntries` + `newEntries`, words them with `moneyAlertLineGroups` (also used by `composeMoneyAlert`), and only after its text went out calls `markMoneyAlertReported`. That records the keys in `money_alert_items`, marks told promises `missed`, and writes the day's `money_alerts` row (`sent`, or `skipped` when there was nothing).
+- A failed briefing leaves the items untold for the retry or the next day.
+- Items that turn up after the briefing went out (e.g. a payment that fails at 9am) come the next morning.
+- `owner_briefings.money_items` lists what each briefing carried.
+
+### Email copy
+
+With `channels: ["sms", "email"]` the owner also gets an email (`deliverMessage`, Resend) right after the text, to `resolveOwnerContacts` without the platform fallback (`companies.owner_email`, else the org owner / admin). It holds the same summary plus every job by crew member, the weather numbers, who's late paying and each approval in full.
+- Sender name: "CrankLeads" for CrankLeads orgs, the business name otherwise.
+- The outcome is stored in `owner_briefings.email_status`.
+- The email is only ever a copy: it isn't retried, and it never holds up the text.
+
+### Owner tool `briefing_now`
+
+It returns today's briefing as it would read now (`briefing`), the schedule, and with `detail: true` the full lists (`details`). It is read-only.
+
+Prompt note: when the owner texts "today", "details", "briefing" or "what's on today", call it with `detail: true` and relay it. It is a preview, never a re-send; the owner approves listed items with Y/N and the number.
+
+### Settings
+
+`companies.ai_settings.office_manager = { enabled?, time?, days?, channels? }`, read only by `settings.ts readOfficeManagerSettings`:
+
+- `enabled`: default **on** for CrankLeads orgs, **off** for house orgs (A1 is unchanged unless switched on).
+- `time`: `"HH:MM"` from 06:00 to 09:00, default 07:00.
+- `days`: local weekdays, 0 = Sunday, default Monday–Saturday.
+- `channels`: default `["sms"]`.
+
+Route: `GET|PATCH /api/organizations/:org/companies/:company/ai-settings/office-manager`.
+- Members can read: the settings, `defaultEnabled`, whether an owner cell and an email are on file, whether the 8am alert is folded in, and the last briefing.
+- Owners and admins can PATCH `{ enabled?, time?, days?, emailCopy? }` (strict schema; the time must be 06:00–09:00; at least one day). It merges only `office_manager` via `updateAiSettings`.
+
+UI: on/off, send time (06:00–09:00 in half hours), day buttons Mon–Sun, "Also email me a copy", the last briefing's text, and a note when the 8am alert rides along.
+
+`officeManagerActiveFor` is true when the briefing is on and the company is active. The registry uses it to offer `briefing_now` and its prompt note only there.
+
+### Schema (`20261012100000_staff_office_manager.sql`)
+
+`owner_briefings` holds one row per company per local date:
+- `status`: `claimed | sent | failed | skipped`;
+- `attempts` and `last_attempt_at`;
+- `body`, `email_status`, `money_items`, `sent_at`, `last_error`.
+
+It is unique on `(company_id, local_date)`, with a composite FK to `companies (id, organization_id)`. RLS lets members read; there are no client writes, and only the service role writes. Re-runnable. The local type is in `staff/office-manager/db-types.ts`.
+
+### Env
+
+None of its own. No model calls: every line is built in code. Weather uses the Dispatcher's provider (Environment Canada, or `OPEN_METEO_API_KEY`; `WEATHER_PROVIDER=off` turns it off). Texts use `TWILIO_FROM_NUMBER` (the platform number); email uses the existing Resend setup.
+
+### Tests
+
+`src/test/staff-office-manager.test.ts` covers:
+- settings defaults, bounds and merge;
+- DST for America/Toronto: 07:00 is 11:00Z / 12:00Z across the Nov 1 fall-back and the Mar 8 spring-forward, the fall-back Sunday itself, and Monday's 49-hour "Since Saturday" counting a lead from 23:30 Sunday EST;
+- the composer: quiet day, parts left out, the 612-character cap with every part overflowing, GSM flattening;
+- the sweep: the exact text, two concurrent workers, Sunday as a setting, retry after a failed send (10 min, 3 tries, never after 11:00), platform STOP, no verified cell, house org off / opted in, paused company;
+- the fold-in: carried, marked, the 8am alert silent, nothing repeated, kept on a failed send; and no fold when the alert is off;
+- weather: on, off, no location — never fetched when off;
+- the email copy, `briefing_now` (read-only, details, an approval decided through `decideApproval` drops off), the registry, and the route.
+
+`src/test/staff-bookkeeper.test.ts` adds the deferral test (no 8am text on a briefing day, the alert alone on Sunday). Its fixture turns the briefing off so the standalone-alert tests keep testing the standalone alert.
+
+### Not yet
+
+- No approval kinds: the briefing only reports.
+- Items that turn up between the briefing and 11:00 wait for the next morning; they don't get a separate 8am text.
+- The weather line needs the Dispatcher to have located the business once (its first 15:00 check).
+- "Yesterday" counts text chats by customers the AI texted, not the customers' own messages.
+
 ## Customer import
 
 ## Keep your number

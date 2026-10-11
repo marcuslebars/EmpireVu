@@ -13,6 +13,10 @@
  * Each item is reported once (money_alert_items, unique per company + key). The day is claimed
  * first (money_alerts, unique per company + local date), so overlapping workers send one text.
  * From the platform number to the verified owner cell.
+ *
+ * When the Office manager's morning briefing is on for the company that day, this text is NOT
+ * sent: the briefing folds the day's new items in (moneyAlertLineGroups) and marks them reported
+ * (markMoneyAlertReported) — docs/ai-staff.md → "Office manager".
  */
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { sendOwnerSms } from "@/server/services/owner-channel/common";
@@ -22,6 +26,7 @@ import type { BookkeeperInvoice, Db, InvoiceCollectionsRow, PaymentPlanRow } fro
 import { INVOICE_COLUMNS } from "./db-types";
 import { addDays, daysBetween, localParts, ownerMoney, shortDate } from "./format";
 import { chunks, loadActiveCompanies } from "./settings";
+import { briefingTakesMoneyAlert } from "@/server/services/staff/office-manager/settings";
 
 export const ALERT_HOUR = 8;
 /** If the 08:00 pass was missed (worker down), catch up until this hour. */
@@ -61,42 +66,50 @@ function fragments(list: AlertEntry[], max = 3): string {
   return list.length > max ? `${shown.join(", ")} +${list.length - max} more` : shown.join(", ");
 }
 
-/** The alert text from the new entries. Null when there's nothing. PURE. */
-export function composeMoneyAlert(companyName: string, entries: AlertEntry[], provider: string | null = null): string | null {
-  if (entries.length === 0) return null;
+/** One line per kind (in KIND_ORDER), with the entries it covers. Shared with the morning briefing. PURE. */
+export function moneyAlertLineGroups(entries: AlertEntry[], provider: string | null = null): Array<{ kind: AlertKind; line: string; entries: AlertEntry[] }> {
   const by = new Map<AlertKind, AlertEntry[]>();
   for (const e of entries) by.set(e.kind, [...(by.get(e.kind) ?? []), e]);
-  const lines: string[] = [];
+  const groups: Array<{ kind: AlertKind; line: string; entries: AlertEntry[] }> = [];
   for (const kind of KIND_ORDER) {
     const list = by.get(kind);
     if (!list?.length) continue;
+    let line: string;
     switch (kind) {
       case "payment_failed":
-        lines.push(`Payment failed: ${fragments(list)}.`);
+        line = `Payment failed: ${fragments(list)}.`;
         break;
       case "promise_missed":
-        lines.push(`Missed promise to pay: ${fragments(list)}.`);
+        line = `Missed promise to pay: ${fragments(list)}.`;
         break;
       case "plan_missed":
-        lines.push(`Missed plan payment: ${fragments(list)}.`);
+        line = `Missed plan payment: ${fragments(list)}.`;
         break;
       case "overdue60":
-        lines.push(`Now 60+ days overdue: ${fragments(list)}.`);
+        line = `Now 60+ days overdue: ${fragments(list)}.`;
         break;
       case "overdue30":
-        lines.push(`Now 30+ days overdue: ${fragments(list)}.`);
+        line = `Now 30+ days overdue: ${fragments(list)}.`;
         break;
       case "sync_failed":
-        lines.push(`Not syncing to ${providerName(provider)}: ${fragments(list)}. Check Settings > Accounting.`);
+        line = `Not syncing to ${providerName(provider)}: ${fragments(list)}. Check Settings > Accounting.`;
         break;
       case "unsynced_payment":
-        lines.push(`${list.length === 1 ? "1 payment is" : `${list.length} payments are`} not in ${providerName(provider)} after a day.`);
+        line = `${list.length === 1 ? "1 payment is" : `${list.length} payments are`} not in ${providerName(provider)} after a day.`;
         break;
       case "paid_no_payment":
-        lines.push(`Marked paid with no payment recorded: ${fragments(list)}.`);
+        line = `Marked paid with no payment recorded: ${fragments(list)}.`;
         break;
     }
+    groups.push({ kind, line, entries: list });
   }
+  return groups;
+}
+
+/** The alert text from the new entries. Null when there's nothing. PURE. */
+export function composeMoneyAlert(companyName: string, entries: AlertEntry[], provider: string | null = null): string | null {
+  if (entries.length === 0) return null;
+  const lines = moneyAlertLineGroups(entries, provider).map((g) => g.line);
   const head = `Money check for ${companyName}:`;
   const foot = `Text "who owes me" for the full list.`;
   let body = [head, ...lines, foot].join("\n");
@@ -262,7 +275,7 @@ export function missedInstalment(plan: Pick<PaymentPlanRow, "instalments" | "sta
 }
 
 /** Drop entries the owner was already told about. */
-async function newEntries(admin: AdminClient, ctx: CompanyCtx, entries: AlertEntry[]): Promise<AlertEntry[]> {
+export async function newEntries(admin: AdminClient, ctx: CompanyCtx, entries: AlertEntry[]): Promise<AlertEntry[]> {
   if (entries.length === 0) return [];
   const told = new Set<string>();
   for (const keys of chunks(entries.map((e) => e.key))) {
@@ -270,6 +283,39 @@ async function newEntries(admin: AdminClient, ctx: CompanyCtx, entries: AlertEnt
     for (const r of rows) told.add(r.item_key);
   }
   return entries.filter((e) => !told.has(e.key));
+}
+
+/**
+ * The morning briefing carried these entries and went out: record them as told (never repeated),
+ * mark promises the owner has now heard about as missed, and record the day (money_alerts
+ * 'sent', so the standalone alert can't send for it either). `entries` is everything collected
+ * today (promises told on an earlier day are marked too), `fresh` the untold ones, `reported`
+ * what the briefing actually carried (the rest stay untold for tomorrow).
+ */
+export async function markMoneyAlertReported(
+  admin: AdminClient,
+  ctx: Pick<CompanyCtx, "organizationId" | "companyId" | "timeZone">,
+  nowMs: number,
+  input: { entries: AlertEntry[]; fresh: AlertEntry[]; reported: AlertEntry[]; body: string },
+): Promise<string[]> {
+  const db = admin as Db;
+  const today = todayIn(ctx, nowMs);
+  const keys = [...new Set(input.reported.flatMap((e) => [e.key, ...(e.alsoKeys ?? [])]))];
+  for (const key of keys) {
+    await db.from("money_alert_items").insert({ organization_id: ctx.organizationId, company_id: ctx.companyId, item_key: key, alert_date: today });
+  }
+  const reported = new Set(input.reported.map((e) => e.key));
+  const freshKeys = new Set(input.fresh.map((e) => e.key));
+  for (const e of input.entries) {
+    if (!e.promiseRowId || (freshKeys.has(e.key) && !reported.has(e.key))) continue;
+    await db.from("invoice_collections").update({ promise_status: "missed" }).eq("id", e.promiseRowId).eq("organization_id", ctx.organizationId).eq("promise_status", "open");
+  }
+  await db.from("money_alerts").insert(
+    keys.length
+      ? { organization_id: ctx.organizationId, company_id: ctx.companyId, alert_date: today, status: "sent", body: input.body, items: keys, sent_at: new Date(nowMs).toISOString() }
+      : { organization_id: ctx.organizationId, company_id: ctx.companyId, alert_date: today, status: "skipped", items: [] },
+  );
+  return keys;
 }
 
 export interface DailyAlertOutcome {
@@ -345,6 +391,8 @@ export async function runDailyMoneyAlerts(admin: AdminClient, nowMs: number = Da
     if (!c.settings.dailyAlert) continue;
     const hour = localParts(nowMs, c.timeZone).hour;
     if (hour < ALERT_HOUR || hour >= ALERT_LAST_HOUR) continue;
+    // The morning briefing carries today's items instead (staff/office-manager).
+    if (await briefingTakesMoneyAlert(admin, { organizationId: c.organizationId, companyId: c.companyId }, nowMs)) continue;
     try {
       const ctx = await loadCompanyCtx(admin, c.organizationId, c.companyId);
       if (!ctx || !ctx.settings.enabled || !ctx.settings.dailyAlert || !ctx.ownerPhone) continue;
