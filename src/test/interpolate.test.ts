@@ -47,3 +47,15 @@ describe("renderTemplate", () => {
     expect(renderTemplate("{{contact.first_name}} / {{ company.name }}", data)).toBe("Jane / A1 Marine Care");
   });
 });
+
+describe("renderTemplate: contacts named by their phone number", () => {
+  const data = (first_name: string | null) => ({ contact: { first_name }, company: { name: "Northshore" }, fields: {} }) as never;
+  it("greets them as 'there' instead of the number", () => {
+    expect(renderTemplate("Hi {{contact.first_name}}, your quote", data("+17055550201"))).toBe("Hi there, your quote");
+    expect(renderTemplate("Hi {{ contact.first_name }}, x", data(null))).toBe("Hi there, x");
+  });
+  it("leaves real names and non-greeting uses alone", () => {
+    expect(renderTemplate("Hi {{contact.first_name}},", data("Dana"))).toBe("Hi Dana,");
+    expect(renderTemplate("Follow up on {{contact.first_name}}'s quote", data("+17055550201"))).toBe("Follow up on +17055550201's quote");
+  });
+});

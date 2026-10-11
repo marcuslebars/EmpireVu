@@ -102,9 +102,19 @@ function stringify(value: unknown): string {
 
 /** Render `{{ path | filter }}` tokens against the template data. */
 export function renderTemplate(template: string, data: MessageTemplateData): string {
-  return template.replace(TOKEN, (_match, rawPath: string, filter: string | undefined) => {
-    const value = resolvePath(rawPath.trim(), data);
+  return template.replace(TOKEN, (_match, rawPath: string, filter: string | undefined, offset: number, whole: string) => {
+    const path = rawPath.trim();
+    const value = resolvePath(path, data);
     const filtered = filter ? applyFilter(filter.trim(), value) : value;
-    return stringify(filtered);
+    const text = stringify(filtered);
+    // A contact created from an inbound text has their phone number as first_name: greet them
+    // as "Hi there," rather than "Hi +17055550123," (or "Hi ,").
+    if (path === "contact.first_name" && GREETING_BEFORE.test(whole.slice(Math.max(0, offset - 20), offset)) && (!text.trim() || PHONE_LIKE.test(text))) {
+      return "there";
+    }
+    return text;
   });
 }
+
+const GREETING_BEFORE = /\b(hi|hello|hey)[,!]?\s*$/i;
+const PHONE_LIKE = /^\+?[\d\s().-]{7,}$/;
