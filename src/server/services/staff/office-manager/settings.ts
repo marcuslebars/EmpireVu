@@ -23,6 +23,8 @@ export const LATEST_TIME = "09:00";
 export const DEFAULT_DAYS = [1, 2, 3, 4, 5, 6];
 /** A failed send can be retried until this local hour (then the day is given up). */
 export const LAST_SEND_HOUR = 11;
+/** Tries per day (the first + retries after a failed send or an unreadable part). */
+export const MAX_ATTEMPTS = 3;
 
 export type BriefingChannel = "sms" | "email";
 
@@ -232,14 +234,54 @@ export async function officeManagerActiveFor(admin: AdminClient, scope: { organi
 }
 
 /**
- * The Bookkeeper's 08:00 money alert defers to the briefing: true when today (local) is a
- * briefing day for this company and the briefing can reach the owner — its alert items are then
- * folded into the briefing instead of a second text. Never throws (false → the alert goes as usual).
+ * The Bookkeeper's 08:00 money alert defers to the briefing: its items ride in the briefing
+ * instead of a second text. True when today (local) is a briefing day for this company, the
+ * briefing can reach the owner, and today's briefing hasn't ended WITHOUT the money items:
+ *
+ *   no row yet / claimed / failed with retries left / sent carrying the fold  → defer (true)
+ *   sent without the fold (its read failed on the last try) / skipped (STOP)
+ *     / failed with every try used                                          → the alert goes (false)
+ *
+ * The briefing marks items reported only after a send that carried them, and never folds again
+ * once the day's row is final, so the two can't both report the same items. Cheap: the settings
+ * are checked first (one company read; the org read only when `hint.crankleads` isn't given),
+ * and today's row only on a briefing day. Never throws (false → the alert goes as usual).
  */
-export async function briefingTakesMoneyAlert(admin: AdminClient, scope: { organizationId: string; companyId: string }, nowMs: number): Promise<boolean> {
+export async function briefingTakesMoneyAlert(
+  admin: AdminClient,
+  scope: { organizationId: string; companyId: string },
+  nowMs: number,
+  hint: { crankleads?: boolean } = {},
+): Promise<boolean> {
   try {
-    const company = await loadBriefingCompany(admin, scope.organizationId, scope.companyId);
-    return Boolean(company && company.active && company.ownerPhone && briefingDay(company.settings, nowMs, company.timeZone));
+    const db = admin as Db;
+    const { data, error } = await db.from("companies").select(COMPANY_COLUMNS).eq("organization_id", scope.organizationId).eq("id", scope.companyId).maybeSingle();
+    if (error || !data) return false;
+    const row = data as BriefingCompanyRow;
+    let crankleads = hint.crankleads;
+    if (crankleads === undefined) {
+      const explicit = record(record(row.ai_settings)[SETTINGS_KEY]).enabled;
+      if (explicit === false) return false;
+      const { data: org } = await db.from("organizations").select("platform_brand").eq("id", scope.organizationId).maybeSingle();
+      crankleads = isCrankleadsOrg(org);
+    }
+    const company = toBriefingCompany(row, crankleads ? "crankleads" : "empirevu");
+    if (!company.active || !company.ownerPhone || !briefingDay(company.settings, nowMs, company.timeZone)) return false;
+    const today = localParts(nowMs, company.timeZone).date;
+    const { data: brief, error: briefError } = await db
+      .from("owner_briefings")
+      .select("status, attempts, money_fold")
+      .eq("organization_id", scope.organizationId)
+      .eq("company_id", scope.companyId)
+      .eq("local_date", today)
+      .maybeSingle();
+    if (briefError) return false;
+    const b = brief as { status: string; attempts: number; money_fold: string | null } | null;
+    if (!b) return true;
+    if (b.status === "skipped") return false;
+    if (b.status === "sent") return b.money_fold !== "failed";
+    if (b.status === "failed") return (b.attempts ?? 0) < MAX_ATTEMPTS;
+    return true; // claimed: the briefing is on it
   } catch {
     return false;
   }

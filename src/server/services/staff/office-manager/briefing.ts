@@ -22,12 +22,13 @@ import { composeBriefing, MAX_BRIEFING_SEPTETS, septets, type ComposedBriefing }
 import type { Db, OwnerBriefingRow } from "./db-types";
 import { renderBriefingEmail } from "./email";
 import { defaultBriefingDeps, gatherBriefing, type BriefingDeps, type GatheredBriefing } from "./gather";
-import { briefingDue, loadBriefingCompanies, type BriefingCompany } from "./settings";
+import { briefingDue, loadBriefingCompanies, MAX_ATTEMPTS, type BriefingCompany } from "./settings";
+
+export { MAX_ATTEMPTS };
 import { localDate } from "@/server/services/staff/dispatcher/time";
 
 export const SWEEP_INTERVAL_MS = 2 * 60_000;
 export const RETRY_AFTER_MS = 10 * 60_000;
-export const MAX_ATTEMPTS = 3;
 
 export interface BriefingOutcome {
   companyId: string;
@@ -70,6 +71,12 @@ export async function claimBriefingDay(admin: AdminClient, company: BriefingComp
   return ((reclaimed ?? []) as OwnerBriefingRow[])[0] ?? null;
 }
 
+/** Would a retry RETRY_AFTER_MS from now still be inside today's send window? PURE. */
+export function canRetryToday(company: Pick<BriefingCompany, "settings" | "timeZone">, nowMs: number): boolean {
+  const later = nowMs + RETRY_AFTER_MS;
+  return briefingDue(company.settings, later, company.timeZone) && localDate(new Date(later), company.timeZone) === localDate(new Date(nowMs), company.timeZone);
+}
+
 /** A failed send, under the attempt cap, at least RETRY_AFTER_MS since the last try. PURE. */
 export function retryable(row: Pick<OwnerBriefingRow, "status" | "attempts" | "last_attempt_at">, nowMs: number): boolean {
   if (row.status !== "failed" || row.attempts >= MAX_ATTEMPTS) return false;
@@ -98,11 +105,21 @@ export async function runCompanyBriefing(admin: AdminClient, company: BriefingCo
   const finish = (patch: Record<string, unknown>) => db.from("owner_briefings").update(patch).eq("id", claim.id).eq("organization_id", company.organizationId).eq("status", "claimed");
   try {
     const gathered = await gatherBriefing(admin, company, nowMs, deps, { fold: true });
+    // A part we couldn't read (today's jobs, the approvals, the money alert's items): retry
+    // rather than claim "no jobs" / "nothing waiting" or drop the money items — unless this is the
+    // last try, then send what we have, saying what couldn't be read (and the 8am alert goes on
+    // its own if its items weren't carried: money_fold 'failed').
+    const lastTry = claim.attempts >= MAX_ATTEMPTS || !canRetryToday(company, nowMs);
+    if (gathered.failed.length > 0 && !lastTry) {
+      await finish({ status: "failed", last_error: `couldn't read: ${gathered.failed.join(", ")}` });
+      return { companyId: company.companyId, status: "failed" };
+    }
+    const moneyFold = gathered.fold ? "included" : gathered.failed.includes("money alert") ? "failed" : "none";
     const composed = composeFor(company, gathered);
     const sent = await sendOwnerSms(admin, { to: company.ownerPhone, body: composed.text, organizationId: company.organizationId, companyId: company.companyId, platformBrand: company.platformBrand });
     if (sent.status !== "sent") {
       // Blocked (the owner texted STOP to the platform number): final for today. Failed: release for a retry.
-      await finish({ status: sent.status === "blocked" ? "skipped" : "failed", body: composed.text, last_error: sent.reason ?? sent.status });
+      await finish({ status: sent.status === "blocked" ? "skipped" : "failed", body: composed.text, money_fold: moneyFold, last_error: sent.reason ?? sent.status });
       return { companyId: company.companyId, status: sent.status === "blocked" ? "skipped" : "failed", body: composed.text };
     }
     let moneyItems: string[] = [];
@@ -121,7 +138,9 @@ export async function runCompanyBriefing(admin: AdminClient, company: BriefingCo
         return "failed";
       });
     }
-    await finish({ status: "sent", body: composed.text, sent_at: new Date(nowMs).toISOString(), money_items: moneyItems, email_status: emailStatus });
+    // money_fold 'included' even if marking failed: the text carried the items, so the 8am
+    // alert must not send them again today.
+    await finish({ status: "sent", body: composed.text, sent_at: new Date(nowMs).toISOString(), money_items: moneyItems, money_fold: moneyFold, email_status: emailStatus });
     return { companyId: company.companyId, status: "sent", body: composed.text };
   } catch (err) {
     await finish({ status: "failed", last_error: err instanceof Error ? err.message : String(err) });

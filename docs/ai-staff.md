@@ -467,16 +467,16 @@ Dana texts "today" → the owner agent calls `briefing_now` with `detail: true` 
 
 ### The parts (`gather.ts`, `compose.ts`)
 
-Each part is read on its own and is tolerant (a failed read leaves that part out and is logged; it never stops the briefing). A part with nothing to say is left out.
+Each part is read on its own. A part with nothing to say is left out. A failed read of the weather, money or yesterday parts just leaves that part out (logged). A failed read of **today's jobs, the approvals waiting, or the Bookkeeper's alert items** (when that alert is on) fails the attempt instead (`last_error "couldn't read: jobs"`), so it is retried. On the last try before 11:00 the text goes anyway, but it says "Today's jobs: couldn't load them - check the app." / "Approvals: couldn't load them - text \"waiting\"." and is never the quiet one-liner.
 
 | Part | Source |
 | --- | --- |
 | Today | The Dispatcher's `crewPlanForDay` for the local day (pending / confirmed / completed / no-show; cancelled excluded): count, first start, per crew member (first names, busiest first) plus unassigned. |
 | Weather | Only when the Dispatcher's weather check is on for the company (`dispatch.weather.enabled`, and `WEATHER_PROVIDER` isn't `off`) and its location is already stored (the Dispatcher geocodes; the briefing never does). `getCompanyForecast` (the shared hourly cache) + `assessWindow` with the owner's limits: today's and tomorrow's daytime (07:00–19:00 local; today from now) and each weather-sensitive open job's own window. Nothing is fetched otherwise. |
-| Money | Collected since the last briefing day (succeeded invoice payments + quote deposits), and the overdue total and count (`ar.ts` `loadOpenInvoicesWithNames` + `agingSummary`). |
+| Money | Collected since the last briefing day (succeeded invoice payments + quote deposits), and the overdue total and count (`ar.ts` `loadOpenInvoicesWithNames` + `agingSummary`). Imported balances still on hold (`invoices.import_hold`, read tolerantly) are left out of the overdue total. |
 | Money alert | The Bookkeeper's 8am items not told yet (see below), one line per kind, exactly as the alert words them. |
 | Waiting on you | `listPendingApprovals` (codes assigned first, as `waiting_on_me` does), minus expired ones and owner-command confirmations: up to 3 one-liners, then "+N more". |
-| Yesterday | New leads (contacts created, not imported ones: `consent_source 'import'`), quotes sent / approved, customers the AI texted with (`message_log.sent_by 'sms_agent'`, one per contact) and calls it answered (inbound, not voicemail, 5 s or more — the weekly report's rule). |
+| Yesterday | New leads (contacts created, not imported ones (`consent_source 'import'`) or job applicants (`consent_source 'job_application'` or `metadata.kind 'applicant'`)), quotes sent / approved, customers the AI texted with (`message_log.sent_by 'sms_agent'`, one per contact) and calls it answered (inbound, not voicemail, 5 s or more — the weekly report's rule). |
 
 "Yesterday" is everything since the previous briefing day, local midnight to midnight: Monday after a Saturday briefing says "Since Saturday" and covers Saturday and Sunday (49 hours across the November DST change).
 
@@ -487,13 +487,14 @@ Each part is read on its own and is tolerant (a failed read leaves that part out
 Sweep `office-manager:briefing`, every 2 minutes. Companies are loaded the Bookkeeper's way (every company of a CrankLeads org, plus house-org companies with `ai_settings.office_manager.enabled = true`, filtered at the query; paused / archived companies skipped). A company is due from its set time until 11:00 local, on its briefing days, with a verified owner cell. Today's rows for the due companies are read in one query per 200 companies, so a company already done costs nothing per pass.
 
 - **Claim, then send.** `owner_briefings` is unique on `(company_id, local_date)`. The row is inserted before anything is read or sent, so two workers send one text (tested with two concurrent passes).
-- **A failed send** marks the row `failed`, which releases it: a later pass re-claims it (conditional update on `status = 'failed'` and the attempt count — one winner) 10 minutes later, up to 3 tries, and only before 11:00. A read error after the claim also releases it.
+- **A failed send** marks the row `failed`, which releases it: a later pass re-claims it (conditional update on `status = 'failed'` and the attempt count — one winner) 10 minutes later, up to 3 tries, and only before 11:00. A read error after the claim (or an unreadable jobs / approvals / money-alert part, see above) also releases it.
 - **A STOP to the platform number** makes the row `skipped` (no retries that day). A worker that dies mid-send leaves the row `claimed`, and it isn't retried: one missed briefing beats a double text.
 - `briefing_now` never touches `owner_briefings` and never marks money items.
+- `money_fold` records whether the alert's items rode along (`included`), the alert was off (`none`), or they couldn't be read (`failed`). It stays `included` even if marking them reported fails afterwards, since the text carried them.
 
 ### The Bookkeeper's 8am alert
 
-- `staff/bookkeeper/daily-alert.ts` (minimal edit): `runDailyMoneyAlerts` skips a company when `briefingTakesMoneyAlert` (`office-manager/settings.ts`) is true. That means the briefing is on, today (local) is a briefing day, the company is active and the owner cell is verified.
+- `staff/bookkeeper/daily-alert.ts` (minimal edit): `runDailyMoneyAlerts` skips a company when `briefingTakesMoneyAlert` (`office-manager/settings.ts`) is true. That means the briefing is on, today (local) is a briefing day, the company is active and the owner cell is verified, and today's `owner_briefings` row hasn't ended without the items. A row that is `sent` with `money_fold 'failed'` (the items couldn't be read on the last try), `skipped`, or `failed` with every try used lets the alert go alone. No row, `claimed`, `failed` with tries left, or `sent` with `money_fold 'included'` defers. The settings are checked first (one company read, using the alert's own CrankLeads flag), and the row only on a briefing day. Because the briefing marks items only after a send that carried them, and a final row never folds again, the two never report the same items.
 - On other days (Sunday by default), or with the briefing off, the alert goes alone as before.
 - The briefing reads the untold items with the alert's own `collectAlertEntries` + `newEntries`, words them with `moneyAlertLineGroups` (also used by `composeMoneyAlert`), and only after its text went out calls `markMoneyAlertReported`. That records the keys in `money_alert_items`, marks told promises `missed`, and writes the day's `money_alerts` row (`sent`, or `skipped` when there was nothing).
 - A failed briefing leaves the items untold for the retry or the next day.

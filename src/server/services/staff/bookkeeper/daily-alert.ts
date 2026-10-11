@@ -406,7 +406,7 @@ export async function runDailyMoneyAlerts(admin: AdminClient, nowMs: number = Da
     const hour = localParts(nowMs, c.timeZone).hour;
     if (hour < ALERT_HOUR || hour >= ALERT_LAST_HOUR) continue;
     // The morning briefing carries today's items instead (staff/office-manager).
-    if (await briefingTakesMoneyAlert(admin, { organizationId: c.organizationId, companyId: c.companyId }, nowMs)) continue;
+    if (await briefingTakesMoneyAlert(admin, { organizationId: c.organizationId, companyId: c.companyId }, nowMs, { crankleads: c.crankleads })) continue;
     try {
       const ctx = await loadCompanyCtx(admin, c.organizationId, c.companyId);
       if (!ctx || !ctx.settings.enabled || !ctx.settings.dailyAlert || !ctx.ownerPhone) continue;

@@ -51,11 +51,19 @@ export interface MoneyFold {
   groups: Array<{ line: string; entries: AlertEntry[] }>;
 }
 
+export type BriefingPartName = "jobs" | "approvals" | "money alert";
+
 export interface GatheredBriefing {
   today: string;
   input: Omit<BriefingInput, "maxSeptets">;
   details: BriefingDetails;
   fold: MoneyFold | null;
+  /**
+   * Parts whose read FAILED (not "nothing to say"): today's jobs, the approvals waiting, or the
+   * Bookkeeper's alert items when that alert is on. The sweep retries rather than send a text
+   * that would claim "no jobs" / "nothing waiting", or drop the money items.
+   */
+  failed: BriefingPartName[];
 }
 
 const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -91,6 +99,24 @@ async function tolerant<T>(label: string, companyId: string, read: () => Promise
 function rowsOf<T>(res: { data: unknown; error: unknown }): T[] {
   if (res.error) throw res.error;
   return (res.data ?? []) as T[];
+}
+
+/** A new contact that is a lead: not an imported customer, not a job applicant. PURE. */
+export function isNewLead(contact: { consent_source: string | null; metadata?: unknown }): boolean {
+  if (contact.consent_source === "import" || contact.consent_source === "job_application") return false;
+  const meta = contact.metadata && typeof contact.metadata === "object" ? (contact.metadata as Record<string, unknown>) : {};
+  return meta.kind !== "applicant";
+}
+
+/** Open invoices the customer import is holding (invoices.import_hold). Tolerant: no column → none. */
+async function importHeldIds(db: Db, scope: { organizationId: string; companyId: string }): Promise<Set<string>> {
+  try {
+    const { data, error } = await db.from("invoices").select("id").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("import_hold", true).limit(5000);
+    if (error) return new Set();
+    return new Set(((data ?? []) as Array<{ id: string }>).map((r) => r.id));
+  } catch {
+    return new Set();
+  }
 }
 
 function firstWord(name: string): string {
@@ -163,7 +189,9 @@ async function weatherPart(admin: AdminClient, company: BriefingCompany, today: 
 async function moneyPart(admin: AdminClient, company: BriefingCompany, today: string, window: { from: Date; to: Date }): Promise<{ part: MoneyPart; details: string[] }> {
   const db = admin as Db;
   const scope = { organizationId: company.organizationId, companyId: company.companyId };
-  const open = await loadOpenInvoicesWithNames(admin, scope);
+  // Imported balances on hold (not chased until the owner OKs it) aren't counted as overdue.
+  const [allOpen, held] = await Promise.all([loadOpenInvoicesWithNames(admin, scope), importHeldIds(db, scope)]);
+  const open = allOpen.filter((i) => !held.has(i.id));
   const aging = agingSummary(open, today);
   const from = window.from.toISOString();
   const to = window.to.toISOString();
@@ -205,8 +233,12 @@ async function sincePart(admin: AdminClient, company: BriefingCompany, window: {
   const count = async <T>(label: string, read: PromiseLike<{ data: unknown; error: unknown }>, keep: (rows: T[]) => number): Promise<number> =>
     (await tolerant(label, co, async () => keep(rowsOf<T>(await read)))) ?? 0;
   const [leads, quotesSent, quotesApproved, textChats, calls] = await Promise.all([
-    // New contacts, but not an imported customer list.
-    count<{ consent_source: string | null }>("leads", db.from("contacts").select("id, consent_source").eq("organization_id", org).eq("company_id", co).gte("created_at", from).lt("created_at", to).limit(5000), (r) => r.filter((c) => c.consent_source !== "import").length),
+    // New contacts, but not an imported customer list or job applicants (the Recruiter's).
+    count<{ consent_source: string | null; metadata: unknown }>(
+      "leads",
+      db.from("contacts").select("id, consent_source, metadata").eq("organization_id", org).eq("company_id", co).gte("created_at", from).lt("created_at", to).limit(5000),
+      (r) => r.filter(isNewLead).length,
+    ),
     count("quotes sent", db.from("quotes").select("id").eq("organization_id", org).eq("company_id", co).gte("sent_at", from).lt("sent_at", to).limit(5000), (r) => r.length),
     count("quotes approved", db.from("quotes").select("id").eq("organization_id", org).eq("company_id", co).gte("approved_at", from).lt("approved_at", to).limit(5000), (r) => r.length),
     // Customers the AI texted with (one per contact).
@@ -235,14 +267,20 @@ export async function gatherBriefing(admin: AdminClient, company: BriefingCompan
   const window = sinceWindow(today, company.settings.days, tz);
   const co = company.companyId;
   const ctx = await tolerant("company", co, () => loadCompanyCtx(admin, company.organizationId, company.companyId));
+  const failed: BriefingPartName[] = [];
+  // The fold is expected when the Bookkeeper's alert is on; an unreadable company counts as a failure.
+  const foldWanted = options.fold && (!ctx || (ctx.settings.enabled && ctx.settings.dailyAlert));
   const [jobs, weather, money, fold, waiting, since] = await Promise.all([
     tolerant("jobs", co, () => jobsPart(admin, company, today)),
     tolerant("weather", co, () => weatherPart(admin, company, today, nowMs, deps)),
     tolerant("money", co, () => moneyPart(admin, company, today, window)),
-    options.fold && ctx ? tolerant("money alert", co, () => foldPart(admin, ctx, nowMs)) : Promise.resolve(null),
+    foldWanted && ctx ? tolerant("money alert", co, () => foldPart(admin, ctx, nowMs)) : Promise.resolve(null),
     tolerant("approvals", co, () => waitingPart(admin, company, nowMs)),
     tolerant("activity", co, () => sincePart(admin, company, window)),
   ]);
+  if (!jobs) failed.push("jobs");
+  if (!waiting) failed.push("approvals");
+  if (foldWanted && !fold) failed.push("money alert");
   return {
     today,
     input: {
@@ -257,8 +295,10 @@ export async function gatherBriefing(admin: AdminClient, company: BriefingCompan
       fold: fold?.groups.map((g) => g.line) ?? [],
       waiting: waiting?.part ?? null,
       since,
+      unreadable: { jobs: !jobs, waiting: !waiting },
     },
     details: { jobs: jobs?.details ?? [], weather: weather?.details ?? [], owing: money?.details ?? [], waiting: waiting?.details ?? [] },
     fold,
+    failed,
   };
 }

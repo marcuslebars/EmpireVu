@@ -25,6 +25,8 @@ export interface OwnerBriefingRow {
   email_status: string | null;
   /** Bookkeeper money-alert item keys folded into this briefing. */
   money_items: string[];
+  /** 'included' (the alert's items rode along), 'none' (alert off), 'failed' (couldn't read them → the 8am alert goes). */
+  money_fold: "included" | "none" | "failed" | null;
   sent_at: string | null;
   last_error: string | null;
   created_at: string;

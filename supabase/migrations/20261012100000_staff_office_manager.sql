@@ -23,6 +23,8 @@ create table if not exists public.owner_briefings (
   email_status text,
   -- Bookkeeper money_alert_items keys this briefing carried (the 8am alert folded in).
   money_items jsonb not null default '[]'::jsonb,
+  -- 'included' | 'none' (alert off) | 'failed' (couldn't read the items → the 8am alert goes alone).
+  money_fold text check (money_fold in ('included', 'none', 'failed')),
   sent_at timestamptz,
   last_error text,
   created_at timestamptz not null default now(),
@@ -30,6 +32,9 @@ create table if not exists public.owner_briefings (
   unique (company_id, local_date),
   foreign key (company_id, organization_id) references public.companies (id, organization_id) on delete cascade
 );
+
+-- Re-runnable on a database that has the first version of this table.
+alter table public.owner_briefings add column if not exists money_fold text check (money_fold in ('included', 'none', 'failed'));
 
 create index if not exists owner_briefings_org_company_date_idx on public.owner_briefings (organization_id, company_id, local_date desc);
 

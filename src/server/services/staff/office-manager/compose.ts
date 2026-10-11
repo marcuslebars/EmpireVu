@@ -72,6 +72,8 @@ export interface BriefingInput {
   fold: string[];
   waiting: WaitingPart | null;
   since: SincePart | null;
+  /** Parts whose read failed: never claim "no jobs" / "nothing waiting" for them. */
+  unreadable?: { jobs?: boolean; waiting?: boolean };
   /** Septets available (612 minus the platform prefix). */
   maxSeptets?: number;
 }
@@ -97,6 +99,7 @@ export function gsmPlain(text: string): string {
     .replace(/\p{M}/gu, "")
     .replace(/[‘’‚′]/g, "'")
     .replace(/[“”„″]/g, '"')
+    .replace(/`/g, "'")
     .replace(/[–—−]/g, "-")
     .replace(/…/g, "...")
     .replace(/[^\S\n]/g, " ")
@@ -104,6 +107,14 @@ export function gsmPlain(text: string): string {
     .replace(/[ \t]+/g, " ")
     .replace(/ *\n */g, "\n")
     .trim();
+}
+
+/** Cut to at most `max` GSM septets, ending "...". PURE. */
+function clipSeptets(text: string, max: number): string {
+  if (septets(text) <= max) return text;
+  let cut = text;
+  while (cut && septets(`${cut}...`) > max) cut = cut.slice(0, -1);
+  return `${cut.trimEnd()}...`;
 }
 
 function clipOne(text: string, max: number): string {
@@ -191,7 +202,11 @@ export function composeBriefing(input: BriefingInput): ComposedBriefing {
   const max = input.maxSeptets ?? MAX_BRIEFING_SEPTETS;
   const greet = gsmPlain(`Morning${input.ownerFirstName ? ` ${input.ownerFirstName}` : ""} - ${input.businessName}, ${input.dayLabel}.`);
 
+  const unreadableJobs = input.unreadable?.jobs === true;
+  const unreadableWaiting = input.unreadable?.waiting === true;
   const quiet =
+    !unreadableJobs &&
+    !unreadableWaiting &&
     !jobsLine(input.jobs, input.timeZone) &&
     !weatherLine(input.weather) &&
     !moneyLine(input.money, input.periodPhrase) &&
@@ -200,7 +215,7 @@ export function composeBriefing(input: BriefingInput): ComposedBriefing {
     !sinceLine(input.since);
   if (quiet) {
     const text = gsmPlain(`Morning${input.ownerFirstName ? ` ${input.ownerFirstName}` : ""} - all quiet at ${input.businessName} today (${input.dayLabel}): no jobs booked and nothing waiting on you.`);
-    return { text: septets(text) > max ? clipOne(text, max) : text, quiet: true, foldIncluded: 0 };
+    return { text: clipSeptets(text, max), quiet: true, foldIncluded: 0 };
   }
 
   // Reductions, applied in order until the text fits.
@@ -209,11 +224,11 @@ export function composeBriefing(input: BriefingInput): ComposedBriefing {
     gsmPlain(
       [
         greet,
-        jobsLine(input.jobs, input.timeZone, state.crew),
+        unreadableJobs ? "Today's jobs: couldn't load them - check the app." : jobsLine(input.jobs, input.timeZone, state.crew),
         weatherLine(input.weather, state.tomorrow),
         moneyLine(input.money, input.periodPhrase),
         ...input.fold.slice(0, state.fold),
-        waitingLine(input.waiting, state.waitItems, state.waitClip),
+        unreadableWaiting ? 'Approvals: couldn\'t load them - text "waiting".' : waitingLine(input.waiting, state.waitItems, state.waitClip),
         state.since ? sinceLine(input.since) : null,
         REPLY_HINT,
       ]
@@ -238,11 +253,7 @@ export function composeBriefing(input: BriefingInput): ComposedBriefing {
     state.fold -= 1;
     text = build();
   }
-  if (septets(text) > max) {
-    // Never reached with real data (every line above is bounded); keep the cap absolute anyway.
-    let cut = text;
-    while (septets(`${cut}...`) > max) cut = cut.slice(0, -1);
-    text = `${cut.trimEnd()}...`;
-  }
+  // Never reached with real data (every line above is bounded); keep the cap absolute anyway.
+  text = clipSeptets(text, max);
   return { text, quiet: false, foldIncluded: state.fold };
 }

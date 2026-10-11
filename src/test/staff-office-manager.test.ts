@@ -34,7 +34,7 @@ import { clearWeatherMemoryCache } from "@/server/services/staff/dispatcher/weat
 import { officeManagerRole } from "@/server/services/staff/office-manager";
 import { runMorningBriefings } from "@/server/services/staff/office-manager/briefing";
 import { clock, composeBriefing, gsmPlain, MAX_BRIEFING_SEPTETS, septets, type BriefingInput } from "@/server/services/staff/office-manager/compose";
-import { sinceWindow, type BriefingDeps } from "@/server/services/staff/office-manager/gather";
+import { isNewLead, sinceWindow, type BriefingDeps } from "@/server/services/staff/office-manager/gather";
 import {
   briefingDue,
   briefingTakesMoneyAlert,
@@ -569,6 +569,126 @@ describe("bookkeeper 8am alert fold-in", () => {
     await runDailyMoneyAlerts(h.db!.client, Date.now());
     expect(smsTo(OWNER)).toHaveLength(1);
     expect(smsTo(OWNER)[0].body).toContain("Money check for Northshore Roofing:");
+  });
+});
+
+// ── Review fixes ─────────────────────────────────────────────────────────────────
+
+describe("review fixes", () => {
+  const quietSeed = () =>
+    seed({ bookings: [], invoices: [], invoice_payments: [], quotes: [], message_log: [], retell_calls: [], owner_approvals: [], contacts: [] });
+
+  it("job applicants (the Recruiter's) and imported customers aren't new leads", async () => {
+    expect(isNewLead({ consent_source: "web_form", metadata: {} })).toBe(true);
+    expect(isNewLead({ consent_source: null })).toBe(true);
+    expect(isNewLead({ consent_source: "job_application", metadata: { kind: "applicant" } })).toBe(false);
+    expect(isNewLead({ consent_source: "inbound_sms", metadata: { kind: "applicant" } })).toBe(false);
+    expect(isNewLead({ consent_source: "import", metadata: null })).toBe(false);
+    rows("contacts").push(
+      { id: "app-1", organization_id: ORG, company_id: CO, first_name: "Jo", created_at: YESTERDAY, consent_source: "job_application", metadata: { kind: "applicant" } },
+      { id: "app-2", organization_id: ORG, company_id: CO, first_name: "Al", created_at: YESTERDAY, consent_source: "inbound_sms", metadata: { kind: "applicant" } },
+    );
+    await run();
+    expect(smsTo(OWNER)[0].body).toContain("Yesterday: 2 new leads,");
+  });
+
+  it("an unreadable jobs list is never reported as a quiet day: retried, and on the last try it says so", async () => {
+    quietSeed();
+    h.db!.failNext("bookings", "select");
+    await run();
+    expect(sendSms).not.toHaveBeenCalled();
+    expect(rows("owner_briefings")[0]).toMatchObject({ status: "failed", attempts: 1, last_error: "couldn't read: jobs" });
+    at("2026-10-13T11:10:00Z");
+    await run();
+    expect(smsTo(OWNER)).toHaveLength(1);
+    expect(smsTo(OWNER)[0].body).toContain("all quiet"); // read fine this time: really quiet
+
+    // The last chance before 11:00: send, but never claim "no jobs".
+    quietSeed();
+    h.db!.failNext("bookings", "select");
+    at("2026-10-13T14:55:00Z"); // 10:55
+    await run();
+    const body = smsTo(OWNER)[0].body;
+    expect(body).not.toContain("all quiet");
+    expect(body).toContain("Today's jobs: couldn't load them - check the app.");
+    expect(rows("owner_briefings")[0]).toMatchObject({ status: "sent" });
+  });
+
+  it("an unreadable approvals list is never 'nothing waiting'", () => {
+    const composed = composeBriefing(input({ unreadable: { waiting: true } }));
+    expect(composed.quiet).toBe(false);
+    expect(composed.text).toContain('Approvals: couldn\'t load them - text "waiting".');
+  });
+
+  function notable() {
+    rows("invoices").push({ id: "inv-30", organization_id: ORG, company_id: CO, contact_id: JAMIE, invoice_number: "INV-30", status: "sent", total_cents: 124000, credit_cents: 0, balance_due_cents: 124000, pending_payment_cents: 0, due_date: "2026-09-12", issue_date: "2026-08-29", sent_at: "2026-08-29T14:00:00Z", bill_to: null, public_token: "t30" });
+    rows("invoice_payments").push({ id: "pay-f", organization_id: ORG, company_id: CO, invoice_id: "inv-30", amount_cents: 50000, method: "card", status: "failed", failure_reason: "card_declined", updated_at: "2026-10-13T13:00:00Z", created_at: "2026-10-13T13:00:00Z", received_at: "2026-10-13T13:00:00Z" });
+  }
+
+  it("money alert items whose read failed are never lost: retried with the briefing; on the last try the 8am alert carries them, once", async () => {
+    notable();
+    h.db!.failNext("accounting_connections", "select");
+    await run();
+    expect(sendSms).not.toHaveBeenCalled();
+    expect(rows("owner_briefings")[0]).toMatchObject({ status: "failed", last_error: "couldn't read: money alert" });
+    expect(await briefingTakesMoneyAlert(h.db!.client, { organizationId: ORG, companyId: CO }, Date.now())).toBe(true); // a retry is coming
+    at("2026-10-13T11:10:00Z");
+    await run();
+    expect(smsTo(OWNER)[0].body).toContain("Payment failed: Jamie Lee $500 (INV-30).");
+    expect(rows("owner_briefings")[0]).toMatchObject({ status: "sent", money_fold: "included" });
+
+    // Last try (10:55): sent without them → the standalone alert goes with them, and only once.
+    seed();
+    notable();
+    h.db!.failNext("accounting_connections", "select");
+    at("2026-10-13T14:55:00Z");
+    await run();
+    expect(smsTo(OWNER)).toHaveLength(1);
+    expect(smsTo(OWNER)[0].body).not.toContain("Payment failed");
+    expect(rows("owner_briefings")[0]).toMatchObject({ status: "sent", money_fold: "failed" });
+    expect(rows("money_alert_items")).toHaveLength(0);
+    at("2026-10-13T14:58:00Z");
+    await runDailyMoneyAlerts(h.db!.client, Date.now());
+    await runDailyMoneyAlerts(h.db!.client, Date.now());
+    expect(smsTo(OWNER)).toHaveLength(2);
+    expect(smsTo(OWNER)[1].body).toContain("Payment failed: Jamie Lee $500 (INV-30).");
+    expect(rows("money_alert_items").map((r) => r.item_key).sort()).toEqual(["overdue30:inv-30", "payment_failed:pay-f"]);
+  });
+
+  it("briefingTakesMoneyAlert follows today's row: final without the items → the alert goes", async () => {
+    const take = () => briefingTakesMoneyAlert(h.db!.client, { organizationId: ORG, companyId: CO }, Date.now(), { crankleads: true });
+    expect(await take()).toBe(true); // no row yet
+    rows("owner_briefings").push({ id: "ob-1", organization_id: ORG, company_id: CO, local_date: "2026-10-13", status: "claimed", attempts: 1, money_fold: null });
+    expect(await take()).toBe(true);
+    Object.assign(rows("owner_briefings")[0], { status: "failed", attempts: 2 });
+    expect(await take()).toBe(true);
+    Object.assign(rows("owner_briefings")[0], { status: "failed", attempts: 3 });
+    expect(await take()).toBe(false);
+    Object.assign(rows("owner_briefings")[0], { status: "sent", money_fold: "included" });
+    expect(await take()).toBe(true);
+    Object.assign(rows("owner_briefings")[0], { status: "sent", money_fold: "failed" });
+    expect(await take()).toBe(false);
+    Object.assign(rows("owner_briefings")[0], { status: "skipped" });
+    expect(await take()).toBe(false);
+    // Off → no row read at all.
+    setSettings(0, { office_manager: { enabled: false } });
+    const before = h.db!.queries.filter((q) => q.table === "owner_briefings").length;
+    expect(await briefingTakesMoneyAlert(h.db!.client, { organizationId: ORG, companyId: CO }, Date.now())).toBe(false);
+    expect(h.db!.queries.filter((q) => q.table === "owner_briefings").length).toBe(before);
+  });
+
+  it("imported balances still on hold aren't counted as overdue", async () => {
+    rows("invoices").push({ id: "inv-imp", organization_id: ORG, company_id: CO, contact_id: PAT, invoice_number: null, status: "sent", total_cents: 840000, credit_cents: 0, balance_due_cents: 840000, pending_payment_cents: 0, due_date: "2026-09-01", issue_date: "2026-09-01", sent_at: null, bill_to: null, public_token: "ti", import_hold: true });
+    await run();
+    expect(smsTo(OWNER)[0].body).toContain("$1,240 overdue (1 invoice)");
+  });
+
+  it("backticks become apostrophes; the quiet line is capped in GSM septets", () => {
+    expect(gsmPlain("Dana`s")).toBe("Dana's");
+    const quiet = composeBriefing(input({ businessName: "[".repeat(400), maxSeptets: 300 }));
+    expect(quiet.quiet).toBe(true);
+    expect(septets(quiet.text)).toBeLessThanOrEqual(300);
+    expect(quiet.text.endsWith("...")).toBe(true);
   });
 });
 
