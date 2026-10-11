@@ -60,8 +60,8 @@ export class AgentTimeoutError extends Error {
   }
 }
 
-export function toolDefinitions(): Anthropic.Tool[] {
-  return allAgentTools().map((t) => ({
+export function toolDefinitions(state?: Pick<TurnState, "roleTools">): Anthropic.Tool[] {
+  return allAgentTools(state).map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
@@ -77,7 +77,7 @@ function textOf(message: Anthropic.Message): string {
 }
 
 export async function runAgentTurn(input: AgentTurnInput): Promise<AgentTurnOutput> {
-  const tools = toolDefinitions();
+  const tools = toolDefinitions(input.state);
   const firstContent: Anthropic.ContentBlockParam[] = [
     ...input.images.map(
       (img): Anthropic.ImageBlockParam => ({ type: "image", source: { type: "base64", media_type: img.mediaType, data: img.base64 } }),

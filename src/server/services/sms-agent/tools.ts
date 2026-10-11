@@ -70,6 +70,8 @@ export interface TurnState {
   customerText?: string | null;
   /** Amounts earlier business messages in this conversation stated (the reply guard's history). */
   historyAmountsCents?: number[];
+  /** The AI staff tools for this company (staff/registry.ts activeRolesFor); unset → all roles'. */
+  roleTools?: AgentTool<never>[];
 }
 
 export interface ToolResult {
@@ -669,13 +671,13 @@ export const AGENT_TOOLS: AgentTool<never>[] = [
 ] as unknown as AgentTool<never>[];
 
 /** The front desk's tools plus the AI staff roles' (staff/registry.ts). */
-export function allAgentTools(): AgentTool<never>[] {
-  return [...AGENT_TOOLS, ...roleAgentTools()];
+export function allAgentTools(state?: Pick<TurnState, "roleTools">): AgentTool<never>[] {
+  return [...AGENT_TOOLS, ...(state?.roleTools ?? roleAgentTools())];
 }
 
 /** Run one tool call: validate, run, and turn any failure into a result the model can read. */
 export async function runTool(state: TurnState, name: string, rawInput: unknown): Promise<{ result: ToolResult; isError: boolean }> {
-  const tool = (allAgentTools() as unknown as AgentTool<unknown>[]).find((t) => t.name === name);
+  const tool = (allAgentTools(state) as unknown as AgentTool<unknown>[]).find((t) => t.name === name);
   if (!tool) return { result: { error: `Unknown tool ${name}.` }, isError: true };
   const parsed = tool.parse.safeParse(rawInput ?? {});
   if (!parsed.success) {

@@ -4,6 +4,7 @@
  * move. Approval kinds weather_reschedule / fill_gap / bulk_reschedule; owner tools
  * weather_outlook / crew_plan / move_day; five sweeps.
  */
+import { dispatcherActiveFor } from "@/server/services/staff/dispatcher/settings";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { emptyRole, type StaffRoleModule, type StaffSweep } from "@/server/services/staff/types";
 import { BULK_RESCHEDULE_KIND, FILL_GAP_KIND, WEATHER_RESCHEDULE_KIND } from "./approvals";
@@ -66,6 +67,7 @@ export const DISPATCHER_SWEEPS: StaffSweep[] = [
 ];
 
 export const dispatcherRole: StaffRoleModule = {
+  activeFor: dispatcherActiveFor,
   ...emptyRole("dispatcher"),
   approvalExecutors: {
     [WEATHER_RESCHEDULE_KIND]: (admin, approval, decision) => applyMoves(admin, approval, decision, "weather"),

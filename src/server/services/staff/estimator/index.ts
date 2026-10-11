@@ -9,6 +9,7 @@
  *   sweep            estimator-quote-follow-up (follow-up.ts)
  *   settings         companies.ai_settings.estimator (settings.ts)
  */
+import { estimatorActiveFor } from "@/server/services/staff/estimator/settings";
 import { executeAiEstimate } from "@/server/services/staff/estimator/approval";
 import { sweepQuoteFollowUps } from "@/server/services/staff/estimator/follow-up";
 import { pendingEstimatesTool } from "@/server/services/staff/estimator/owner-tool";
@@ -27,6 +28,7 @@ export const ESTIMATOR_OWNER_NOTES: string[] = [
 ];
 
 export const estimatorRole: StaffRoleModule = {
+  activeFor: estimatorActiveFor,
   role: "estimator",
   approvalExecutors: { [AI_ESTIMATE_KIND]: executeAiEstimate },
   agentTools: [requestEstimateTool as unknown as AgentTool<never>],

@@ -5,12 +5,22 @@ import type { StaffSweep } from "@/server/services/staff/types";
 const { sweeps } = vi.hoisted(() => ({ sweeps: [] as StaffSweep[] }));
 vi.mock("@/server/services/staff/marketer", async () => {
   const { emptyRole } = await import("@/server/services/staff/types");
-  return { marketerRole: { ...emptyRole("marketer"), sweeps, approvalExecutors: { win_back_campaign: vi.fn(async () => ({ ok: true, message: "Sent." })) } } };
+  return {
+    marketerRole: {
+      ...emptyRole("marketer"),
+      sweeps,
+      approvalExecutors: { win_back_campaign: vi.fn(async () => ({ ok: true, message: "Sent." })) },
+      activeFor: async (_admin: unknown, scope: { companyId: string }) => {
+        if (scope.companyId === "boom") throw new Error("db down");
+        return scope.companyId === "on";
+      },
+    },
+  };
 });
 
 import { AGENT_TOOLS } from "@/server/services/sms-agent/tools";
 import { OWNER_TOOLS } from "@/server/services/owner-channel/tools";
-import { registryProblems, resetStaffSweepClock, roleApprovalExecutor, runStaffSweeps } from "@/server/services/staff/registry";
+import { activeRolesFor, registryProblems, resetStaffSweepClock, roleApprovalExecutor, runStaffSweeps } from "@/server/services/staff/registry";
 
 beforeEach(() => {
   sweeps.length = 0;
@@ -41,5 +51,13 @@ describe("AI staff registry", () => {
     await runStaffSweeps({} as never, 1_061_000);
     expect(ran).toEqual(["boom", "ok", "boom", "ok"]);
     err.mockRestore();
+  });
+
+  it("activeRolesFor drops a role that is off for the company, or whose check fails", async () => {
+    const names = async (companyId: string) => (await activeRolesFor({} as never, { organizationId: "o", companyId })).map((r) => r.role);
+    // The other three roles read settings from the (empty) db and come back off.
+    expect(await names("on")).toContain("marketer");
+    expect(await names("off")).not.toContain("marketer");
+    expect(await names("boom")).not.toContain("marketer");
   });
 });

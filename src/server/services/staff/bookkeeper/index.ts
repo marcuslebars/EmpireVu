@@ -12,6 +12,7 @@
  * Settings: companies.ai_settings.collections (settings.ts) — on by default for CrankLeads orgs,
  * off for house orgs (A1 keeps today's behaviour unless switched on).
  */
+import { bookkeeperActiveFor } from "@/server/services/staff/bookkeeper/settings";
 import type { StaffRoleModule } from "@/server/services/staff/types";
 import { bookkeeperAgentTools } from "./agent-tools";
 import { bookkeeperExecutors } from "./approvals";
@@ -21,6 +22,7 @@ import { BOOKKEEPER_AGENT_NOTES, BOOKKEEPER_OWNER_NOTES } from "./prompt-notes";
 import { runReminderSweep } from "./reminders";
 
 export const bookkeeperRole: StaffRoleModule = {
+  activeFor: bookkeeperActiveFor,
   role: "bookkeeper",
   approvalExecutors: bookkeeperExecutors,
   agentTools: bookkeeperAgentTools,

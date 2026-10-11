@@ -53,6 +53,12 @@ export interface StaffRoleModule {
   /** Lines appended to the owner agent's rules. */
   ownerPromptNotes: string[];
   sweeps: StaffSweep[];
+  /**
+   * Is this role on for the company? Its agent/owner tools and prompt notes are only offered to
+   * companies where it is (so a house org with the role off never sees them). Must never throw;
+   * a role without it counts as on.
+   */
+  activeFor?: (admin: AdminClient, scope: { organizationId: string; companyId: string }) => Promise<boolean>;
 }
 
 export function emptyRole(role: StaffRole): StaffRoleModule {

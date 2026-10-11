@@ -3,6 +3,7 @@
  * review reply drafts, and weekly Google listing post drafts. Every one waits for the owner's
  * Y by text (approval kinds marketing_campaign, review_reply, google_post).
  */
+import { marketerActiveFor } from "@/server/services/staff/marketer/settings";
 import { executeMarketingCampaign, MARKETING_CAMPAIGN_KIND, sendCampaignBatches, sweepMonthlyWinBack } from "@/server/services/staff/marketer/campaigns";
 import { defaultMarketerDeps } from "@/server/services/staff/marketer/deps";
 import { marketingResultsTool, startWinBackTool, stopCampaignTool } from "@/server/services/staff/marketer/owner-tools";
@@ -24,6 +25,7 @@ export const MARKETER_OWNER_NOTES = [
 ];
 
 export const marketerRole: StaffRoleModule = {
+  activeFor: marketerActiveFor,
   role: "marketer",
   approvalExecutors: {
     [MARKETING_CAMPAIGN_KIND]: (admin, approval, decision) => executeMarketingCampaign(admin, approval, decision, deps),

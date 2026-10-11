@@ -18,6 +18,21 @@ export function staffRoles(): StaffRoleModule[] {
   return [estimatorRole, bookkeeperRole, dispatcherRole, marketerRole];
 }
 
+/** The roles switched on for one company (a failing activeFor counts as off). */
+export async function activeRolesFor(admin: AdminClient, scope: { organizationId: string; companyId: string }): Promise<StaffRoleModule[]> {
+  const checks = await Promise.all(
+    staffRoles().map(async (role) => {
+      if (!role.activeFor) return true;
+      try {
+        return await role.activeFor(admin, scope);
+      } catch {
+        return false;
+      }
+    }),
+  );
+  return staffRoles().filter((_, i) => checks[i]);
+}
+
 export function roleApprovalExecutor(kind: string): RoleApprovalExecutor | null {
   if (CORE_APPROVAL_KINDS.has(kind)) return null;
   for (const role of staffRoles()) {
