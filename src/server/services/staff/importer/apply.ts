@@ -206,7 +206,10 @@ async function addBalance(ctx: Ctx, contactId: string, accountId: string | null,
   if (findError) throw findError;
   if (((found ?? []) as unknown[]).length > 0) return "exists";
   const today = ctx.today;
-  const issue = r.balanceDate && r.balanceDate <= today ? r.balanceDate : today;
+  // Issue date: the file's (never in the future), else — when the file only has a due date — that
+  // due date if it's already passed, else today. Due date: the file's, else the issue date.
+  const fileIssue = r.balanceDate && r.balanceDate <= today ? r.balanceDate : null;
+  const issue = fileIssue ?? (r.balanceDueDate && r.balanceDueDate < today ? r.balanceDueDate : today);
   const due = r.balanceDueDate && r.balanceDueDate >= issue ? r.balanceDueDate : issue;
   const cents = r.balanceCents;
   const ref = r.invoiceRef;

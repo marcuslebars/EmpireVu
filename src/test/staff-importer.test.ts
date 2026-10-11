@@ -655,6 +655,12 @@ describe("review fixes", () => {
     expect(rows("contacts").filter((c) => c.first_name === "John")).toHaveLength(2);
   });
 
+  it("a due date in the file is kept when there's no invoice date", async () => {
+    await importAll("dues.csv", "Name,Phone,Balance,Due Date\nDee Park,705-555-0177,$100,2026-08-01\nEd Park,705-555-0178,$50,2026-12-01\n");
+    expect(rows("invoices").find((i) => i.balance_due_cents === 10000)).toMatchObject({ issue_date: "2026-08-01", due_date: "2026-08-01" });
+    expect(rows("invoices").find((i) => i.balance_due_cents === 5000)).toMatchObject({ issue_date: "2026-10-13", due_date: "2026-12-01" });
+  });
+
   it("customer accounts match whatever the case", async () => {
     seed({ customer_accounts: [{ id: "acct-1", organization_id: ORG, name: "Ortiz Holdings", archived_at: null }] });
     await importAll("c.csv", "Name,Company,Phone\nSam Ortiz,ORTIZ HOLDINGS,705-555-0188\n");
