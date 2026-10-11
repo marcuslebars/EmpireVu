@@ -68,3 +68,42 @@ docs/front-desk-ai.md end to end. Shots go to `$E2E_FRONTDESK_SHOTS` (default
   (inbox, Approvals card, Settings → AI front desk) at 1280 and 390; clock → Monday 08:05 →
   weekly report text + email, second run silent, report page shots; house org untouched. Ends
   with the message timeline.
+
+## Phase 2 AI staff (`staff.sh` / `staff.ts`)
+
+`scripts/e2e-dfy/staff.sh` starts a fresh stack (200 ms SMS-agent coalesce) and drives
+docs/ai-staff.md end to end: the four roles through the real database, PostgREST, the Next routes
+and the app's own worker code (inbound queue, workflow events + durable waits, `runScheduler` →
+`runStaffSweeps`, throttle reset per tick). `staff-results.json` goes to `$E2E_STAFF_OUT`
+(default `$E2E_ROOT/staff-out`).
+
+- Clock: moved to the next Sunday 09:05 Toronto first, then forward through the week, so every
+  weekday / hour rule is deterministic: Sun 09:05 → 15:05 → 18:05 → Mon 08:30 → 09:30 → 09:45 →
+  10:05 → 10:10 → 10:16 → 10:30 → Tue (+2 d after the quote) → Fri 09:30.
+- Seeding: a Close purchase (signed Stripe webhook → billing worker) + switch-on + live; website,
+  Google place id, price list; Bob (overdue invoice), Pat (invoice), Sam + Jo (spring cleanups
+  Monday), Al (Monday job assigned to crew member Mike), ten past customers (completed jobs 3–30
+  months ago, two contacts sharing one number, one with lapsed implied consent); a house org
+  (A1-style) with the same shapes (overdue invoice, past customer, job tomorrow, crew cell).
+- Fakes added: Open-Meteo (`api.open-meteo.com` / `customer-api…`, hourly unixtime; rainy where
+  `POST /__control {"rain":[{fromMs,toMs}]}` says), Places details `location` (geocoding),
+  Anthropic estimator vision (JSON estimate; counts image blocks), win-back / review reply /
+  Google post copy, the SMS agent's `request_estimate` / `request_payment_plan` and the owner
+  agent's `who_owes_me` / `marketing_results` (every request captures the tool list it was
+  offered). The gateway gained a minimal Storage stub (`/storage/v1/object/<bucket>/<path>`,
+  service-role upload, download; files in `$E2E_ROOT/storage`, a `storage.objects` row each).
+- Steps: R routes (GET every role's ai-settings as the owner, PATCH dispatch sensitivity, member
+  cell PUT/GET, a member can read but not PATCH, PostgREST RLS read/write) · E1 photo + "how much
+  to fix my fascia?" → `request_estimate` → photo in `quote-photos` → `ai_estimate` (no price to
+  the customer) · E2 "Y n $900" → `estimator` quote $900 + HST texted once · B1 nothing on a
+  Sunday; "can I do 3 payments?" → `payment_plan` → Y → plan + hold, confirmation queued · B2
+  "who owes me" · D1 15:00 rain → ONE `weather_reschedule` → Y → moved + texted with `/v/` links,
+  no gap offers for its own moves · D2 18:00 crew text once · B3 nothing at 08:30, Bob's reminder
+  with `/i/` link at 09:30 (once), Pat's queued plan text goes out, no reminder under the plan ·
+  D3 job completed → no crew update · M1 monthly win-back → `marketing_campaign` (7 numbers,
+  exact text, STOP + website) → a STOP before sending → Y · M2 ≤5 per 5-minute slot, never to the
+  opted-out number (either contact), STOP after a text, a recipient's reply answered by the
+  assistant, "how did the campaign do?" · E3 +2 d one follow-up (the active quote-follow-up
+  automation's), +5 d the Estimator's own nudge · H house tenant: no texts, no role rows, job not
+  moved, owner agent without role tools, and with its texting assistant switched on the model gets
+  exactly the Phase 1 tool list. Ends with the message timeline and `N/N steps, N/N checks`.

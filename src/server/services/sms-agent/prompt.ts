@@ -15,6 +15,8 @@ export interface HistoryMessage {
 }
 
 export interface PromptOptions {
+  /** Extra rules from the AI staff roles (staff/registry.ts roleAgentPromptNotes). */
+  roleNotes?: string[];
   autonomy: SmsAgentAutonomy;
   /** No AI message has gone to this customer in this conversation yet. */
   firstAiMessage: boolean;
@@ -124,7 +126,7 @@ Hand off to ${owner} with hand_off_to_owner (and stop answering) when:
 After a hand-off, tell the customer ${owner === "the owner" ? "someone" : owner} will follow up — don't promise a time.
 
 Ending: when the conversation is clearly done (thanks/bye, booked and confirmed), call end_conversation.
-
+${options.roleNotes?.length ? `\n${options.roleNotes.map((n) => `- ${n}`).join("\n")}\n` : ""}
 Business facts:
 ${factSheet(facts)}`;
 }

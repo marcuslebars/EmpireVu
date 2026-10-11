@@ -16,8 +16,8 @@ export const MAX_APPROVAL_REPLY_CHARS = 300;
 /** Budget for the whole owner text, before the platform prefix and the reply instruction. */
 const MAX_SUMMARY_CHARS = 440;
 
-/** Kinds where "Y $700" (a price note) means something. */
-export const PRICE_NOTE_KINDS = new Set<string>(["custom_price", "send_quote"]);
+/** Kinds where "Y $700" (a price note) means something. ai_estimate: the estimator (docs/ai-staff.md). */
+export const PRICE_NOTE_KINDS = new Set<string>(["custom_price", "send_quote", "ai_estimate"]);
 
 export interface ApprovalLine {
   label: string;
@@ -127,6 +127,8 @@ export function replyInstruction(kind: ApprovalKind, code: number | null, payloa
       return `Reply Y${c} to book it, N${c} to skip.`;
     case "callback":
       return `Reply Y${c} to tell them, N${c} to skip.`;
+    case "ai_estimate":
+      return `Reply Y${c} to send it, Y${c} $price (before HST) to change the total, N${c} to skip.`;
     default:
       return `Reply Y${c} to approve, N${c} to skip.`;
   }

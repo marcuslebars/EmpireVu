@@ -17,6 +17,7 @@
  * Never throws. Any failure → the conversation goes to the owner quietly (no half-baked text to
  * the customer) and the owner is alerted.
  */
+import { activeRolesFor } from "@/server/services/staff/registry";
 import { isAIConfigured, type AiUsageMeta } from "@/server/ai/claude";
 import { getSmsAgentModel } from "@/server/ai/config";
 import { SMS_AGENT_SENDER, type AdminClient, type InboundCustomerSms } from "@/server/services/front-desk/contracts";
@@ -360,6 +361,7 @@ async function runOneTurn(
     const now = deps.services.now();
     const images = await deps.fetchImages(fresh.flatMap((m) => m.media));
     const historyAmounts = settings.autonomy === "ask_first" ? [] : history.filter((m) => m.from !== "customer").flatMap((m) => extractAmountsCents(m.body));
+    const staffRoles = await activeRolesFor(admin, { organizationId: conv.organization_id, companyId: conv.company_id });
     const turnState: TurnState = {
       admin,
       facts,
@@ -371,10 +373,11 @@ async function runOneTurn(
       effects,
       customerText: fresh.map((m) => m.body).filter(Boolean).join(" / ") || null,
       historyAmountsCents: historyAmounts,
+      roleTools: staffRoles.flatMap((r) => r.agentTools),
     };
     output = await runAgentTurn({
       state: turnState,
-      system: buildSystemPrompt(facts, { autonomy: settings.autonomy, firstAiMessage, now }),
+      system: buildSystemPrompt(facts, { autonomy: settings.autonomy, firstAiMessage, now, roleNotes: staffRoles.flatMap((r) => r.agentPromptNotes) }),
       userText: buildConversationTurn({
         customerName: displayName(contact) === contact.phone ? null : displayName(contact),
         customerPhone: contact.phone,

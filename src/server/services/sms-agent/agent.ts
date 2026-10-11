@@ -11,7 +11,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { extractAiUsage, type AiUsageMeta } from "@/server/ai/claude";
 import type { FetchedImage } from "@/server/services/sms-agent/media";
-import { AGENT_TOOLS, runTool, type TurnState } from "@/server/services/sms-agent/tools";
+import { allAgentTools, runTool, type TurnState } from "@/server/services/sms-agent/tools";
 
 /** The one Anthropic call the loop makes — injectable so tests can script a fake model. */
 export interface ModelClient {
@@ -60,8 +60,8 @@ export class AgentTimeoutError extends Error {
   }
 }
 
-export function toolDefinitions(): Anthropic.Tool[] {
-  return AGENT_TOOLS.map((t) => ({
+export function toolDefinitions(state?: Pick<TurnState, "roleTools">): Anthropic.Tool[] {
+  return allAgentTools(state).map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
@@ -77,7 +77,7 @@ function textOf(message: Anthropic.Message): string {
 }
 
 export async function runAgentTurn(input: AgentTurnInput): Promise<AgentTurnOutput> {
-  const tools = toolDefinitions();
+  const tools = toolDefinitions(input.state);
   const firstContent: Anthropic.ContentBlockParam[] = [
     ...input.images.map(
       (img): Anthropic.ImageBlockParam => ({ type: "image", source: { type: "base64", media_type: img.mediaType, data: img.base64 } }),

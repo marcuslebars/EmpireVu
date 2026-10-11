@@ -33,6 +33,7 @@ import { AccountingSettings } from "@/components/settings/AccountingSettings";
 import { WebsiteSettings } from "@/components/settings/WebsiteSettings";
 import { AiFrontDeskSettings } from "@/components/settings/AiFrontDeskSettings";
 import { AI_FRONT_DESK_SECTIONS } from "@/components/settings/ai-front-desk-sections";
+import { MemberPhoneField } from "@/components/settings/staff/MemberPhoneField";
 
 const sections = [
   { id: "org", label: "Organization", icon: Building2, description: "Manage organization name, slug, and companies" },
@@ -303,6 +304,7 @@ function MembersSettings() {
                     {m.id === user?.id ? <span className="text-muted-foreground font-normal"> (you)</span> : null}
                   </p>
                   <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+                  <MemberPhoneField orgId={organizationId} profileId={m.id} canEdit={m.id === user?.id || (canManage && (myRole === "owner" || m.role !== "owner"))} />
                 </div>
                 {/* Only an owner can touch an owner's access (enforced server-side too). */}
                 {canManage && (myRole === "owner" || m.role !== "owner") ? (

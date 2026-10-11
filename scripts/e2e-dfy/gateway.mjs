@@ -1,5 +1,6 @@
 // The one origin the browser and the app talk to in the e2e run (Supabase URL + app URL):
 //   /rest/v1/*  → PostgREST (real, against the local e2e database)
+//   /storage/v1/object/* → a minimal storage stub (service-role upload, download; files under $E2E_ROOT/storage)
 //   /auth/v1/*  → a minimal stub of Supabase Auth backed by auth.users (only the endpoints the
 //                 app actually calls: admin users list/get/create/update, generate_link, user,
 //                 token password/refresh, logout)
@@ -7,6 +8,8 @@
 //   everything else (the SPA, Vite modules, HMR websocket) → Vite dev
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { createServer, request as httpRequest } from "node:http";
 import { connect } from "node:net";
 import { promisify } from "node:util";
@@ -184,9 +187,52 @@ function proxy(req, res, port, rewritePath) {
   req.pipe(upstream);
 }
 
+// ── Storage (minimal stub: object upload / download for the service role) ────
+// Files land under $E2E_ROOT/storage/<bucket>/<path>; each upload upserts a storage.objects row so
+// the driver can assert it. Only buckets that exist in storage.buckets (created by migrations) work.
+const STORAGE_DIR = join(process.env.E2E_ROOT || "/var/tmp/e2e-dfy", "storage");
+async function storage(req, res, url) {
+  const m = url.pathname.match(/^\/storage\/v1\/object\/(?:(public|authenticated|sign)\/)?([^/]+)\/(.+)$/);
+  if (!m) return send(res, 404, { statusCode: "404", error: "not_found", message: "fake storage: no route" });
+  const [, scope, bucket, rawPath] = m;
+  const name = decodeURIComponent(rawPath);
+  const auth = verifyJwt(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+  if (!auth) return send(res, 401, { statusCode: "401", error: "Unauthorized", message: "fake storage: bad token" });
+  if (name.includes("..")) return send(res, 400, { statusCode: "400", error: "invalid_key", message: "bad key" });
+  const exists = await sql(`select count(*) from storage.buckets where id = ${lit(bucket)}`);
+  if (exists !== "1") return send(res, 404, { statusCode: "404", error: "Bucket not found", message: "Bucket not found" });
+  const file = join(STORAGE_DIR, bucket, name);
+  if ((req.method === "POST" || req.method === "PUT") && !scope) {
+    if (auth.role !== "service_role") return send(res, 403, { statusCode: "403", error: "Unauthorized", message: "fake storage: service role only" });
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let body = Buffer.concat(chunks);
+    const type = String(req.headers["content-type"] || "");
+    if (type.startsWith("multipart/form-data")) {
+      // supabase-js sends Blobs as multipart; take the first part's bytes.
+      const boundary = `--${type.split("boundary=")[1]}`;
+      const text = body.toString("latin1");
+      const first = text.indexOf("\r\n\r\n", text.indexOf(boundary)) + 4;
+      const end = text.indexOf(`\r\n${boundary}`, first);
+      body = Buffer.from(text.slice(first, end), "latin1");
+    }
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, body);
+    await sql(`delete from storage.objects where bucket_id = ${lit(bucket)} and name = ${lit(name)}; insert into storage.objects (bucket_id, name) values (${lit(bucket)}, ${lit(name)})`);
+    return send(res, 200, { Key: `${bucket}/${name}`, Id: randomUUID() });
+  }
+  if (req.method === "GET" && (!scope || scope === "authenticated")) {
+    if (!existsSync(file)) return send(res, 404, { statusCode: "404", error: "not_found", message: "Object not found" });
+    res.writeHead(200, { "content-type": "application/octet-stream" });
+    return res.end(readFileSync(file));
+  }
+  return send(res, 405, { statusCode: "405", error: "method_not_allowed", message: "fake storage" });
+}
+
 function routeFor(pathname) {
   if (pathname.startsWith("/rest/v1")) return "postgrest";
   if (pathname.startsWith("/auth/v1")) return "auth";
+  if (pathname.startsWith("/storage/v1")) return "storage";
   if (/^\/(api|s|r|_next)(\/|$)/.test(pathname) || pathname === "/favicon.ico" || pathname === "/robots.txt") return "next";
   return "vite";
 }
@@ -209,6 +255,8 @@ const server = createServer(async (req, res) => {
         return proxy(req, res, POSTGREST, req.url.replace(/^\/rest\/v1/, "") || "/");
       case "auth":
         return await auth(req, res, url);
+      case "storage":
+        return await storage(req, res, url);
       case "next":
         return proxy(req, res, NEXT);
       default:

@@ -52,6 +52,9 @@ export function StageBadge({ stage }: { stage: JobSheet["stage"] }) {
   return <span className={cn("text-[11px] font-semibold px-2 py-0.5 rounded-full border whitespace-nowrap", tone[stage])}>{STAGE_LABEL[stage]}</span>;
 }
 
+/** "On my way" ETA choices (minutes). */
+const ETA_CHOICES = [10, 20, 30, 45, 60];
+
 function Section({ children }: { children: React.ReactNode }) {
   return <section className="rounded-xl border border-border bg-card p-4">{children}</section>;
 }
@@ -66,6 +69,7 @@ export function JobSheetView({ orgId, job }: { orgId: string; job: JobSheet }) {
   const complete = useCompleteJob(orgId, job.id);
   const update = useUpdateJob(orgId, job.id);
   const [openItems, setOpenItems] = useState<number | null>(null);
+  const [askEta, setAskEta] = useState(false);
   const [editing, setEditing] = useState(false);
   const [location, setLocation] = useState(job.location ?? "");
   const [notes, setNotes] = useState(job.description ?? "");
@@ -293,12 +297,42 @@ export function JobSheetView({ orgId, job }: { orgId: string; job: JobSheet }) {
       {/* Field actions — pinned to the bottom of the screen on phones. */}
       {!closed && (
         <div className="fixed sm:static inset-x-0 bottom-0 z-30 border-t sm:border-0 border-border bg-background/95 sm:bg-transparent backdrop-blur sm:backdrop-blur-none p-3 sm:p-0 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-0">
+          {askEta && job.askEta && job.stage === "scheduled" && (
+            <div className="max-w-3xl mx-auto mb-2" role="group" aria-label="When will you get there?">
+              <p className="text-xs text-muted-foreground mb-1.5">When will you get there? The customer gets a heads-up text.</p>
+              <div className="flex flex-wrap gap-1.5">
+                {ETA_CHOICES.map((minutes) => (
+                  <button
+                    key={minutes}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void run(() => enRoute.mutateAsync(minutes)).then(() => setAskEta(false))}
+                    className="h-9 px-3 rounded-lg text-sm font-medium bg-secondary border border-border text-foreground hover:bg-secondary/80 disabled:opacity-60"
+                  >
+                    {minutes < 60 ? `${minutes} min` : "1 hr"}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void run(() => enRoute.mutateAsync(null)).then(() => setAskEta(false))}
+                  className="h-9 px-3 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-60"
+                >
+                  No ETA
+                </button>
+                <button type="button" onClick={() => setAskEta(false)} className="h-9 px-3 rounded-lg text-sm text-muted-foreground hover:text-foreground ml-auto">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
           <div className="flex gap-2 max-w-3xl mx-auto">
             {job.stage === "scheduled" && (
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void run(() => enRoute.mutateAsync(undefined))}
+                aria-expanded={job.askEta ? askEta : undefined}
+                onClick={() => (job.askEta ? setAskEta((open) => !open) : void run(() => enRoute.mutateAsync(null)))}
                 className="flex-1 h-12 rounded-xl text-sm font-semibold bg-secondary border border-border text-foreground flex items-center justify-center gap-2 hover:bg-secondary/80 disabled:opacity-60"
               >
                 {enRoute.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />} On my way

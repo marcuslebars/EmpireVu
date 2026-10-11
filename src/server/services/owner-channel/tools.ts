@@ -4,6 +4,8 @@
  * contact ids it passes are re-checked against that scope (wrong company → "not found").
  * Changes to bookings only PROPOSE (an owner_command approval the owner confirms with "Y").
  */
+import { roleOwnerTools } from "@/server/services/staff/registry";
+import type { RoleOwnerTool } from "@/server/services/staff/types";
 import type Anthropic from "@anthropic-ai/sdk";
 
 import type { Tables } from "@/server/db/database.types";
@@ -36,6 +38,8 @@ export interface ToolRunState {
   /** The code for `confirmation` (only ever sent back to the phone that texted). */
   confirmationCode?: string | null;
   actions: Array<{ tool: string; ok: boolean; detail?: Record<string, unknown> }>;
+  /** The AI staff owner tools for this company (staff/registry.ts activeRolesFor); unset → all roles'. */
+  roleOwnerTools?: RoleOwnerTool[];
 }
 
 const CONFIRM_MINUTES = 30;
@@ -379,8 +383,10 @@ export async function runOwnerTool(state: ToolRunState, name: string, input: Inp
       case "resume_all_texts":
         result = { ok: true, ...(await resumeAllTexts(state.admin, state.scope)) };
         break;
-      default:
-        result = { error: `Unknown tool ${name}.` };
+      default: {
+        const roleTool = (state.roleOwnerTools ?? roleOwnerTools()).find((t) => t.tool.name === name);
+        result = roleTool ? await roleTool.run(state, input) : { error: `Unknown tool ${name}.` };
+      }
     }
     state.actions.push({ tool: name, ok: !("error" in result) && result.ok !== false });
     return result;

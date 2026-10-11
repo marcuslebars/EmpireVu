@@ -42,6 +42,9 @@ beforeEach(() => {
     if (path.endsWith("/ai-settings/weekly-report")) {
       return Promise.resolve({ enabled: true, channels: ["sms", "email"], isCrankleads: true, brandName: "CrankLeads", ownerPhoneOnFile: true, ownerEmailOnFile: true, canManage: true });
     }
+    if (path.endsWith("/ai-settings/estimator")) {
+      return Promise.resolve({ companyId: "co-1", enabled: true, followUps: true, cadenceDays: [2, 5, 10], enabledIsDefault: true, defaultEnabled: true, stats: { waitingOnYou: 1, sent30d: 3, followingUp: 2 } });
+    }
     if (path.endsWith("/owner-phone")) {
       return Promise.resolve({ phone: "+17055550142", verified: true, verifiedAt: "2026-10-01T00:00:00Z", pendingPhone: null, pendingExpiresAt: null, canManage: true });
     }
@@ -55,7 +58,8 @@ describe("AI front desk settings panel", () => {
     await waitFor(() => expect(screen.getByText(/AI call minutes in October/)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("button", { name: /send a test to me/i })).toBeInTheDocument());
     const headings = screen.getAllByRole("heading", { level: 4 }).map((h) => h.textContent);
-    expect(headings).toEqual(["Text conversations", "Phone answering", "Weekly report", "Your cell for owner texts"]);
+    // The AI staff sections (docs/ai-staff.md) follow these four.
+    expect(headings.slice(0, 4)).toEqual(["Text conversations", "Phone answering", "Weekly report", "Your cell for owner texts"]);
     await waitFor(() => expect(screen.getByText("(705) 555-0142")).toBeInTheDocument());
     expect(screen.getByText("Confirmed")).toBeInTheDocument();
     expect(screen.getByText("What happens when Northshore Snow & Lawn misses a call.")).toBeInTheDocument();

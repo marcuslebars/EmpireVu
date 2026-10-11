@@ -26,6 +26,7 @@ import {
   type JobStage,
 } from "./logic";
 import { notifyCrewAssigned } from "./notify";
+import { dispatcherOnOurWayActive } from "@/server/services/staff/dispatcher/on-our-way";
 
 type Booking = Tables<"bookings">;
 
@@ -89,6 +90,8 @@ export interface JobSheet extends JobSummary {
   invoiceId: string | null;
   /** Set when this visit belongs to a recurring job. */
   recurringJobId: string | null;
+  /** "On my way" asks for an ETA (the Dispatcher texts the customer, docs/ai-staff.md). */
+  askEta: boolean;
 }
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
@@ -280,8 +283,14 @@ export async function getJobSheet(ctx: TenantServiceContext, bookingId: string):
       .limit(1)
       .maybeSingle(),
   ]);
+  // "On my way" asks for an ETA only when the Dispatcher will actually text the customer.
+  const askEta =
+    !booking.en_route_at && (booking.status === "pending" || booking.status === "confirmed")
+      ? await dispatcherOnOurWayActive(ctx.supabase as never, { organizationId: ctx.organizationId, companyId: booking.company_id })
+      : false;
   return {
     ...summary,
+    askEta,
     description: booking.description,
     contactEmail: contact.data?.email ?? null,
     quoteId: booking.quote_id,
@@ -381,7 +390,13 @@ function assertOpen(booking: Booking): void {
 }
 
 /** "On my way" — once per job. Fires booking.en_route (the customer heads-up automation). */
-export async function markEnRoute(ctx: TenantServiceContext, bookingId: string): Promise<void> {
+export const enRouteSchema = z.object({ etaMinutes: z.number().int().min(1).max(240).nullish() });
+
+/**
+ * "On my way". `etaMinutes` (optional) rides on the booking.en_route event so the customer's
+ * heads-up can say when to expect the crew (the Dispatcher's on-our-way text, docs/ai-staff.md).
+ */
+export async function markEnRoute(ctx: TenantServiceContext, bookingId: string, options: { etaMinutes?: number | null } = {}): Promise<void> {
   const booking = await loadBooking(ctx, bookingId);
   assertOpen(booking);
   if (booking.en_route_at) return;
@@ -400,7 +415,7 @@ export async function markEnRoute(ctx: TenantServiceContext, bookingId: string):
     entityId: booking.id,
     entityType: "booking",
     eventType: "booking.en_route",
-    metadata: { bookingId: booking.id, by: ctx.actorProfileId },
+    metadata: { bookingId: booking.id, by: ctx.actorProfileId, ...(options.etaMinutes ? { etaMinutes: options.etaMinutes } : {}) },
     relatedEntityId: booking.contact_id,
     relatedEntityType: booking.contact_id ? "contact" : null,
   });

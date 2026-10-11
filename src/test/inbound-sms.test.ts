@@ -24,6 +24,7 @@ vi.mock("@/server/services/workflow-engine/dispatch", () => ({
 vi.mock("@/server/services/usage", () => ({ recordUsageSafe: (...a: unknown[]) => recordUsageSafe(...a), recordAiUsageSafe: vi.fn() }));
 vi.mock("@/server/services/workflow-engine/messaging", () => ({
   STOP_FOOTER: "Reply STOP to opt out",
+  EXPRESS_CONSENT_SOURCES: new Set(["express", "express_optin", "double_optin"]),
   deliverMessage: (...a: unknown[]) => deliverMessage(...a),
 }));
 vi.mock("@/server/outbound/sms", () => ({ sendSms: (...a: unknown[]) => sendSms(...a) }));
@@ -123,6 +124,39 @@ describe("handleInboundSms — customer on a company number", () => {
       expect.objectContaining({ companyId: "co-1", phone: CUSTOMER, consentSource: "inbound_sms" }),
       expect.objectContaining({ dispatchWorkflow: false }),
     );
+  });
+
+  // Found by the Phase 2 e2e run (scripts/e2e-dfy/staff.ts): a customer added by hand (an
+  // invoice) asking for a payment plan, or a past customer replying to a win-back text, got no
+  // reply — the assistant's reply was blocked no_consent / consent_expired.
+  it("an existing contact with no consent: their text is an inquiry → implied consent from now (inbound_sms)", async () => {
+    seed({ contacts: [{ id: "c-1", organization_id: "org-1", company_id: "co-1", phone_last10: "7055550123", phone: CUSTOMER, sms_opt_out_at: null, sms_consent_at: null, consent_source: null }] });
+    await handleInboundSms(payload({ Body: "can I do 3 payments?" }));
+    expect(db.tables.contacts[0].consent_source).toBe("inbound_sms");
+    expect(Date.now() - Date.parse(String(db.tables.contacts[0].sms_consent_at))).toBeLessThan(60_000);
+    expect(runSmsAgentForInbound).toHaveBeenCalled();
+  });
+
+  it("lapsed implied consent is renewed by a new text (source kept)", async () => {
+    seed({ contacts: [{ id: "c-1", organization_id: "org-1", company_id: "co-1", phone_last10: "7055550123", phone: CUSTOMER, sms_opt_out_at: null, sms_consent_at: "2025-08-01T00:00:00Z", consent_source: "implied_inquiry" }] });
+    await handleInboundSms(payload({ Body: "Sounds good, book me in" }));
+    expect(db.tables.contacts[0].consent_source).toBe("implied_inquiry");
+    expect(Date.parse(String(db.tables.contacts[0].sms_consent_at))).toBeGreaterThan(Date.parse("2026-01-01T00:00:00Z"));
+  });
+
+  it("express consent and opted-out contacts are never touched", async () => {
+    seed({ contacts: [{ id: "c-1", organization_id: "org-1", company_id: "co-1", phone_last10: "7055550123", phone: CUSTOMER, sms_opt_out_at: null, sms_consent_at: "2025-01-01T00:00:00Z", consent_source: "express_optin" }] });
+    await handleInboundSms(payload());
+    expect(db.tables.contacts[0]).toMatchObject({ sms_consent_at: "2025-01-01T00:00:00Z", consent_source: "express_optin" });
+    seed({ contacts: [{ id: "c-1", organization_id: "org-1", company_id: "co-1", phone_last10: "7055550123", phone: CUSTOMER, sms_opt_out_at: "2026-10-01T00:00:00Z", sms_consent_at: null, consent_source: null }] });
+    await handleInboundSms(payload({ MessageSid: "SM124", Body: "hello?" }));
+    expect(db.tables.contacts[0]).toMatchObject({ sms_consent_at: null, consent_source: null, sms_opt_out_at: "2026-10-01T00:00:00Z" });
+  });
+
+  it("STOP never records consent", async () => {
+    seed({ contacts: [{ id: "c-1", organization_id: "org-1", company_id: "co-1", phone_last10: "7055550123", phone: CUSTOMER, sms_opt_out_at: null, sms_consent_at: null, consent_source: null }] });
+    await handleInboundSms(payload({ Body: "STOP" }));
+    expect(db.tables.contacts[0]).toMatchObject({ sms_consent_at: null, consent_source: null });
   });
 
   it("an agent failure never fails the job", async () => {
