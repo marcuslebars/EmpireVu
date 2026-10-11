@@ -120,7 +120,18 @@ export function composeMoneyAlert(companyName: string, entries: AlertEntry[], pr
   return body.length > MAX_ALERT ? `${body.slice(0, MAX_ALERT - 3)}...` : body;
 }
 
-function invLabel(inv: Pick<BookkeeperInvoice, "invoice_number"> | null | undefined): string {
+/** Open invoices the customer import is holding (invoices.import_hold). Tolerant: no column → none. */
+async function importHeldInvoiceIds(db: Db, scope: { organizationId: string; companyId: string }): Promise<Set<string>> {
+  try {
+    const { data, error } = await db.from("invoices").select("id").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("import_hold", true).limit(5000);
+    if (error || !Array.isArray(data)) return new Set();
+    return new Set((data as Array<{ id: string }>).map((r) => r.id));
+  } catch {
+    return new Set();
+  }
+}
+
+function invLabel(inv:Pick<BookkeeperInvoice, "invoice_number"> | null | undefined): string {
   return inv?.invoice_number ?? "an invoice";
 }
 
@@ -134,8 +145,11 @@ export async function collectAlertEntries(admin: AdminClient, ctx: CompanyCtx, n
   // Overdue crossings.
   const open = await loadOpenInvoicesWithNames(admin, scope);
   const names = new Map(open.map((i) => [i.id, i.customer]));
+  // Imported balances still on the import's hold aren't news: the owner just brought them over and is
+  // being asked separately whether to chase them (docs/ai-staff.md → "Customer import").
+  const held = await importHeldInvoiceIds(db, scope);
   for (const inv of open) {
-    if (!inv.due_date) continue;
+    if (!inv.due_date || held.has(inv.id)) continue;
     const late = daysBetween(inv.due_date, today);
     const text = `${inv.customer} ${ownerMoney(owingCents(inv))} (${invLabel(inv)})`;
     if (late >= 60) entries.push({ key: `overdue60:${inv.id}`, kind: "overdue60", alsoKeys: [`overdue30:${inv.id}`], text });

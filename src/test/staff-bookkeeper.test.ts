@@ -737,6 +737,18 @@ describe("daily money alert", () => {
     expect(smsTo(OWNER)[0].body).toContain("Money check for Northshore Snow & Lawn:");
   });
 
+  it("leaves out overdue imported balances still on the import's hold, and lists them once released", async () => {
+    seed({ invoices: [invoice({ id: "inv-imp", invoice_number: "INV-IMP", due_date: "2026-08-01", public_token: "timp", reminders_paused: true, import_hold: true })] });
+    at(MORNING);
+    await runDailyMoneyAlerts(h.db!.client, Date.now());
+    expect(smsTo(OWNER)).toHaveLength(0);
+    rows("invoices")[0].import_hold = false;
+    at("2026-10-14T12:15:00Z");
+    await runDailyMoneyAlerts(h.db!.client, Date.now());
+    expect(smsTo(OWNER)).toHaveLength(1);
+    expect(smsTo(OWNER)[0].body).toContain("Now 60+ days overdue: Jamie Lee $1,240 (INV-IMP).");
+  });
+
   it("only between 8 and 11 local, and not when the alert is off or nothing is notable", async () => {
     notable();
     at("2026-10-13T11:30:00Z"); // 07:30
