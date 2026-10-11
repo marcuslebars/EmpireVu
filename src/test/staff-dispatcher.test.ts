@@ -22,18 +22,19 @@ import { roleApprovalExecutor } from "@/server/services/staff/registry";
 import { dispatcherRole } from "@/server/services/staff/dispatcher";
 import { loadDispatchCompanies, loadDispatchCompany, type DispatchCompany } from "@/server/services/staff/dispatcher/company";
 import { crewFingerprint, crewPassForDay, crewScheduleText, sweepCrewTexts } from "@/server/services/staff/dispatcher/crew-schedule";
-import { executeFillGap, sweepFillGap } from "@/server/services/staff/dispatcher/fill-gap";
+import { executeFillGap, resetGapEventMemory, sweepFillGap } from "@/server/services/staff/dispatcher/fill-gap";
 import { ensureCompanyLocation, locationQueries, parsePlacesLocation, placesGeocoder, type Geocoder } from "@/server/services/staff/dispatcher/geocode";
 import { normalizeCellPhone, setMemberPhone } from "@/server/services/staff/dispatcher/member-phone";
 import { flushQueuedMessages } from "@/server/services/staff/dispatcher/messages";
-import { applyMoves, buildMoveSummary, movedCustomerText, type PlannedMove } from "@/server/services/staff/dispatcher/moves";
+import { applyMoves, buildMoveSummary, checkMovedStillValid, movedCustomerText, type PlannedMove } from "@/server/services/staff/dispatcher/moves";
 import { etaPhrase, onOurWayText, sweepOnOurWay } from "@/server/services/staff/dispatcher/on-our-way";
-import { defaultWeatherSensitivity, isWeatherSensitiveJob, mergeDispatchSettings, readDispatchSettings } from "@/server/services/staff/dispatcher/settings";
+import { defaultWeatherSensitivity, dispatcherActiveFor, isWeatherSensitiveJob, mergeDispatchSettings, readDispatchSettings } from "@/server/services/staff/dispatcher/settings";
 import { localDayRange, shortLabel, withinLocalHours } from "@/server/services/staff/dispatcher/time";
 import {
   assessWindow,
   clearWeatherMemoryCache,
   getCompanyForecast,
+  weatherConfigured,
   openMeteoUrl,
   parseOpenMeteo,
   type Forecast,
@@ -74,7 +75,7 @@ function company(over: Record<string, unknown> = {}) {
     industry_pack: { id: "roofing", version: 1, appliedAt: "2026-09-01", recipes: [] },
     latitude: 44.75, longitude: -79.89, location_checked_at: null, location_source: "google_place", google_place_id: "ChIJplace", business_address: "1 King St, Midland, ON",
     service_area: "Midland", quote_public_base_url: "https://app.crankleads.test", owner_phone_e164: OWNER, owner_phone_verified_at: "2026-10-01T00:00:00Z",
-    booking_policy: null, online_booking_settings: hourly(), updated_at: "2026-10-01T00:00:00Z",
+    booking_policy: null, online_booking_settings: hourly(), visit_settings: { allowReschedule: true, allowCancel: true, cutoffHours: 12 }, updated_at: "2026-10-01T00:00:00Z",
     ...over,
   };
 }
@@ -194,6 +195,7 @@ beforeEach(() => {
   dispatch.mockClear();
   notifyNoop.notify.mockClear();
   clearWeatherMemoryCache();
+  resetGapEventMemory();
   db = seed();
 });
 
@@ -212,6 +214,9 @@ describe("settings", () => {
     expect(crank.customerHours).toEqual({ from: "09:00", until: "20:00" });
     const house = readDispatchSettings({}, { crankleads: false });
     expect([house.weather.enabled, house.onOurWay.enabled, house.crewTexts.enabled, house.fillGap.enabled]).toEqual([false, false, false, false]);
+    // Crew texts go out until 21:00, so 21:00 or later isn't a valid send time.
+    expect(readDispatchSettings({ dispatch: { crew_texts: { time: "21:30" } } }, { crankleads: true }).crewTexts.time).toBe("18:00");
+    expect(readDispatchSettings({ dispatch: { crew_texts: { time: "20:30" } } }, { crankleads: true }).crewTexts.time).toBe("20:30");
     const optedIn = readDispatchSettings({ dispatch: { on_our_way: { enabled: true }, crew_texts: { time: "17:00" } } }, { crankleads: false });
     expect(optedIn.onOurWay.enabled).toBe(true);
     expect(optedIn.crewTexts).toEqual({ enabled: false, time: "17:00" });
@@ -239,7 +244,7 @@ describe("settings", () => {
       { weather: { enabled: true, sensitive: ["deck_stain"], rainMm: 3 }, crewTexts: { time: "19:00" } },
     );
     expect(next.sms_agent).toEqual({ enabled: true });
-    expect(next.dispatch).toEqual({ fill_gap: { enabled: false }, weather: { enabled: true, sensitive: ["deck_stain"], rain_mm: 3 }, crew_texts: { time: "19:00" } });
+    expect(next.dispatch).toEqual({ fill_gap: { enabled: false }, weather: { enabled: true, sensitive: ["deck_stain"], rain_mm: 3 }, crew_texts: { time: "19:00" }, any_on: true });
     expect((mergeDispatchSettings(next, { weather: { sensitive: null } }).dispatch as Record<string, Record<string, unknown>>).weather.sensitive).toBeUndefined();
   });
 });
@@ -262,6 +267,9 @@ describe("time (America/Toronto, DST)", () => {
     expect(withinLocalHours(Date.parse("2026-11-02T14:00:00Z"), TZ, "09:00", "20:00")).toBe(true);
     expect(shortLabel("2026-10-15T13:00:00Z", TZ)).toBe("Thu 9am");
     expect(shortLabel("2026-10-15T17:30:00Z", TZ)).toBe("Thu 1:30pm");
+    // Next week's Thursday carries its date.
+    expect(shortLabel("2026-10-15T13:00:00Z", TZ, NOW)).toBe("Thu 9am");
+    expect(shortLabel("2026-10-22T13:00:00Z", TZ, NOW)).toBe("Thu Oct 22 9am");
   });
 });
 
@@ -343,6 +351,12 @@ describe("weather", () => {
     expect(paid).toMatch(/^https:\/\/customer-api\.open-meteo\.com\/v1\/forecast\?/);
     expect(paid).toContain("apikey=k123");
     expect(paid).toContain("hourly=precipitation_probability%2Cprecipitation%2Cwind_speed_10m%2Ctemperature_2m");
+    // Production without a commercial key: no weather checks (the free API is non-commercial).
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(weatherConfigured({ NODE_ENV: "production" })).toBe(false);
+    expect(weatherConfigured({ NODE_ENV: "production", OPEN_METEO_API_KEY: "k" })).toBe(true);
+    expect(weatherConfigured({ NODE_ENV: "test" })).toBe(true);
+    warn.mockRestore();
   });
 
   it("caches one forecast per company per hour", async () => {
@@ -420,24 +434,68 @@ describe("weather reschedule", () => {
     expect(sendSms).not.toHaveBeenCalled();
   });
 
-  it("an owner Y after 21:00 moves the jobs now but holds customer texts until 09:00 (quiet hours)", async () => {
+  it("an owner Y after 21:00 moves the jobs now but holds the 'moved' texts until 07:00; a queued text is re-checked against the booking", async () => {
     const provider = fakeProvider(forecastWith(["2026-10-15"]));
     await runWeatherCheck(db.client, await crankleads(), NOW, { provider, geocoder: null, approvals: notifyNoop });
     const late = Date.parse("2026-10-15T01:30:00Z"); // Wed 21:30 local
     vi.setSystemTime(late);
     const res = await decideApproval(db.client, String(approvals()[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER }, { nowMs: late });
-    expect(res.message).toContain("Customers get their text at 9:00 a.m.");
+    expect(res.message).toContain("Customers get their text at 7:00 a.m.");
     expect(bookingRow(B_SAM).scheduled_for).toBe("2026-10-16T15:00:00.000Z");
     expect(sendSms).not.toHaveBeenCalled();
-    expect(messages().map((m) => [m.kind, m.status, m.not_before])).toEqual([
-      ["job_moved", "queued", "2026-10-15T13:00:00.000Z"],
-      ["job_moved", "queued", "2026-10-15T13:00:00.000Z"],
+    // Queued for 07:00 local, and useless after the old start time.
+    expect(messages().map((m) => [m.kind, m.status, m.not_before, m.expires_at])).toEqual([
+      ["job_moved", "queued", "2026-10-15T11:00:00.000Z", "2026-10-15T13:00:00.000Z"],
+      ["job_moved", "queued", "2026-10-15T11:00:00.000Z", "2026-10-15T17:00:00.000Z"],
     ]);
+    // Jo moves her visit herself overnight: her queued text is no longer true → skipped.
+    bookingRow(B_JO).scheduled_for = "2026-10-20T13:00:00Z";
     const companies = new Map((await loadDispatchCompanies(db.client)).map((c) => [c.companyId, c]));
-    expect(await flushQueuedMessages(db.client, Date.parse("2026-10-15T12:59:00Z"), companies)).toBe(0);
-    expect(await flushQueuedMessages(db.client, Date.parse("2026-10-15T13:01:00Z"), companies)).toBe(2);
-    expect(await flushQueuedMessages(db.client, Date.parse("2026-10-15T13:02:00Z"), companies)).toBe(0); // no double
+    const checks = { job_moved: checkMovedStillValid };
+    expect(await flushQueuedMessages(db.client, Date.parse("2026-10-15T10:59:00Z"), companies, checks)).toBe(0);
+    expect(await flushQueuedMessages(db.client, Date.parse("2026-10-15T11:01:00Z"), companies, checks)).toBe(1);
+    expect(await flushQueuedMessages(db.client, Date.parse("2026-10-15T11:02:00Z"), companies, checks)).toBe(0); // no double
     expect(textsTo("+17055550101")).toHaveLength(1);
+    expect(textsTo("+17055550102")).toHaveLength(0);
+    expect(messages()[1]).toMatchObject({ status: "skipped", reason: "booking_changed" });
+  });
+
+  it("a move whose text couldn't go out before the old start time is left as is", async () => {
+    const early = booking(B_LEE, C_LEE, "Inspection", "2026-10-15T10:30:00Z", 60); // Thu 06:30 local
+    (db.tables.bookings as Array<Record<string, unknown>>).push(early);
+    const late = Date.parse("2026-10-15T02:00:00Z"); // Wed 22:00 local: the next text is 07:00 Thu
+    const move = (id: string, from: string, to: string, who: string, contactId: string): PlannedMove => ({
+      bookingId: id, contactId, who, firstName: who.split(" ")[0], job: "inspection", fromStartsAt: from, toStartsAt: to, toWindowKey: null,
+    });
+    const approval = {
+      id: "ap-x", organization_id: ORG, company_id: CO, short_code: 3,
+      payload: { moves: [move(B_LEE, "2026-10-15T10:30:00Z", "2026-10-19T14:00:00.000Z", "Lee Moss", C_LEE), move(B_SAM, "2026-10-15T13:00:00Z", "2026-10-19T15:00:00.000Z", "Sam Lee", C_SAM)] },
+    };
+    const res = await applyMoves(db.client, approval as never, { approved: true, decidedVia: "sms", decidedBy: OWNER }, "bulk", late);
+    expect(res.message).toBe("Moved 1 job: Sam Lee to Mon 11am. Customers get their text at 7:00 a.m. Left as is: Lee Moss (too late to tell them before Thu 6:30am).");
+    expect(bookingRow(B_LEE).scheduled_for).toBe("2026-10-15T10:30:00Z");
+  });
+
+  it("the queue: switched-off features, stale 'sending' rows and unloaded companies", async () => {
+    const companies = new Map((await loadDispatchCompanies(db.client)).map((c) => [c.companyId, c]));
+    const row = (over: Record<string, unknown>) => ({
+      organization_id: ORG, company_id: CO, booking_id: null, contact_id: C_SAM, profile_id: null, approval_id: null, to_phone: null, body: "Hi Sam", status: "queued",
+      reason: null, not_before: new Date(NOW - 60_000).toISOString(), expires_at: null, attempts: 0, updated_at: new Date(NOW - 60_000).toISOString(), ...over,
+    });
+    (db.tables.dispatch_messages as Array<Record<string, unknown>>).push(
+      row({ id: "q1", kind: "job_moved", dedupe_key: "a", payload: { audience: "customer", flavour: "weather" } }),
+      row({ id: "q2", kind: "job_moved", dedupe_key: "b", status: "sending", updated_at: new Date(NOW - 30 * 60_000).toISOString(), payload: { audience: "customer", flavour: "bulk" } }),
+      row({ id: "q3", kind: "job_moved", dedupe_key: "c", organization_id: HOUSE_ORG, company_id: HOUSE_CO, payload: { audience: "customer", flavour: "bulk" } }),
+    );
+    db.tables.companies[0].ai_settings = { dispatch: { weather: { enabled: false } } };
+    const reloaded = new Map((await loadDispatchCompanies(db.client)).map((c) => [c.companyId, c]));
+    expect(await flushQueuedMessages(db.client, NOW, reloaded)).toBe(1); // the reclaimed bulk one
+    expect(messages().map((m) => [m.id, m.status, m.reason])).toEqual([
+      ["q1", "skipped", "feature_off"],
+      ["q2", "sent", null],
+      ["q3", "queued", null], // not a loaded company: left alone, never blocks the others
+    ]);
+    expect(companies.has(HOUSE_CO)).toBe(false);
   });
 
   it("re-checks at Y: a job moved meanwhile, or a new time that got taken, is left as is", async () => {
@@ -457,7 +515,9 @@ describe("weather reschedule", () => {
     db.tables.companies[0].industry_pack = { id: "hvac-plumbing", version: 1, appliedAt: "", recipes: [] };
     db.tables.crankleads_purchases = [];
     const companies = await loadDispatchCompanies(db.client);
-    expect(companies.find((c) => c.companyId === HOUSE_CO)?.settings.weather.enabled).toBe(false);
+    // A house org with nothing switched on isn't even loaded.
+    expect(companies.find((c) => c.companyId === HOUSE_CO)).toBeUndefined();
+    expect((await loadDispatchCompany(db.client, HOUSE_ORG, HOUSE_CO))?.settings.weather.enabled).toBe(false);
     expect(companies.find((c) => c.companyId === CO)?.settings.weather.sensitive).toBe("none");
     await sweepWeather(db.client, NOW, companies, { provider, geocoder: null });
     expect(approvals()).toHaveLength(0);
@@ -485,7 +545,7 @@ describe("on our way", () => {
     bookingRow(bookingId).en_route_at = new Date(at).toISOString();
     (db.tables.activity_events as Array<Record<string, unknown>>).push({
       id: `ev-${bookingId}`, organization_id: ORG, company_id: CO, entity_type: "booking", entity_id: bookingId, event_type: "booking.en_route",
-      metadata_json: { bookingId, ...meta }, created_at: new Date(at).toISOString(),
+      metadata_json: { bookingId, ...meta }, occurred_at: new Date(at).toISOString(),
     });
   }
 
@@ -541,7 +601,7 @@ describe("on our way", () => {
 
     // House org: the event is ignored entirely.
     (db.tables.bookings as Array<Record<string, unknown>>).push(booking("a0000000-0000-4000-8000-000000000009", null, "Shrink wrap", "2026-10-15T13:00:00Z", 60, { organization_id: HOUSE_ORG, company_id: HOUSE_CO, en_route_at: new Date(NOW).toISOString() }));
-    (db.tables.activity_events as Array<Record<string, unknown>>).push({ id: "ev-h", organization_id: HOUSE_ORG, company_id: HOUSE_CO, entity_id: "a0000000-0000-4000-8000-000000000009", event_type: "booking.en_route", metadata_json: {}, created_at: new Date(NOW).toISOString() });
+    (db.tables.activity_events as Array<Record<string, unknown>>).push({ id: "ev-h", organization_id: HOUSE_ORG, company_id: HOUSE_CO, entity_id: "a0000000-0000-4000-8000-000000000009", event_type: "booking.en_route", metadata_json: {}, occurred_at: new Date(NOW).toISOString() });
     await sweepOnOurWay(db.client, NOW + 60_000, companies);
     expect(messages().filter((m) => m.company_id === HOUSE_CO)).toHaveLength(0);
   });
@@ -594,7 +654,37 @@ describe("crew schedule texts", () => {
     await sweepCrewTexts(db.client, Date.parse("2026-11-01T02:00:00Z"), companies); // 22:00 EDT Sat
     expect(textsTo("+17055550201")).toHaveLength(2);
     await sweepCrewTexts(db.client, Date.parse("2026-11-01T11:05:00Z"), companies); // 06:05 EST Sun
-    expect(textsTo("+17055550201")[2].body).toBe("Northshore Roofing update: you're no longer on any jobs today (Sun Nov 1).");
+    expect(textsTo("+17055550201")[2].body).toBe("Northshore Roofing update: you have no more jobs today (Sun Nov 1).");
+  });
+
+  it("on the day, heading out, starting, finishing or a no-show never re-texts the crew; a cancelled or added job does", async () => {
+    db.tables.bookings = [
+      booking(B_SAM, C_SAM, "Roof repair", "2026-10-15T13:00:00Z", 120), // Thu 9:00
+      booking(B_JO, C_JO, "Gutter cleaning", "2026-10-15T17:00:00Z", 60), // Thu 13:00
+      booking(B_KIM, C_KIM, "Shingle patch", "2026-10-15T19:00:00Z", 60), // Thu 15:00
+    ];
+    db.tables.booking_assignments = [B_SAM, B_JO, B_KIM].map((b) => ({ organization_id: ORG, booking_id: b, profile_id: P_MIKE }));
+    const companies = await loadDispatchCompanies(db.client);
+    await sweepCrewTexts(db.client, Date.parse("2026-10-14T22:05:00Z"), companies); // Wed 18:05
+    expect(textsTo("+17055550201")).toHaveLength(1);
+    // Thursday: Sam's job goes en route, starts and is done; Jo is a no-show — every 5 minutes, nothing.
+    bookingRow(B_SAM).en_route_at = "2026-10-15T12:40:00Z";
+    await sweepCrewTexts(db.client, Date.parse("2026-10-15T12:45:00Z"), companies);
+    bookingRow(B_SAM).started_at = "2026-10-15T13:00:00Z";
+    await sweepCrewTexts(db.client, Date.parse("2026-10-15T13:05:00Z"), companies);
+    bookingRow(B_SAM).status = "completed";
+    bookingRow(B_JO).status = "no_show";
+    await sweepCrewTexts(db.client, Date.parse("2026-10-15T18:05:00Z"), companies);
+    expect(textsTo("+17055550201")).toHaveLength(1);
+    // Kim cancels → one update, listing only what's still to do.
+    bookingRow(B_KIM).status = "cancelled";
+    (db.tables.bookings as Array<Record<string, unknown>>).push(booking(B_LEE, C_LEE, "Inspection", "2026-10-15T20:00:00Z", 60));
+    (db.tables.booking_assignments as Array<Record<string, unknown>>).push({ organization_id: ORG, booking_id: B_LEE, profile_id: P_MIKE });
+    await sweepCrewTexts(db.client, Date.parse("2026-10-15T18:10:00Z"), companies);
+    const mike = textsTo("+17055550201");
+    expect(mike).toHaveLength(2);
+    expect(mike[1].body).toMatch(/^Northshore Roofing update - your jobs today \(Thu Oct 15\) changed:\n1\) 4:00 p\.m\. - Lee - inspection/);
+    expect(mike[1].body).not.toContain("Sam");
   });
 
   it("18:00 after the clocks go back is 23:00Z, not 22:00Z", async () => {
@@ -618,10 +708,11 @@ describe("crew schedule texts", () => {
   it("house orgs: no crew texts by default", async () => {
     db.tables.booking_assignments = [{ organization_id: ORG, booking_id: B_SAM, profile_id: P_MIKE }];
     db.tables.organizations[0].platform_brand = "empirevu";
-    await sweepCrewTexts(db.client, Date.parse("2026-10-14T22:05:00Z"), await loadDispatchCompanies(db.client));
+    expect(await loadDispatchCompanies(db.client)).toEqual([]);
+    expect(await dispatcherActiveFor(db.client, { organizationId: ORG, companyId: CO })).toBe(false);
     expect(sendSms).not.toHaveBeenCalled();
     // …until the owner turns it on.
-    db.tables.companies[0].ai_settings = { dispatch: { crew_texts: { enabled: true } } };
+    db.tables.companies[0].ai_settings = mergeDispatchSettings({}, { crewTexts: { enabled: true } });
     const co = (await loadDispatchCompanies(db.client)).find((c) => c.companyId === CO) as DispatchCompany;
     const out = await crewPassForDay(db.client, co, "2026-10-15", Date.parse("2026-10-14T22:05:00Z"), { initial: true, tomorrow: true });
     expect(out.sent).toBe(1);
@@ -635,7 +726,7 @@ describe("fill the gap", () => {
     bookingRow(bookingId).status = "cancelled";
     (db.tables.activity_events as Array<Record<string, unknown>>).push({
       id: `ev-c-${bookingId}`, organization_id: ORG, company_id: CO, entity_type: "booking", entity_id: bookingId, event_type: "booking.status_changed",
-      metadata_json: { bookingId, previousStatus: "confirmed", status: "cancelled" }, created_at: new Date(NOW - 60_000).toISOString(),
+      metadata_json: { bookingId, previousStatus: "confirmed", status: "cancelled" }, occurred_at: new Date(NOW - 60_000).toISOString(),
     });
   }
 
@@ -670,7 +761,8 @@ describe("fill the gap", () => {
     const companies = new Map((await loadDispatchCompanies(db.client)).map((c) => [c.companyId, c]));
     await sweepFillGap(db.client, NOW, companies, notifyNoop);
     expect(approvals()).toHaveLength(0);
-    expect(db.tables.dispatch_runs[0]).toMatchObject({ status: "skipped", detail: { reason: "already_filled" } });
+    // Lee took Fri 10am: no visit page can offer it any more.
+    expect(db.tables.dispatch_runs[0]).toMatchObject({ status: "skipped", detail: { reason: "no_candidate" } });
 
     db.tables.companies[0].ai_settings = { dispatch: { fill_gap: { enabled: false } } };
     cancelEvent(B_SAM);
@@ -685,8 +777,38 @@ describe("fill the gap", () => {
     const row = approvals()[0];
     (db.tables.bookings as Array<Record<string, unknown>>).push(booking("a0000000-0000-4000-8000-000000000008", C_SAM, "Walk-in", "2026-10-15T17:00:00Z", 60));
     const res = await executeFillGap(db.client, row as never, { approved: true, decidedVia: "sms", decidedBy: OWNER }, NOW);
-    expect(res).toMatchObject({ ok: false, message: "Thu 1pm is already booked - nothing sent." });
+    expect(res).toMatchObject({ ok: false, message: "Thu 1pm can't be offered any more (it's booked, or too close to change online) - nothing sent." });
     expect(sendSms).not.toHaveBeenCalled();
+  });
+
+  it("only offers what the customer's visit page can take: not inside the change cutoff, not when self-serve moves are off", async () => {
+    (db.tables.bookings as Array<Record<string, unknown>>).push(booking(B_LEE, C_LEE, "Chimney flashing", "2026-10-17T14:00:00Z", 60));
+    db.tables.companies[0].visit_settings = {}; // default: changes need 24h notice; Jo's 1pm Thu slot is ~22h away
+    cancelEvent(B_JO);
+    const companies = () => loadDispatchCompanies(db.client).then((cs) => new Map(cs.map((c) => [c.companyId, c])));
+    await sweepFillGap(db.client, NOW, await companies(), notifyNoop);
+    expect(approvals()).toHaveLength(0);
+    expect(db.tables.dispatch_runs[0]).toMatchObject({ status: "skipped", detail: { reason: "inside_change_cutoff" } });
+
+    resetGapEventMemory();
+    db.tables.dispatch_runs = [];
+    db.tables.companies[0].visit_settings = { allowReschedule: false, cutoffHours: 12 };
+    await sweepFillGap(db.client, NOW, await companies(), notifyNoop);
+    expect(db.tables.dispatch_runs[0]).toMatchObject({ status: "skipped", detail: { reason: "self_reschedule_off" } });
+  });
+
+  it("a move away is read from the event before any booking is loaded; a move within the same slot isn't a gap", async () => {
+    (db.tables.bookings as Array<Record<string, unknown>>).push(booking(B_LEE, C_LEE, "Chimney flashing", "2026-10-17T14:00:00Z", 60));
+    bookingRow(B_JO).scheduled_for = "2026-10-21T17:00:00Z";
+    (db.tables.activity_events as Array<Record<string, unknown>>).push(
+      { id: "ev-m1", organization_id: ORG, company_id: CO, entity_id: B_JO, event_type: "booking.rescheduled", occurred_at: new Date(NOW - 60_000).toISOString(),
+        metadata_json: { bookingId: B_JO, previousScheduledFor: "2026-10-15T17:00:00Z", scheduledFor: "2026-10-21T17:00:00Z", durationMinutes: 60 } },
+      { id: "ev-m2", organization_id: ORG, company_id: CO, entity_id: B_SAM, event_type: "booking.rescheduled", occurred_at: new Date(NOW - 60_000).toISOString(),
+        metadata_json: { bookingId: B_SAM, previousScheduledFor: "2026-10-15T13:00:00Z", scheduledFor: "2026-10-15T13:30:00Z", durationMinutes: 120 } },
+    );
+    await sweepFillGap(db.client, NOW, new Map((await loadDispatchCompanies(db.client)).map((c) => [c.companyId, c])), notifyNoop);
+    expect(approvals()).toHaveLength(1);
+    expect(approvals()[0].summary).toMatch(/^Jo Park moved off Thu 1pm\. Offer it to Kim Ng/);
   });
 });
 
@@ -752,6 +874,30 @@ describe("registry and crew phones", () => {
     expect(dispatcherRole.ownerTools.map((t) => t.tool.name)).toEqual(["weather_outlook", "crew_plan", "move_day"]);
     expect(dispatcherRole.sweeps.map((s) => s.name)).toEqual(["dispatcher:on-our-way", "dispatcher:queue", "dispatcher:fill-gap", "dispatcher:crew-texts", "dispatcher:weather"]);
     expect(roleApprovalExecutor("fill_gap")).toBeTypeOf("function");
+  });
+
+  it("dispatcherActiveFor: on for a CrankLeads company, off for a house org by default, never throws", async () => {
+    expect(await dispatcherActiveFor(db.client, { organizationId: ORG, companyId: CO })).toBe(true);
+    expect(await dispatcherActiveFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO })).toBe(false);
+    expect(await dispatcherActiveFor(db.client, { organizationId: HOUSE_ORG, companyId: CO })).toBe(false); // wrong org
+    expect(await dispatcherActiveFor({ from: () => { throw new Error("db down"); } } as never, { organizationId: ORG, companyId: CO })).toBe(false);
+  });
+
+  it("the queue sweep skips loading companies when nothing is due; companies are loaded once per tick", async () => {
+    const { DISPATCHER_SWEEPS } = await import("@/server/services/staff/dispatcher");
+    const { resetDispatchCompanyCache } = await import("@/server/services/staff/dispatcher/company");
+    resetDispatchCompanyCache();
+    const queue = DISPATCHER_SWEEPS.find((s) => s.name === "dispatcher:queue")!;
+    const before = db.queries.length;
+    await queue.run(db.client, NOW);
+    expect(db.queries.slice(before).map((q) => q.table)).toEqual(["dispatch_messages", "dispatch_messages"]);
+    const onOurWay = DISPATCHER_SWEEPS.find((s) => s.name === "dispatcher:on-our-way")!;
+    const crew = DISPATCHER_SWEEPS.find((s) => s.name === "dispatcher:crew-texts")!;
+    const mark = db.queries.length;
+    await onOurWay.run(db.client, NOW);
+    await crew.run(db.client, NOW + 1000);
+    // One load = the CrankLeads-org query + the opted-in house-org query.
+    expect(db.queries.slice(mark).filter((q) => q.table === "companies")).toHaveLength(2);
   });
 
   it("normalizes and stores member cells, scoped to the org", async () => {

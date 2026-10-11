@@ -304,7 +304,7 @@ function MembersSettings() {
                     {m.id === user?.id ? <span className="text-muted-foreground font-normal"> (you)</span> : null}
                   </p>
                   <p className="text-xs text-muted-foreground truncate">{m.email}</p>
-                  <MemberPhoneField orgId={organizationId} profileId={m.id} canEdit={canManage || m.id === user?.id} />
+                  <MemberPhoneField orgId={organizationId} profileId={m.id} canEdit={m.id === user?.id || (canManage && (myRole === "owner" || m.role !== "owner"))} />
                 </div>
                 {/* Only an owner can touch an owner's access (enforced server-side too). */}
                 {canManage && (myRole === "owner" || m.role !== "owner") ? (

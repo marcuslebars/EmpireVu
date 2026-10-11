@@ -15,6 +15,7 @@
  * owner turns it on. Weather sensitivity defaults by trade: outdoor trades → all jobs, indoor
  * trades and snow removal → none.
  */
+import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { parseAppliedIndustryPack } from "@/server/services/packs/types";
 
 export type WeatherSensitivity = "all" | "none" | string[];
@@ -65,6 +66,11 @@ const HHMM_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 export function isHhmm(value: unknown): value is string {
   return typeof value === "string" && HHMM_RE.test(value);
+}
+
+/** Crew texts go out 06:00–21:00, so the send time must be 06:00–20:59. */
+export function isCrewTime(value: unknown): value is string {
+  return isHhmm(value) && value >= "06:00" && value <= "20:59";
 }
 
 function hhmm(value: unknown, fallback: string): string {
@@ -149,7 +155,7 @@ export function readDispatchSettings(aiSettings: unknown, ctx: DispatchSettingsC
       from: hhmm(onOurWay.from, DEFAULT_ON_OUR_WAY_HOURS.from),
       until: hhmm(onOurWay.until, DEFAULT_ON_OUR_WAY_HOURS.until),
     },
-    crewTexts: { enabled: bool(crew.enabled) ?? on, time: hhmm(crew.time, DEFAULT_CREW_TIME) },
+    crewTexts: { enabled: bool(crew.enabled) ?? on, time: isCrewTime(crew.time) ? crew.time : DEFAULT_CREW_TIME },
     fillGap: { enabled: bool(gap.enabled) ?? on },
     customerHours: { from: hhmm(hours.from, DEFAULT_CUSTOMER_HOURS.from), until: hhmm(hours.until, DEFAULT_CUSTOMER_HOURS.until) },
     defaultEnabled: on,
@@ -199,10 +205,12 @@ export function mergeDispatchSettings(aiSettings: unknown, patch: DispatchSettin
   if (patch.crewTexts) {
     const c = { ...asRecord(section.crew_texts) };
     if (typeof patch.crewTexts.enabled === "boolean") c.enabled = patch.crewTexts.enabled;
-    if (isHhmm(patch.crewTexts.time)) c.time = patch.crewTexts.time;
+    if (isCrewTime(patch.crewTexts.time)) c.time = patch.crewTexts.time;
     section.crew_texts = c;
   }
   if (patch.fillGap && typeof patch.fillGap.enabled === "boolean") section.fill_gap = { ...asRecord(section.fill_gap), enabled: patch.fillGap.enabled };
+  // Marker for the sweeps' server-side filter (house orgs that switched something on).
+  section.any_on = ["weather", "on_our_way", "crew_texts", "fill_gap"].some((k) => asRecord(section[k]).enabled === true);
   all.dispatch = section;
   return all;
 }
@@ -221,4 +229,30 @@ export function isWeatherSensitiveJob(
     const label = labels.get(key)?.toLowerCase().trim();
     return Boolean(label && label.length >= 3 && title.includes(label));
   });
+}
+
+/** PURE: any feature on (weather counts only when some jobs are weather-sensitive). */
+export function dispatcherAnyOn(s: DispatchSettings): boolean {
+  return (s.weather.enabled && s.weather.sensitive !== "none") || s.onOurWay.enabled || s.crewTexts.enabled || s.fillGap.enabled;
+}
+
+/** Is any Dispatcher feature on for this company? (Show the role's prompt notes only where relevant.) Never throws. */
+export async function dispatcherActiveFor(admin: AdminClient, scope: { organizationId: string; companyId: string }): Promise<boolean> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = admin as any;
+    const { data: company } = await db
+      .from("companies")
+      .select("id, name, ai_settings, industry_pack")
+      .eq("organization_id", scope.organizationId)
+      .eq("id", scope.companyId)
+      .maybeSingle();
+    if (!company) return false;
+    const { data: org } = await db.from("organizations").select("platform_brand").eq("id", scope.organizationId).maybeSingle();
+    const crankleads = (org as { platform_brand: string | null } | null)?.platform_brand === "crankleads";
+    const c = company as { name: string; ai_settings: unknown; industry_pack: unknown };
+    return dispatcherAnyOn(readDispatchSettings(c.ai_settings, { crankleads, industryPack: c.industry_pack, hints: [c.name] }));
+  } catch {
+    return false;
+  }
 }

@@ -1,4 +1,5 @@
 -- Rollback for 20261011120000_staff_dispatcher.sql (the Dispatcher, docs/ai-staff.md).
+-- (Only if it was created by hand — see the migration.)
 drop index if exists public.activity_events_dispatch_idx;
 drop table if exists public.dispatch_weather_cache;
 drop table if exists public.dispatch_runs;

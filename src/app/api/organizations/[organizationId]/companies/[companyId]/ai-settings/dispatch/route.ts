@@ -37,8 +37,6 @@ export async function GET(_request: Request, context: RouteContext): Promise<Nex
   });
 }
 
-const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use HH:MM (24h).");
-
 const patchSchema = z
   .object({
     weather: z
@@ -54,7 +52,8 @@ const patchSchema = z
       .strict()
       .optional(),
     onOurWay: z.object({ enabled: z.boolean().optional() }).strict().optional(),
-    crewTexts: z.object({ enabled: z.boolean().optional(), time: hhmm.optional() }).strict().optional(),
+    // Crew texts go out 06:00–21:00, so the send time is 06:00–20:59.
+    crewTexts: z.object({ enabled: z.boolean().optional(), time: z.string().regex(/^(0[6-9]|1\d|20):[0-5]\d$/, "Pick a time between 6:00 a.m. and 8:59 p.m.").optional() }).strict().optional(),
     fillGap: z.object({ enabled: z.boolean().optional() }).strict().optional(),
   })
   .strict();

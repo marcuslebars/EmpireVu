@@ -11,9 +11,9 @@ import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } f
 import { ctxFor } from "@/server/services/owner-channel/common";
 import { loadDispatchCompany, manageUrl, type DispatchCompany } from "./company";
 import type { Db } from "./db-types";
-import { greeting, sendOrQueue, type SendOutcome } from "./messages";
+import { greeting, nextSendMs, sendOrQueue, type SendCheck, type SendOutcome } from "./messages";
 import { loadSlotContext, slotStillOpen } from "./slots";
-import { dayLabel, nextLocalTime, sentence, shortLabel, timeLabel, whenLabel } from "./time";
+import { dayLabel, sentence, shortLabel, timeLabel, whenLabel } from "./time";
 
 export interface PlannedMove {
   bookingId: string;
@@ -50,9 +50,9 @@ export function movedCustomerText(input: { flavour: MoveFlavour; businessName: s
 export const LINK_PLACEHOLDER = "[their booking link]";
 
 /** "Sam Lee roof repair Thu 9am to Fri 9am (rain 80%, 6 mm)" PURE. */
-export function moveLine(move: PlannedMove, timeZone: string): string {
+export function moveLine(move: PlannedMove, timeZone: string, nowMs?: number): string {
   const reason = move.reason ? ` (${move.reason})` : "";
-  return `${move.who} ${move.job} ${shortLabel(move.fromStartsAt, timeZone)} to ${shortLabel(move.toStartsAt, timeZone)}${reason}`;
+  return `${move.who} ${move.job} ${shortLabel(move.fromStartsAt, timeZone, nowMs)} to ${shortLabel(move.toStartsAt, timeZone, nowMs)}${reason}`;
 }
 
 /**
@@ -68,9 +68,12 @@ export function buildMoveSummary(input: {
   leftAsIs: string[];
   businessName: string;
   timeZone: string;
+  /** Times 6+ days from this carry their date. */
+  nowMs?: number;
   max?: number;
 }): { summary: string; included: PlannedMove[] } {
   const max = input.max ?? 500;
+  const lineOf = (m: PlannedMove, tz: string) => moveLine(m, tz, input.nowMs);
   const sample = (moves: PlannedMove[]) =>
     moves.length
       ? ` Each customer gets: "${movedCustomerText({ flavour: input.flavour, businessName: input.businessName, move: moves[0], timeZone: input.timeZone, link: LINK_PLACEHOLDER })}"`
@@ -79,14 +82,14 @@ export function buildMoveSummary(input: {
   for (let n = input.moves.length; n >= 1; n--) {
     const included = input.moves.slice(0, n);
     const dropped = input.moves.length - n;
-    const lines = included.map((m) => moveLine(m, input.timeZone)).join("; ");
+    const lines = included.map((m) => lineOf(m, input.timeZone)).join("; ");
     const more = dropped ? ` (${dropped} more not included - ask me again after.)` : "";
     const text = `${input.headline} ${lines}.${more}${left}${sample(included)}`;
     if (text.length <= max) return { summary: text, included };
   }
   // Even one job with the sample doesn't fit: drop the sample's tail rather than the job.
   const one = input.moves.slice(0, 1);
-  const text = `${input.headline} ${one.map((m) => moveLine(m, input.timeZone)).join("")}.${sample(one)}`;
+  const text = `${input.headline} ${one.map((m) => lineOf(m, input.timeZone)).join("")}.${sample(one)}`;
   return { summary: text.slice(0, max), included: one };
 }
 
@@ -161,7 +164,12 @@ export async function applyMoves(admin: AdminClient, approval: OwnerApprovalRow,
       }
       const slot = slotStillOpen(slots, { id: booking.id, durationMinutes: booking.duration_minutes, scheduledFor: booking.scheduled_for }, move.toStartsAt, move.toWindowKey, nowMs);
       if (!slot) {
-        skipped.push(`${move.who} (${shortLabel(move.toStartsAt, company.timeZone)} got taken)`);
+        skipped.push(`${move.who} (${shortLabel(move.toStartsAt, company.timeZone, nowMs)} got taken)`);
+        continue;
+      }
+      // Never move a visit we can't tell the customer about before its old time.
+      if (move.contactId && nextSendMs(company, "customer", "job_moved", nowMs) >= Date.parse(booking.scheduled_for)) {
+        skipped.push(`${move.who} (too late to tell them before ${shortLabel(booking.scheduled_for, company.timeZone, nowMs)})`);
         continue;
       }
       await markSlotHandled(admin, company, booking.id, booking.scheduled_for, flavour === "weather" ? "weather_move" : "bulk_move");
@@ -189,7 +197,9 @@ export async function applyMoves(admin: AdminClient, approval: OwnerApprovalRow,
             bookingId: booking.id,
             contactId: move.contactId,
             approvalId: approval.id,
-            expiresAt: new Date(move.toStartsAt),
+            // Pointless (and confusing) once the old time has passed.
+            expiresAt: new Date(move.fromStartsAt),
+            payload: { flavour, expect: { bookingId: booking.id, startsAt: move.toStartsAt } },
           },
           nowMs,
         ),
@@ -198,9 +208,9 @@ export async function applyMoves(admin: AdminClient, approval: OwnerApprovalRow,
   }
 
   if (moved.length === 0) return { ok: false, message: `Nothing moved: ${skipped.join("; ")}.`, detail: { skipped } };
-  const list = moved.map((m) => `${m.who} to ${shortLabel(m.toStartsAt, company.timeZone)}`).join(", ");
+  const list = moved.map((m) => `${m.who} to ${shortLabel(m.toStartsAt, company.timeZone, nowMs)}`).join(", ");
   const queued = texts.includes("queued");
-  const textLine = texts.length === 0 ? "" : queued ? ` Customers get their text at ${timeLabel(nextOpen(company, nowMs), company.timeZone)}.` : " Customers texted.";
+  const textLine = texts.length === 0 ? "" : queued ? ` Customers get their text at ${sentence(timeLabel(nextOpen(company, nowMs), company.timeZone))}` : " Customers texted.";
   const skippedLine = skipped.length ? ` Left as is: ${skipped.join("; ")}.` : "";
   return {
     ok: true,
@@ -209,7 +219,26 @@ export async function applyMoves(admin: AdminClient, approval: OwnerApprovalRow,
   };
 }
 
-/** The next customer-hours opening (when queued texts go out). */
+/** When queued "your visit moved" texts go out. */
 function nextOpen(company: DispatchCompany, nowMs: number): Date {
-  return nextLocalTime(nowMs, company.timeZone, company.settings.customerHours.from);
+  return new Date(nextSendMs(company, "customer", "job_moved", nowMs));
 }
+
+/**
+ * Last check before a queued "your visit moved" text goes out: the booking is still open and
+ * still at the time the text announces. Returns a skip reason, or null.
+ */
+export const checkMovedStillValid: SendCheck = async (admin, company, row) => {
+  const expect = (row.payload?.expect ?? {}) as { bookingId?: string; startsAt?: string };
+  if (!expect.bookingId || !expect.startsAt) return null;
+  const { data } = await (admin as Db)
+    .from("bookings")
+    .select("id, status, scheduled_for")
+    .eq("organization_id", company.organizationId)
+    .eq("company_id", company.companyId)
+    .eq("id", expect.bookingId)
+    .maybeSingle();
+  const b = data as { status: string; scheduled_for: string } | null;
+  if (!b || (b.status !== "pending" && b.status !== "confirmed")) return "booking_closed";
+  return Date.parse(b.scheduled_for) === Date.parse(expect.startsAt) ? null : "booking_changed";
+};

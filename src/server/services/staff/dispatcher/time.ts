@@ -75,10 +75,14 @@ export function whenLabel(iso: string | Date, timeZone: string): string {
   return `${dayLabel(iso, timeZone)}, ${timeLabel(iso, timeZone)}`;
 }
 
-/** Compact "Thu 9am" / "Thu 1:30pm" for owner summaries (they're length-capped). */
-export function shortLabel(iso: string | Date, timeZone: string): string {
+/**
+ * Compact "Thu 9am" / "Thu 1:30pm" for owner summaries (they're length-capped). With `nowMs`, a
+ * time 6+ days away carries its date ("Thu Oct 22 9am") so next week's Thursday isn't "Thu".
+ */
+export function shortLabel(iso: string | Date, timeZone: string, nowMs?: number): string {
   const d = typeof iso === "string" ? new Date(iso) : iso;
-  const day = d.toLocaleDateString("en-CA", { timeZone, weekday: "short" }).replace(/\./g, "");
+  const far = nowMs !== undefined && Math.abs(d.getTime() - nowMs) >= 6 * 86_400_000;
+  const day = far ? dayLabel(d, timeZone) : d.toLocaleDateString("en-CA", { timeZone, weekday: "short" }).replace(/\./g, "");
   const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", hourCycle: "h12" }).formatToParts(d);
   const hour = parts.find((p) => p.type === "hour")?.value ?? "";
   const minute = parts.find((p) => p.type === "minute")?.value ?? "00";

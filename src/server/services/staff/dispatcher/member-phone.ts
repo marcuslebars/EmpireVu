@@ -27,6 +27,12 @@ export async function listMemberPhones(admin: AdminClient, organizationId: strin
   return Object.fromEntries(((data ?? []) as Array<{ profile_id: string; phone_e164: string | null }>).map((m) => [m.profile_id, m.phone_e164 ?? null]));
 }
 
+/** A member's role in the org (null when not a member). */
+export async function memberRole(admin: AdminClient, organizationId: string, profileId: string): Promise<string | null> {
+  const { data } = await (admin as Db).from("organization_memberships").select("role").eq("organization_id", organizationId).eq("profile_id", profileId).maybeSingle();
+  return (data as { role: string } | null)?.role ?? null;
+}
+
 /** A 400 with a readable message (handleRoute passes it through). */
 export class MemberPhoneError extends ValidationError {}
 

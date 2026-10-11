@@ -26,6 +26,7 @@ import {
   type JobStage,
 } from "./logic";
 import { notifyCrewAssigned } from "./notify";
+import { dispatcherOnOurWayActive } from "@/server/services/staff/dispatcher/on-our-way";
 
 type Booking = Tables<"bookings">;
 
@@ -89,6 +90,8 @@ export interface JobSheet extends JobSummary {
   invoiceId: string | null;
   /** Set when this visit belongs to a recurring job. */
   recurringJobId: string | null;
+  /** "On my way" asks for an ETA (the Dispatcher texts the customer, docs/ai-staff.md). */
+  askEta: boolean;
 }
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
@@ -280,8 +283,14 @@ export async function getJobSheet(ctx: TenantServiceContext, bookingId: string):
       .limit(1)
       .maybeSingle(),
   ]);
+  // "On my way" asks for an ETA only when the Dispatcher will actually text the customer.
+  const askEta =
+    !booking.en_route_at && (booking.status === "pending" || booking.status === "confirmed")
+      ? await dispatcherOnOurWayActive(ctx.supabase as never, { organizationId: ctx.organizationId, companyId: booking.company_id })
+      : false;
   return {
     ...summary,
+    askEta,
     description: booking.description,
     contactEmail: contact.data?.email ?? null,
     quoteId: booking.quote_id,

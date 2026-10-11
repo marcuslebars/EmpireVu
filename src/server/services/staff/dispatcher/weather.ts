@@ -82,6 +82,21 @@ export function openMeteoUrl(location: LatLng, days: number, apiKey: string | nu
   return `${base}?${params.toString()}`;
 }
 
+let warnedFreeTier = false;
+
+/**
+ * The free Open-Meteo endpoint is for non-commercial use: in production (NODE_ENV=production)
+ * without OPEN_METEO_API_KEY there are no weather checks (warned once per process).
+ */
+export function weatherConfigured(env: Record<string, string | undefined> = process.env): boolean {
+  if (env.NODE_ENV !== "production" || env.OPEN_METEO_API_KEY?.trim()) return true;
+  if (!warnedFreeTier) {
+    warnedFreeTier = true;
+    console.warn("[dispatcher] OPEN_METEO_API_KEY is not set - weather checks are off in production (the free Open-Meteo API is non-commercial).");
+  }
+  return false;
+}
+
 export function openMeteoProvider(fetchImpl: FetchLike = fetch, apiKey: string | null = process.env.OPEN_METEO_API_KEY?.trim() || null): WeatherProvider {
   return {
     name: apiKey ? "open-meteo-commercial" : "open-meteo",

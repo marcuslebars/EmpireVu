@@ -18,7 +18,7 @@ import { buildMoveSummary, type PlannedMove } from "./moves";
 import { isWeatherSensitiveJob } from "./settings";
 import { loadSlotContext, openSlotsFor } from "./slots";
 import { hhmmToMinutes, localDate, localMinutes } from "./time";
-import { assessWindow, customerReason, getCompanyForecast, type Forecast, type WeatherProvider, type WeatherRisk } from "./weather";
+import { assessWindow, customerReason, getCompanyForecast, weatherConfigured, type Forecast, type WeatherProvider, type WeatherRisk } from "./weather";
 
 export const WEATHER_HORIZON_MS = 48 * 3_600_000;
 /** The daily check runs from check_at until this local time (catch-up if a worker was down). */
@@ -168,7 +168,7 @@ export async function runWeatherCheck(admin: AdminClient, company: DispatchCompa
       return { status: "no_open_times", leftAsIs };
     }
     const headline = `Weather: move ${moves.length === 1 ? "this job" : `these ${moves.length} jobs`}?`;
-    const { summary, included } = buildMoveSummary({ flavour: "weather", headline, moves, leftAsIs, businessName: company.businessName, timeZone: company.timeZone });
+    const { summary, included } = buildMoveSummary({ flavour: "weather", headline, moves, leftAsIs, businessName: company.businessName, timeZone: company.timeZone, nowMs });
     // Answer before the first job (an hour's notice), and within the day.
     const firstStart = Math.min(...included.map((m) => Date.parse(m.fromStartsAt)));
     const expiresAt = new Date(Math.max(nowMs + 30 * 60_000, Math.min(firstStart - HOUR, nowMs + 20 * HOUR)));
@@ -192,13 +192,21 @@ export async function runWeatherCheck(admin: AdminClient, company: DispatchCompa
   }
 }
 
-/** Scheduler pass: every company whose check is due. Isolated per company. */
-export async function sweepWeather(admin: AdminClient, nowMs: number, companies: DispatchCompany[], deps: WeatherDeps): Promise<void> {
+/** Weather checks (forecast fetches) per pass — the rest are picked up by the next pass (the daily claim skips done ones). */
+export const WEATHER_CHECKS_PER_PASS = 8;
+
+/** Scheduler pass: companies whose check is due, at most WEATHER_CHECKS_PER_PASS. Isolated per company. */
+export async function sweepWeather(admin: AdminClient, nowMs: number, companies: DispatchCompany[], deps: WeatherDeps, maxChecks = WEATHER_CHECKS_PER_PASS): Promise<void> {
+  if (!weatherConfigured()) return;
+  let ran = 0;
   for (const company of companies) {
+    if (ran >= maxChecks) break;
     if (!company.settings.weather.enabled || company.settings.weather.sensitive === "none" || !weatherCheckDue(company, nowMs)) continue;
     try {
-      await runWeatherCheck(admin, company, nowMs, deps);
+      const outcome = await runWeatherCheck(admin, company, nowMs, deps);
+      if (outcome.status !== "already" && outcome.status !== "not_due" && outcome.status !== "disabled") ran++;
     } catch (err) {
+      ran++;
       console.error("[dispatcher] weather check failed", company.companyId, err instanceof Error ? err.message : err);
     }
   }

@@ -19,7 +19,7 @@ import { buildMoveSummary, type PlannedMove } from "./moves";
 import { isWeatherSensitiveJob } from "./settings";
 import { loadSlotContext, openSlotsFor } from "./slots";
 import { addDays, dayLabel, localDate, localDayRange, shortLabel, timeLabel } from "./time";
-import { assessWindow, getCompanyForecast, openMeteoProvider, type WeatherProvider } from "./weather";
+import { assessWindow, getCompanyForecast, openMeteoProvider, weatherConfigured, type WeatherProvider } from "./weather";
 
 export interface OwnerToolDeps {
   provider(): WeatherProvider;
@@ -53,6 +53,7 @@ async function companyFor(state: ToolRunState): Promise<DispatchCompany | null> 
 async function weatherOutlook(state: ToolRunState, deps: OwnerToolDeps): Promise<Record<string, unknown>> {
   const company = await companyFor(state);
   if (!company) return { error: "Business not found." };
+  if (!weatherConfigured()) return { ok: false, reason: "Weather checks aren't set up on this account yet." };
   const location = await ensureCompanyLocation(state.admin, company, { geocoder: deps.geocoder(), nowMs: state.nowMs });
   if (!location) return { ok: false, reason: "I don't know where the business is yet (no Google listing or address on file), so I can't check the weather." };
   const forecast = await getCompanyForecast(state.admin, company, location, { provider: deps.provider(), nowMs: state.nowMs });
@@ -165,7 +166,7 @@ async function moveDay(state: ToolRunState, input: Record<string, unknown>): Pro
   if (plan.total === 0) return { ok: false, reason: `Nothing is booked on ${fromLabel}.` };
   if (plan.moves.length === 0) return { ok: false, reason: `No open times on ${toLabel} for ${plan.leftAsIs.join(", ")}.` };
   const headline = `Move ${plan.moves.length} job${plan.moves.length === 1 ? "" : "s"} from ${fromLabel} to ${toLabel}?`;
-  const { summary, included } = buildMoveSummary({ flavour: "bulk", headline, moves: plan.moves, leftAsIs: plan.leftAsIs, businessName: company.businessName, timeZone: tz });
+  const { summary, included } = buildMoveSummary({ flavour: "bulk", headline, moves: plan.moves, leftAsIs: plan.leftAsIs, businessName: company.businessName, timeZone: tz, nowMs: state.nowMs });
   const approval = await createDispatchApproval(state.admin, {
     organizationId: company.organizationId,
     companyId: company.companyId,
