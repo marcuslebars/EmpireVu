@@ -93,3 +93,17 @@ export async function loadEstimatorSettings(admin: AdminClient, companyId: strin
   const crankleads = (org as { platform_brand: string | null } | null)?.platform_brand === "crankleads";
   return { ...readEstimatorSettings(row.ai_settings, { crankleads }), organizationId: row.organization_id, companyId: row.id, crankleads };
 }
+
+/**
+ * True when the estimator is enabled for this company (the lead's wiring uses it to show
+ * request_estimate and its prompt notes only where the estimator is on). Never throws: a read
+ * failure counts as off.
+ */
+export async function estimatorActiveFor(admin: AdminClient, scope: { organizationId: string; companyId: string }): Promise<boolean> {
+  try {
+    const settings = await loadEstimatorSettings(admin, scope.companyId);
+    return Boolean(settings && settings.organizationId === scope.organizationId && settings.enabled);
+  } catch {
+    return false;
+  }
+}

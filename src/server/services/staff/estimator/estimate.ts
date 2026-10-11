@@ -14,12 +14,20 @@ export const MIN_CUSTOM_LINE_CENTS = 100;
 /** owner_approvals.summary is capped at 500; the notify step adds the code + reply line. */
 export const MAX_ESTIMATE_SUMMARY = 480;
 
-/** A quote-line label from model text: plain words only, no links, no amounts. PURE. */
+/**
+ * A quote-line label / quote title from model text (customer-facing): plain words only — no
+ * links, no amounts, no percentages, no deal words ("free", "discount", "10 off", "half off",
+ * "as agreed", "promo"). A bare "off" stays ("take off old shingles", "fell off"). PURE.
+ */
 export function cleanLineLabel(raw: string | null | undefined, businessName: string): string | null {
   if (!raw) return null;
   const t = raw
     .replace(/\b(?:https?:\/\/|www\.)\S+/gi, " ")
     .replace(/\$\s?\d[\d,]*(?:\.\d+)?/g, " ")
+    .replace(/\b\d+(?:\.\d+)?\s*(?:%|percent)\s*(?:off\b)?/gi, " ")
+    .replace(/%/g, " ")
+    .replace(/\b(?:\d+|half|ten|twenty|fifty)\s+off\b/gi, " ")
+    .replace(/\b(?:free|discount(?:ed|s)?|as agreed|promo(?:tion)?|special deal|no charge)\b/gi, " ")
     .replace(/\b(crankleads|empirevu)\b/gi, businessName)
     .replace(/[<>{}[\]]/g, " ")
     .replace(/\s+/g, " ")
@@ -124,20 +132,44 @@ export function buildEstimateSummary(input: {
   estimate: EstimateJson;
 }): string {
   const phone = prettyPhone(input.customerPhone);
-  const who = phone && input.customerName !== input.customerPhone && !input.customerName.replace(/\D/g, "").endsWith(phone.replace(/\D/g, "")) ? `${input.customerName} (${phone})` : phone ?? input.customerName;
+  const whoFull = phone && input.customerName !== input.customerPhone && !input.customerName.replace(/\D/g, "").endsWith(phone.replace(/\D/g, "")) ? `${input.customerName} (${phone})` : phone ?? input.customerName;
   const e = input.estimate;
   const photos = input.photoCount > 0 ? ` + ${input.photoCount} photo${input.photoCount === 1 ? "" : "s"}` : "";
-  const lines = e.lines.map((l) => `${clip(l.label, 50)} ${dollars(l.amountCents)}`).join("; ");
-  const core = `AI estimate for ${who}: ${lines} = ${dollars(e.subtotalCents)} + HST (${dollars(e.totalCents)} total). Confidence: ${e.confidence}.`;
+  // Always shown, whatever else has to give: who, the quote's (customer-facing) title, the
+  // total + HST and the confidence.
+  const head = `AI estimate for ${clip(whoFull, 50)} - quote "${clip(e.title, 80)}": `;
+  const tail = ` = ${dollars(e.subtotalCents)} + HST (${dollars(e.totalCents)} total). Confidence: ${e.confidence}.`;
+  // Lines get what's left after keeping ~70 characters for assumptions / their words; extra
+  // lines fold into "+N more lines ($Z)".
+  const lineBudget = Math.max(60, MAX_ESTIMATE_SUMMARY - head.length - tail.length - 70);
+  const shown: string[] = [];
+  let used = 0;
+  for (let i = 0; i < e.lines.length; i++) {
+    const l = e.lines[i];
+    const part = `${clip(l.label, 45)} ${dollars(l.amountCents)}`;
+    const restAfter = e.lines.length - i - 1;
+    const reserve = restAfter > 0 ? 32 : 0;
+    if (used + part.length + 2 + reserve > lineBudget && shown.length > 0) break;
+    if (used + part.length + 2 > lineBudget && shown.length === 0) {
+      shown.push(clip(part, lineBudget - 32));
+      used += lineBudget - 30;
+      continue;
+    }
+    shown.push(part);
+    used += part.length + 2;
+  }
+  const hidden = e.lines.slice(shown.length);
+  if (hidden.length) shown.push(`+${hidden.length} more line${hidden.length === 1 ? "" : "s"} (${dollars(hidden.reduce((a, l) => a + l.amountCents, 0))})`);
+  const core = `${head}${shown.join("; ")}${tail}`;
   let room = MAX_ESTIMATE_SUMMARY - core.length;
   const parts: string[] = [];
-  if (e.assumptions.length && room > 40) {
-    const a = ` Assumed: ${clip(e.assumptions.join("; "), Math.min(160, room - 2))}.`;
+  if (e.assumptions.length && room > 30) {
+    const a = ` Assumed: ${clip(e.assumptions.join("; "), Math.min(160, room - 12))}.`;
     parts.push(a);
     room -= a.length;
   }
-  if (room > 40) parts.push(` They said: "${clip(input.description, Math.min(140, room - 16))}"${photos}.`);
-  return `${core}${parts.join("")}`.slice(0, MAX_ESTIMATE_SUMMARY);
+  if (room > 40) parts.push(` They said: "${clip(input.description, Math.min(140, room - 16 - photos.length))}"${photos}.`);
+  return `${core}${parts.join("")}`;
 }
 
 export interface RepricePlan {

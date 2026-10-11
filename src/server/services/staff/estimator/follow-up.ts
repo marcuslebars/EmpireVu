@@ -43,7 +43,9 @@ export const LATE_NUDGE_GRACE_MS = 2 * DAY_MS;
 /** Never two nudges to one customer closer than this. */
 const MIN_NUDGE_GAP_MS = 20 * 3_600_000;
 const OWNER_TAKEOVER_MS = 72 * 3_600_000;
-const SCAN_LIMIT = 300;
+/** Keyset page size (PostgREST caps a response at 1000 rows anyway) and pages per pass. */
+const PAGE_SIZE = 500;
+const MAX_PAGES = 20;
 
 export type StopReason =
   | "booked"
@@ -54,6 +56,7 @@ export type StopReason =
   | "all_nudges_sent"
   | "too_late"
   | "no_contact"
+  | "quote_closed"
   | `blocked:${string}`;
 
 export interface FollowUpSweepResult {
@@ -68,7 +71,7 @@ interface CompanyCtx {
   timeZone: string;
   cadenceDays: number[];
   recipeActive: boolean;
-  facts: BusinessFacts | null;
+  facts: BusinessFacts;
 }
 
 // ── the texts (PURE) ──────────────────────────────────────────────────────────────
@@ -86,7 +89,7 @@ export function nudgeText(input: {
 }): string {
   const job = input.title?.trim() ? ` for ${input.title.trim()}` : "";
   const hi = `Hi ${input.firstName}`;
-  if (input.index >= input.total - 1 && input.total > 1) {
+  if (input.index >= input.total - 1) {
     const who = input.ownerFirstName ?? "we";
     const call = input.ownerFirstName ? `${who} can give you a quick call` : "we can give you a quick call";
     const book = input.bookingUrl ? ` or pick a time that suits you here: ${input.bookingUrl}` : " or reply with a day that works and we'll book you in";
@@ -199,13 +202,16 @@ async function companyContext(admin: AdminClient, deps: EstimatorDeps, companyId
     .eq("status", "active")
     .limit(10);
   const recipeActive = ((workflows ?? []) as Array<{ company_id: string | null }>).some((w) => w.company_id === null || w.company_id === c.id);
+  // Without the business's facts a nudge would say "it's us" — skip the company this pass.
+  const facts = await deps.loadFacts(admin, c.id).catch(() => null);
+  if (!facts) return null;
   return {
     organizationId: c.organization_id,
     companyId: c.id,
     timeZone: c.timezone?.trim() || DEFAULT_TIMEZONE,
     cadenceDays: settings.cadenceDays,
     recipeActive,
-    facts: await deps.loadFacts(admin, c.id).catch(() => null),
+    facts,
   };
 }
 
@@ -264,7 +270,7 @@ async function followOne(
   // Claim, then send.
   if (!(await advance(admin, row, index, index + 1, { last_nudge_at: nowIso, last_error: null }))) return "waiting";
   const facts = ctx.facts;
-  const businessName = facts?.businessName ?? "us";
+  const businessName = facts.businessName;
   const url = await quoteLinkForCompanyId(q.company_id, q.public_token, admin as Db);
   const text = finalizeCustomerText(
     nudgeText({
@@ -272,12 +278,12 @@ async function followOne(
       total,
       firstName: firstName(contact),
       businessName,
-      ownerFirstName: facts?.ownerFirstName ?? null,
+      ownerFirstName: facts.ownerFirstName ?? null,
       title: q.title,
       quoteUrl: url,
-      bookingUrl: facts?.bookingUrl ?? null,
+      bookingUrl: facts.bookingUrl ?? null,
     }),
-    { businessName, links: [url, ...(facts?.bookingUrl && index >= total - 1 ? [facts.bookingUrl] : [])], allowed: [url, ...(facts?.bookingUrl ? [facts.bookingUrl] : [])] },
+    { businessName, links: [url, ...(facts.bookingUrl && index >= total - 1 ? [facts.bookingUrl] : [])], allowed: [url, ...(facts.bookingUrl ? [facts.bookingUrl] : [])] },
   );
   const result = await deps.textCustomer(admin, { organizationId: q.organization_id, companyId: q.company_id }, contact, text);
   if (result.status === "blocked") {
@@ -294,44 +300,132 @@ async function followOne(
 
 // ── the sweep ─────────────────────────────────────────────────────────────────────
 
+type ScannedQuote = FollowedQuote & { company_id: string };
+
+async function chunked<T>(ids: string[], size: number, read: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < ids.length; i += size) out.push(...(await read(ids.slice(i, i + size))));
+  return out;
+}
+
+/**
+ * Close follow-up rows whose quote left sent/viewed (approved, paid, expired, cancelled, gone),
+ * so counts (Settings, pending_estimates) don't overstate. Keyset-paged over open rows.
+ */
+async function closeFinishedFollowUps(admin: AdminClient, nowIso: string): Promise<number> {
+  const db = admin as Db;
+  let closed = 0;
+  let after: string | null = null;
+  const seen = new Set<string>();
+  for (let page = 0; page < MAX_PAGES; page++) {
+    let query = db.from("quote_follow_ups").select("id, company_id, quote_id, created_at").is("stopped_at", null).order("created_at", { ascending: true }).limit(PAGE_SIZE);
+    if (after) query = query.gte("created_at", after);
+    const { data, error } = await query;
+    if (error) throw error;
+    const all = (data ?? []) as Array<{ id: string; company_id: string; quote_id: string; created_at: string }>;
+    const rows = all.filter((r) => !seen.has(r.id));
+    for (const r of rows) seen.add(r.id);
+    if (rows.length === 0) break;
+    const quotes = await chunked(rows.map((r) => r.quote_id), 200, async (ids) => {
+      const { data: q } = await db.from("quotes").select("id, status, deposit_paid_at").in("id", ids);
+      return (q ?? []) as Array<{ id: string; status: string; deposit_paid_at: string | null }>;
+    });
+    const open = new Set(quotes.filter((q) => OPEN_QUOTE_STATUSES.includes(q.status) && !q.deposit_paid_at).map((q) => q.id));
+    for (const r of rows) {
+      if (open.has(r.quote_id)) continue;
+      const { data: done } = await db
+        .from("quote_follow_ups")
+        .update({ stopped_at: nowIso, stop_reason: "quote_closed" })
+        .eq("id", r.id)
+        .eq("company_id", r.company_id)
+        .is("stopped_at", null)
+        .select("id");
+      closed += ((done ?? []) as unknown[]).length;
+    }
+    if (all.length < PAGE_SIZE || !all[all.length - 1].created_at) break;
+    after = all[all.length - 1].created_at;
+  }
+  return closed;
+}
+
 export async function sweepQuoteFollowUps(admin: AdminClient, nowMs: number, deps: EstimatorDeps = estimatorDeps()): Promise<FollowUpSweepResult> {
   const out: FollowUpSweepResult = { sent: 0, stopped: 0, skipped: 0 };
   const now = new Date(nowMs);
-  // The longest cadence is 30 days; 33 covers it plus the late grace.
-  const { data, error } = await (admin as Db)
-    .from("quotes")
-    .select("id, organization_id, company_id, contact_id, status, source, title, public_token, subtotal_cents, sent_at, deposit_paid_at")
-    .in("source", [...FOLLOWED_QUOTE_SOURCES])
-    .in("status", OPEN_QUOTE_STATUSES)
-    .gte("sent_at", new Date(nowMs - 33 * DAY_MS).toISOString())
-    .order("sent_at", { ascending: true })
-    .limit(SCAN_LIMIT);
-  if (error) throw error;
-  const quotes = ((data ?? []) as FollowedQuote[]).filter((q): q is FollowedQuote & { company_id: string } => Boolean(q.company_id) && !q.deposit_paid_at);
+  const nowIso = now.toISOString();
+  const db = admin as Db;
+  out.stopped += await closeFinishedFollowUps(admin, nowIso).catch((err: unknown) => {
+    console.error("[estimator] closing finished follow-ups failed:", err instanceof Error ? err.message : err);
+    return 0;
+  });
 
-  const byCompany = new Map<string, Array<FollowedQuote & { company_id: string }>>();
-  for (const q of quotes) byCompany.set(q.company_id, [...(byCompany.get(q.company_id) ?? []), q]);
+  // Every open front-desk quote in the window, keyset-paged by sent_at (oldest first), so new
+  // quotes are never starved. Companies are checked once per pass (cached): disabled / house-org
+  // companies and companies outside 09:00-20:00 drop out before any per-quote work, and quotes
+  // whose follow-up already stopped are skipped. The longest cadence is 30 days; 33 covers the
+  // late grace.
+  const companyCtx = new Map<string, CompanyCtx | null>();
+  const byCompany = new Map<string, ScannedQuote[]>();
+  // Keyset on sent_at with gte + the ids already seen, so quotes sharing a timestamp across a
+  // page boundary aren't lost.
+  let after = new Date(nowMs - 33 * DAY_MS).toISOString();
+  const seen = new Set<string>();
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const { data, error } = await db
+      .from("quotes")
+      .select("id, organization_id, company_id, contact_id, status, source, title, public_token, subtotal_cents, sent_at, deposit_paid_at")
+      .in("source", [...FOLLOWED_QUOTE_SOURCES])
+      .in("status", OPEN_QUOTE_STATUSES)
+      .gte("sent_at", after)
+      .order("sent_at", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (error) throw error;
+    const all = (data ?? []) as FollowedQuote[];
+    const rows = all.filter((q) => !seen.has(q.id));
+    for (const q of rows) seen.add(q.id);
+    if (rows.length === 0) break;
+    const candidates: ScannedQuote[] = [];
+    for (const q of rows) {
+      if (!q.company_id || q.deposit_paid_at) continue;
+      if (!companyCtx.has(q.company_id)) {
+        let ctx: CompanyCtx | null = null;
+        try {
+          ctx = await companyContext(admin, deps, q.company_id);
+        } catch (err) {
+          console.error("[estimator] follow-up company check failed", q.company_id, err instanceof Error ? err.message : err);
+        }
+        companyCtx.set(q.company_id, ctx && withinCustomerHours(now, ctx.timeZone) ? ctx : null);
+      }
+      if (companyCtx.get(q.company_id)) candidates.push(q as ScannedQuote);
+    }
+    const stopped = new Set(
+      (
+        await chunked(candidates.map((q) => q.id), 200, async (ids) => {
+          const { data: f } = await db.from("quote_follow_ups").select("quote_id, stopped_at").in("quote_id", ids).not("stopped_at", "is", null);
+          return (f ?? []) as Array<{ quote_id: string }>;
+        })
+      ).map((f) => f.quote_id),
+    );
+    for (const q of candidates) if (!stopped.has(q.id)) byCompany.set(q.company_id, [...(byCompany.get(q.company_id) ?? []), q]);
+    if (all.length < PAGE_SIZE) break;
+    after = all[all.length - 1].sent_at ?? after;
+  }
 
   for (const [companyId, list] of byCompany) {
-    try {
-      const ctx = await companyContext(admin, deps, companyId);
-      if (!ctx || !withinCustomerHours(now, ctx.timeZone)) continue;
-      // Only the newest front-desk quote per customer is followed.
-      const newest = new Map<string, string>();
-      for (const q of list) if (q.contact_id && q.sent_at && (newest.get(q.contact_id) ?? "") < q.sent_at) newest.set(q.contact_id, q.sent_at);
-      for (const q of list) {
-        const newer = Boolean(q.contact_id && q.sent_at && (newest.get(q.contact_id) ?? "") > q.sent_at);
-        try {
-          const outcome = await followOne(admin, deps, ctx, q, newer, now);
-          if (outcome === "sent") out.sent++;
-          else if (outcome === "stopped") out.stopped++;
-          else if (outcome === "skipped") out.skipped++;
-        } catch (err) {
-          console.error("[estimator] follow-up failed for quote", q.id, err instanceof Error ? err.message : err);
-        }
+    const ctx = companyCtx.get(companyId);
+    if (!ctx) continue;
+    // Only the newest front-desk quote per customer is followed.
+    const newest = new Map<string, string>();
+    for (const q of list) if (q.contact_id && q.sent_at && (newest.get(q.contact_id) ?? "") < q.sent_at) newest.set(q.contact_id, q.sent_at);
+    for (const q of list) {
+      const newer = Boolean(q.contact_id && q.sent_at && (newest.get(q.contact_id) ?? "") > q.sent_at);
+      try {
+        const outcome = await followOne(admin, deps, ctx, q, newer, now);
+        if (outcome === "sent") out.sent++;
+        else if (outcome === "stopped") out.stopped++;
+        else if (outcome === "skipped") out.skipped++;
+      } catch (err) {
+        console.error("[estimator] follow-up failed for quote", q.id, err instanceof Error ? err.message : err);
       }
-    } catch (err) {
-      console.error("[estimator] follow-up company pass failed", companyId, err instanceof Error ? err.message : err);
     }
   }
   return out;
