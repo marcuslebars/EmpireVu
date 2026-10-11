@@ -20,19 +20,36 @@ function providerFor(channel: MessageChannel): string {
 }
 
 // ── Consent (CASL / CRTC) ─────────────────────────────────────────────────────
-// Implied consent (an inquiry) is valid for 6 months; express consent does not expire.
-// See docs/messaging-compliance.md.
+// Implied consent from an inquiry is valid for 6 months; from a purchase (an existing
+// business relationship: a completed job or a paid invoice) for 2 years from the latest
+// purchase; express consent does not expire. An opt-out always wins.
+// See docs/messaging-compliance.md and docs/ai-staff.md → "Marketer".
 const IMPLIED_CONSENT_MS = 6 * 30 * 24 * 60 * 60 * 1000;
+export const PURCHASE_CONSENT_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 const EXPRESS_CONSENT_SOURCES = new Set(["express", "express_optin", "double_optin"]);
 
 export type ConsentContact = Pick<
   Tables<"contacts">,
   "sms_opt_out_at" | "email_opt_out_at" | "sms_consent_at" | "consent_source"
->;
+> & {
+  /**
+   * The contact's latest purchase from the sending company (completed booking or paid
+   * invoice), when the caller looked it up. Gives implied consent for 2 years. Callers that
+   * don't pass it keep the inquiry-only (6-month) rule.
+   */
+  last_purchase_at?: string | null;
+};
 
 export interface ConsentResult {
   ok: boolean;
   reason?: "opted_out" | "no_consent" | "consent_expired";
+}
+
+function within(at: string | null | undefined, windowMs: number, now: number): boolean | null {
+  if (!at) return null;
+  const ms = Date.parse(at);
+  if (!Number.isFinite(ms)) return null;
+  return now - ms <= windowMs;
 }
 
 export function checkConsent(
@@ -43,7 +60,9 @@ export function checkConsent(
   const optOut = channel === "sms" ? contact.sms_opt_out_at : contact.email_opt_out_at;
   if (optOut) return { ok: false, reason: "opted_out" };
   if (contact.consent_source && EXPRESS_CONSENT_SOURCES.has(contact.consent_source)) return { ok: true };
-  if (!contact.sms_consent_at) return { ok: false, reason: "no_consent" };
+  const purchase = within(contact.last_purchase_at, PURCHASE_CONSENT_MS, now);
+  if (purchase === true) return { ok: true };
+  if (!contact.sms_consent_at) return { ok: false, reason: purchase === false ? "consent_expired" : "no_consent" };
   const age = now - Date.parse(contact.sms_consent_at);
   if (Number.isFinite(age) && age > IMPLIED_CONSENT_MS) return { ok: false, reason: "consent_expired" };
   return { ok: true };
