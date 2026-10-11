@@ -4,7 +4,7 @@
  * Scoped to the company the owner channel resolved (state.scope) — never an id from a text.
  */
 import type { ToolRunState } from "@/server/services/owner-channel/tools";
-import { campaignResults, draftWinBackCampaign, exclusionText, lastCampaign } from "@/server/services/staff/marketer/campaigns";
+import { cancelActiveCampaign, campaignResults, draftWinBackCampaign, exclusionText, lastCampaign } from "@/server/services/staff/marketer/campaigns";
 import type { Db } from "@/server/services/staff/marketer/db-types";
 import { defaultMarketerDeps, type MarketerDeps } from "@/server/services/staff/marketer/deps";
 import { loadMarketingCompany } from "@/server/services/staff/marketer/settings";
@@ -35,6 +35,12 @@ export function startWinBackTool(deps: MarketerDeps = defaultMarketerDeps): Role
           };
         case "no_audience":
           return { ok: false, audience_count: 0, past_customers_in_window: out.inWindow, left_out: exclusionText(out.excluded), note: "Nobody to text right now - nothing was drafted." };
+        case "no_number":
+          return { ok: false, note: "This business doesn't have its own texting number yet, so I can't send win-back texts (I won't send them from another number)." };
+        case "no_contact_info":
+          return { ok: false, note: "Add the business website or phone in Settings first - texts to past customers must say how to reach you." };
+        case "paused":
+          return { ok: false, note: "Texts are paused for this business (resume texts first)." };
         case "busy":
           return { ok: false, note: `A win-back campaign is already ${out.campaignStatus === "sending" ? "going out" : "waiting for the owner's OK"}.` };
         default:
@@ -87,5 +93,18 @@ export const marketingResultsTool: RoleOwnerTool = {
         replies_waiting_for_owner: recent.filter((r) => r.reply_status === "awaiting_owner").length,
       },
     };
+  },
+};
+
+export const stopCampaignTool: RoleOwnerTool = {
+  tool: {
+    name: "stop_campaign",
+    description: "Stop the win-back campaign that's going out (or waiting for the owner's OK) right away: no more texts go out. Texts already sent stay sent. Use when the owner says stop / cancel the campaign or the texts to past customers.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  async run(state: ToolRunState) {
+    const out = await cancelActiveCampaign(state.admin, state.scope, "owner_stopped", state.nowMs);
+    if (!out.cancelled) return { ok: true, note: "There's no win-back campaign going out right now." };
+    return { ok: true, stopped: true, already_sent: out.sent, not_sent: out.queued };
   },
 };

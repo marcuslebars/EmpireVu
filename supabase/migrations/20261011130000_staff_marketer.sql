@@ -37,6 +37,11 @@ create table if not exists public.marketing_campaigns (
   period_key text,
   created_by text not null default 'marketer',
   cancel_reason text,
+  -- Sending on hold (owner paused texts, company paused, win-back off, no company number).
+  -- Held longer than 3 days → cancelled and the owner told.
+  held_since timestamptz,
+  hold_reason text,
+  hold_notified_at timestamptz,
   approved_at timestamptz,
   started_at timestamptz,
   completed_at timestamptz,
@@ -46,6 +51,9 @@ create table if not exists public.marketing_campaigns (
 );
 create unique index if not exists marketing_campaigns_period_idx
   on public.marketing_campaigns (company_id, kind, period_key) where period_key is not null;
+-- One active campaign per company (two drafts can't race).
+create unique index if not exists marketing_campaigns_one_active_idx
+  on public.marketing_campaigns (company_id) where status in ('draft', 'awaiting_owner', 'approved', 'sending');
 create index if not exists marketing_campaigns_company_idx on public.marketing_campaigns (company_id, created_at desc);
 create index if not exists marketing_campaigns_sending_idx on public.marketing_campaigns (status) where status = 'sending';
 
@@ -69,6 +77,8 @@ create table if not exists public.marketing_campaign_recipients (
 );
 create index if not exists marketing_recipients_queue_idx on public.marketing_campaign_recipients (campaign_id, status);
 create index if not exists marketing_recipients_contact_idx on public.marketing_campaign_recipients (company_id, contact_id, created_at desc);
+create index if not exists marketing_recipients_claimed_idx
+  on public.marketing_campaign_recipients (claimed_at) where status = 'sending';
 create index if not exists marketing_recipients_sent_idx on public.marketing_campaign_recipients (company_id, sent_at) where status = 'sent';
 
 -- ── Google reviews ──────────────────────────────────────────────────────────────────
@@ -79,7 +89,8 @@ create table if not exists public.google_reviews (
   -- Places API (New) review resource name: places/{placeId}/reviews/{reviewId}.
   review_name text not null,
   rating integer check (rating is null or (rating between 1 and 5)),
-  -- Review text is kept only while a reply is being drafted/approved (pruned after 30 days).
+  -- Google content (text, author, rating, link) is kept at most 30 days, then nulled; only
+  -- the review's resource name and our reply/status are kept long-term.
   text text,
   author_name text,
   published_at timestamptz,
@@ -166,4 +177,4 @@ create trigger google_post_drafts_set_updated_at before update on public.google_
   for each row execute procedure public.touch_updated_at();
 
 comment on table public.marketing_campaigns is 'AI Marketer win-back campaigns (docs/ai-staff.md). Owner OKs each by text; sent throttled by the scheduler.';
-comment on table public.google_reviews is 'Recent Google reviews (Places API New) with AI reply drafts. Review text is pruned after 30 days.';
+comment on table public.google_reviews is 'Recent Google reviews (Places API New) with AI reply drafts. Text, author, rating and link are nulled after 30 days.';

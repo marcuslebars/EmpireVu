@@ -35,6 +35,8 @@ interface MarketingView {
     replies: number;
     bookings: number;
     quotes: number;
+    active: boolean;
+    holdReason: string | null;
   } | null;
   google: { connected: boolean; rating: number | null; reviewCount: number | null; repliesWaiting: number; postsWaiting: number };
 }
@@ -96,6 +98,14 @@ export function MarketerSettingsSection({ orgId, companyId, companyName, canMana
       toast.success("Saved");
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not save"),
+  });
+  const stop = useMutation({
+    mutationFn: () => apiFetch<MarketingView>(`${path(orgId, companyId)}/stop`, { method: "POST" }),
+    onSuccess: (view) => {
+      qc.setQueryData(queryKey, view);
+      toast.success("Campaign stopped - nothing more will go out.");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not stop the campaign"),
   });
   const [cap, setCap] = useState("");
   useEffect(() => {
@@ -182,6 +192,21 @@ export function MarketerSettingsSection({ orgId, companyId, companyName, canMana
           />
           <span>texts a week</span>
         </div>
+        {last?.active && (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-muted-foreground">
+              {last.holdReason ? "A campaign is on hold (it's cancelled after 3 days on hold)." : last.status === "awaiting_owner" ? "A campaign is waiting for your OK." : "A campaign is going out now."}
+            </span>
+            <button
+              type="button"
+              disabled={!manage || stop.isPending}
+              onClick={() => stop.mutate()}
+              className="rounded border border-border px-2 py-1 text-foreground hover:bg-secondary/60 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {stop.isPending ? "Stopping..." : "Stop this campaign"}
+            </button>
+          </div>
+        )}
         {last ? (
           <p className="text-xs text-muted-foreground">
             Last campaign ({new Date(last.createdAt).toLocaleDateString("en-CA", { month: "short", day: "numeric" })}, {STATUS_WORD[last.status] ?? last.status}):{" "}

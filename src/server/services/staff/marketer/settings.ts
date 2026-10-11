@@ -14,6 +14,7 @@
  */
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db, SendWindow } from "@/server/services/staff/marketer/db-types";
+import { pageAll } from "@/server/services/staff/marketer/paging";
 
 export interface MarketingSettings {
   winBack: {
@@ -127,6 +128,8 @@ export interface MarketingCompany {
   timeZone: string;
   crankleads: boolean;
   stage: string | null;
+  /** The owner texted "pause all texts" (ai_settings.owner_pause) — nothing proactive goes out. */
+  ownerPaused: boolean;
   googlePlaceId: string | null;
   googleRating: number | null;
   googleReviewCount: number | null;
@@ -135,7 +138,12 @@ export interface MarketingCompany {
 }
 
 export const COMPANY_COLUMNS =
-  "id, organization_id, name, brand_from_name, timezone, stage, ai_settings, google_place_id, google_rating, google_review_count, industry_pack, service_area, brand_website_url, website, quote_public_base_url, online_booking_settings";
+  "id, organization_id, name, brand_from_name, timezone, stage, ai_settings, google_place_id, google_rating, google_review_count, industry_pack, service_area, brand_website_url, website, brand_reply_phone, quote_public_base_url, online_booking_settings";
+
+/** Paused / archived company, or the owner paused all texts: nothing proactive goes out. */
+export function isCompanyHeld(company: Pick<MarketingCompany, "stage" | "ownerPaused">): boolean {
+  return company.stage === "paused" || company.stage === "archived" || company.ownerPaused;
+}
 
 export function toMarketingCompany(row: Record<string, unknown>, crankleads: boolean): MarketingCompany {
   const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -147,6 +155,7 @@ export function toMarketingCompany(row: Record<string, unknown>, crankleads: boo
     timeZone: text(row.timezone) ?? "America/Toronto",
     crankleads,
     stage: text(row.stage),
+    ownerPaused: Object.keys(asRecord(asRecord(row.ai_settings).owner_pause)).length > 0,
     googlePlaceId: text(row.google_place_id),
     googleRating: typeof row.google_rating === "number" ? row.google_rating : null,
     googleReviewCount: typeof row.google_review_count === "number" ? row.google_review_count : null,
@@ -174,19 +183,33 @@ export async function loadMarketingCompany(admin: AdminClient, scope: { organiza
  * Every active company the Marketer may work for (any feature on), across orgs — for the
  * sweeps. House orgs only appear when they turned a feature on explicitly.
  */
-export async function listMarketingCompanies(admin: AdminClient, limit = 5000): Promise<MarketingCompany[]> {
+export async function listMarketingCompanies(admin: AdminClient): Promise<MarketingCompany[]> {
   const db = admin as Db;
-  const { data, error } = await db.from("companies").select(COMPANY_COLUMNS).limit(limit);
-  if (error) throw error;
-  const rows = (data ?? []) as Array<Record<string, unknown>>;
+  const rows = await pageAll<Record<string, unknown>>(() => db.from("companies").select(COMPANY_COLUMNS).order("id", { ascending: true }));
   const orgIds = [...new Set(rows.map((r) => String(r.organization_id)))];
   const brands = new Map<string, string | null>();
   for (let i = 0; i < orgIds.length; i += 200) {
-    const { data: orgs } = await db.from("organizations").select("id, platform_brand").in("id", orgIds.slice(i, i + 200));
-    for (const o of (orgs ?? []) as Array<{ id: string; platform_brand: string | null }>) brands.set(o.id, o.platform_brand);
+    const { data, error } = await db.from("organizations").select("id, platform_brand").in("id", orgIds.slice(i, i + 200));
+    if (error) throw error;
+    for (const o of (data ?? []) as Array<{ id: string; platform_brand: string | null }>) brands.set(o.id, o.platform_brand);
   }
   return rows
     .map((row) => toMarketingCompany(row, brands.get(String(row.organization_id)) === "crankleads"))
     .filter((c) => c.stage !== "paused" && c.stage !== "archived")
     .filter((c) => c.settings.winBack.enabled || c.settings.reviewReplies.enabled || c.settings.googlePosts.enabled);
+}
+
+/**
+ * Is the Marketer working for this company (any feature on, company active)? Used to show the
+ * Marketer's prompt notes only where it's on. Never throws (false on error).
+ */
+export async function marketerActiveFor(admin: AdminClient, scope: { organizationId: string; companyId: string }): Promise<boolean> {
+  try {
+    const company = await loadMarketingCompany(admin, scope);
+    if (!company || company.stage === "paused" || company.stage === "archived") return false;
+    const s = company.settings;
+    return s.winBack.enabled || s.reviewReplies.enabled || s.googlePosts.enabled;
+  } catch {
+    return false;
+  }
 }

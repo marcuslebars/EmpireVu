@@ -5,7 +5,7 @@
  */
 import { executeMarketingCampaign, MARKETING_CAMPAIGN_KIND, sendCampaignBatches, sweepMonthlyWinBack } from "@/server/services/staff/marketer/campaigns";
 import { defaultMarketerDeps } from "@/server/services/staff/marketer/deps";
-import { marketingResultsTool, startWinBackTool } from "@/server/services/staff/marketer/owner-tools";
+import { marketingResultsTool, startWinBackTool, stopCampaignTool } from "@/server/services/staff/marketer/owner-tools";
 import { executeGooglePost, GOOGLE_POST_KIND, sweepGooglePosts } from "@/server/services/staff/marketer/posts";
 import { executeReviewReply, REVIEW_REPLY_KIND, sweepGoogleReviews } from "@/server/services/staff/marketer/reviews";
 import { listMarketingCompanies } from "@/server/services/staff/marketer/settings";
@@ -19,6 +19,7 @@ export const MARKETER_AGENT_NOTES = [
 
 export const MARKETER_OWNER_NOTES = [
   "start_win_back drafts a text campaign to past customers; it never sends. After it runs, tell the owner the audience size and to reply Y <code> to send it (they get the exact text separately). If it's off for this business, say it can be turned on in Settings.",
+  "stop_campaign stops a win-back campaign immediately (owner says stop / cancel the campaign or the past-customer texts). It acts right away - no code needed, it only ever stops texts.",
   "marketing_results answers how the last campaign did (sent, replies, bookings, quotes) and the Google rating / reviews. Google review replies and weekly Google posts arrive as their own approvals; on Y the owner is texted the text to paste on Google.",
 ];
 
@@ -31,7 +32,7 @@ export const marketerRole: StaffRoleModule = {
   },
   agentTools: [],
   agentPromptNotes: MARKETER_AGENT_NOTES,
-  ownerTools: [startWinBackTool(deps), marketingResultsTool],
+  ownerTools: [startWinBackTool(deps), stopCampaignTool, marketingResultsTool],
   ownerPromptNotes: MARKETER_OWNER_NOTES,
   sweeps: [
     { name: "marketer_campaign_sender", intervalMs: 5 * 60_000, run: async (admin, nowMs) => void (await sendCampaignBatches(admin, { ...deps, now: () => nowMs })) },

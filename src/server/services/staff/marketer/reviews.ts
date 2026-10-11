@@ -11,8 +11,8 @@
 import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } from "@/server/services/front-desk/contracts";
 import { draftReviewReply, loadBusinessBrief } from "@/server/services/staff/marketer/ai";
 import type { Db, GoogleReviewRow } from "@/server/services/staff/marketer/db-types";
-import { clip, createMarketerApproval, isUniqueViolation, reaskWithoutNote, textOwner, type MarketerDeps } from "@/server/services/staff/marketer/deps";
-import { GBP_REVIEWS_URL, type FetchedReview } from "@/server/services/staff/marketer/google";
+import { createMarketerApproval, isUniqueViolation, reaskWithoutNote, textOwner, type MarketerDeps } from "@/server/services/staff/marketer/deps";
+import { GBP_REVIEWS_URL } from "@/server/services/staff/marketer/google";
 import { listMarketingCompanies, type MarketingCompany } from "@/server/services/staff/marketer/settings";
 import { inProactiveHours, localParts } from "@/server/services/staff/marketer/time";
 
@@ -29,14 +29,14 @@ function firstAndInitial(author: string | null): string {
   return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : parts[0];
 }
 
-/** The owner's approval text. PURE. */
-export function reviewReplySummary(review: { rating: number | null; text: string | null; author: string | null }, reply: string): string {
+/**
+ * The owner's approval text. PURE. The review's own words are NOT copied here (Google's content
+ * terms: approvals are kept) - the owner gets who, how many stars and the link to read it.
+ */
+export function reviewReplySummary(review: { rating: number | null; author: string | null; link: string | null }, reply: string): string {
   const stars = review.rating != null ? `${review.rating}-star` : "new";
-  const head = `New ${stars} Google review from ${firstAndInitial(review.author)}`;
-  const tail = ` Reply: "${reply}" Y = I text you this reply to paste on Google.`;
-  const room = 480 - head.length - tail.length - 4;
-  const quoted = review.text?.trim() && room > 30 ? `: "${clip(review.text, Math.min(160, room))}"` : ".";
-  return `${head}${quoted}${tail}`;
+  const link = review.link ? ` (${review.link})` : "";
+  return `New ${stars} Google review from ${firstAndInitial(review.author).replace(/\.$/, "")}${link}. Reply: "${reply}" Y = I text you this reply to paste on Google.`;
 }
 
 /** The copy-paste text for the owner after Y. PURE. */
@@ -51,42 +51,58 @@ async function claimDaily(db: Db, company: MarketingCompany, task: string, perio
   throw error;
 }
 
-async function draftForReview(admin: AdminClient, deps: MarketerDeps, company: MarketingCompany, row: GoogleReviewRow, review: FetchedReview): Promise<void> {
+async function draftForReview(admin: AdminClient, deps: MarketerDeps, company: MarketingCompany, row: GoogleReviewRow): Promise<void> {
   const db = admin as Db;
   const scope = { organizationId: company.organizationId, companyId: company.companyId };
   const brief = await loadBusinessBrief(admin, company);
-  const { reply } = await draftReviewReply(deps.model, brief, { rating: review.rating, text: review.text, author: review.author }, scope);
+  const { reply } = await draftReviewReply(deps.model, brief, { rating: row.rating, text: row.text, author: row.author_name }, scope);
   const approval = await createMarketerApproval(admin, deps, {
     ...scope,
     kind: REVIEW_REPLY_KIND,
-    summary: reviewReplySummary({ rating: review.rating, text: review.text, author: review.author }, reply),
-    payload: { reviewId: row.id, rating: review.rating },
+    summary: reviewReplySummary({ rating: row.rating, author: row.author_name, link: row.google_maps_uri }, reply),
+    payload: { reviewId: row.id, rating: row.rating },
     ttlMs: REVIEW_APPROVAL_TTL_MS,
   });
-  await db
+  const { error } = await db
     .from("google_reviews")
     .update({ reply_draft: reply, reply_status: "awaiting_owner", approval_id: approval.id, updated_at: new Date(deps.now()).toISOString() })
     .eq("id", row.id)
     .eq("organization_id", company.organizationId)
     .eq("company_id", company.companyId);
+  if (error) throw error;
 
-  if (review.rating != null && review.rating <= LOW_RATING) {
-    const { data: claimed } = await db
+  if (row.rating != null && row.rating <= LOW_RATING) {
+    const { data: claimed, error: claimError } = await db
       .from("google_reviews")
       .update({ owner_alerted_at: new Date(deps.now()).toISOString() })
       .eq("id", row.id)
       .eq("organization_id", company.organizationId)
       .is("owner_alerted_at", null)
       .select("id");
+    if (claimError) throw claimError;
     if (((claimed ?? []) as unknown[]).length > 0) {
-      const words = review.text?.trim() ? ` "${clip(review.text, 200)}"` : "";
+      const link = row.google_maps_uri ? ` Read it: ${row.google_maps_uri}` : "";
       await textOwner(
         admin,
         scope,
-        `Heads up: a new ${review.rating}-star Google review for ${company.businessName} from ${firstAndInitial(review.author).replace(/\.$/, "")}.${words} I've drafted a calm reply for you to OK (#${approval.short_code ?? "?"}).`,
+        `Heads up: a new ${row.rating}-star Google review for ${company.businessName} from ${firstAndInitial(row.author_name).replace(/\.$/, "")}.${link} I've drafted a calm reply for you to OK (#${approval.short_code ?? "?"}).`,
       );
     }
   }
+}
+
+/**
+ * Google content is kept at most 30 days: text, author, rating, link and publish time are nulled
+ * (we keep the review's resource name - to never draft twice - and our own reply + status).
+ * Runs for every company, whatever its settings.
+ */
+export async function pruneGoogleReviews(admin: AdminClient, nowMs: number): Promise<void> {
+  const { error } = await (admin as Db)
+    .from("google_reviews")
+    .update({ text: null, author_name: null, rating: null, google_maps_uri: null, published_at: null, text_pruned_at: new Date(nowMs).toISOString() })
+    .is("text_pruned_at", null)
+    .lt("created_at", new Date(nowMs - REVIEW_TEXT_KEEP_DAYS * 86_400_000).toISOString());
+  if (error) console.error("[marketer] pruning Google review content failed:", error.message);
 }
 
 /** One company's daily review pass. Returns how many new reviews got a draft. */
@@ -98,15 +114,6 @@ export async function ingestReviewsForCompany(admin: AdminClient, deps: Marketer
   if (!(await claimDaily(db, company, "google_reviews", localParts(nowMs, company.timeZone).date))) return { fetched: 0, drafted: 0, skipped: true };
 
   const nowIso = new Date(nowMs).toISOString();
-  // Keep review text only while it's useful (Google's content terms): 30 days.
-  await db
-    .from("google_reviews")
-    .update({ text: null, text_pruned_at: nowIso })
-    .eq("organization_id", company.organizationId)
-    .eq("company_id", company.companyId)
-    .is("text_pruned_at", null)
-    .lt("created_at", new Date(nowMs - REVIEW_TEXT_KEEP_DAYS * 86_400_000).toISOString());
-
   const fetched = await deps.fetchReviews(company.googlePlaceId);
   if (!fetched) return { fetched: 0, drafted: 0, skipped: true };
 
@@ -124,18 +131,20 @@ export async function ingestReviewsForCompany(admin: AdminClient, deps: Marketer
   let drafted = 0;
   for (const review of fetched.reviews) {
     const fresh = review.publishedAt != null && nowMs - Date.parse(review.publishedAt) <= REVIEW_DRAFT_MAX_AGE_DAYS * 86_400_000;
-    const { data: inserted, error } = await db
+    const { error } = await db
       .from("google_reviews")
       .insert({
         organization_id: company.organizationId,
         company_id: company.companyId,
         review_name: review.name,
-        rating: review.rating,
-        text: review.text,
-        author_name: review.author,
-        published_at: review.publishedAt,
-        google_maps_uri: review.googleMapsUri,
+        // An old review (first fetch) is only recorded so it's never drafted: no Google content kept.
+        rating: fresh ? review.rating : null,
+        text: fresh ? review.text : null,
+        author_name: fresh ? review.author : null,
+        published_at: fresh ? review.publishedAt : null,
+        google_maps_uri: fresh ? review.googleMapsUri : null,
         reply_status: fresh ? "new" : "skipped",
+        ...(fresh ? {} : { text_pruned_at: nowIso }),
         created_at: nowIso,
         updated_at: nowIso,
       })
@@ -145,19 +154,32 @@ export async function ingestReviewsForCompany(admin: AdminClient, deps: Marketer
       if (isUniqueViolation(error)) continue; // seen before
       throw error;
     }
-    if (!fresh) continue;
+  }
+
+  // Draft every fresh review still at 'new' - this run's, and any a crash left behind.
+  const { data: waiting, error: waitingError } = await db
+    .from("google_reviews")
+    .select("*")
+    .eq("organization_id", company.organizationId)
+    .eq("company_id", company.companyId)
+    .eq("reply_status", "new")
+    .gte("published_at", new Date(nowMs - REVIEW_DRAFT_MAX_AGE_DAYS * 86_400_000).toISOString())
+    .limit(20);
+  if (waitingError) throw waitingError;
+  for (const row of (waiting ?? []) as GoogleReviewRow[]) {
     try {
-      await draftForReview(admin, deps, company, inserted as GoogleReviewRow, review);
+      await draftForReview(admin, deps, company, row);
       drafted++;
     } catch (err) {
       console.error("[marketer] review reply draft failed", company.companyId, err instanceof Error ? err.message : err);
-      await db.from("google_reviews").update({ reply_status: "failed", updated_at: nowIso }).eq("id", (inserted as GoogleReviewRow).id).eq("organization_id", company.organizationId);
+      await db.from("google_reviews").update({ reply_status: "failed", updated_at: nowIso }).eq("id", row.id).eq("organization_id", company.organizationId);
     }
   }
   return { fetched: fetched.reviews.length, drafted, skipped: false };
 }
 
 export async function sweepGoogleReviews(admin: AdminClient, deps: MarketerDeps, companies?: MarketingCompany[]): Promise<{ drafted: number }> {
+  await pruneGoogleReviews(admin, deps.now());
   let drafted = 0;
   for (const company of companies ?? (await listMarketingCompanies(admin))) {
     try {
