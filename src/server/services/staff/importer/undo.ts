@@ -75,14 +75,15 @@ export async function undoStep(admin: AdminClient, batch: ImportBatchRow): Promi
   const scope = { organizationId: batch.organization_id, companyId: batch.company_id };
   const report: UndoReport = batch.undo_report ?? emptyUndoReport();
   const phase = batch.undo_phase ?? "invoices";
-  const cursor = batch.undo_cursor ?? "";
+  // Keyset paging: nothing before the first chunk (never `.gt("id", "")` — "" isn't a uuid).
+  const cursor = batch.undo_cursor || null;
+  const after = <Q extends { gt: (column: string, value: string) => Q }>(q: Q): Q => (cursor ? q.gt("id", cursor) : q);
   const base = (table: string, columns: string) => db.from(table).select(columns).eq("organization_id", scope.organizationId).eq("company_id", scope.companyId);
 
   if (phase === "invoices") {
     const rows = must(
-      await base("invoices", "id, contact_id, status, amount_paid_cents, pending_payment_cents, last_reminder_at, reminder_count, invoice_number, bill_to, created_at, updated_at")
-        .eq("import_batch_id", batch.id)
-        .gt("id", cursor)
+      await after(base("invoices", "id, contact_id, status, amount_paid_cents, pending_payment_cents, last_reminder_at, reminder_count, invoice_number, bill_to, created_at, updated_at")
+        .eq("import_batch_id", batch.id))
         .order("id", { ascending: true })
         .limit(UNDO_CHUNK),
     ) as Array<{ id: string; status: string; amount_paid_cents: number; pending_payment_cents: number; last_reminder_at: string | null; reminder_count: number; invoice_number: string | null; bill_to: { name?: string } | null; created_at: string | null; updated_at: string | null }>;
@@ -112,9 +113,8 @@ export async function undoStep(admin: AdminClient, batch: ImportBatchRow): Promi
 
   if (phase === "bookings") {
     const rows = must(
-      await base("bookings", "id, contact_id, status, title, created_at, updated_at")
-        .eq("source", `import:${batch.id}`)
-        .gt("id", cursor)
+      await after(base("bookings", "id, contact_id, status, title, created_at, updated_at")
+        .eq("source", `import:${batch.id}`))
         .order("id", { ascending: true })
         .limit(UNDO_CHUNK),
     ) as Array<{ id: string; status: string; title: string | null; created_at: string | null; updated_at: string | null }>;
@@ -142,9 +142,8 @@ export async function undoStep(admin: AdminClient, batch: ImportBatchRow): Promi
 
   if (phase === "contacts") {
     const rows = must(
-      await base("contacts", "id, first_name, last_name, created_at, updated_at")
-        .eq("metadata->import->>batchId", batch.id)
-        .gt("id", cursor)
+      await after(base("contacts", "id, first_name, last_name, created_at, updated_at")
+        .eq("metadata->import->>batchId", batch.id))
         .order("id", { ascending: true })
         .limit(UNDO_CHUNK),
     ) as Array<{ id: string; first_name: string | null; last_name: string | null; created_at: string | null; updated_at: string | null }>;

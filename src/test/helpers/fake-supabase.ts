@@ -93,7 +93,12 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
     const sorts: Array<{ column: string; ascending: boolean }> = [];
     let limitTo: number | null = null;
 
+    // Like Postgres: "" is not a uuid. Columns named id / *_id are uuids here, so comparing one to
+    // "" is an error (22P02), not "no rows" — the bug class an `.gt("id", "")` cursor hides.
+    let badInput: string | null = null;
     const filter = (kind: string, column: string, value: unknown, pred: (row: Row) => boolean) => {
+      const isUuidColumn = column === "id" || /_id$/.test(column);
+      if (isUuidColumn && (value === "" || (Array.isArray(value) && value.includes("")))) badInput = `invalid input syntax for type uuid: ""`;
       recorded.filters.push({ kind, column, value });
       preds.push(pred);
       return api;
@@ -105,6 +110,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
     }
 
     function execute(): { data: unknown; error: unknown; count?: number } {
+      if (badInput) return { data: null, error: { code: "22P02", message: badInput } };
       const failure = failures.findIndex((f) => f.table === table && f.op === recorded.op);
       if (failure >= 0) return { data: null, error: failures.splice(failure, 1)[0].error };
       switch (recorded.op) {
