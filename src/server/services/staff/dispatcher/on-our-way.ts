@@ -13,6 +13,7 @@ import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { DispatchCompany } from "./company";
 import type { Db } from "./db-types";
 import { claimDispatchMessage, firstName, greeting, jobPhrase, sendClaimedMessage, type SendOutcome } from "./messages";
+import { readDispatchSettings } from "./settings";
 import { withinLocalHours } from "./time";
 
 /** Events older than this are never acted on (a worker that was down doesn't send stale texts). */
@@ -49,6 +50,29 @@ function sendsSms(definition: Json | unknown): boolean {
  * Is the company's own "On my way" automation on (the crew-on-the-way recipe, or any active
  * booking.en_route automation that texts)? Then it texts the customer and we don't.
  */
+/**
+ * Will "On my way" on this company's jobs send the Dispatcher's heads-up text (setting on, no
+ * "On my way" automation texting instead)? The job sheet asks for an ETA only then. Works with
+ * the caller's RLS client (members read companies / organizations / workflows). Never throws.
+ */
+export async function dispatcherOnOurWayActive(db: AdminClient, scope: { organizationId: string; companyId: string }): Promise<boolean> {
+  try {
+    const { data: company } = await (db as Db)
+      .from("companies")
+      .select("name, ai_settings, industry_pack")
+      .eq("organization_id", scope.organizationId)
+      .eq("id", scope.companyId)
+      .maybeSingle();
+    if (!company) return false;
+    const { data: org } = await (db as Db).from("organizations").select("platform_brand").eq("id", scope.organizationId).maybeSingle();
+    const c = company as { name: string; ai_settings: unknown; industry_pack: unknown };
+    const settings = readDispatchSettings(c.ai_settings, { crankleads: (org as { platform_brand?: string | null } | null)?.platform_brand === "crankleads", industryPack: c.industry_pack, hints: [c.name] });
+    return settings.onOurWay.enabled && !(await enRouteAutomationActive(db, scope));
+  } catch {
+    return false;
+  }
+}
+
 export async function enRouteAutomationActive(admin: AdminClient, company: Pick<DispatchCompany, "organizationId" | "companyId">): Promise<boolean> {
   const { data } = await (admin as Db)
     .from("workflows")
@@ -68,7 +92,7 @@ interface EnRouteEvent {
   company_id: string | null;
   entity_id: string | null;
   metadata_json: unknown;
-  created_at: string;
+  occurred_at?: string;
 }
 
 /** PURE: a sane ETA from the event (1–240 minutes) or null. */
@@ -149,15 +173,21 @@ export async function handleEnRoute(admin: AdminClient, company: DispatchCompany
 export async function sweepOnOurWay(admin: AdminClient, nowMs: number, companies: Map<string, DispatchCompany>): Promise<void> {
   const enabled = [...companies.values()].filter((c) => c.settings.onOurWay.enabled);
   if (enabled.length === 0) return;
-  const { data, error } = await (admin as Db)
-    .from("activity_events")
-    .select("id, organization_id, company_id, entity_id, metadata_json, created_at")
-    .eq("event_type", "booking.en_route")
-    .gte("created_at", new Date(nowMs - ON_OUR_WAY_LOOKBACK_MS).toISOString())
-    .order("created_at", { ascending: true })
-    .limit(200);
-  if (error) throw error;
-  for (const event of (data ?? []) as EnRouteEvent[]) {
+  const orgIds = [...new Set(enabled.map((c) => c.organizationId))];
+  const events: EnRouteEvent[] = [];
+  for (let i = 0; i < orgIds.length; i += 150) {
+    const { data, error } = await (admin as Db)
+      .from("activity_events")
+      .select("id, organization_id, company_id, entity_id, metadata_json, occurred_at")
+      .in("organization_id", orgIds.slice(i, i + 150))
+      .eq("event_type", "booking.en_route")
+      .gte("occurred_at", new Date(nowMs - ON_OUR_WAY_LOOKBACK_MS).toISOString())
+      .order("occurred_at", { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    events.push(...((data ?? []) as EnRouteEvent[]));
+  }
+  for (const event of events) {
     const company = event.company_id ? companies.get(event.company_id) : undefined;
     if (!company || company.organizationId !== event.organization_id || !company.settings.onOurWay.enabled) continue;
     try {

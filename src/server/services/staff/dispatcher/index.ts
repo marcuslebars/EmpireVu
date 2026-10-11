@@ -7,12 +7,12 @@
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { emptyRole, type StaffRoleModule, type StaffSweep } from "@/server/services/staff/types";
 import { BULK_RESCHEDULE_KIND, FILL_GAP_KIND, WEATHER_RESCHEDULE_KIND } from "./approvals";
-import { loadDispatchCompanies, type DispatchCompany } from "./company";
+import { loadDispatchCompaniesCached, type DispatchCompany } from "./company";
 import { sweepCrewTexts } from "./crew-schedule";
-import { executeFillGap, sweepFillGap } from "./fill-gap";
+import { checkGapOfferStillValid, executeFillGap, sweepFillGap } from "./fill-gap";
 import { placesGeocoder } from "./geocode";
-import { flushQueuedMessages } from "./messages";
-import { applyMoves } from "./moves";
+import { flushQueuedMessages, queueHasWork } from "./messages";
+import { applyMoves, checkMovedStillValid } from "./moves";
 import { sweepOnOurWay } from "./on-our-way";
 import { dispatcherOwnerTools } from "./owner-tools";
 import { openMeteoProvider } from "./weather";
@@ -24,35 +24,44 @@ function byId(companies: DispatchCompany[]): Map<string, DispatchCompany> {
 
 const anyOn = (companies: DispatchCompany[], pick: (c: DispatchCompany) => boolean) => companies.some(pick);
 
-async function withCompanies(admin: AdminClient, fn: (companies: DispatchCompany[]) => Promise<void>): Promise<void> {
-  await fn(await loadDispatchCompanies(admin));
+/** The feature-on companies, loaded once per tick and shared by every sweep (company.ts). */
+async function withCompanies(admin: AdminClient, nowMs: number, fn: (companies: DispatchCompany[]) => Promise<void>): Promise<void> {
+  const companies = await loadDispatchCompaniesCached(admin, nowMs);
+  if (companies.length > 0) await fn(companies);
 }
+
+/** Last checks before a queued customer text goes out. */
+export const QUEUE_CHECKS = { job_moved: checkMovedStillValid, gap_offer: checkGapOfferStillValid };
 
 export const DISPATCHER_SWEEPS: StaffSweep[] = [
   {
     name: "dispatcher:on-our-way",
     intervalMs: 60_000,
-    run: (admin, nowMs) => withCompanies(admin, (cs) => (anyOn(cs, (c) => c.settings.onOurWay.enabled) ? sweepOnOurWay(admin, nowMs, byId(cs)) : Promise.resolve())),
+    run: (admin, nowMs) => withCompanies(admin, nowMs, (cs) => (anyOn(cs, (c) => c.settings.onOurWay.enabled) ? sweepOnOurWay(admin, nowMs, byId(cs)) : Promise.resolve())),
   },
   {
     name: "dispatcher:queue",
     intervalMs: 60_000,
-    run: (admin, nowMs) => withCompanies(admin, async (cs) => void (await flushQueuedMessages(admin, nowMs, byId(cs)))),
+    // A cheap look at the queue first: nothing due → no company load.
+    run: async (admin, nowMs) => {
+      if (!(await queueHasWork(admin, nowMs))) return;
+      await withCompanies(admin, nowMs, async (cs) => void (await flushQueuedMessages(admin, nowMs, byId(cs), QUEUE_CHECKS)));
+    },
   },
   {
     name: "dispatcher:fill-gap",
     intervalMs: 2 * 60_000,
-    run: (admin, nowMs) => withCompanies(admin, (cs) => sweepFillGap(admin, nowMs, byId(cs))),
+    run: (admin, nowMs) => withCompanies(admin, nowMs, (cs) => sweepFillGap(admin, nowMs, byId(cs))),
   },
   {
     name: "dispatcher:crew-texts",
     intervalMs: 5 * 60_000,
-    run: (admin, nowMs) => withCompanies(admin, (cs) => sweepCrewTexts(admin, nowMs, cs)),
+    run: (admin, nowMs) => withCompanies(admin, nowMs, (cs) => sweepCrewTexts(admin, nowMs, cs)),
   },
   {
     name: "dispatcher:weather",
-    intervalMs: 10 * 60_000,
-    run: (admin, nowMs) => withCompanies(admin, (cs) => sweepWeather(admin, nowMs, cs, { provider: openMeteoProvider(), geocoder: placesGeocoder() })),
+    intervalMs: 5 * 60_000,
+    run: (admin, nowMs) => withCompanies(admin, nowMs, (cs) => sweepWeather(admin, nowMs, cs, { provider: openMeteoProvider(), geocoder: placesGeocoder() })),
   },
 ];
 

@@ -51,6 +51,8 @@ export interface JobSheet extends JobSummary {
   checklistItems: ChecklistItem[];
   invoiceId: string | null;
   recurringJobId: string | null;
+  /** "On my way" should ask for an ETA (the customer gets a heads-up text with it). */
+  askEta?: boolean;
 }
 
 export interface ChecklistTemplate {

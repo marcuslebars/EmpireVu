@@ -97,10 +97,13 @@ create table if not exists public.dispatch_weather_cache (
   fetched_at timestamptz not null default now()
 );
 
--- The Dispatcher's sweeps read recent crew / booking events across companies.
-create index if not exists activity_events_dispatch_idx
-  on public.activity_events (event_type, created_at)
-  where event_type in ('booking.en_route', 'booking.rescheduled', 'booking.status_changed');
+-- No new activity_events index here: the sweeps filter by organization_id + occurred_at, which
+-- the existing (organization_id, occurred_at desc) index serves, and a plain CREATE INDEX
+-- would lock that big table inside this migration's transaction. If a large database ever
+-- needs one, create it by hand (outside a transaction):
+--   create index concurrently if not exists activity_events_dispatch_idx
+--     on public.activity_events (organization_id, event_type, occurred_at desc)
+--     where event_type in ('booking.en_route', 'booking.rescheduled', 'booking.status_changed');
 
 -- ── RLS: members read; nobody writes from the browser ───────────────────────────────
 alter table public.dispatch_messages enable row level security;

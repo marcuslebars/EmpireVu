@@ -24,6 +24,8 @@ export interface CrewJob {
   title: string;
   location: string | null;
   customerFirstName: string;
+  /** Still to happen: not started, not en route, not done. Only these are listed in texts. */
+  active?: boolean;
 }
 
 export interface CrewMemberPlan {
@@ -51,7 +53,12 @@ export function mapLink(location: string | null | undefined): string | null {
   return q ? `https://maps.google.com/?q=${encodeURIComponent(q).replace(/%20/g, "+")}` : null;
 }
 
-/** PURE: the day's identity — any change to which jobs, when, or where changes it. */
+/**
+ * PURE: the day's identity. It covers every non-cancelled job of the day (done, started and en
+ * route ones included, with fields that don't change as work happens), so only meaningful changes
+ * to jobs that haven't started — added, moved, new address / job, reassigned, cancelled — change
+ * it. Finishing, starting or heading out to a job never does.
+ */
 export function crewFingerprint(jobs: CrewJob[]): string {
   const canon = [...jobs]
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.bookingId.localeCompare(b.bookingId))
@@ -63,9 +70,10 @@ export function crewFingerprint(jobs: CrewJob[]): string {
 /** PURE: the crew member's text (first one, or an update). */
 export function crewScheduleText(input: { businessName: string; day: string; timeZone: string; jobs: CrewJob[]; update: boolean; tomorrow: boolean }): string {
   const when = `${input.tomorrow ? "tomorrow" : "today"} (${dayLabel(`${input.day}T12:00:00Z`, "UTC")})`;
-  if (input.jobs.length === 0) return `${input.businessName} update: you're no longer on any jobs ${when}.`;
+  const listed = input.jobs.filter((j) => j.active !== false);
+  if (listed.length === 0) return input.tomorrow ? `${input.businessName} update: you're no longer on any jobs ${when}.` : `${input.businessName} update: you have no more jobs ${when}.`;
   const head = input.update ? `${input.businessName} update - your jobs ${when} changed:` : `${input.businessName} - your jobs ${when}:`;
-  const sorted = [...input.jobs].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  const sorted = [...listed].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   const lines = sorted.slice(0, MAX_JOBS_LISTED).map((j, i) => {
     const parts = [`${i + 1}) ${timeLabel(j.startsAt, input.timeZone)}`, j.customerFirstName || null, jobPhrase(j.title), shortAddress(j.location), mapLink(j.location)].filter(Boolean);
     return parts.join(" - ");
@@ -75,21 +83,21 @@ export function crewScheduleText(input: { businessName: string; day: string; tim
 }
 
 /** Each team member's jobs on a local day (direct assignments + task assignees), with their phone. */
-export async function crewPlanForDay(admin: AdminClient, company: Pick<DispatchCompany, "organizationId" | "companyId" | "timeZone">, day: string): Promise<{ members: CrewMemberPlan[]; unassigned: CrewJob[] }> {
+export async function crewPlanForDay(admin: AdminClient, company: Pick<DispatchCompany, "organizationId" | "companyId" | "timeZone">, day: string): Promise<{ members: CrewMemberPlan[]; unassigned: CrewJob[]; phones: Map<string, string | null> }> {
   const db = admin as Db;
   const range = localDayRange(day, company.timeZone);
   const { data: bookingRows, error } = await db
     .from("bookings")
-    .select("id, contact_id, title, scheduled_for, location, status")
+    .select("id, contact_id, title, scheduled_for, location, status, en_route_at, started_at")
     .eq("organization_id", company.organizationId)
     .eq("company_id", company.companyId)
-    .in("status", ["pending", "confirmed"])
+    .in("status", ["pending", "confirmed", "completed", "no_show"])
     .gte("scheduled_for", range.from.toISOString())
     .lt("scheduled_for", range.to.toISOString())
     .order("scheduled_for", { ascending: true })
     .limit(300);
   if (error) throw error;
-  const bookings = (bookingRows ?? []) as Array<Pick<Tables<"bookings">, "id" | "contact_id" | "title" | "scheduled_for" | "location" | "status">>;
+  const bookings = (bookingRows ?? []) as Array<Pick<Tables<"bookings">, "id" | "contact_id" | "title" | "scheduled_for" | "location" | "status" | "en_route_at" | "started_at">>;
   const ids = bookings.map((b) => b.id);
   const contactIds = [...new Set(bookings.map((b) => b.contact_id).filter((x): x is string => Boolean(x)))];
   const [direct, tasks, contacts, memberships] = await Promise.all([
@@ -117,31 +125,37 @@ export async function crewPlanForDay(admin: AdminClient, company: Pick<DispatchC
   const byMember = new Map<string, CrewJob[]>();
   const unassigned: CrewJob[] = [];
   for (const b of bookings) {
-    const job: CrewJob = { bookingId: b.id, startsAt: b.scheduled_for, title: b.title, location: b.location, customerFirstName: b.contact_id ? firstOf.get(b.contact_id) ?? "" : "" };
+    const job: CrewJob = { bookingId: b.id, startsAt: b.scheduled_for, title: b.title, location: b.location, customerFirstName: b.contact_id ? firstOf.get(b.contact_id) ?? "" : "",
+      active: (b.status === "pending" || b.status === "confirmed") && !b.en_route_at && !b.started_at,
+    };
     const crew = (crewOf.get(b.id) ?? []).filter((p) => phoneOf.has(p)); // only people still in the org
     if (crew.length === 0) unassigned.push(job);
     for (const p of crew) byMember.set(p, [...(byMember.get(p) ?? []), job]);
   }
-  // Members who could have had jobs (phone on file) are included with an empty list, so a
-  // member whose last job moved away gets the "no longer on any jobs" update.
-  const profileIds = [...new Set([...byMember.keys(), ...[...phoneOf.entries()].filter(([, phone]) => Boolean(phone)).map(([p]) => p)])];
+  const profileIds = [...byMember.keys()];
   const { data: profiles } = profileIds.length ? await db.from("profiles").select("id, full_name, email").in("id", profileIds) : { data: [] };
   const nameOf = new Map(((profiles ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>).map((p) => [p.id, p.full_name?.trim() || p.email || "Team member"]));
   const members = profileIds.map((p) => ({ profileId: p, name: nameOf.get(p) ?? "Team member", phone: phoneOf.get(p) ?? null, jobs: byMember.get(p) ?? [] }));
-  return { members, unassigned };
+  return { members, unassigned, phones: phoneOf };
 }
 
-async function sentForDay(admin: AdminClient, company: Pick<DispatchCompany, "companyId">, profileId: string, day: string): Promise<DispatchMessageRow[]> {
-  const { data } = await (admin as Db)
+/** Every crew text already sent (or on its way) for a day, by member — one query. */
+async function sentForDay(admin: AdminClient, company: Pick<DispatchCompany, "companyId">, day: string): Promise<Map<string, DispatchMessageRow[]>> {
+  const { data, error } = await (admin as Db)
     .from("dispatch_messages")
     .select("*")
     .eq("company_id", company.companyId)
-    .eq("profile_id", profileId)
     .in("kind", ["crew_schedule", "crew_update"])
-    .like("dedupe_key", `${profileId}:${day}%`)
+    .eq("payload->>day", day)
     .order("created_at", { ascending: true })
-    .limit(50);
-  return ((data ?? []) as DispatchMessageRow[]).filter((r) => r.status !== "failed" && r.status !== "skipped");
+    .limit(1000);
+  if (error) throw error;
+  const out = new Map<string, DispatchMessageRow[]>();
+  for (const row of (data ?? []) as DispatchMessageRow[]) {
+    if (!row.profile_id || row.status === "failed" || row.status === "skipped") continue;
+    out.set(row.profile_id, [...(out.get(row.profile_id) ?? []), row]);
+  }
+  return out;
 }
 
 export interface CrewPassResult {
@@ -157,15 +171,21 @@ export interface CrewPassResult {
 export async function crewPassForDay(admin: AdminClient, company: DispatchCompany, day: string, nowMs: number, options: { initial: boolean; tomorrow: boolean }): Promise<CrewPassResult> {
   const result: CrewPassResult = { sent: 0, updates: 0, noPhone: 0 };
   const plan = await crewPlanForDay(admin, company, day);
-  for (const member of plan.members) {
+  const sent = await sentForDay(admin, company, day);
+  // Members with jobs, plus anyone already texted for this day (their jobs may all be gone).
+  const members: CrewMemberPlan[] = [
+    ...plan.members,
+    ...[...sent.keys()].filter((p) => !plan.members.some((m) => m.profileId === p)).map((p) => ({ profileId: p, name: "", phone: plan.phones.get(p) ?? null, jobs: [] })),
+  ];
+  for (const member of members) {
     if (!member.phone) {
       if (member.jobs.length > 0) result.noPhone++;
       continue;
     }
-    const previous = await sentForDay(admin, company, member.profileId, day);
+    const previous = sent.get(member.profileId) ?? [];
     const fingerprint = crewFingerprint(member.jobs);
     if (previous.length === 0) {
-      if (!options.initial || member.jobs.length === 0) continue;
+      if (!options.initial || !member.jobs.some((j) => j.active !== false)) continue;
       const outcome = await sendOrQueue(
         admin,
         company,

@@ -297,7 +297,7 @@ export function JobSheetView({ orgId, job }: { orgId: string; job: JobSheet }) {
       {/* Field actions — pinned to the bottom of the screen on phones. */}
       {!closed && (
         <div className="fixed sm:static inset-x-0 bottom-0 z-30 border-t sm:border-0 border-border bg-background/95 sm:bg-transparent backdrop-blur sm:backdrop-blur-none p-3 sm:p-0 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-0">
-          {askEta && job.stage === "scheduled" && (
+          {askEta && job.askEta && job.stage === "scheduled" && (
             <div className="max-w-3xl mx-auto mb-2" role="group" aria-label="When will you get there?">
               <p className="text-xs text-muted-foreground mb-1.5">When will you get there? The customer gets a heads-up text.</p>
               <div className="flex flex-wrap gap-1.5">
@@ -331,8 +331,8 @@ export function JobSheetView({ orgId, job }: { orgId: string; job: JobSheet }) {
               <button
                 type="button"
                 disabled={busy}
-                aria-expanded={askEta}
-                onClick={() => setAskEta((open) => !open)}
+                aria-expanded={job.askEta ? askEta : undefined}
+                onClick={() => (job.askEta ? setAskEta((open) => !open) : void run(() => enRoute.mutateAsync(null)))}
                 className="flex-1 h-12 rounded-xl text-sm font-semibold bg-secondary border border-border text-foreground flex items-center justify-center gap-2 hover:bg-secondary/80 disabled:opacity-60"
               >
                 {enRoute.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />} On my way

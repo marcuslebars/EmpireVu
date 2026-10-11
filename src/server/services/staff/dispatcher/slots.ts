@@ -37,16 +37,23 @@ export async function loadSlotContext(admin: AdminClient, company: Pick<Dispatch
   const policy = parseBookingPolicy(r?.booking_policy ?? null);
   const settings = parseOnlineBookingSettings(r?.online_booking_settings);
   const horizon = (policy ? policy.horizonDays : settings.horizonDays) + 14;
-  const { data, error } = await db
-    .from("bookings")
-    .select("id, scheduled_for, duration_minutes, window_key, status")
-    .eq("organization_id", company.organizationId)
-    .eq("company_id", company.companyId)
-    .neq("status", "cancelled")
-    .gte("scheduled_for", new Date(nowMs - 86_400_000).toISOString())
-    .lte("scheduled_for", new Date(nowMs + horizon * 86_400_000).toISOString())
-    .limit(2000);
-  if (error) throw error;
+  // PostgREST caps a response at 1000 rows: page through.
+  const data: unknown[] = [];
+  for (let from = 0; from < 10_000; from += 1000) {
+    const { data: page, error } = await db
+      .from("bookings")
+      .select("id, scheduled_for, duration_minutes, window_key, status")
+      .eq("organization_id", company.organizationId)
+      .eq("company_id", company.companyId)
+      .neq("status", "cancelled")
+      .gte("scheduled_for", new Date(nowMs - 86_400_000).toISOString())
+      .lte("scheduled_for", new Date(nowMs + horizon * 86_400_000).toISOString())
+      .order("id", { ascending: true })
+      .range(from, from + 999);
+    if (error) throw error;
+    data.push(...((page ?? []) as unknown[]));
+    if (((page ?? []) as unknown[]).length < 1000) break;
+  }
   const bookings = ((data ?? []) as Array<Pick<Tables<"bookings">, "id" | "scheduled_for" | "duration_minutes" | "window_key" | "status">>)
     .filter((b) => b.status !== "cancelled" && b.status !== "no_show")
     .map((b) => ({ id: b.id, scheduledFor: b.scheduled_for, durationMinutes: b.duration_minutes, windowKey: b.window_key }));

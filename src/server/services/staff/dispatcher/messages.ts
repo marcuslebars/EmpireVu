@@ -41,10 +41,45 @@ export type SendOutcome = "sent" | "queued" | "skipped" | "failed" | "blocked" |
 const MAX_ATTEMPTS = 3;
 const RETRY_MS = 10 * 60_000;
 
-/** When may this audience be texted now? Customers: customer hours. Crew: 06:00–21:00. */
-export function sendWindow(company: Pick<DispatchCompany, "settings">, audience: Audience): { from: string; until: string } {
-  return audience === "customer" ? company.settings.customerHours : { from: "06:00", until: "21:00" };
+/** "Your visit moved" may go from 07:00 (it's about their own booking, maybe this morning). */
+export const JOB_MOVED_FROM = "07:00";
+
+/**
+ * When may this text go? Crew: 06:00–21:00. Customers: customer hours (09:00–20:00), except a
+ * "your visit moved" text, which may go from 07:00.
+ */
+export function sendWindow(company: Pick<DispatchCompany, "settings">, audience: Audience, kind?: DispatchMessageKind): { from: string; until: string } {
+  if (audience === "crew") return { from: "06:00", until: "21:00" };
+  const hours = company.settings.customerHours;
+  return kind === "job_moved" && hours.from > JOB_MOVED_FROM ? { from: JOB_MOVED_FROM, until: hours.until } : hours;
 }
+
+/** The earliest instant (ms) this text could go out: now, or the next opening of its window. */
+export function nextSendMs(company: Pick<DispatchCompany, "settings" | "timeZone">, audience: Audience, kind: DispatchMessageKind, nowMs: number): number {
+  const w = sendWindow(company, audience, kind);
+  return withinLocalHours(nowMs, company.timeZone, w.from, w.until) ? nowMs : nextLocalTime(nowMs, company.timeZone, w.from).getTime();
+}
+
+/** Is the feature that produced this row still switched on? (Owner-initiated day moves always are.) */
+export function featureStillOn(company: Pick<DispatchCompany, "settings">, row: Pick<DispatchMessageRow, "kind" | "payload">): boolean {
+  const s = company.settings;
+  switch (row.kind) {
+    case "on_our_way":
+      return s.onOurWay.enabled;
+    case "crew_schedule":
+    case "crew_update":
+      return s.crewTexts.enabled;
+    case "gap_offer":
+      return s.fillGap.enabled;
+    case "job_moved":
+      return row.payload?.flavour === "weather" ? s.weather.enabled : true;
+    default:
+      return true;
+  }
+}
+
+/** A last check before a queued text goes out: a reason to skip it, or null to send. */
+export type SendCheck = (admin: AdminClient, company: DispatchCompany, row: DispatchMessageRow, nowMs: number) => Promise<string | null>;
 
 function isDuplicate(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && (error as { code?: string }).code === "23505");
@@ -76,6 +111,7 @@ export async function claimDispatchMessage(
       not_before: extra.notBefore ? extra.notBefore.toISOString() : null,
       expires_at: input.expiresAt ? input.expiresAt.toISOString() : null,
       attempts: 0,
+      updated_at: new Date().toISOString(),
       payload: { ...(input.payload ?? {}), audience: input.audience, consent: input.consent === true },
     })
     .select("*")
@@ -101,7 +137,11 @@ async function scopedContact(admin: AdminClient, company: Pick<DispatchCompany, 
 }
 
 async function finish(admin: AdminClient, row: DispatchMessageRow, patch: Record<string, unknown>): Promise<void> {
-  const { error } = await (admin as Db).from("dispatch_messages").update(patch).eq("id", row.id).eq("company_id", row.company_id);
+  const { error } = await (admin as Db)
+    .from("dispatch_messages")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", row.id)
+    .eq("company_id", row.company_id);
   if (error) console.error("[dispatcher] message update failed", row.id, error.message);
 }
 
@@ -166,7 +206,7 @@ export async function sendClaimedMessage(admin: AdminClient, company: DispatchCo
  * sweep sends it). "duplicate" when this (kind, key) was already claimed.
  */
 export async function sendOrQueue(admin: AdminClient, company: DispatchCompany, input: NewDispatchMessage, nowMs: number): Promise<SendOutcome> {
-  const window = sendWindow(company, input.audience);
+  const window = sendWindow(company, input.audience, input.kind);
   if (!withinLocalHours(nowMs, company.timeZone, window.from, window.until)) {
     const notBefore = nextLocalTime(nowMs, company.timeZone, window.from);
     if (input.expiresAt && input.expiresAt.getTime() <= notBefore.getTime()) {
@@ -181,36 +221,83 @@ export async function sendOrQueue(admin: AdminClient, company: DispatchCompany, 
   return sendClaimedMessage(admin, company, row, nowMs);
 }
 
-/**
- * The queue sweep: queued rows whose time has come, inside their audience's hours. Each row is
- * claimed (queued → sending, conditional) before sending, so overlapping workers can't double it.
- */
-export async function flushQueuedMessages(admin: AdminClient, nowMs: number, companies: Map<string, DispatchCompany>): Promise<number> {
+/** A 'sending' row older than this was left by a crashed worker: it goes back to the queue. */
+export const STALE_SENDING_MS = 10 * 60_000;
+
+/** Cheap pre-check for the queue sweep (before any company is loaded). */
+export async function queueHasWork(admin: AdminClient, nowMs: number): Promise<boolean> {
   const db = admin as Db;
-  const { data, error } = await db
-    .from("dispatch_messages")
-    .select("*")
-    .eq("status", "queued")
-    .lte("not_before", new Date(nowMs).toISOString())
-    .order("not_before", { ascending: true })
-    .limit(100);
-  if (error) throw error;
+  const [{ data: due }, { data: stale }] = await Promise.all([
+    db.from("dispatch_messages").select("id").eq("status", "queued").lte("not_before", new Date(nowMs).toISOString()).limit(1),
+    db.from("dispatch_messages").select("id").eq("status", "sending").lt("updated_at", new Date(nowMs - STALE_SENDING_MS).toISOString()).limit(1),
+  ]);
+  return ((due ?? []) as unknown[]).length > 0 || ((stale ?? []) as unknown[]).length > 0;
+}
+
+/**
+ * The queue sweep: queued rows of the loaded (feature-on, active) companies whose time has come,
+ * inside their window. Stale 'sending' rows (a crashed worker) are put back first. Each row is
+ * claimed (queued → sending, conditional) before sending, so overlapping workers can't double it;
+ * a row whose feature was switched off, or whose `checks[kind]` says it's no longer true (the
+ * booking moved again, the gap got booked …), is skipped with the reason.
+ */
+export async function flushQueuedMessages(
+  admin: AdminClient,
+  nowMs: number,
+  companies: Map<string, DispatchCompany>,
+  checks: Partial<Record<DispatchMessageKind, SendCheck>> = {},
+): Promise<number> {
+  const db = admin as Db;
+  const ids = [...companies.keys()];
+  if (ids.length === 0) return 0;
+  const nowIso = new Date(nowMs).toISOString();
+  const rows: DispatchMessageRow[] = [];
+  for (let i = 0; i < ids.length; i += 150) {
+    const chunk = ids.slice(i, i + 150);
+    const { error: staleError } = await db
+      .from("dispatch_messages")
+      .update({ status: "queued", not_before: nowIso, updated_at: nowIso })
+      .in("company_id", chunk)
+      .eq("status", "sending")
+      .lt("updated_at", new Date(nowMs - STALE_SENDING_MS).toISOString());
+    if (staleError) console.error("[dispatcher] reclaiming stale sends failed", staleError.message);
+    const { data, error } = await db
+      .from("dispatch_messages")
+      .select("*")
+      .in("company_id", chunk)
+      .eq("status", "queued")
+      .lte("not_before", nowIso)
+      .order("not_before", { ascending: true })
+      .limit(100);
+    if (error) throw error;
+    rows.push(...((data ?? []) as DispatchMessageRow[]));
+  }
   let sent = 0;
-  for (const row of (data ?? []) as DispatchMessageRow[]) {
+  for (const row of rows) {
     const company = companies.get(row.company_id);
     if (!company || company.organizationId !== row.organization_id) continue;
     const audience: Audience = row.payload?.audience === "crew" ? "crew" : "customer";
-    const window = sendWindow(company, audience);
+    const window = sendWindow(company, audience, row.kind);
     if (!withinLocalHours(nowMs, company.timeZone, window.from, window.until)) continue;
     const { data: claimed } = await db
       .from("dispatch_messages")
-      .update({ status: "sending" })
+      .update({ status: "sending", updated_at: nowIso })
       .eq("id", row.id)
       .eq("company_id", row.company_id)
       .eq("status", "queued")
       .select("*");
     const mine = ((claimed ?? []) as DispatchMessageRow[])[0];
     if (!mine) continue;
+    if (!featureStillOn(company, mine)) {
+      await finish(admin, mine, { status: "skipped", reason: "feature_off" });
+      continue;
+    }
+    const check = checks[mine.kind];
+    const why = check ? await check(admin, company, mine, nowMs).catch(() => "check_failed") : null;
+    if (why) {
+      await finish(admin, mine, { status: "skipped", reason: why });
+      continue;
+    }
     if ((await sendClaimedMessage(admin, company, mine, nowMs)) === "sent") sent++;
   }
   return sent;
