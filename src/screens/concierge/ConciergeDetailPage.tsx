@@ -558,7 +558,8 @@ const ACTION_CONFIRM: Record<string, { title: string; body: (d: ConciergeAccount
 };
 
 function ActionsCard({ detail, run, busyAction }: { detail: ConciergeAccountDetail; run: (action: string) => void; busyAction: string | null }) {
-  const buttons = detail.actions.filter((a) => !FORM_ACTIONS.has(a.name));
+  // port_* actions need a port id: they run from /concierge/ports (port_start is a plain button).
+  const buttons = detail.actions.filter((a) => !FORM_ACTIONS.has(a.name) && (a.name === "port_start" || !a.name.startsWith("port_")));
   return (
     <Section title="Actions">
       <div className="grid gap-2">
