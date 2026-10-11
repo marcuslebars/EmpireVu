@@ -168,7 +168,7 @@ export function templateJobDraft(request: string, brief: JobBrief, hints: { titl
   const fromText = /\b(?:need|hiring|looking for|want)\s+(?:an?\s+|another\s+|\d+\s+)?([a-z][a-z\s-]{2,40}?)(?=[,.;!]|\s+(?:at|for|who|to|starting|start|\$)|$)/i.exec(request)?.[1];
   const titleRaw = clean(hints.title, 60) ?? clean(fromText, 60) ?? "General labourer";
   const title = titleRaw.replace(/\b\w/g, (c) => c.toUpperCase());
-  const payMatch = /\$\s?\d[\d,.]*\s*(?:k\b)?(?:\s*(?:\/|per|an?)\s*(?:hr|hour|year|yr|week|wk))?|\b\d{1,3}(?:\.\d{1,2})?\s*(?:\/\s*hr|an hour|per hour)/i.exec(request)?.[0];
+  const payMatch = /\$\s?\d[\d,.]*(?:\s*(?:-|to)\s*\$?\s?\d[\d,.]*)?\s*(?:k\b)?(?:\s*(?:\/|per|an?)\s*(?:hr|hour|year|yr|week|wk))?|\b\d{1,3}(?:\.\d{1,2})?\s*(?:\/\s*hr|an hour|per hour)/i.exec(request)?.[0];
   const pay = checkedPay(clean(hints.pay, 60) ?? clean(payMatch, 60), request);
   const start = clean(hints.start, 60) ?? clean(/\bstart(?:ing)?\s+([a-z0-9 ,]{3,30}?)(?=[.;!]|$)/i.exec(request)?.[1], 60);
   const trade = brief.trade ? `${brief.trade.toLowerCase()} ` : "";

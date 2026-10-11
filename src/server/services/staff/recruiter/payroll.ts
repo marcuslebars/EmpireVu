@@ -37,7 +37,7 @@ import {
   type PeriodDates,
   type PersonHours,
 } from "./periods";
-import { loadRecruiterCompany, type RecruiterCompany } from "./settings";
+import { isCrankleadsOrg, loadRecruiterCompany, readRecruiterSettings, type RecruiterCompany } from "./settings";
 
 /** The approval goes out from 08:00 local the day after the period ends … */
 export const PAYROLL_HOUR = 8;
@@ -63,24 +63,42 @@ function localHour(nowMs: number, timeZone: string): number {
 export interface PeriodWindow extends PeriodDates {
   startsAt: string;
   endsAt: string;
+  /** This period also pays (and locks) the org's general time — see generalTimeCompanyId. */
+  coversGeneralTime: boolean;
 }
 
-export function periodWindow(dates: PeriodDates, timeZone: string): PeriodWindow {
+export function periodWindow(dates: PeriodDates, timeZone: string, coversGeneralTime = false): PeriodWindow {
   return {
     ...dates,
+    coversGeneralTime,
     startsAt: zonedInstant(dates.start, "00:00", timeZone).toISOString(),
     endsAt: zonedInstant(addDays(dates.end, 1), "00:00", timeZone).toISOString(),
   };
 }
 
-function windowOf(row: Pick<PayPeriodRow, "start_date" | "end_date" | "starts_at" | "ends_at">): PeriodWindow {
-  return { start: row.start_date, end: row.end_date, startsAt: row.starts_at, endsAt: row.ends_at };
+function windowOf(row: Pick<PayPeriodRow, "start_date" | "end_date" | "starts_at" | "ends_at" | "covers_general_time">): PeriodWindow {
+  return { start: row.start_date, end: row.end_date, startsAt: row.starts_at, endsAt: row.ends_at, coversGeneralTime: row.covers_general_time === true };
 }
 
-/** The org's first company (oldest): general time (no company) is counted there only. */
-async function isPrimaryCompany(db: Db, organizationId: string, companyId: string): Promise<boolean> {
-  const { data } = await db.from("companies").select("id, created_at").eq("organization_id", organizationId).order("created_at", { ascending: true }).order("id", { ascending: true }).limit(1);
-  return ((data ?? []) as Array<{ id: string }>)[0]?.id === companyId;
+/**
+ * The company whose payroll pays the org's general time (time_entries.company_id null): the
+ * oldest company with payroll on (the primary company when it has payroll on). Decided when a
+ * period is created and stored on it (pay_periods.covers_general_time), and the lock (time-lock.ts
+ * and the time_entries trigger) follows that flag — so what's paid is exactly what's locked.
+ */
+export async function generalTimeCompanyId(admin: AdminClient, organizationId: string): Promise<string | null> {
+  const db = admin as Db;
+  const { data } = await db
+    .from("companies")
+    .select("id, ai_settings, created_at")
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(200);
+  const { data: org } = await db.from("organizations").select("platform_brand").eq("id", organizationId).maybeSingle();
+  const crankleads = isCrankleadsOrg(org);
+  const first = ((data ?? []) as Array<{ id: string; ai_settings: unknown }>).find((c) => readRecruiterSettings(c.ai_settings, { crankleads }).payroll.enabled);
+  return first?.id ?? null;
 }
 
 /** Everyone's hours for one period (entries + names + pay rates). Throws on a failed read. */
@@ -89,7 +107,6 @@ export async function loadPeriodHours(admin: AdminClient, company: RecruiterComp
   const weekStartDay = workWeekStartDay(company.settings.payroll.frequency, company.settings.payroll.anchorDate);
   const firstWeek = workWeekStart(period.start, weekStartDay);
   const from = zonedInstant(firstWeek, "00:00", company.timeZone).toISOString();
-  const primary = await isPrimaryCompany(db, company.organizationId, company.companyId);
   const entries: PayrollEntry[] = [];
   for (let offset = 0; offset < 20_000; offset += 1000) {
     const { data, error } = await db
@@ -102,10 +119,12 @@ export async function loadPeriodHours(admin: AdminClient, company: RecruiterComp
       .range(offset, offset + 999);
     if (error) throw error;
     const rows = (data ?? []) as PayrollEntry[];
-    entries.push(...rows.filter((e) => e.company_id === company.companyId || (e.company_id === null && primary)));
+    // Every company's entries: the 44-hour week is per worker across the org.
+    entries.push(...rows);
     if (rows.length < 1000) break;
   }
-  const ids = [...new Set(entries.map((e) => e.profile_id))];
+  const counts = (e: PayrollEntry) => e.company_id === company.companyId || (e.company_id === null && period.coversGeneralTime);
+  const ids = [...new Set(entries.filter(counts).map((e) => e.profile_id))];
   const people = new Map<string, { name: string; email: string | null }>();
   const rates = new Map<string, number>();
   if (ids.length) {
@@ -123,6 +142,7 @@ export async function loadPeriodHours(admin: AdminClient, company: RecruiterComp
   }
   return computePayroll({
     entries,
+    counts,
     startsAtMs: Date.parse(period.startsAt),
     endsAtMs: Date.parse(period.endsAt),
     timeZone: company.timeZone,
@@ -152,7 +172,7 @@ async function csvEmailTo(admin: AdminClient, company: RecruiterCompany, deps: P
 
 export interface PayrollSweepOutcome {
   companyId: string;
-  status: "asked" | "empty" | "claimed_elsewhere" | "failed" | "not_due";
+  status: "asked" | "empty" | "claimed_elsewhere" | "overlap" | "failed" | "not_due";
   periodId?: string;
 }
 
@@ -167,10 +187,20 @@ export async function runCompanyPayroll(admin: AdminClient, company: RecruiterCo
   const late = daysBetween(dayAfter, today);
   if (late < 0 || late > PAYROLL_CATCH_UP_DAYS || (late === 0 && localHour(nowMs, tz) < PAYROLL_HOUR)) return { companyId: company.companyId, status: "not_due" };
 
-  const { data: existing } = await db.from("pay_periods").select("id").eq("organization_id", company.organizationId).eq("company_id", company.companyId).eq("start_date", dates.start).limit(1);
-  if (((existing ?? []) as unknown[]).length) return { companyId: company.companyId, status: "claimed_elsewhere" };
+  // Already asked — or overlapping a period of an earlier schedule (frequency / anchor changed):
+  // never count a day twice (the DB trigger pay_periods_no_overlap is the backstop).
+  const { data: existing } = await db
+    .from("pay_periods")
+    .select("id, start_date")
+    .eq("organization_id", company.organizationId)
+    .eq("company_id", company.companyId)
+    .lte("start_date", dates.end)
+    .gte("end_date", dates.start)
+    .limit(1);
+  const clash = ((existing ?? []) as Array<{ start_date: string }>)[0];
+  if (clash) return { companyId: company.companyId, status: clash.start_date === dates.start ? "claimed_elsewhere" : "overlap" };
 
-  const window = periodWindow(dates, tz);
+  const window = periodWindow(dates, tz, (await generalTimeCompanyId(admin, company.organizationId)) === company.companyId);
   const { data: claimed, error } = await db
     .from("pay_periods")
     .insert({
@@ -182,6 +212,7 @@ export async function runCompanyPayroll(admin: AdminClient, company: RecruiterCo
       starts_at: window.startsAt,
       ends_at: window.endsAt,
       status: "pending",
+      covers_general_time: window.coversGeneralTime,
     })
     .select("*")
     .single();

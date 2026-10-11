@@ -142,8 +142,13 @@ export interface PersonHours {
 }
 
 export interface PayrollInput {
-  /** Entries from the start of the first work week touching the period, up to its end. */
+  /**
+   * The org's entries (every company and general time) from the start of the first work week
+   * touching the period, up to its end: the 44-hour week is per WORKER, across companies.
+   */
   entries: PayrollEntry[];
+  /** Which entries are paid in this period's payroll (this company's, + general time if it covers it). Default: all. */
+  counts?: (e: PayrollEntry) => boolean;
   startsAtMs: number;
   endsAtMs: number;
   timeZone: string;
@@ -182,7 +187,9 @@ export function computePayroll(input: PayrollInput): PersonHours[] {
       const after = before + minutes;
       weekTotals.set(week, after);
       const started = Date.parse(e.started_at);
-      if (started < input.startsAtMs) continue; // only counts toward the week's 44
+      // Earlier days, and other companies' hours, only count toward the worker's 44 for the week;
+      // the hours past 44 are paid (flagged) where they fell.
+      if (started < input.startsAtMs || (input.counts && !input.counts(e))) continue;
       inPeriod += 1;
       const otPart = Math.max(0, after - OT_THRESHOLD_MINUTES) - Math.max(0, before - OT_THRESHOLD_MINUTES);
       ot += otPart;

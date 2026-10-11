@@ -21,6 +21,8 @@ export interface PayPeriodRow {
   ends_at: string;
   status: PayPeriodStatus;
   approval_id: string | null;
+  /** Also pays and locks the org's general time (company_id null). */
+  covers_general_time: boolean;
   people: number;
   total_minutes: number;
   ot_minutes: number;
@@ -101,6 +103,7 @@ export interface JobApplicantRow {
   digest_at: string | null;
   invite_approval_id: string | null;
   invited_at: string | null;
+  invite_send_after: string | null;
   applied_count: number;
   last_applied_at: string;
   created_at: string;

@@ -19,7 +19,7 @@
 import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } from "@/server/services/front-desk/contracts";
 import { prettyPhone } from "@/server/services/front-desk/approval-text";
 import { sendOwnerSms } from "@/server/services/owner-channel/common";
-import { localDate } from "@/server/services/booking-windows";
+import { addDays, localDate, zonedInstant } from "@/server/services/booking-windows";
 import { markOwnerTakeover, setConversationAi } from "@/server/services/sms-agent/takeover";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { deliverMessage, resolveCompanySmsFrom, type ConsentContact } from "@/server/services/workflow-engine/messaging";
@@ -265,18 +265,35 @@ export async function sendConfirmation(admin: AdminClient, company: RecruiterCom
 }
 
 /** Morning catch-up for confirmations that came in overnight (or failed to claim). */
+/** Company ids in `.in()` chunks (keeps each request small). */
+function chunked(ids: string[], size = 100): string[][] {
+  const out: string[][] = [];
+  for (let k = 0; k < ids.length; k += size) out.push(ids.slice(k, k + size));
+  return out;
+}
+
+/**
+ * Morning catch-up for confirmations that came in overnight. Only rows of companies that are on
+ * AND inside their texting hours are read, so one company's waiting rows never block another's.
+ */
 export async function sweepConfirmations(admin: AdminClient, nowMs: number, companies: Map<string, RecruiterCompany>, deps: ApplicantDeps = defaultApplicantDeps): Promise<number> {
   const db = admin as Db;
   const since = new Date(nowMs - 2 * 86_400_000).toISOString();
-  const { data } = await db.from("job_applicants").select("*").eq("confirmation_status", "pending").gte("created_at", since).order("created_at", { ascending: true }).limit(100);
+  const ready = [...companies.values()].filter((c) => c.settings.hiring.enabled && withinHours(nowMs, c.timeZone)).map((c) => c.companyId);
   let sent = 0;
-  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
-    const applicant = toApplicant(row);
-    const company = companies.get(applicant.company_id);
-    if (!company || company.organizationId !== applicant.organization_id || !company.settings.hiring.enabled || !withinHours(nowMs, company.timeZone)) continue;
-    const job = await loadJob(admin, company, applicant.job_id);
-    if (!job) continue;
-    if ((await sendConfirmation(admin, company, applicant, job, nowMs, deps)) === "sent") sent += 1;
+  for (const ids of chunked(ready)) {
+    const { data } = await db.from("job_applicants").select("*").in("company_id", ids).eq("confirmation_status", "pending").gte("created_at", since).order("created_at", { ascending: true }).limit(100);
+    for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+      const applicant = toApplicant(row);
+      const company = companies.get(applicant.company_id);
+      if (!company || company.organizationId !== applicant.organization_id) continue;
+      const job = await loadJob(admin, company, applicant.job_id);
+      if (!job) {
+        await db.from("job_applicants").update({ confirmation_status: "skipped" }).eq("id", applicant.id).eq("organization_id", applicant.organization_id).eq("confirmation_status", "pending");
+        continue;
+      }
+      if ((await sendConfirmation(admin, company, applicant, job, nowMs, deps)) === "sent") sent += 1;
+    }
   }
   // Older than 2 days and never sent: too late to say thanks — mark skipped.
   await db.from("job_applicants").update({ confirmation_status: "skipped" }).eq("confirmation_status", "pending").lt("created_at", since);
@@ -285,33 +302,48 @@ export async function sweepConfirmations(admin: AdminClient, nowMs: number, comp
 
 // ── Screening ────────────────────────────────────────────────────────────────
 
+/**
+ * Screen up to SCREEN_BATCH applicants per pass — only of companies with hiring on and only rows
+ * with attempts left, so rows that can't be screened never block the queue. A row whose job is
+ * gone is marked done (attempts used up).
+ */
 export async function sweepScreening(admin: AdminClient, nowMs: number, companies: Map<string, RecruiterCompany>, deps: ApplicantDeps = defaultApplicantDeps): Promise<number> {
   const db = admin as Db;
-  const { data } = await db.from("job_applicants").select("*").is("screened_at", null).order("created_at", { ascending: true }).limit(SCREEN_BATCH);
+  const enabled = [...companies.values()].filter((c) => c.settings.hiring.enabled).map((c) => c.companyId);
   let done = 0;
-  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
-    const a = toApplicant(row);
-    const company = companies.get(a.company_id);
-    if (!company || company.organizationId !== a.organization_id || (a.screen_attempts ?? 0) >= SCREEN_MAX_ATTEMPTS) continue;
-    const job = await loadJob(admin, company, a.job_id);
-    if (!job) continue;
-    // Count the attempt first (a crash mid-call can't loop forever).
-    const { data: claim } = await db
+  for (const ids of chunked(enabled)) {
+    if (done >= SCREEN_BATCH) break;
+    const { data } = await db
       .from("job_applicants")
-      .update({ screen_attempts: (a.screen_attempts ?? 0) + 1 })
-      .eq("id", a.id)
-      .eq("organization_id", a.organization_id)
-      .eq("screen_attempts", a.screen_attempts ?? 0)
+      .select("*")
+      .in("company_id", ids)
       .is("screened_at", null)
-      .select("id");
-    if (((claim ?? []) as unknown[]).length === 0) continue;
-    const s = await screenApplicant(deps.model, job, a, company);
-    await db
-      .from("job_applicants")
-      .update({ score: s.score, score_reason: s.reason, screening: { meets: s.meets }, screening_source: s.source, screened_at: new Date(nowMs).toISOString() })
-      .eq("id", a.id)
-      .eq("organization_id", a.organization_id);
-    done += 1;
+      .lt("screen_attempts", SCREEN_MAX_ATTEMPTS)
+      .order("created_at", { ascending: true })
+      .limit(SCREEN_BATCH - done);
+    for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+      const a = toApplicant(row);
+      const company = companies.get(a.company_id);
+      if (!company || company.organizationId !== a.organization_id) continue;
+      const job = await loadJob(admin, company, a.job_id);
+      // Count the attempt first (a crash mid-call can't loop forever); no job → attempts used up.
+      const { data: claim } = await db
+        .from("job_applicants")
+        .update({ screen_attempts: job ? (a.screen_attempts ?? 0) + 1 : SCREEN_MAX_ATTEMPTS })
+        .eq("id", a.id)
+        .eq("organization_id", a.organization_id)
+        .eq("screen_attempts", a.screen_attempts ?? 0)
+        .is("screened_at", null)
+        .select("id");
+      if (!job || ((claim ?? []) as unknown[]).length === 0) continue;
+      const sc = await screenApplicant(deps.model, job, a, company);
+      await db
+        .from("job_applicants")
+        .update({ score: sc.score, score_reason: sc.reason, screening: { meets: sc.meets }, screening_source: sc.source, screened_at: new Date(nowMs).toISOString() })
+        .eq("id", a.id)
+        .eq("organization_id", a.organization_id);
+      done += 1;
+    }
   }
   return done;
 }
@@ -489,21 +521,60 @@ export async function executeInterviewInvite(admin: AdminClient, approval: Owner
   if (contact.sms_opt_out_at) return { ok: false, message: `${a.name} replied STOP to your number, so I can't text them. Their number is ${prettyPhone(a.phone) ?? a.phone}.` };
   const ctx = tenant(admin, a.organization_id);
   if (!(await resolveCompanySmsFrom(ctx, a.company_id))) return { ok: false, message: `Your business has no texting number yet, so I couldn't text ${a.name}. Their number is ${prettyPhone(a.phone) ?? a.phone}.` };
+  // Applicant texts only go 08:00–21:00 local: a late Y queues it for the morning sweep.
+  if (!withinHours(nowMs, company.timeZone)) {
+    const at = nextTextingStart(nowMs, company.timeZone);
+    const { data: queued } = await db
+      .from("job_applicants")
+      .update({ invite_send_after: at.toISOString() })
+      .eq("id", a.id)
+      .eq("organization_id", a.organization_id)
+      .is("invited_at", null)
+      .select("id");
+    if (((queued ?? []) as unknown[]).length === 0) return { ok: true, message: `${a.name} was already invited.` };
+    return { ok: true, message: `It's late, so I'll text ${a.name} about the ${job.title} job at 8am. Their reply will come to you.` };
+  }
+  const sent = await sendInvite(admin, company, a, job, contact, nowMs, deps);
+  if (sent.status === "already") return { ok: true, message: `${a.name} was already invited.` };
+  if (sent.status === "failed") return { ok: false, message: `The text to ${a.name} didn't go through (${sent.reason}). Their number is ${prettyPhone(a.phone) ?? a.phone}.` };
+  return { ok: true, message: `Texted ${a.name} about the ${job.title} job. Their reply will come to you.` };
+}
+
+/** 08:00 local today if it's still ahead, else tomorrow's. */
+export function nextTextingStart(nowMs: number, timeZone: string): Date {
+  const today = localDate(new Date(nowMs), timeZone);
+  const at = zonedInstant(today, `${String(APPLICANT_TEXT_HOURS.from).padStart(2, "0")}:00`, timeZone);
+  return at.getTime() > nowMs ? at : zonedInstant(addDays(today, 1), `${String(APPLICANT_TEXT_HOURS.from).padStart(2, "0")}:00`, timeZone);
+}
+
+type InviteContact = { id: string; sms_opt_out_at: string | null; email_opt_out_at: string | null; metadata: unknown };
+
+/** Claim (invited_at) → the exact invite text → the conversation goes to the owner. */
+async function sendInvite(
+  admin: AdminClient,
+  company: RecruiterCompany,
+  a: JobApplicantRow,
+  job: Pick<JobPostingRow, "title">,
+  contact: InviteContact,
+  nowMs: number,
+  deps: ApplicantDeps,
+): Promise<{ status: "sent" | "already" | "failed"; reason?: string }> {
+  const db = admin as Db;
+  const ctx = tenant(admin, a.organization_id);
   // Claim before sending: one text however many times this runs.
   const { data: claim } = await db
     .from("job_applicants")
-    .update({ invited_at: new Date(nowMs).toISOString(), status: "invited" })
+    .update({ invited_at: new Date(nowMs).toISOString(), status: "invited", invite_send_after: null })
     .eq("id", a.id)
     .eq("organization_id", a.organization_id)
     .is("invited_at", null)
     .select("id");
-  if (((claim ?? []) as unknown[]).length === 0) return { ok: true, message: `${a.name} was already invited.` };
-  const body = inviteText(a.name, company.name, job.title);
+  if (((claim ?? []) as unknown[]).length === 0) return { status: "already" };
   const result = await deps.deliver({
     context: ctx,
     channel: "sms",
     to: a.phone,
-    body,
+    body: inviteText(a.name, company.name, job.title),
     companyId: a.company_id,
     contactId: contact.id,
     consentContact: applicantConsent(contact, nowMs),
@@ -511,13 +582,49 @@ export async function executeInterviewInvite(admin: AdminClient, approval: Owner
   });
   if (result.status !== "sent") {
     await db.from("job_applicants").update({ invited_at: null, status: "new" }).eq("id", a.id).eq("organization_id", a.organization_id);
-    return { ok: false, message: `The text to ${a.name} didn't go through (${result.reason ?? result.status}). Their number is ${prettyPhone(a.phone) ?? a.phone}.` };
+    return { status: "failed", reason: result.reason ?? result.status };
   }
   // Their reply is the owner's: an applicant-only contact stays paused; anyone else is taken over.
   const meta = contact.metadata && typeof contact.metadata === "object" ? (contact.metadata as Record<string, unknown>) : {};
   if (meta.kind === "applicant") await setConversationAi(admin, { companyId: a.company_id, contactId: contact.id, on: false }).catch(() => null);
   else await markOwnerTakeover(admin, { companyId: a.company_id, contactId: contact.id, at: new Date(nowMs) });
-  return { ok: true, message: `Texted ${a.name} about the ${job.title} job. Their reply will come to you.` };
+  return { status: "sent" };
+}
+
+/** Invites the owner OK'd late at night go out from 08:00 local (only for companies in hours). */
+export async function sweepQueuedInvites(admin: AdminClient, nowMs: number, companies: Map<string, RecruiterCompany>, deps: ApplicantDeps = defaultApplicantDeps): Promise<number> {
+  const db = admin as Db;
+  const ready = [...companies.values()].filter((c) => c.settings.hiring.enabled && withinHours(nowMs, c.timeZone)).map((c) => c.companyId);
+  let sent = 0;
+  for (const ids of chunked(ready)) {
+    const { data } = await db
+      .from("job_applicants")
+      .select("*")
+      .in("company_id", ids)
+      .is("invited_at", null)
+      .lte("invite_send_after", new Date(nowMs).toISOString())
+      .order("invite_send_after", { ascending: true })
+      .limit(50);
+    for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+      const a = toApplicant(row);
+      const company = companies.get(a.company_id);
+      if (!company || company.organizationId !== a.organization_id || !a.invite_send_after) continue;
+      const job = await loadJob(admin, company, a.job_id);
+      const contact = await loadContactFor(admin, a.organization_id, a.contact_id);
+      const drop = async (why: string) => {
+        await db.from("job_applicants").update({ invite_send_after: null }).eq("id", a.id).eq("organization_id", a.organization_id).is("invited_at", null);
+        if (company.ownerPhone) await deps.sendOwnerSms(admin, { to: company.ownerPhone, body: why, organizationId: company.organizationId, companyId: company.companyId, platformBrand: company.platformBrand });
+      };
+      if (!job || !contact || contact.sms_opt_out_at) {
+        await drop(`I didn't text ${a.name} this morning (${!job ? "the job is gone" : !contact ? "their contact is gone" : "they replied STOP"}).`);
+        continue;
+      }
+      const result = await sendInvite(admin, company, a, job, contact, nowMs, deps);
+      if (result.status === "sent") sent += 1;
+      else if (result.status === "failed") await drop(`The 8am text to ${a.name} didn't go through (${result.reason}). Their number is ${prettyPhone(a.phone) ?? a.phone}.`);
+    }
+  }
+  return sent;
 }
 
 /** Applicants for the owner tool: newest jobs first, best applicants first. */

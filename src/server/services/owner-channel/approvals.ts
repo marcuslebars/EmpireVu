@@ -74,7 +74,9 @@ const ACTION = /^(move|cancel|reschedule|tell|text|send|list|show|pause|resume|s
  */
 export function looksLikeApprovalAttempt(body: string): boolean {
   const text = (body ?? "").trim();
-  if (parseApprovalReply(text)) return false;
+  const parsed = parseApprovalReply(text);
+  // "anyway" is a decision only where a payroll_period waits (entry.ts); elsewhere judge it as before.
+  if (parsed && parsed.note !== "anyway") return false;
   const m = new RegExp(`^\\s*${WORD}\\b\\s*#?\\s*\\d{0,4}\\s*([,.:;!-]*)\\s*([\\s\\S]*)$`, "i").exec(text);
   if (!m) return false;
   const word = m[1].toLowerCase();

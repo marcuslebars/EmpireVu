@@ -5,7 +5,7 @@ import { createFakeDb, type FakeDb } from "@/test/helpers/fake-supabase";
 // Hiring & payroll routes: Settings (GET members / PATCH owners+admins, merging ONLY
 // ai_settings.recruiter), pay period lock/unlock + CSV download (owners/admins), and the public
 // jobs pages + apply form (slug-scoped, bot checks).
-const h = vi.hoisted(() => ({ db: null as FakeDb | null, role: "owner", limited: false }));
+const h = vi.hoisted(() => ({ db: null as FakeDb | null, role: "owner", limited: false, phoneLimited: false }));
 const sendSms = vi.fn((..._a: unknown[]) => Promise.resolve({ sid: "SM1" }));
 vi.mock("@/server/supabase/admin", () => ({ createSupabaseAdminClient: () => h.db?.client }));
 vi.mock("@/server/supabase/server", () => ({ createSupabaseServerClient: () => h.db?.client }));
@@ -54,7 +54,7 @@ function seed(brand = "crankleads"): FakeDb {
     voice_numbers: [{ organization_id: ORG, company_id: COMPANY, provider: "twilio", active: true, phone_e164: "+17055550111", mode: "missed_call_catcher" }],
     platform_sms_opt_outs: [],
   });
-  db.onRpc(() => ({ data: !h.limited, error: null }));
+  db.onRpc((_name, args) => ({ data: String(args.p_key).startsWith("job_apply_phone") ? !h.phoneLimited : !h.limited, error: null }));
   return db;
 }
 
@@ -73,6 +73,7 @@ beforeEach(() => {
   h.db = seed();
   h.role = "owner";
   h.limited = false;
+  h.phoneLimited = false;
   sendSms.mockClear();
 });
 
@@ -135,7 +136,9 @@ describe("public jobs pages", () => {
     const list = await JOBS(new Request("http://x"), { params: { slug: "northshore" } });
     expect(list.status).toBe(200);
     expect(await list.text()).toContain("Jobs at Northshore Roofing");
-    expect((await JOB(new Request("http://x"), { params: { slug: "northshore", jobId: JOB_ID } })).status).toBe(200);
+    const job = await JOB(new Request("http://x"), { params: { slug: "northshore", jobId: JOB_ID } });
+    expect(job.status).toBe(200);
+    expect(await job.text()).toMatch(/name="t" value="\d{13}"/); // render time, so the form works without JS
     expect((await JOBS(new Request("http://x"), { params: { slug: "nobody" } })).status).toBe(404);
   });
 
@@ -157,5 +160,14 @@ describe("public jobs pages", () => {
     const bad = await APPLY(applyRequest({ phone: "12" }), { params: { slug: "northshore", jobId: JOB_ID } });
     expect(bad.status).toBe(400);
     expect(await bad.text()).toContain("10-digit");
+    // No render time at all (a bot posting the form directly) fails the timing check.
+    const noT = await APPLY(applyRequest({ phone: "705-555-0146", t: "" }), { params: { slug: "northshore", jobId: JOB_ID } });
+    expect(noT.status).toBe(400);
+    // One phone: 5 applications a day across jobs and businesses.
+    h.phoneLimited = true;
+    const capped = await APPLY(applyRequest({ phone: "705-555-0147" }), { params: { slug: "northshore", jobId: JOB_ID } });
+    expect(capped.status).toBe(429);
+    expect(await capped.text()).toContain("a lot of applications today");
+    expect(h.db!.tables.job_applicants).toHaveLength(1);
   });
 });

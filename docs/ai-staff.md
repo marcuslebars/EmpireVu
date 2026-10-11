@@ -479,25 +479,30 @@ The Recruiter does the office's hiring and payroll paperwork. It turns the crew'
 
 - **Periods** (`periods.ts`, pure): weekly or bi-weekly from the anchor date (the first day of any one period, default Mon 2026-01-05), or semi-monthly (1st–15th, 16th–end of month). Dates are the company's local calendar days; `starts_at` / `ends_at` are local midnights (DST-safe).
 - **Hours** (`computePayroll`): `time_entries` → `time/logic.ts workedMinutes` (breaks subtracted). An entry counts on the local day it starts.
-  - Which entries are the company's: `company_id` = the company, plus general time (`company_id` null) for the org's first (oldest) company only. That way a multi-company org never counts the same hours twice.
+  - Which entries are the company's: `company_id` = the company, plus general time (`company_id` null) when the period has `covers_general_time`.
+    - That flag is set when the period is created, for the org's oldest company with payroll on (`generalTimeCompanyId`). The lock (service check and trigger) follows the same flag, so what's paid is exactly what's locked.
+    - A multi-company org never counts the same hours twice.
   - **Open entries** (no clock-out) count as 0 and are listed by person and day.
   - **Edits since the period ended**: an entry added after the end, or changed after it. A clock-out written within 10 minutes of the change doesn't count, so a shift that ran past midnight isn't flagged.
   - Job count = distinct bookings.
 - **Ontario overtime** — a *flag*, never a payroll calculation:
-  - Hours past 44 in a work week are flagged at 1.5×.
+  - Hours past 44 in a work week are flagged at 1.5×. The week is **per worker across the whole org**: all their companies and general time count toward the 44, and the hours past it are flagged where they fell (30 h at one company then 30 h at another → 16 h OT at the second).
   - The work week starts on the anchor's weekday (weekly / bi-weekly) or Monday (semi-monthly).
   - A work week that straddles the period start counts the earlier days toward the 44. That keeps semi-monthly periods right.
   - No averaging agreements, exemptions, vacation pay or tax.
 - **The sweep** (`payroll.ts runCompanyPayroll`, `recruiter:payroll` every 5 min):
   - It runs from 08:00 local on the day after the period ends, caught up for 2 days.
   - The `pay_periods` row (unique company + start date) is the claim, so each period is asked about once across workers.
+  - A period that would overlap an earlier one (the frequency or anchor changed) is skipped (`overlap`). The `pay_periods_no_overlap` trigger is the backstop.
   - A period with no hours becomes `empty` and nothing is asked. A failed read deletes the claim so a later pass retries.
   - Otherwise it creates a `payroll_period` approval (72 h), notified through `notifyOwnerOfApproval` (quiet hours respected), and the period becomes `awaiting_owner`.
 - **The lock**:
   - `time/service.ts` (`createManualEntry`, `updateEntry`, `deleteEntry`) checks `staff/recruiter/time-lock.ts` first. A locked entry gives a plain `PayPeriodLockedError`: "Those hours are locked for payroll. An owner or admin can unlock the pay period in Settings > AI front desk > Hiring & payroll."
   - The `time_entries_pay_period_lock` trigger is the backstop. It refuses any client (browser session) insert, edit or delete inside a locked period (`pay_period_locked`, mapped to the same message).
   - **Exception:** stopping a clock that was left running is always allowed, so a period locked "anyway" never strands a running clock.
-  - General-time entries are covered by any of the org's locked periods.
+    - The timesheet dialog re-sends every field, with the start at minute precision. Unchanged values (start in the same minute, same break, same job) aren't treated as changes, in the service and in the trigger.
+  - General-time entries are covered only by the locked period with `covers_general_time`.
+  - The trigger is SECURITY INVOKER and checks `pay_periods` inline, which members can read under RLS. `time_entry_in_locked_period` is service-role only.
   - The service role and `close_job_time_entries` (SECURITY DEFINER) aren't affected.
 - **Unlock / lock from Settings**: `POST /api/organizations/:org/companies/:company/payroll/periods/:periodId { action: "lock" | "unlock", reason? }` (owners/admins).
   - Unlock clears the email claim, so re-locking emails a fresh CSV.
@@ -506,7 +511,7 @@ The Recruiter does the office's hiring and payroll paperwork. It turns the crew'
   - Hours are decimals. The rate comes from `member_pay_rates`.
   - Gross = regular × rate + OT × 1.5 × rate. It's an estimate before deductions.
   - Notes: the OT flag, open entries not counted, changed after the period, no pay rate.
-  - Cells are formula-safe (`csvCell`).
+  - Cells are formula-safe (`csvCell`: a leading `= + - @`, tab or carriage return is neutralised, and any `\r` is quoted).
   - Download any period: `GET …/payroll/periods/:periodId/csv` (owners/admins). It's computed fresh from the entries.
   - The email (Resend `sendEmail` with the CSV attached, sent under the business's name) is claimed by `csv_emailed_at`. A failure still locks, records `csv_email_error`, and tells the owner where to download it.
 
@@ -516,9 +521,9 @@ The Recruiter does the office's hiring and payroll paperwork. It turns the crew'
 | --- | --- | --- | --- |
 | `payroll_period` | the payroll sweep (72 h); an executor re-ask when entries are still open (asked inline to the phone that said Y) | recomputes the hours. Open entries without "anyway" → a fresh `payroll_period` with a new code and the period re-pointed to it; nothing is locked. Otherwise: conditional `status → locked`, CSV email, "Locked payroll … and emailed the CSV to …" | `skipped` / `expired`, nothing locked ("You can lock it or download the CSV in Settings") |
 | `job_post` | owner tool `start_hiring` (asked inline, 48 h) | `awaiting_owner → open` (conditional), the paste copy is texted to the owner once (`owner_texted_at` claim) | `rejected` / `expired` ("Text me what to change … and I'll redraft it") |
-| `interview_invite` | the 08:30 digest (≤ 3 a day; notified normally) or owner tool `invite_applicant` (inline), 48 h | `invited_at` claimed, the exact invite is texted from the business number, and the conversation goes to the owner (an applicant-only contact stays AI-paused; anyone else gets `markOwnerTakeover`) | nothing sent |
+| `interview_invite` | the 08:30 digest (≤ 3 a day; notified normally) or owner tool `invite_applicant` (inline), 48 h | `invited_at` claimed, the exact invite is texted from the business number, and the conversation goes to the owner (an applicant-only contact stays AI-paused; anyone else gets `markOwnerTakeover`). Outside 08:00–21:00 local it's queued (`invite_send_after` = the next 08:00) and the owner is told "It's late, so I'll text Jo … at 8am"; the `recruiter:applicants` sweep sends it, and texts the owner if it can't | nothing sent |
 
-"Y 12 anyway" is a new decision note. `parseApprovalReply` accepts `anyway` after a yes. `front-desk/approval-text.ts ANYWAY_NOTE_KINDS` (only `payroll_period`) lets it through in `owner-channel/entry.ts`. Any other kind answers "#12 (…) can't be approved 'anyway'. Reply Y 12 to approve it as it is, or N 12." `replyInstruction` has lines for the three kinds. Every executor is idempotent: a second Y is "already" (owner channel), and a re-run sends nothing (conditional claims).
+"Y 12 anyway" is a new decision note. `parseApprovalReply` accepts `anyway` after a yes. `owner-channel/entry.ts` only treats it as a decision when a `payroll_period` (`ANYWAY_NOTE_KINDS`) is pending for that phone, matching the code if one was given. Otherwise ("ok anyway" in a house org, "Y 3 anyway" on a quote, nothing pending) the text takes exactly the pre-change path ("did you mean" / command), and `looksLikeApprovalAttempt` judges it as before. `replyInstruction` has lines for the three kinds. Every executor is idempotent: a second Y is "already" (owner channel), and a re-run sends nothing (conditional claims).
 
 ### Hiring
 
@@ -532,13 +537,17 @@ The Recruiter does the office's hiring and payroll paperwork. It turns the crew'
   - They're served only for a `published` `company_sites` row whose company has hiring on. The company comes from the slug row only.
   - A closed job answers 410 "This job is closed". Anything else gets the site's neutral 404.
   - The pages use the site's colours, and every value goes through `esc` / `safeHref`. Each job page says "This is a current opening." and "We use AI to help sort applications. A person reads every one and makes every decision." (in line with Ontario's 2026 job-posting rules for larger employers).
-  - The apply form is a plain HTML POST to the same URL (no JS needed). POST checks: a streamed 16 KB body cap, rate limits (6/hour per IP, 200/hour per job), honeypot + 3-second minimum fill, and Turnstile when configured.
+  - The apply form is a plain HTML POST to the same URL (no JS needed). The page carries its render time, so the timing check works without JS.
+  - POST checks: a streamed 16 KB body cap, rate limits (6/hour per IP, 200/hour per job, 5/day per phone across jobs and businesses), honeypot + 3-second minimum fill (a missing render time fails), and Turnstile when configured.
   - `site-host.ts` now rewrites `pages-host/<slug>/jobs[/<uuid>]` to these routes.
+  - The Indeed/Facebook paste copy always ends with how to apply, "This is a current opening." and the AI disclosure. Only the job details are clipped to fit 560 characters.
+  - A post with no pay: the approval text says Ontario requires the pay or a pay range on public posts and asks the owner to reply N and text it (e.g. "$22-$25/hr"). Ranges are kept as given.
   - With no live website, the post still opens. The paste copy says "text <business number>", and texts come to the business line, where the prompt note below applies.
 - **Applying** (`applicants.ts submitApplication`):
   - `job_applicants` has one row per job + E.164 phone. Applying again refreshes the answers (re-screened), with no second text.
   - The contact is matched by phone (last 10). A **new** contact is inserted directly, with no `contact.created` event, so no lead automation fires. It gets `metadata { kind: "applicant", applicant_job_ids }`, `consent_source 'job_application'`, and its conversation is set to `paused`: their texts reach the owner through the customer-text relay and never go to the AI as a customer.
   - An **existing** contact (a customer who applies) keeps its details and its AI. Only `applicant_job_ids` is added.
+- **Sweeps never stall**: screening reads only companies with hiring on and rows with attempts left (a row whose job is gone uses its attempts up). Confirmations and queued invites read only companies inside their texting hours.
 - **Confirmation text**: from the company's own number only (no number → `skipped`), 08:00–21:00 local. Later applications wait for the `recruiter:applicants` sweep the next morning, and are dropped after 2 days.
   - It's transactional (they asked), so opt-outs always win and no 6-month consent expiry applies.
   - Claimed `pending → sending → sent/skipped/failed`. `message_log.sent_by = 'recruiter'`.
@@ -558,7 +567,7 @@ The Recruiter does the office's hiring and payroll paperwork. It turns the crew'
 | Tool | Does |
 | --- | --- |
 | `start_hiring` | `request` (the owner's words), optional `title` / `pay` / `start` / `location` → draft + `job_post` approval. Returns `tell_owner_exactly` (≤ 470 chars, with the code). |
-| `applicants` | Open jobs (or the one named): link, count, new since the digest, the top 8 with score, reason, phone, licence/vehicle, invited. |
+| `applicants` | Open jobs (or the one named): link, count, new since the digest, the top 8 with score, reason, phone, licence/vehicle, invited. Applicant-written text (name, reason) is quoted, stripped of markup and labelled as data. |
 | `invite_applicant` | `applicant` (name words), optional `job` → `interview_invite` (inline). Ambiguous names list the matches. |
 | `close_job` | Closes an open job (by title words, or the only one). The page answers 410. |
 
@@ -608,7 +617,7 @@ Types: `staff/recruiter/db-types.ts` until merged into `database.types.ts`.
 
 ### Sweeps
 
-`recruiter:payroll` (5 min), `recruiter:applicants` (2 min: screening, then confirmation texts), `recruiter:digest` (5 min).
+`recruiter:payroll` (5 min), `recruiter:applicants` (2 min: screening, confirmation texts, invites queued overnight), `recruiter:digest` (5 min).
 
 - The companies are loaded at most once per 30 s per worker (`loadRecruiterCompanies`). That's every company of a CrankLeads org, plus house-org companies with `any_on`, active ones only. Reads page past the 1000-row cap.
 
@@ -634,8 +643,7 @@ Types: `staff/recruiter/db-types.ts` until merged into `database.types.ts`.
 
 - No payroll provider API and no tax: the CSV is generic (no per-provider templates). Gross is an estimate.
 - OT is the plain 44-hour weekly rule. Averaging agreements, exempt roles and public-holiday pay aren't modelled.
-- Changing the frequency or anchor mid-period starts the new schedule at the next period. A period already asked about isn't redone, and two schedules can overlap once.
-- A pay period belongs to one company. In a multi-company org, general time (no company) is counted for the oldest company only.
+- Changing the frequency or anchor mid-period: the first new-schedule period that overlaps an old one is skipped (not asked), so those days are only in the old period.
 - No "We're hiring" link on the generated home page yet; the jobs page is linked from the paste copy and Settings.
 - No resume upload (the form asks for experience as text). Applicant contacts keep the default contact stage and aren't deleted when a job closes.
 - The SMS agent recognises an existing customer who applied only from the conversation itself (prompt note). Applicant-only contacts are handled deterministically (AI paused).

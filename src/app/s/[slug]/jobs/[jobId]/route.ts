@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { renderSiteNotFound } from "@/server/services/dfy/site-render";
 import { enforceRateLimit, trustedClientIp } from "@/server/services/rate-limit";
+import { toE164 } from "@/server/services/retell/payload";
 import { applyToJob, jobPage, jobPageWithError, type PublicPage } from "@/server/services/staff/recruiter/public";
 import { assessFormSignals, verifyTurnstile } from "@/server/services/turnstile";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
@@ -9,7 +10,8 @@ import { createSupabaseAdminClient } from "@/server/supabase/admin";
 /**
  * One job + its apply form (docs/ai-staff.md → "Hiring & payroll"). GET renders it; POST is the
  * plain HTML form submit. Abuse layers on POST: a streamed 16 KB body cap, per-IP and per-job
- * rate limits, honeypot + minimum fill time, Turnstile (when configured). The company and job
+ * rate limits, a per-phone daily cap (5, across jobs), honeypot + minimum fill time (the render
+ * time is required), Turnstile (when configured). The company and job
  * come from the slug row and the job id only; the body can never choose a tenant.
  */
 export const dynamic = "force-dynamic";
@@ -77,9 +79,15 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
       (await enforceRateLimit(request, { scope: "job_apply_ip", limit: 6, windowSeconds: 3600, keyParts: [ip] })) ??
       (await enforceRateLimit(request, { scope: "job_apply_job", limit: 200, windowSeconds: 3600, keyParts: [jobId] }));
     if (limited) return respond(await jobPageWithError(admin, slug, jobId, params, "Too many tries - please wait a bit and try again.", 429), "no-store");
+    // One phone number: at most 5 applications a day, across every job and business.
+    const phone = toE164(params.get("phone"));
+    if (phone && (await enforceRateLimit(request, { scope: "job_apply_phone", limit: 5, windowSeconds: 86_400, keyParts: [phone] }))) {
+      return respond(await jobPageWithError(admin, slug, jobId, params, "You've sent a lot of applications today - please try again tomorrow.", 429), "no-store");
+    }
+    // The form always carries its render time (server-side, so it works without JS): missing = a bot.
     const t = Number(params.get("t"));
     const signals = assessFormSignals({ honeypot: params.get("website") ?? "", formStartedAt: Number.isFinite(t) && t > 0 ? t : undefined });
-    if (!signals.ok) return respond(await jobPageWithError(admin, slug, jobId, params, GENERIC), "no-store");
+    if (!signals.ok || !(Number.isFinite(t) && t > 0)) return respond(await jobPageWithError(admin, slug, jobId, params, GENERIC), "no-store");
     const turnstile = await verifyTurnstile(request, params.get("cf-turnstile-response"));
     if (!turnstile.ok) return respond(await jobPageWithError(admin, slug, jobId, params, "Please complete the check above the button and try again."), "no-store");
     return respond(await applyToJob(admin, { slug, jobId, params, nowMs: Date.now() }), "no-store");

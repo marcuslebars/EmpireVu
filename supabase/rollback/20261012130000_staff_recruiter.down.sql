@@ -10,3 +10,4 @@ drop table if exists public.job_applicants;
 drop table if exists public.job_postings;
 drop table if exists public.pay_period_events;
 drop table if exists public.pay_periods;
+drop function if exists public.pay_periods_no_overlap();
