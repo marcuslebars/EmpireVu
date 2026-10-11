@@ -32,10 +32,12 @@ import {
   todayIn,
   type CompanyCtx,
 } from "./context";
-import { INVOICE_COLUMNS, type BookkeeperContact, type BookkeeperInvoice, type Db, type FinalNoticeStatus, type InvoiceCollectionsRow, type InvoiceReminderTextRow, type PaymentPlanRow } from "./db-types";
+import { INVOICE_COLUMNS, type BookkeeperContact, type BookkeeperInvoice, type Db, type FinalNoticeStatus, type InvoiceReminderTextRow, type PaymentPlanRow } from "./db-types";
 import { deliverQueuedReminder, sendClaimedReminder } from "./deliver";
 import { addDays, daysBetween, firstNameOf, fullNameOf, inCustomerWindow, localParts, ownerMoney } from "./format";
 import { finalNoticeText, instalmentText, reminderText, toneForStep, type ReminderInput, type ReminderTone } from "./texts";
+import { missedInstalment } from "./daily-alert";
+import { loadActiveCompanies, readAllPages } from "./settings";
 
 /** Invoices more than this many days late are left to the owner (no texts, no final notice). */
 export const MAX_CHASE_DAYS = 150;
@@ -192,52 +194,127 @@ async function reachable(admin: AdminClient, ctx: CompanyCtx, invoice: Bookkeepe
   return contact;
 }
 
-export async function runReminderSweep(admin: AdminClient, nowMs: number = Date.now(), limit = 500): Promise<ReminderSweepResult> {
+export async function runReminderSweep(admin: AdminClient, nowMs: number = Date.now()): Promise<ReminderSweepResult> {
   const db = admin as Db;
   const result: ReminderSweepResult = { queuedSent: 0, texted: [], finalNotices: [], instalments: [], plansClosed: [] };
   const companies = new CompanyCache(admin);
   const textedThisRun = new Set<string>();
 
   // 1. Owner-approved texts waiting for the window.
-  const { data: queued } = await db.from("invoice_reminder_texts").select("*").eq("status", "queued").order("created_at", { ascending: true }).limit(100);
+  const { data: queued } = await db.from("invoice_reminder_texts").select("*").eq("status", "queued").order("created_at", { ascending: true }).limit(200);
   for (const row of (queued ?? []) as InvoiceReminderTextRow[]) {
-    const ctx = await companies.get(row.organization_id, row.company_id);
-    if (!ctx || !inCustomerWindow(nowMs, ctx.timeZone)) continue;
-    const outcome = await deliverQueuedReminder(admin, row, nowMs, ctx);
-    if (outcome.status === "sent") {
-      result.queuedSent++;
-      if (row.contact_id) textedThisRun.add(row.contact_id);
+    try {
+      const ctx = await companies.get(row.organization_id, row.company_id);
+      if (!ctx || !inCustomerWindow(nowMs, ctx.timeZone)) continue;
+      const outcome = await deliverQueuedReminder(admin, row, nowMs, ctx);
+      if (outcome.status === "sent") {
+        result.queuedSent++;
+        if (row.contact_id) textedThisRun.add(row.contact_id);
+      }
+    } catch (err) {
+      console.error("[bookkeeper] queued text failed", row.id, err instanceof Error ? err.message : err);
     }
   }
 
-  // 2. Scheduled reminder texts and final-notice proposals.
+  // 2 + 3, per company with the Bookkeeper on (house orgs only if they opted in). A failure for
+  // one company (e.g. a read error) skips that company this run; it never runs on partial state.
+  for (const active of await loadActiveCompanies(admin)) {
+    try {
+      const ctx = await companies.get(active.organizationId, active.companyId);
+      if (!ctx || !ctx.settings.enabled) continue;
+      await sweepPlans(admin, ctx, nowMs, textedThisRun, result);
+      if (ctx.settings.textReminders && inCustomerWindow(nowMs, ctx.timeZone)) await sweepScheduled(admin, ctx, nowMs, textedThisRun, result);
+    } catch (err) {
+      console.error("[bookkeeper] reminder sweep skipped company", active.companyId, err instanceof Error ? err.message : err);
+    }
+  }
+  return result;
+}
+
+/** Payment plans: close paid-off plans, keep the hold honest, remind before each instalment. */
+async function sweepPlans(admin: AdminClient, ctx: CompanyCtx, nowMs: number, textedThisRun: Set<string>, result: ReminderSweepResult): Promise<void> {
+  const db = admin as Db;
+  const plans = await readAllPages<PaymentPlanRow>((from, to) =>
+    db.from("payment_plans").select("*").eq("organization_id", ctx.organizationId).eq("company_id", ctx.companyId).eq("status", "active").order("activated_at", { ascending: true }).range(from, to),
+  );
+  const today = todayIn(ctx, nowMs);
+  for (const plan of plans) {
+    try {
+      const { data: invRow, error } = await db.from("invoices").select(INVOICE_COLUMNS).eq("organization_id", plan.organization_id).eq("company_id", plan.company_id).eq("id", plan.invoice_id).maybeSingle();
+      if (error) throw error;
+      const invoice = invRow as BookkeeperInvoice | null;
+      if (!invoice || !isOpen(invoice)) {
+        await db.from("payment_plans").update({ status: invoice?.status === "void" ? "cancelled" : "completed", completed_at: new Date(nowMs).toISOString() }).eq("id", plan.id).eq("organization_id", plan.organization_id).eq("status", "active");
+        await db.from("invoice_collections").update({ hold_until: null, hold_reason: null }).eq("organization_id", plan.organization_id).eq("invoice_id", plan.invoice_id).eq("hold_reason", "payment_plan");
+        result.plansClosed.push(plan.id);
+        continue;
+      }
+      // A missed instalment ends the plan's hold: the normal reminders resume (and the owner hears
+      // about it in the morning alert). While the plan is on track, the hold runs to the last date.
+      const owing = owingCents(invoice);
+      const behind = missedInstalment(plan, owing, today) !== null;
+      const sorted = [...plan.instalments].sort((a, b) => a.n - b.n);
+      const holdUntil = behind ? null : sorted[sorted.length - 1]?.dueDate ?? null;
+      const { data: colRow, error: colError } = await db.from("invoice_collections").select("id, hold_until, hold_reason").eq("organization_id", plan.organization_id).eq("invoice_id", plan.invoice_id).maybeSingle();
+      if (colError) throw colError;
+      const col = colRow as { id: string; hold_until: string | null; hold_reason: string | null } | null;
+      // Back on track after catching up → the hold returns; a promise's own hold is left alone.
+      if (col && col.hold_reason !== "promise" && (col.hold_until ?? null) !== holdUntil) {
+        await db
+          .from("invoice_collections")
+          .update({ hold_until: holdUntil, hold_reason: holdUntil ? "payment_plan" : null })
+          .eq("id", col.id)
+          .eq("organization_id", plan.organization_id);
+      }
+
+      if (invoice.reminders_paused || !inCustomerWindow(nowMs, ctx.timeZone)) continue;
+      const due = nextInstalmentToRemind(plan, owing, today);
+      if (!due || !invoice.contact_id || textedThisRun.has(invoice.contact_id)) continue;
+      const contact = await reachable(admin, ctx, invoice, nowMs);
+      if (!contact || (await textedRecently(admin, ctx, contact.id, nowMs))) continue;
+      const body = instalmentText({ businessName: ctx.name, firstName: firstNameOf(contact), instalment: due, of: plan.instalments.length, today, link: payLink(ctx, invoice) });
+      const row = await claimText(admin, ctx, invoice, { key: `plan:${plan.id}:${due.n}`, kind: "instalment", body });
+      if (!row) continue;
+      textedThisRun.add(contact.id);
+      const outcome = await sendClaimedReminder(admin, ctx, invoice, contact, row, nowMs);
+      if (outcome.status === "sent") result.instalments.push(`${plan.id}:${due.n}`);
+    } catch (err) {
+      console.error("[bookkeeper] plan reminder failed", plan.id, err instanceof Error ? err.message : err);
+    }
+  }
+}
+
+/** Scheduled reminder texts and final-notice proposals for one company (inside its send window). */
+async function sweepScheduled(admin: AdminClient, ctx: CompanyCtx, nowMs: number, textedThisRun: Set<string>, result: ReminderSweepResult): Promise<void> {
+  const db = admin as Db;
   const cutoff = new Date(nowMs + 86_400_000).toISOString().slice(0, 10);
-  // Past the last possible step (120 days) + the final notice, an invoice is the owner's to chase:
-  // leaving those out keeps years-old invoices from crowding the batch.
+  // Past the last possible step (120 days) + the final notice, an invoice is the owner's to chase.
   const oldest = new Date(nowMs - MAX_CHASE_DAYS * 86_400_000).toISOString().slice(0, 10);
-  const { data: overdue } = await db
-    .from("invoices")
-    .select(INVOICE_COLUMNS)
-    .in("status", OPEN_INVOICE_STATUSES)
-    .lt("due_date", cutoff)
-    .gte("due_date", oldest)
-    .gt("balance_due_cents", 0)
-    .eq("reminders_paused", false)
-    .order("due_date", { ascending: true })
-    .limit(limit);
-  const invoices = (overdue ?? []) as BookkeeperInvoice[];
-  const byOrg = new Map<string, string[]>();
-  for (const inv of invoices) byOrg.set(inv.organization_id, [...(byOrg.get(inv.organization_id) ?? []), inv.id]);
-  const collections = new Map<string, InvoiceCollectionsRow>();
-  for (const [org, ids] of byOrg) for (const [id, row] of await collectionsFor(admin, org, ids)) collections.set(id, row);
+  const invoices = await readAllPages<BookkeeperInvoice>((from, to) =>
+    db
+      .from("invoices")
+      .select(INVOICE_COLUMNS)
+      .eq("organization_id", ctx.organizationId)
+      .eq("company_id", ctx.companyId)
+      .in("status", OPEN_INVOICE_STATUSES)
+      .lt("due_date", cutoff)
+      .gte("due_date", oldest)
+      .gt("balance_due_cents", 0)
+      .eq("reminders_paused", false)
+      .order("due_date", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+  if (invoices.length === 0) return;
+  // Throws on a read error → the whole company is skipped (never texted without its holds).
+  const collections = await collectionsFor(admin, ctx.organizationId, invoices.map((i) => i.id));
+  const today = todayIn(ctx, nowMs);
 
   for (const invoice of invoices) {
+    let claimedId: string | null = null;
+    let proposed = false;
     try {
       if (!invoice.due_date || !invoice.contact_id || !isOpen(invoice) || invoice.reminders_paused) continue;
-      const ctx = await companies.get(invoice.organization_id, invoice.company_id);
-      if (!ctx || !ctx.settings.enabled || !ctx.settings.textReminders) continue;
-      if (!inCustomerWindow(nowMs, ctx.timeZone)) continue;
-      const today = todayIn(ctx, nowMs);
       const state = collections.get(invoice.id) ?? null;
       const decision = decideNextText({
         daysOverdue: daysBetween(invoice.due_date, today),
@@ -258,17 +335,23 @@ export async function runReminderSweep(admin: AdminClient, nowMs: number = Date.
 
       if (decision.action === "text") {
         if (await textedRecently(admin, ctx, contact.id, nowMs)) continue;
+        await ensureCollections(admin, invoice);
         const row = await claimText(admin, ctx, invoice, { key: `step:${decision.step + 1}`, kind: "scheduled", body: reminderText(input, decision.tone) });
         if (!row) continue;
-        await ensureCollections(admin, invoice);
-        await db
-          .from("invoice_collections")
-          .update({ sms_count: Math.max(decision.step + 1, state?.sms_count ?? 0), contact_id: invoice.contact_id })
-          .eq("organization_id", ctx.organizationId)
-          .eq("invoice_id", invoice.id);
+        claimedId = row.id;
         textedThisRun.add(contact.id);
         const outcome = await sendClaimedReminder(admin, ctx, invoice, contact, row, nowMs);
-        if (outcome.status === "sent") result.texted.push(invoice.id);
+        claimedId = null; // the row now carries its outcome
+        // The step is used up only by a text that went out. A failed or blocked one keeps its row
+        // (never sent twice for the same step); the next step's day brings a fresh key.
+        if (outcome.status === "sent") {
+          await db
+            .from("invoice_collections")
+            .update({ sms_count: Math.max(decision.step + 1, state?.sms_count ?? 0), contact_id: invoice.contact_id })
+            .eq("organization_id", ctx.organizationId)
+            .eq("invoice_id", invoice.id);
+          result.texted.push(invoice.id);
+        }
         continue;
       }
 
@@ -282,7 +365,11 @@ export async function runReminderSweep(admin: AdminClient, nowMs: number = Date.
         .eq("final_notice_status", "none")
         .select("id");
       if (((claimed ?? []) as unknown[]).length === 0) continue;
-      if (await pendingApprovalFor(admin, ctx.companyId, KIND_FINAL_NOTICE, invoice.id)) continue;
+      proposed = true;
+      if (await pendingApprovalFor(admin, ctx.companyId, KIND_FINAL_NOTICE, invoice.id)) {
+        proposed = false;
+        continue;
+      }
       const text = finalNoticeText(input);
       const created = await createBookkeeperApproval(
         admin,
@@ -304,49 +391,30 @@ export async function runReminderSweep(admin: AdminClient, nowMs: number = Date.
         },
         nowMs,
       );
+      proposed = false;
       await db.from("invoice_collections").update({ final_notice_approval_id: created.id }).eq("organization_id", ctx.organizationId).eq("invoice_id", invoice.id);
       result.finalNotices.push(invoice.id);
     } catch (err) {
       console.error("[bookkeeper] reminder sweep failed for invoice", invoice.id, err instanceof Error ? err.message : err);
-    }
-  }
-
-  // 3. Payment plans: a reminder before each instalment; close paid-off plans.
-  const { data: plans } = await db.from("payment_plans").select("*").eq("status", "active").order("activated_at", { ascending: true }).limit(limit);
-  for (const plan of (plans ?? []) as PaymentPlanRow[]) {
-    try {
-      const ctx = await companies.get(plan.organization_id, plan.company_id);
-      if (!ctx) continue;
-      const { data: invRow } = await db.from("invoices").select(INVOICE_COLUMNS).eq("organization_id", plan.organization_id).eq("company_id", plan.company_id).eq("id", plan.invoice_id).maybeSingle();
-      const invoice = invRow as BookkeeperInvoice | null;
-      if (!invoice || !isOpen(invoice)) {
-        await db.from("payment_plans").update({ status: invoice?.status === "void" ? "cancelled" : "completed", completed_at: new Date(nowMs).toISOString() }).eq("id", plan.id).eq("organization_id", plan.organization_id).eq("status", "active");
-        await db.from("invoice_collections").update({ hold_until: null, hold_reason: null }).eq("organization_id", plan.organization_id).eq("invoice_id", plan.invoice_id).eq("hold_reason", "payment_plan");
-        result.plansClosed.push(plan.id);
-        continue;
+      // Release what this run claimed so a later run can try again.
+      if (claimedId) await db.from("invoice_reminder_texts").delete().eq("id", claimedId).eq("organization_id", ctx.organizationId).eq("status", "claimed");
+      if (proposed) {
+        await db
+          .from("invoice_collections")
+          .update({ final_notice_status: "none" })
+          .eq("organization_id", ctx.organizationId)
+          .eq("invoice_id", invoice.id)
+          .eq("final_notice_status", "proposed")
+          .is("final_notice_approval_id", null);
       }
-      if (!ctx.settings.enabled || invoice.reminders_paused || !inCustomerWindow(nowMs, ctx.timeZone)) continue;
-      const today = todayIn(ctx, nowMs);
-      const due = nextInstalmentToRemind(plan, owingCents(invoice), today);
-      if (!due || !invoice.contact_id || textedThisRun.has(invoice.contact_id)) continue;
-      const contact = await reachable(admin, ctx, invoice, nowMs);
-      if (!contact || (await textedRecently(admin, ctx, contact.id, nowMs))) continue;
-      const body = instalmentText({ businessName: ctx.name, firstName: firstNameOf(contact), instalment: due, of: plan.instalments.length, today, link: payLink(ctx, invoice) });
-      const row = await claimText(admin, ctx, invoice, { key: `plan:${plan.id}:${due.n}`, kind: "instalment", body });
-      if (!row) continue;
-      textedThisRun.add(contact.id);
-      const outcome = await sendClaimedReminder(admin, ctx, invoice, contact, row, nowMs);
-      if (outcome.status === "sent") result.instalments.push(`${plan.id}:${due.n}`);
-    } catch (err) {
-      console.error("[bookkeeper] plan reminder failed", plan.id, err instanceof Error ? err.message : err);
     }
   }
-  return result;
 }
 
 /**
- * The instalment to remind about today: due tomorrow or today, and not already covered by what's
- * been paid since the plan started. PURE.
+ * The instalment to remind about today: the first one that isn't covered by what's been paid
+ * since the plan started and isn't already past (a missed instalment doesn't silence the later
+ * ones), when it's due today or tomorrow. PURE.
  */
 export function nextInstalmentToRemind(plan: Pick<PaymentPlanRow, "instalments" | "starting_balance_cents">, owingNowCents: number, today: string) {
   const paid = Math.max(0, plan.starting_balance_cents - owingNowCents);
@@ -354,8 +422,8 @@ export function nextInstalmentToRemind(plan: Pick<PaymentPlanRow, "instalments" 
   for (const inst of [...plan.instalments].sort((a, b) => a.n - b.n)) {
     cumulative += inst.amountCents;
     if (paid >= cumulative) continue;
-    if (inst.dueDate === today || inst.dueDate === addDays(today, 1)) return inst;
-    return null;
+    if (inst.dueDate < today) continue;
+    return inst.dueDate === today || inst.dueDate === addDays(today, 1) ? inst : null;
   }
   return null;
 }

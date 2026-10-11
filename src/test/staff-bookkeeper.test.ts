@@ -35,7 +35,8 @@ import { composeMoneyAlert, missedInstalment, runDailyMoneyAlerts } from "@/serv
 import { addMonths, dollarsToCents, inCustomerWindow, money, nextWindowLabel, ownerMoney } from "@/server/services/staff/bookkeeper/format";
 import { isCollectionsHold } from "@/server/services/staff/bookkeeper/hold";
 import { decideNextText, nextInstalmentToRemind, runReminderSweep } from "@/server/services/staff/bookkeeper/reminders";
-import { mergeCollectionsSettings, readCollectionsSettings } from "@/server/services/staff/bookkeeper/settings";
+import { bookkeeperActiveFor, loadActiveCompanies, mergeCollectionsSettings, readCollectionsSettings } from "@/server/services/staff/bookkeeper/settings";
+import { isDateKey } from "@/server/services/staff/bookkeeper/format";
 import { finalNoticeText, reminderText, toneForStep, type ReminderInput } from "@/server/services/staff/bookkeeper/texts";
 import { checkConsent } from "@/server/services/workflow-engine/messaging";
 import { GET, PATCH } from "@/app/api/organizations/[organizationId]/companies/[companyId]/ai-settings/collections/route";
@@ -292,6 +293,9 @@ describe("send window and schedule", () => {
     expect(nextInstalmentToRemind(plan, 120000, "2026-10-13")?.n).toBe(1);
     expect(nextInstalmentToRemind(plan, 80000, "2026-10-20")?.n).toBe(2);
     expect(nextInstalmentToRemind(plan, 80000, "2026-10-18")).toBeNull();
+    // A missed first payment doesn't silence the later ones.
+    expect(nextInstalmentToRemind(plan, 120000, "2026-10-20")?.n).toBe(2);
+    expect(nextInstalmentToRemind(plan, 120000, "2026-10-27")?.n).toBe(3);
     expect(missedInstalment(plan, 120000, "2026-10-17")?.n).toBe(1);
     expect(missedInstalment(plan, 80000, "2026-10-17")).toBeNull();
   });
@@ -786,5 +790,161 @@ describe("weekly report: what's still owed", () => {
     expect(metrics([]).receivable).toBeUndefined();
     const email = renderWeeklyEmail(metrics([]), { companyName: "Northshore", platformBrand: "CrankLeads", reportUrl: "https://x.test/r" });
     expect(email.text).not.toMatch(/Still owed/);
+  });
+});
+
+// ── Review fixes ──────────────────────────────────────────────────────────────────
+
+describe("review fixes", () => {
+  it("scans only companies with the Bookkeeper on, per company; house orgs are filtered at the query", async () => {
+    expect((await loadActiveCompanies(h.db!.client)).map((c) => c.companyId)).toEqual([CO]);
+    expect(await bookkeeperActiveFor(h.db!.client, { organizationId: ORG, companyId: CO })).toBe(true);
+    expect(await bookkeeperActiveFor(h.db!.client, { organizationId: A1_ORG, companyId: A1_CO })).toBe(false);
+    rows("invoices").push(invoice({ id: "inv-a1", organization_id: A1_ORG, company_id: A1_CO, contact_id: A1_CONTACT, public_token: "tok-a1" }));
+    await runReminderSweep(h.db!.client, Date.now());
+    const invoiceReads = h.db!.queries.filter((q) => q.table === "invoices" && q.op === "select" && q.filters.some((f) => f.column === "due_date"));
+    expect(invoiceReads.length).toBeGreaterThan(0);
+    for (const q of invoiceReads) expect(q.filters).toContainEqual({ kind: "eq", column: "company_id", value: CO });
+    expect(smsTo("+17055550777")).toHaveLength(0);
+    // Opted in → included; a CrankLeads company switched off → excluded.
+    rows("companies")[1].ai_settings = { collections: { enabled: true } };
+    rows("companies")[0].ai_settings = { collections: { enabled: false } };
+    expect((await loadActiveCompanies(h.db!.client)).map((c) => c.companyId)).toEqual([A1_CO]);
+    expect(await bookkeeperActiveFor(h.db!.client, { organizationId: ORG, companyId: CO })).toBe(false);
+  });
+
+  it("a failed read of the collections state skips the company this run (no text without its holds)", async () => {
+    h.db!.failNext("invoice_collections", "select");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    await runReminderSweep(h.db!.client, Date.now());
+    err.mockRestore();
+    expect(sendSms).not.toHaveBeenCalled();
+    await runReminderSweep(h.db!.client, Date.now());
+    expect(smsTo(JAMIE_PHONE)).toHaveLength(1);
+  });
+
+  it("a provider failure doesn't use up the step; the next step's day still texts", async () => {
+    sendSms.mockImplementationOnce(() => Promise.reject(new Error("twilio 500")));
+    await runReminderSweep(h.db!.client, Date.now());
+    expect(rows("invoice_reminder_texts")[0]).toMatchObject({ reminder_key: "step:2", status: "failed" });
+    expect(rows("invoice_collections")[0].sms_count ?? 0).toBe(0);
+    at("2026-10-21T14:00:00Z");
+    await runReminderSweep(h.db!.client, Date.now());
+    expect(smsTo(JAMIE_PHONE).filter((m) => m.body.includes("20 days past due"))).toHaveLength(1);
+    expect(rows("invoice_collections")[0].sms_count).toBe(3);
+  });
+
+  it("a final notice whose approval couldn't be created goes back to 'none' and is proposed next time", async () => {
+    seed({
+      invoices: [invoice({ due_date: "2026-09-03", issue_date: "2026-08-20", sent_at: "2026-08-20T14:00:00Z" })],
+      invoice_collections: [{ id: "col-1", organization_id: ORG, company_id: CO, invoice_id: "inv-1", contact_id: JAMIE, sms_count: 4, last_sms_at: "2026-10-05T14:00:00Z", final_notice_status: "none", hold_until: null, final_notice_approval_id: null }],
+    });
+    h.db!.failNext("owner_approvals", "insert", { message: "db down" });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    await runReminderSweep(h.db!.client, Date.now());
+    err.mockRestore();
+    expect(rows("invoice_collections")[0].final_notice_status).toBe("none");
+    expect(rows("owner_approvals")).toHaveLength(0);
+    await runReminderSweep(h.db!.client, Date.now());
+    expect(rows("owner_approvals")).toHaveLength(1);
+    expect(rows("invoice_collections")[0].final_notice_status).toBe("proposed");
+  });
+
+  it("promise_to_pay: real dates only, one promise per invoice, none after a missed one", async () => {
+    expect(isDateKey("2026-02-30")).toBe(false);
+    expect(isDateKey("2026-10-16")).toBe(true);
+    expect((await tool("promise_to_pay").run(turnState(), { date: "2026-10-32" })).error).toMatch(/real date/);
+    expect(rows("invoice_collections")).toHaveLength(0);
+    expect((await tool("promise_to_pay").run(turnState(), { date: "2026-10-16" })).ok).toBe(true);
+    const again = await tool("promise_to_pay").run(turnState(), { date: "2026-10-30" });
+    expect(again).toMatchObject({ ok: false });
+    expect(again.error).toMatch(/already promised to pay by Oct 16.*hand_off_to_owner/);
+    expect(rows("invoice_collections")[0].hold_until).toBe("2026-10-16");
+    // The date passes unpaid → a new promise is refused (the owner decides).
+    at("2026-10-19T14:00:00Z");
+    expect((await tool("promise_to_pay").run(turnState(), { date: "2026-10-23" })).error).toMatch(/date passed.*hand_off_to_owner/);
+    expect(rows("invoice_collections")[0].hold_until).toBe("2026-10-16");
+  });
+
+  it("a payment plan that falls behind lifts its hold, so the normal reminders resume", async () => {
+    seed({
+      invoices: [invoice({ total_cents: 120000, balance_due_cents: 120000 })],
+      payment_plans: [{
+        id: "plan-1", organization_id: ORG, company_id: CO, invoice_id: "inv-1", contact_id: JAMIE, approval_id: null, status: "active",
+        instalments: [{ n: 1, dueDate: "2026-10-05", amountCents: 40000 }, { n: 2, dueDate: "2026-10-19", amountCents: 40000 }, { n: 3, dueDate: "2026-11-02", amountCents: 40000 }],
+        total_cents: 120000, starting_balance_cents: 120000, activated_at: "2026-10-01T00:00:00Z",
+      }],
+      invoice_collections: [{ id: "col-1", organization_id: ORG, company_id: CO, invoice_id: "inv-1", contact_id: JAMIE, sms_count: 0, final_notice_status: "none", hold_until: "2026-11-02", hold_reason: "payment_plan" }],
+    });
+    await runReminderSweep(h.db!.client, Date.now());
+    expect(rows("invoice_collections")[0]).toMatchObject({ hold_until: null, hold_reason: null });
+    expect(smsTo(JAMIE_PHONE)).toHaveLength(1);
+    expect(smsTo(JAMIE_PHONE)[0].body).toMatch(/12 days past due/);
+    // They catch up on payment 1 → back on track, the hold returns.
+    rows("invoices")[0].balance_due_cents = 80000;
+    rows("invoices")[0].status = "partially_paid";
+    at("2026-10-14T14:00:00Z");
+    await runReminderSweep(h.db!.client, Date.now());
+    expect(rows("invoice_collections")[0]).toMatchObject({ hold_until: "2026-11-02", hold_reason: "payment_plan" });
+  });
+
+  it("a plan approved in the evening is texted to the customer at 9am, not at night", async () => {
+    seed({ invoices: [invoice({ total_cents: 120000, balance_due_cents: 120000 })] });
+    await tool("request_payment_plan").run(turnState(), { payments: 3, frequency: "monthly" });
+    at("2026-10-14T00:30:00Z"); // Tue 20:30
+    const out = await decideApproval(h.db!.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER });
+    expect(out.message).toMatch(/I'll text them the plan at 9am tomorrow/);
+    expect(smsTo(JAMIE_PHONE)).toHaveLength(0);
+    expect(rows("payment_plans")).toHaveLength(1);
+    at("2026-10-14T13:15:00Z"); // Wed 09:15
+    await runReminderSweep(h.db!.client, Date.now());
+    expect(smsTo(JAMIE_PHONE)).toHaveLength(1);
+    expect(smsTo(JAMIE_PHONE)[0].body).toMatch(/OK'd your payment plan/);
+    expect(rows("invoice_reminder_texts")[0]).toMatchObject({ kind: "plan_notice", status: "sent" });
+    // Not a reminder: the email schedule isn't touched.
+    expect(rows("invoices")[0].last_reminder_at).toBeNull();
+  });
+
+  function missedPromise() {
+    seed({
+      invoices: [invoice({ id: "inv-p", invoice_number: "INV-P", due_date: "2026-10-05", balance_due_cents: 30000, public_token: "tp" })],
+      invoice_collections: [{ id: "col-p", organization_id: ORG, company_id: CO, invoice_id: "inv-p", promise_status: "open", promise_date: "2026-10-09", hold_until: "2026-10-09", hold_reason: "promise", sms_count: 0, final_notice_status: "none" }],
+    });
+  }
+
+  it("money alert: a failed read sends nothing and gives the day back for a later pass", async () => {
+    missedPromise();
+    at("2026-10-13T12:15:00Z");
+    h.db!.failNext("money_alert_items", "select");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    await runDailyMoneyAlerts(h.db!.client, Date.now());
+    err.mockRestore();
+    expect(sendSms).not.toHaveBeenCalled();
+    expect(rows("money_alerts")).toHaveLength(0);
+    expect(rows("invoice_collections")[0].promise_status).toBe("open");
+    at("2026-10-13T13:15:00Z");
+    await runDailyMoneyAlerts(h.db!.client, Date.now());
+    expect(smsTo(OWNER)).toHaveLength(1);
+    expect(rows("invoice_collections")[0].promise_status).toBe("missed");
+  });
+
+  it("money alert: a missed promise survives a failed send and is reported the next day", async () => {
+    missedPromise();
+    at("2026-10-13T12:15:00Z");
+    sendSms.mockImplementationOnce(() => Promise.reject(new Error("twilio 500")));
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    await runDailyMoneyAlerts(h.db!.client, Date.now());
+    err.mockRestore();
+    expect(rows("money_alerts")[0]).toMatchObject({ status: "failed" });
+    expect(rows("invoice_collections")[0].promise_status).toBe("open");
+    expect(rows("money_alert_items")).toHaveLength(0);
+    at("2026-10-14T12:15:00Z");
+    await runDailyMoneyAlerts(h.db!.client, Date.now());
+    // Two attempts: the failed one on Tuesday, then Wednesday's, which carries the missed promise.
+    const attempts = smsTo(OWNER);
+    expect(attempts).toHaveLength(2);
+    expect(attempts[1].body).toMatch(/Missed promise to pay: Jamie Lee, \$300 by Oct 9/);
+    expect(rows("money_alerts").find((r) => r.alert_date === "2026-10-14")).toMatchObject({ status: "sent" });
+    expect(rows("invoice_collections")[0].promise_status).toBe("missed");
   });
 });

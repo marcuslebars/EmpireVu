@@ -19,7 +19,7 @@ import { recordPayment } from "@/server/services/invoices/service";
 import type { InvoicePaymentMethod } from "@/server/services/invoices/settings";
 import { notifyOwnerOfApproval } from "@/server/services/owner-channel/notify";
 import { markOwnerTakeover } from "@/server/services/sms-agent/takeover";
-import { ensureCollections, isOpen, loadCompanyCtx, loadContact, loadInvoice, owingCents, payLink, reminderConsent, tenantCtx, textCustomer, type CompanyCtx } from "./context";
+import { ensureCollections, isOpen, loadCompanyCtx, loadContact, loadInvoice, owingCents, payLink, tenantCtx, type CompanyCtx } from "./context";
 import type { Db, Instalment } from "./db-types";
 import { queueReminder, type SendOutcome } from "./deliver";
 import { firstNameOf, nextWindowLabel, ownerMoney } from "./format";
@@ -293,13 +293,17 @@ export async function executePaymentPlan(admin: AdminClient, approval: OwnerAppr
     if (decision.decidedVia === "expiry") {
       return { ok: true, message: `No answer on ${code(approval)} - ${who}'s payment plan wasn't set up. Their texts are with you now.` };
     }
-    let told = false;
-    if (contact) {
+    // Queued like every Bookkeeper text: right away inside 9am-8pm Mon-Sat, else at the next 9am;
+    // the consent anchor is the invoice, as for the reminders.
+    const invoice = await loadInvoice(admin, ctx, payloadStr(p, "invoiceId"));
+    let told = "no plan";
+    if (contact && invoice) {
       const reply = planDeclinedText({ businessName: ctx.name, firstName: firstNameOf(contact), ownerName: ctx.ownerFirstName });
-      const sent = await textCustomer(admin, ctx, contact, reply, reminderConsent(contact, { sent_at: null, issue_date: null }));
-      told = sent.status === "sent";
+      const outcome = await queueReminder(admin, ctx, invoice, { key: `plan:${approval.id}:decline`, kind: "plan_notice", body: reply, balanceCents: null, approvalId: approval.id }, nowMs);
+      if (outcome.status === "sent") told = `told ${who} you'll be in touch about the payment`;
+      else if (outcome.status === "queued") told = `I'll tell ${who} at ${nextWindowLabel(nowMs, ctx.timeZone)} that you'll be in touch`;
     }
-    return { ok: true, message: `OK - ${told ? `told ${who} you'll be in touch about the payment` : "no plan"}. Their texts are with you now.` };
+    return { ok: true, message: `OK - ${told}. Their texts are with you now.` };
   }
 
   const instalments = asInstalments(p.instalments);
@@ -353,8 +357,13 @@ export async function executePaymentPlan(admin: AdminClient, approval: OwnerAppr
       instalments,
       link: payLink(ctx, invoice),
     });
-    const sent = await textCustomer(admin, ctx, contact, reply, reminderConsent(contact, invoice));
-    told = sent.status === "sent" ? "Told them, and I'll remind them before each payment." : `Couldn't text them (${sent.reason ?? "not sent"}) - let them know yourself.`;
+    const outcome = await queueReminder(admin, ctx, invoice, { key: `plan:${approval.id}:confirm`, kind: "plan_notice", body: reply, balanceCents: null, approvalId: approval.id }, nowMs);
+    told =
+      outcome.status === "sent"
+        ? "Told them, and I'll remind them before each payment."
+        : outcome.status === "queued"
+          ? `I'll text them the plan at ${nextWindowLabel(nowMs, ctx.timeZone)}, and remind them before each payment.`
+          : `Couldn't text them (${outcome.reason ?? "not sent"}) - let them know yourself.`;
   }
   return {
     ok: true,

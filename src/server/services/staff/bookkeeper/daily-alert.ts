@@ -21,6 +21,7 @@ import { isOpen, loadCompanyCtx, owingCents, todayIn, type CompanyCtx } from "./
 import type { BookkeeperInvoice, Db, InvoiceCollectionsRow, PaymentPlanRow } from "./db-types";
 import { INVOICE_COLUMNS } from "./db-types";
 import { addDays, daysBetween, localParts, ownerMoney, shortDate } from "./format";
+import { chunks, loadActiveCompanies } from "./settings";
 
 export const ALERT_HOUR = 8;
 /** If the 08:00 pass was missed (worker down), catch up until this hour. */
@@ -38,6 +39,15 @@ export interface AlertEntry {
   alsoKeys?: string[];
   /** The fragment for this entry, e.g. "Jamie Lee $1,240 (INV-12)". */
   text: string;
+  /** promise_missed: the invoice_collections row marked 'missed' once the owner has been told. */
+  promiseRowId?: string;
+}
+
+/** A read's rows, or THROW: the alert is never built from a half-failed read (that would flag
+ *  every paid invoice, or re-send items the owner was already told about). */
+function rowsOf<T>(res: { data: unknown; error: unknown }): T[] {
+  if (res.error) throw res.error;
+  return (res.data ?? []) as T[];
 }
 
 const KIND_ORDER: AlertKind[] = ["payment_failed", "promise_missed", "plan_missed", "overdue60", "overdue30", "sync_failed", "unsynced_payment", "paid_no_payment"];
@@ -120,20 +130,19 @@ export async function collectAlertEntries(admin: AdminClient, ctx: CompanyCtx, n
   }
 
   // Failed payments (not ones staff removed as a mistake).
-  const { data: failed } = await db
+  const failed = rowsOf<{ id: string; invoice_id: string; amount_cents: number; failure_reason: string | null }>(await db
     .from("invoice_payments")
     .select("id, invoice_id, amount_cents, method, failure_reason, updated_at, status")
     .eq("organization_id", scope.organizationId)
     .eq("company_id", scope.companyId)
     .eq("status", "failed")
     .gte("updated_at", new Date(nowMs - 2 * 86_400_000).toISOString())
-    .limit(50);
-  const failedRows = ((failed ?? []) as Array<{ id: string; invoice_id: string; amount_cents: number; failure_reason: string | null }>).filter((p) => !/^removed/i.test(p.failure_reason ?? ""));
+    .limit(50));
+  const failedRows = failed.filter((p) => !/^removed/i.test(p.failure_reason ?? ""));
   const extraIds = [...new Set(failedRows.map((p) => p.invoice_id).filter((id) => !names.has(id)))];
   const invoicesById = new Map<string, BookkeeperInvoice & { customer?: string }>(open.map((i) => [i.id, i]));
-  if (extraIds.length) {
-    const { data } = await db.from("invoices").select(INVOICE_COLUMNS).eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).in("id", extraIds);
-    for (const inv of (data ?? []) as BookkeeperInvoice[]) invoicesById.set(inv.id, inv);
+  for (const ids of chunks(extraIds)) {
+    for (const inv of rowsOf<BookkeeperInvoice>(await db.from("invoices").select(INVOICE_COLUMNS).eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).in("id", ids))) invoicesById.set(inv.id, inv);
   }
   for (const p of failedRows) {
     const inv = invoicesById.get(p.invoice_id);
@@ -141,21 +150,27 @@ export async function collectAlertEntries(admin: AdminClient, ctx: CompanyCtx, n
   }
 
   // Promises to pay: kept (paid) or missed (date passed, still owing).
-  const { data: promises } = await db.from("invoice_collections").select("*").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("promise_status", "open").limit(200);
-  for (const row of (promises ?? []) as InvoiceCollectionsRow[]) {
-    const inv = invoicesById.get(row.invoice_id) ?? ((await db.from("invoices").select(INVOICE_COLUMNS).eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("id", row.invoice_id).maybeSingle()).data as BookkeeperInvoice | null);
+  // A missed promise stays 'open' until an alert about it actually went out (then 'missed'), so
+  // a failed send carries it to tomorrow.
+  const promises = rowsOf<InvoiceCollectionsRow>(await db.from("invoice_collections").select("*").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("promise_status", "open").limit(500));
+  for (const row of promises) {
+    let inv: BookkeeperInvoice | null = invoicesById.get(row.invoice_id) ?? null;
+    if (!inv) {
+      const res = await db.from("invoices").select(INVOICE_COLUMNS).eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("id", row.invoice_id).maybeSingle();
+      if (res.error) throw res.error;
+      inv = res.data as BookkeeperInvoice | null;
+    }
     if (!inv || !isOpen(inv)) {
       await db.from("invoice_collections").update({ promise_status: "kept" }).eq("id", row.id).eq("organization_id", scope.organizationId).eq("promise_status", "open");
       continue;
     }
     if (!row.promise_date || row.promise_date >= today) continue;
-    await db.from("invoice_collections").update({ promise_status: "missed" }).eq("id", row.id).eq("organization_id", scope.organizationId).eq("promise_status", "open");
-    entries.push({ key: `promise_missed:${row.invoice_id}:${row.promise_date}`, kind: "promise_missed", text: `${names.get(inv.id) ?? "a customer"}, ${ownerMoney(owingCents(inv))} by ${shortDate(row.promise_date)}` });
+    entries.push({ key: `promise_missed:${row.invoice_id}:${row.promise_date}`, kind: "promise_missed", promiseRowId: row.id, text: `${names.get(inv.id) ?? "a customer"}, ${ownerMoney(owingCents(inv))} by ${shortDate(row.promise_date)}` });
   }
 
   // Payment-plan instalments that are past due (with a little grace) and not covered.
-  const { data: plans } = await db.from("payment_plans").select("*").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("status", "active").limit(200);
-  for (const plan of (plans ?? []) as PaymentPlanRow[]) {
+  const plans = rowsOf<PaymentPlanRow>(await db.from("payment_plans").select("*").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("status", "active").limit(500));
+  for (const plan of plans) {
     const inv = invoicesById.get(plan.invoice_id);
     if (!inv) continue;
     const missed = missedInstalment(plan, owingCents(inv), today);
@@ -169,16 +184,17 @@ export async function collectAlertEntries(admin: AdminClient, ctx: CompanyCtx, n
   }
 
   // Accounting: failing syncs and reconciliation.
-  const { data: connRows } = await db.from("accounting_connections").select("provider, status, connected_at, sync_start_date").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).limit(1);
-  const conn = ((connRows ?? []) as Array<{ provider: string; status: string; connected_at: string | null; sync_start_date: string | null }>)[0] ?? null;
-  const { data: jobs } = await db
+  const conn = rowsOf<{ provider: string; status: string; connected_at: string | null; sync_start_date: string | null }>(
+    await db.from("accounting_connections").select("provider, status, connected_at, sync_start_date").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).limit(1),
+  )[0] ?? null;
+  const jobs = rowsOf<{ id: string; entity_type: string; entity_id: string; status: string; attempts: number }>(await db
     .from("accounting_sync_jobs")
     .select("id, entity_type, entity_id, status, attempts")
     .eq("organization_id", scope.organizationId)
     .eq("company_id", scope.companyId)
     .in("status", ["failed", "pending"])
-    .limit(200);
-  for (const job of (jobs ?? []) as Array<{ id: string; entity_type: string; entity_id: string; status: string; attempts: number }>) {
+    .limit(500));
+  for (const job of jobs) {
     if (job.entity_type !== "invoice" && job.entity_type !== "payment") continue;
     if (job.status === "pending" && (job.attempts ?? 0) < 3) continue;
     const inv = job.entity_type === "invoice" ? invoicesById.get(job.entity_id) : null;
@@ -186,18 +202,20 @@ export async function collectAlertEntries(admin: AdminClient, ctx: CompanyCtx, n
   }
 
   const since90 = new Date(nowMs - 90 * 86_400_000).toISOString();
-  const { data: paid } = await db
+  const paidRows = rowsOf<{ id: string; invoice_number: string | null; total_cents: number; credit_cents: number }>(await db
     .from("invoices")
     .select("id, invoice_number, total_cents, credit_cents, paid_at")
     .eq("organization_id", scope.organizationId)
     .eq("company_id", scope.companyId)
     .eq("status", "paid")
     .gte("paid_at", since90)
-    .limit(500);
-  const paidRows = (paid ?? []) as Array<{ id: string; invoice_number: string | null; total_cents: number; credit_cents: number }>;
+    .limit(1000));
   if (paidRows.length) {
-    const { data: pays } = await db.from("invoice_payments").select("invoice_id").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("status", "succeeded").in("invoice_id", paidRows.map((r) => r.id));
-    const withPayment = new Set(((pays ?? []) as Array<{ invoice_id: string }>).map((p) => p.invoice_id));
+    const withPayment = new Set<string>();
+    for (const ids of chunks(paidRows.map((r) => r.id))) {
+      const pays = rowsOf<{ invoice_id: string }>(await db.from("invoice_payments").select("invoice_id").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("status", "succeeded").in("invoice_id", ids));
+      for (const p of pays) withPayment.add(p.invoice_id);
+    }
     for (const r of paidRows) {
       if (withPayment.has(r.id) || (r.credit_cents ?? 0) >= (r.total_cents ?? 0)) continue;
       entries.push({ key: `paid_no_payment:${r.id}`, kind: "paid_no_payment", text: r.invoice_number ?? "an invoice" });
@@ -206,7 +224,7 @@ export async function collectAlertEntries(admin: AdminClient, ctx: CompanyCtx, n
 
   if (conn && conn.status === "active") {
     const startMs = Math.max(conn.connected_at ? Date.parse(conn.connected_at) : 0, conn.sync_start_date ? Date.parse(`${conn.sync_start_date}T00:00:00Z`) : 0, nowMs - 30 * 86_400_000);
-    const { data: recent } = await db
+    const recent = rowsOf<{ id: string }>(await db
       .from("invoice_payments")
       .select("id, created_at")
       .eq("organization_id", scope.organizationId)
@@ -214,14 +232,16 @@ export async function collectAlertEntries(admin: AdminClient, ctx: CompanyCtx, n
       .eq("status", "succeeded")
       .gte("created_at", new Date(startMs).toISOString())
       .lt("created_at", new Date(nowMs - 86_400_000).toISOString())
-      .limit(200);
-    const ids = ((recent ?? []) as Array<{ id: string }>).map((p) => p.id);
+      .limit(1000));
+    const ids = recent.map((p) => p.id);
     if (ids.length) {
-      const [{ data: links }, { data: skipped }] = await Promise.all([
-        db.from("accounting_links").select("local_key").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("entity_type", "payment").in("local_key", ids),
-        db.from("accounting_sync_jobs").select("entity_id").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("entity_type", "payment").in("status", ["skipped", "failed", "pending", "running"]).in("entity_id", ids),
-      ]);
-      const known = new Set([...((links ?? []) as Array<{ local_key: string }>).map((l) => l.local_key), ...((skipped ?? []) as Array<{ entity_id: string }>).map((j) => j.entity_id)]);
+      const known = new Set<string>();
+      for (const part of chunks(ids)) {
+        const links = rowsOf<{ local_key: string }>(await db.from("accounting_links").select("local_key").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("entity_type", "payment").in("local_key", part));
+        const inFlight = rowsOf<{ entity_id: string }>(await db.from("accounting_sync_jobs").select("entity_id").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("entity_type", "payment").in("status", ["skipped", "failed", "pending", "running"]).in("entity_id", part));
+        for (const l of links) known.add(l.local_key);
+        for (const j of inFlight) known.add(j.entity_id);
+      }
       const missing = ids.filter((id) => !known.has(id));
       for (const id of missing) entries.push({ key: `unsynced_payment:${id}`, kind: "unsynced_payment", text: "a payment" });
     }
@@ -244,13 +264,11 @@ export function missedInstalment(plan: Pick<PaymentPlanRow, "instalments" | "sta
 /** Drop entries the owner was already told about. */
 async function newEntries(admin: AdminClient, ctx: CompanyCtx, entries: AlertEntry[]): Promise<AlertEntry[]> {
   if (entries.length === 0) return [];
-  const { data } = await (admin as Db)
-    .from("money_alert_items")
-    .select("item_key")
-    .eq("organization_id", ctx.organizationId)
-    .eq("company_id", ctx.companyId)
-    .in("item_key", entries.map((e) => e.key));
-  const told = new Set(((data ?? []) as Array<{ item_key: string }>).map((r) => r.item_key));
+  const told = new Set<string>();
+  for (const keys of chunks(entries.map((e) => e.key))) {
+    const rows = rowsOf<{ item_key: string }>(await (admin as Db).from("money_alert_items").select("item_key").eq("organization_id", ctx.organizationId).eq("company_id", ctx.companyId).in("item_key", keys));
+    for (const r of rows) told.add(r.item_key);
+  }
   return entries.filter((e) => !told.has(e.key));
 }
 
@@ -273,10 +291,29 @@ export async function runCompanyMoneyAlert(admin: AdminClient, ctx: CompanyCtx, 
   const alertId = (claim as { id: string }).id;
   const finish = (patch: Record<string, unknown>) => db.from("money_alerts").update(patch).eq("id", alertId).eq("organization_id", ctx.organizationId);
   try {
-    const { entries, provider } = await collectAlertEntries(admin, ctx, nowMs);
-    const fresh = await newEntries(admin, ctx, entries);
+    let collected: Awaited<ReturnType<typeof collectAlertEntries>>;
+    let fresh: AlertEntry[];
+    try {
+      collected = await collectAlertEntries(admin, ctx, nowMs);
+      fresh = await newEntries(admin, ctx, collected.entries);
+    } catch (err) {
+      // A read failed: give the day back so a later pass (until 11:00) tries again with full data.
+      await db.from("money_alerts").delete().eq("id", alertId).eq("organization_id", ctx.organizationId).eq("status", "claimed");
+      console.error("[bookkeeper] money alert read failed", ctx.companyId, err instanceof Error ? err.message : err);
+      return { companyId: ctx.companyId, status: "failed" };
+    }
+    const { entries, provider } = collected;
+    const freshKeys = new Set(fresh.map((e) => e.key));
+    // Promises the owner has now been told about (in this text, or on an earlier day) → 'missed'.
+    const markMissed = async (onlyAlreadyTold: boolean) => {
+      for (const e of entries) {
+        if (!e.promiseRowId || (onlyAlreadyTold && freshKeys.has(e.key))) continue;
+        await db.from("invoice_collections").update({ promise_status: "missed" }).eq("id", e.promiseRowId).eq("organization_id", ctx.organizationId).eq("promise_status", "open");
+      }
+    };
     const body = composeMoneyAlert(ctx.name, fresh, provider);
     if (!body || !ctx.ownerPhone) {
+      await markMissed(true);
       await finish({ status: "skipped", items: fresh.map((e) => e.key) });
       return { companyId: ctx.companyId, status: "skipped", body };
     }
@@ -286,6 +323,7 @@ export async function runCompanyMoneyAlert(admin: AdminClient, ctx: CompanyCtx, 
     }
     const sent = await sendOwnerSms(admin, { to: ctx.ownerPhone, body, organizationId: ctx.organizationId, companyId: ctx.companyId, platformBrand: ctx.platformBrand });
     if (sent.status === "sent") {
+      await markMissed(false);
       await finish({ status: "sent", body, items: keys, sent_at: new Date(nowMs).toISOString() });
       return { companyId: ctx.companyId, status: "sent", body };
     }
@@ -301,19 +339,18 @@ export async function runCompanyMoneyAlert(admin: AdminClient, ctx: CompanyCtx, 
 
 /** Scheduler pass: every company whose local time is 08:00–10:59 and has the alert on. */
 export async function runDailyMoneyAlerts(admin: AdminClient, nowMs: number = Date.now()): Promise<DailyAlertOutcome[]> {
-  const db = admin as Db;
-  const { data } = await db.from("companies").select("id, organization_id, timezone, owner_phone_e164").not("owner_phone_verified_at", "is", null).limit(5000);
   const outcomes: DailyAlertOutcome[] = [];
-  for (const c of (data ?? []) as Array<{ id: string; organization_id: string; timezone: string | null; owner_phone_e164: string | null }>) {
-    if (!c.owner_phone_e164) continue;
-    const hour = localParts(nowMs, c.timezone).hour;
+  // Only companies with the Bookkeeper on (house orgs only if they opted in), read in pages.
+  for (const c of await loadActiveCompanies(admin)) {
+    if (!c.settings.dailyAlert) continue;
+    const hour = localParts(nowMs, c.timeZone).hour;
     if (hour < ALERT_HOUR || hour >= ALERT_LAST_HOUR) continue;
     try {
-      const ctx = await loadCompanyCtx(admin, c.organization_id, c.id);
+      const ctx = await loadCompanyCtx(admin, c.organizationId, c.companyId);
       if (!ctx || !ctx.settings.enabled || !ctx.settings.dailyAlert || !ctx.ownerPhone) continue;
       outcomes.push(await runCompanyMoneyAlert(admin, ctx, nowMs));
     } catch (err) {
-      console.error("[bookkeeper] money alert failed", c.id, err instanceof Error ? err.message : err);
+      console.error("[bookkeeper] money alert failed", c.companyId, err instanceof Error ? err.message : err);
     }
   }
   return outcomes;

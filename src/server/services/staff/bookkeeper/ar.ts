@@ -7,6 +7,7 @@ import { localWallTimeToUtcMs, weekKeyForDate } from "@/server/services/monthly-
 import { OPEN_INVOICE_STATUSES, owingCents, type CompanyCtx } from "./context";
 import { INVOICE_COLUMNS, type BookkeeperInvoice, type Db } from "./db-types";
 import { daysBetween, fullNameOf, localParts } from "./format";
+import { chunks, readAllPages } from "./settings";
 
 export const AGING_BUCKETS = ["0-30", "31-60", "61-90", "90+"] as const;
 export type AgingBucketKey = (typeof AGING_BUCKETS)[number];
@@ -119,22 +120,25 @@ export function cashSnapshot(inputs: CashInputs, aging: Pick<AgingSummary, "outs
 
 // ── Loaders (tenant-scoped) ─────────────────────────────────────────────────────
 
-/** Open invoices with a balance, with the customer's name. */
-export async function loadOpenInvoicesWithNames(admin: AdminClient, scope: { organizationId: string; companyId: string }, limit = 1000): Promise<Array<BookkeeperInvoice & { customer: string }>> {
+/** Open invoices with a balance, with the customer's name. Throws on a read error (no partial totals). */
+export async function loadOpenInvoicesWithNames(admin: AdminClient, scope: { organizationId: string; companyId: string }): Promise<Array<BookkeeperInvoice & { customer: string }>> {
   const db = admin as Db;
-  const { data } = await db
-    .from("invoices")
-    .select(INVOICE_COLUMNS)
-    .eq("organization_id", scope.organizationId)
-    .eq("company_id", scope.companyId)
-    .in("status", OPEN_INVOICE_STATUSES)
-    .gt("balance_due_cents", 0)
-    .limit(limit);
-  const invoices = (data ?? []) as BookkeeperInvoice[];
+  const invoices = await readAllPages<BookkeeperInvoice>((from, to) =>
+    db
+      .from("invoices")
+      .select(INVOICE_COLUMNS)
+      .eq("organization_id", scope.organizationId)
+      .eq("company_id", scope.companyId)
+      .in("status", OPEN_INVOICE_STATUSES)
+      .gt("balance_due_cents", 0)
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
   const ids = [...new Set(invoices.map((i) => i.contact_id).filter((x): x is string => Boolean(x)))];
   const names = new Map<string, string>();
-  if (ids.length) {
-    const { data: contacts } = await db.from("contacts").select("id, first_name, last_name, phone").eq("organization_id", scope.organizationId).in("id", ids);
+  for (const part of chunks(ids)) {
+    const { data: contacts, error } = await db.from("contacts").select("id, first_name, last_name, phone").eq("organization_id", scope.organizationId).in("id", part);
+    if (error) throw error;
     for (const c of (contacts ?? []) as Array<{ id: string; first_name: string | null; last_name: string | null; phone: string | null }>) names.set(c.id, fullNameOf(c));
   }
   return invoices.map((inv) => {

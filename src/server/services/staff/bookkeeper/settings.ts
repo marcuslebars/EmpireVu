@@ -100,3 +100,74 @@ export async function loadCollectionsSettings(admin: AdminClient, organizationId
 export function isCrankleadsOrg(org: unknown): boolean {
   return record(org).platform_brand === "crankleads";
 }
+
+/** True when the Bookkeeper is on for this company (for gating its tools and prompt notes). Never throws. */
+export async function bookkeeperActiveFor(admin: AdminClient, scope: { organizationId: string; companyId: string }): Promise<boolean> {
+  try {
+    return (await loadCollectionsSettings(admin, scope.organizationId, scope.companyId))?.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+/** PostgREST returns at most 1000 rows per request. */
+export const PAGE_SIZE = 1000;
+/** Ids per `.in()` filter (keeps the request URL well under limits). */
+export const IN_CHUNK = 200;
+
+export function chunks<T>(items: T[], size: number = IN_CHUNK): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/** Read every page of a query (`make(from, to)` builds it with `.range(from, to)`). Throws on an error. */
+export async function readAllPages<T>(make: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>, maxRows = 50_000): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; from < maxRows; from += PAGE_SIZE) {
+    const { data, error } = await make(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as T[];
+    out.push(...rows);
+    if (rows.length < PAGE_SIZE) break;
+  }
+  return out;
+}
+
+export interface ActiveCompany {
+  organizationId: string;
+  companyId: string;
+  timeZone: string | null;
+  crankleads: boolean;
+  settings: CollectionsSettings;
+}
+
+/**
+ * Companies with the Bookkeeper on: every company of a CrankLeads org (unless switched off), plus
+ * house-org companies that switched it on (ai_settings.collections.enabled = true). House orgs are
+ * filtered out at the query, so A1-style tenants never enter a sweep unless they opted in.
+ */
+export async function loadActiveCompanies(admin: AdminClient): Promise<ActiveCompany[]> {
+  const db = admin as Db;
+  const columns = "id, organization_id, timezone, ai_settings";
+  const orgs = await readAllPages<{ id: string }>((from, to) => db.from("organizations").select("id").eq("platform_brand", "crankleads").order("id", { ascending: true }).range(from, to));
+  const crankOrgs = new Set(orgs.map((o) => o.id));
+  const rows = new Map<string, { id: string; organization_id: string; timezone: string | null; ai_settings: unknown }>();
+  for (const ids of chunks([...crankOrgs])) {
+    const page = await readAllPages<{ id: string; organization_id: string; timezone: string | null; ai_settings: unknown }>((from, to) =>
+      db.from("companies").select(columns).in("organization_id", ids).order("id", { ascending: true }).range(from, to),
+    );
+    for (const r of page) rows.set(r.id, r);
+  }
+  const optedIn = await readAllPages<{ id: string; organization_id: string; timezone: string | null; ai_settings: unknown }>((from, to) =>
+    db.from("companies").select(columns).eq(`ai_settings->${SETTINGS_KEY}->>enabled`, "true").order("id", { ascending: true }).range(from, to),
+  );
+  for (const r of optedIn) rows.set(r.id, r);
+  const out: ActiveCompany[] = [];
+  for (const r of rows.values()) {
+    const crankleads = crankOrgs.has(r.organization_id);
+    const settings = readCollectionsSettings(r.ai_settings, { crankleads });
+    if (settings.enabled) out.push({ organizationId: r.organization_id, companyId: r.id, timeZone: r.timezone, crankleads, settings });
+  }
+  return out;
+}

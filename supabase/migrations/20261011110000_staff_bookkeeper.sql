@@ -48,9 +48,10 @@ create table if not exists public.invoice_reminder_texts (
   company_id uuid not null,
   invoice_id uuid not null references public.invoices(id) on delete cascade,
   contact_id uuid references public.contacts(id) on delete set null,
-  -- "step:2", "final", "manual:<approval id>", "plan:<plan id>:<n>" — one text per key, ever.
+  -- "step:2", "final", "manual:<approval id>", "plan:<plan id>:<n>", "plan:<approval id>:confirm|decline"
+  -- — one text per key, ever. plan_notice = a payment-plan confirmation/decline (queued like the rest).
   reminder_key text not null,
-  kind text not null check (kind in ('scheduled', 'final_notice', 'manual', 'instalment')),
+  kind text not null check (kind in ('scheduled', 'final_notice', 'manual', 'instalment', 'plan_notice')),
   -- queued = approved by the owner, waiting for the 09:00–20:00 send window.
   status text not null default 'claimed' check (status in ('queued', 'claimed', 'sent', 'blocked', 'failed', 'skipped')),
   body text,
