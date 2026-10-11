@@ -17,6 +17,7 @@ import { handleLeadIntake } from "@/server/services/lead-intake/intake";
 import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
 import { toE164 } from "@/server/services/retell/payload";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { BUSINESS_LINE_MODE } from "@/server/services/staff/porting/db-types";
 import {
   FORWARDING_TEST_LEG_KEY,
   isTestCallerId,
@@ -34,6 +35,11 @@ type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 type MissedCallRow = Tables<"missed_calls">;
 
 export const CATCHER_MODE = "missed_call_catcher";
+/**
+ * Numbers whose calls take the catcher path: the catcher itself, and a ported business line
+ * (docs/ai-staff.md → "Keep your number") once its owner-first ring went unanswered.
+ */
+export const CALL_ROUTED_MODES = [CATCHER_MODE, BUSINESS_LINE_MODE];
 export const MISSED_CALL_SOURCE = "missed_call_catcher";
 /** inbound_webhook_jobs providers (routes enqueue, the worker dispatches). */
 export const VOICE_JOB_PROVIDER = "twilio_voice";
@@ -133,9 +139,10 @@ export interface CatcherTenant {
 }
 
 /**
- * Resolve the tenant from the number that was CALLED. Returns null when no active catcher
- * number matches (unknown/misconfigured number); throws on a DB error so the caller can
- * tell "not ours" from "couldn't check".
+ * Resolve the tenant from the number that was CALLED (a catcher number, or a ported business
+ * line whose owner-first ring went unanswered). Returns null when no active number matches
+ * (unknown/misconfigured number); throws on a DB error so the caller can tell "not ours" from
+ * "couldn't check".
  */
 export async function resolveCatcherTenant(admin: AdminClient, calledNumber: string | null): Promise<CatcherTenant | null> {
   const phone = toE164(calledNumber);
@@ -145,7 +152,7 @@ export async function resolveCatcherTenant(admin: AdminClient, calledNumber: str
     .select("organization_id, company_id, phone_e164, brand_label")
     .eq("phone_e164", phone)
     .eq("provider", "twilio")
-    .eq("mode", CATCHER_MODE)
+    .in("mode", CALL_ROUTED_MODES)
     .eq("active", true)
     .maybeSingle();
   if (error) throw error;

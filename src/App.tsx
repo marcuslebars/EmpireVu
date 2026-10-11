@@ -24,6 +24,7 @@ import PublicLeadFormPage from "@/screens/PublicLeadFormPage";
 import AcceptInvitePage from "@/screens/AcceptInvitePage";
 import CrankleadsWelcomePage from "@/screens/CrankleadsWelcomePage";
 import SetupIntakePage from "@/screens/SetupIntakePage";
+import PublicPortPage from "@/screens/PublicPortPage";
 import SignInPage from "./screens/SignInPage";
 import SignUpPage from "./screens/SignUpPage";
 import OAuthCallbackPage from "./screens/OAuthCallbackPage";
@@ -54,6 +55,7 @@ import SettingsPage from "./screens/SettingsPage";
 import NotFound from "./screens/NotFound";
 import ConciergeListPage from "./screens/concierge/ConciergeListPage";
 import ConciergeDetailPage from "./screens/concierge/ConciergeDetailPage";
+import ConciergePortsPage from "./screens/concierge/ConciergePortsPage";
 import { Loader2, AlertTriangle, Bug, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -343,8 +345,11 @@ function AppRoutes() {
       <Route path="/setup/:token" element={<SetupIntakePage />} />
       {/* Done-for-you one-tap call forwarding (docs/done-for-you.md). Public: the token is the credential. */}
       <Route path="/forward/:token" element={<ForwardPage />} />
+      {/* Keep your number: the owner's port form (texted). Public: the token is the credential. */}
+      <Route path="/port/:token" element={<PublicPortPage />} />
       {/* Operator-only concierge console (OPERATOR_EMAILS); everyone else sees NotFound. */}
       <Route path="/concierge" element={<ConciergeListPage />} />
+      <Route path="/concierge/ports" element={<ConciergePortsPage />} />
       <Route path="/concierge/:orgId" element={<ConciergeDetailPage />} />
       <Route element={<AppLayout />}>
         <Route
