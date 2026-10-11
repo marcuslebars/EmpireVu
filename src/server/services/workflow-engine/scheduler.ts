@@ -1,3 +1,4 @@
+import { runStaffSweeps } from "@/server/services/staff/registry";
 import { processAccountingJobs } from "@/server/services/accounting/engine";
 import { sweepRecurringJobs } from "@/server/services/recurring/sweep";
 import { sweepReviewRequests } from "@/server/services/reviews/send";
@@ -443,5 +444,7 @@ export async function runScheduler(
       if (r.claimed) console.log(`[scheduler] accounting: claimed=${r.claimed} done=${r.done} skipped=${r.skipped} retrying=${r.retrying} failed=${r.failed}`);
     })
     .catch((error) => console.error("[scheduler] accounting sync failed", error instanceof Error ? error.message : error));
+  // AI staff (docs/ai-staff.md): each role's own throttled, isolated sweeps.
+  await guarded("AI staff", undefined, () => runStaffSweeps(admin, nowMs));
   return { ticksMaterialized, ticksProcessed, entitiesEmitted };
 }

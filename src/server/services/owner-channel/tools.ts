@@ -4,6 +4,7 @@
  * contact ids it passes are re-checked against that scope (wrong company → "not found").
  * Changes to bookings only PROPOSE (an owner_command approval the owner confirms with "Y").
  */
+import { roleOwnerTools } from "@/server/services/staff/registry";
 import type Anthropic from "@anthropic-ai/sdk";
 
 import type { Tables } from "@/server/db/database.types";
@@ -379,8 +380,10 @@ export async function runOwnerTool(state: ToolRunState, name: string, input: Inp
       case "resume_all_texts":
         result = { ok: true, ...(await resumeAllTexts(state.admin, state.scope)) };
         break;
-      default:
-        result = { error: `Unknown tool ${name}.` };
+      default: {
+        const roleTool = roleOwnerTools().find((t) => t.tool.name === name);
+        result = roleTool ? await roleTool.run(state, input) : { error: `Unknown tool ${name}.` };
+      }
     }
     state.actions.push({ tool: name, ok: !("error" in result) && result.ok !== false });
     return result;

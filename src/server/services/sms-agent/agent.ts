@@ -11,7 +11,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { extractAiUsage, type AiUsageMeta } from "@/server/ai/claude";
 import type { FetchedImage } from "@/server/services/sms-agent/media";
-import { AGENT_TOOLS, runTool, type TurnState } from "@/server/services/sms-agent/tools";
+import { allAgentTools, runTool, type TurnState } from "@/server/services/sms-agent/tools";
 
 /** The one Anthropic call the loop makes — injectable so tests can script a fake model. */
 export interface ModelClient {
@@ -61,7 +61,7 @@ export class AgentTimeoutError extends Error {
 }
 
 export function toolDefinitions(): Anthropic.Tool[] {
-  return AGENT_TOOLS.map((t) => ({
+  return allAgentTools().map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: t.inputSchema as Anthropic.Tool.InputSchema,

@@ -17,6 +17,7 @@
  * Never throws. Any failure → the conversation goes to the owner quietly (no half-baked text to
  * the customer) and the owner is alerted.
  */
+import { roleAgentPromptNotes } from "@/server/services/staff/registry";
 import { isAIConfigured, type AiUsageMeta } from "@/server/ai/claude";
 import { getSmsAgentModel } from "@/server/ai/config";
 import { SMS_AGENT_SENDER, type AdminClient, type InboundCustomerSms } from "@/server/services/front-desk/contracts";
@@ -374,7 +375,7 @@ async function runOneTurn(
     };
     output = await runAgentTurn({
       state: turnState,
-      system: buildSystemPrompt(facts, { autonomy: settings.autonomy, firstAiMessage, now }),
+      system: buildSystemPrompt(facts, { autonomy: settings.autonomy, firstAiMessage, now, roleNotes: roleAgentPromptNotes() }),
       userText: buildConversationTurn({
         customerName: displayName(contact) === contact.phone ? null : displayName(contact),
         customerPhone: contact.phone,

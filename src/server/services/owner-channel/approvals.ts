@@ -4,6 +4,7 @@
  * can't run it twice), run it, and store the result. One decide path for SMS, the app and
  * expiry (docs/front-desk-ai.md "## Owner by text").
  */
+import { roleApprovalExecutor } from "@/server/services/staff/registry";
 import type { Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import type {
@@ -195,6 +196,8 @@ export interface DecideResult {
 async function runApproval(admin: AdminClient, row: ApprovalDbRow, decision: ApprovalDecision): Promise<ExecuteResult> {
   try {
     if (row.kind === OWNER_COMMAND_KIND) return await executeOwnerCommand(admin, toApprovalRow(row), decision);
+    const roleExecutor = roleApprovalExecutor(row.kind);
+    if (roleExecutor) return await roleExecutor(admin, toApprovalRow(row), decision);
     return await executeApprovedAction(admin, toApprovalRow(row), decision);
   } catch (err) {
     console.error("[owner-channel] approval run failed", row.id, err instanceof Error ? err.message : err);
@@ -226,7 +229,9 @@ async function settle(
   result: ExecuteResult,
   fallbackStatus: ApprovalStatus,
 ): Promise<ApprovalDbRow> {
-  if (claimed.kind === OWNER_COMMAND_KIND) {
+  // owner_command and AI staff kinds (staff/registry.ts): the executor doesn't record the
+  // outcome, so it's recorded here.
+  if (claimed.kind === OWNER_COMMAND_KIND || roleApprovalExecutor(claimed.kind)) {
     await storeResult(admin, claimed, decision, result, fallbackStatus);
     return { ...claimed, status: fallbackStatus };
   }
