@@ -101,7 +101,7 @@ export function useSetJobCrew(orgId: string, bookingId: string) {
 }
 
 export function useJobEnRoute(orgId: string, bookingId: string) {
-  return useSheetMutation(orgId, bookingId, () => markJobEnRoute(orgId, bookingId));
+  return useSheetMutation(orgId, bookingId, (etaMinutes?: number | null) => markJobEnRoute(orgId, bookingId, etaMinutes));
 }
 
 export function useStartJob(orgId: string, bookingId: string) {
