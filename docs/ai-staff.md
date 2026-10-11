@@ -22,7 +22,7 @@ Gets invoices paid and keeps the owner's money picture straight. Code: `src/serv
 
 ### Reminder texts (`reminders.ts`, `deliver.ts`, `texts.ts`)
 
-Sweep `bookkeeper:reminder-texts`, every 15 min:
+Sweep `bookkeeper:reminder-texts`, every 15 min. It first loads the companies with the Bookkeeper on (every company of a CrankLeads org unless switched off, plus house-org companies whose `ai_settings.collections.enabled` is true, filtered at the query; `loadActiveCompanies`), then reads each company's own overdue invoices and plans in 1000-row pages. A read error for a company (e.g. its collections state) skips that company for the run, never texting without its holds:
 
 - **Schedule:** `reminderDays` (default **3, 10, 20, 30** days past due, between the email reminders' default 1, 7, 14). Tone by step: gentle → nudge → firm → last (firm + "reply to set up a payment plan"). Texts are built in code: plain GSM, the business's name, the pay link (`/i/{token}` on the brand's quote host; the CrankLeads domain for CrankLeads orgs). Never anything beyond "final reminder": no legal threats, agencies, fees or credit talk (tested).
 - **When:** 09:00–20:00 company local, **Monday–Saturday** only. At most one scheduled text per invoice per **5 days**, one Bookkeeper text per customer per **20 h**, never on a day a reminder (email or text) already went out.
@@ -32,14 +32,15 @@ Sweep `bookkeeper:reminder-texts`, every 15 min:
 - **No backlog:** an invoice that's 40 days late when texts are switched on gets the day-30 text once, not four.
 - **Exactly once:** every text is an `invoice_reminder_texts` row, unique `(invoice_id, reminder_key)` (`step:N`, `final`, `manual:<approval>`, `plan:<plan>:<n>`), inserted as the claim before sending. Owner-approved texts are inserted `queued` and sent right away inside the window, else by the next sweep inside it (`queued → claimed` is conditional). An approved text whose balance changed since the owner saw it is not sent, and the owner is told.
 - **Final notice:** a week after the last scheduled text's day (default day 37), if still unpaid, the sweep claims `invoice_collections.final_notice_status` none → proposed and asks the owner (`collections_final_notice`). It is proposed once; a no or an expiry is final.
-- **Instalments:** each active payment plan gets a text the day before (or the day of) each payment that isn't already covered by what's been paid since the plan started. A paid-off or voided invoice closes the plan and lifts the hold.
+- **Instalments:** each active payment plan gets a text the day before (or the day of) the next payment that isn't already covered by what's been paid since the plan started; a missed payment doesn't silence the later ones. While the plan is on track it holds the other reminders through its last date; once a payment is 2+ days late and uncovered, the hold is lifted (the normal reminders resume and the morning alert flags it), and it returns if the customer catches up. A paid-off or voided invoice closes the plan and lifts the hold.
+- **Failures:** a step is used up only by a text that went out (a failed or blocked one keeps its row, so it's never sent twice, and the next step's day brings a fresh one). A claim is released if the run throws before the send; a final-notice proposal goes back to `none` if its approval couldn't be created.
 
 ### Approvals (`approvals.ts`)
 
 | Kind | Asked by | Owner sees | Y | N / expiry |
 | --- | --- | --- | --- | --- |
 | `collections_final_notice` (TTL 3 days) | reminder sweep | `Final notice for Jamie Lee (705-555-0123): INV-2026-0012, $1,240 owing, 40 days overdue, 4 reminder texts sent. Y texts them exactly: "Hi Jamie, this is a final reminder from Northshore Snow & Lawn: invoice INV-2026-0012 for $1,240.00 is now 40 days past due. Please pay here: … or reply to arrange a payment plan."` | That exact text (queued for 9am if after hours) → "Sent the final notice to Jamie Lee." | No final notice; the automatic texts for that invoice are done |
-| `payment_plan` (24 h) | SMS agent `request_payment_plan` | who, invoice, balance, "3 payments of $400.00 - Oct 16, Oct 30 and Nov 13", the customer's words | `payment_plans` row, hold through the last date, the customer gets the plan + pay link, reminders before each payment | N: "Dana will be in touch with you directly about the payment" + conversation to the owner. Expiry: conversation to the owner, no customer text |
+| `payment_plan` (24 h) | SMS agent `request_payment_plan` | who, invoice, balance, "3 payments of $400.00 - Oct 16, Oct 30 and Nov 13", the customer's words | `payment_plans` row, hold through the last date, the customer gets the plan + pay link (queued for 9am if decided outside 9am-8pm Mon-Sat), reminders before each payment | N: "Dana will be in touch with you directly about the payment" (same send window) + conversation to the owner. Expiry: conversation to the owner, no customer text |
 | `record_payment` (24 h) | owner tool `record_offline_payment` | `Record $500 e-Transfer from Bob Jones on INV-2026-0009? $740 will still be owing.` | `invoices/service.ts recordPayment` (receipt email as usual), once: the approval id is in the payment's notes | Nothing recorded |
 | `send_invoice_reminder` (12 h) | owner tool `remind_now` | `Text Jamie Lee (705-555-0123) about INV-2026-0012 ($1,240, 12 days late)? They'll get exactly: "…"` | That exact text (queued for 9am if after hours) | Nothing sent |
 
@@ -50,7 +51,7 @@ Sweep-created approvals are texted by `notifyOwnerOfApproval` (quiet hours respe
 | Tool | Does |
 | --- | --- |
 | `my_invoices` | This contact's open invoices (number, owing, due, days late). `send_link: true` adds the pay link(s) to the reply. The amounts are vouched for the reply guard. |
-| `promise_to_pay` | A date from today to 30 days out → an `invoice_collections` promise + a hold through that date (reminders resume the day after). Missed → flagged in the morning alert. |
+| `promise_to_pay` | A real date from today to 30 days out → an `invoice_collections` promise + a hold through that date (reminders resume the day after; never more than 30 days from when it was recorded). One promise per invoice: a second date, or one after a missed promise, is refused and the agent hands off to the owner. Missed → flagged in the morning alert. |
 | `request_payment_plan` | 2–6 equal payments (leftover cents on the last), weekly / every 2 weeks / monthly, the first within 30 days, all within 6 months → a `payment_plan` approval. One open request per customer. |
 
 Prompt notes: only state amounts the tool returned; promise dates → `promise_to_pay`; never promise a plan, a discount or a consequence; disputes, "wrong amount", refunds and "I already paid" → `hand_off_to_owner`. When the Bookkeeper is off for the company (the house-org default), the tools tell the agent to hand bill questions to the owner.
@@ -74,7 +75,7 @@ Sweep `bookkeeper:money-alert`, every 10 min. A company is considered from 08:00
 - the **accounting sync** is failing for an invoice or payment (`accounting_sync_jobs` failed, or pending after 3+ attempts);
 - **reconciliation:** an invoice marked paid in the last 90 days with no succeeded payment (and no credit covering it); a succeeded payment more than 24 h old (after the connection's start) with no `accounting_links` row and no job in flight, while a connection is active.
 
-The day is claimed first (`money_alerts`, unique company + local date), and each item is told once (`money_alert_items`, unique company + key). A failed send forgets the day's items so tomorrow's alert carries them. The text is ≤ 600 characters, grouped by kind, ending `Text "who owes me" for the full list.`
+The day is claimed first (`money_alerts`, unique company + local date), and each item is told once (`money_alert_items`, unique company + key). Every read is checked and large id lists are chunked (200); a failed read sends nothing and gives the day back so a later pass retries. A failed send forgets the day's items so tomorrow's alert carries them; a promise is only marked `missed` once an alert about it went out. Only companies with the Bookkeeper and the alert on are scanned (`loadActiveCompanies`). The text is ≤ 600 characters, grouped by kind, ending `Text "who owes me" for the full list.`
 
 ### Weekly report
 

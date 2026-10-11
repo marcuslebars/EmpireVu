@@ -29,7 +29,7 @@ export interface InvoiceCollectionsRow {
   updated_at: string;
 }
 
-export type ReminderTextKind = "scheduled" | "final_notice" | "manual" | "instalment";
+export type ReminderTextKind = "scheduled" | "final_notice" | "manual" | "instalment" | "plan_notice";
 export type ReminderTextStatus = "queued" | "claimed" | "sent" | "blocked" | "failed" | "skipped";
 
 export interface InvoiceReminderTextRow {

@@ -9,7 +9,7 @@ import type { TenantServiceContext } from "@/server/services/shared";
 import { deliverMessage, type ConsentContact, type DeliverMessageResult } from "@/server/services/workflow-engine/messaging";
 import { CONTACT_COLUMNS, INVOICE_COLUMNS, type BookkeeperContact, type BookkeeperInvoice, type Db, type InvoiceCollectionsRow } from "./db-types";
 import { localParts } from "./format";
-import { isCrankleadsOrg, readCollectionsSettings, type CollectionsSettings } from "./settings";
+import { chunks, isCrankleadsOrg, readCollectionsSettings, type CollectionsSettings } from "./settings";
 
 /** message_log.sent_by for the Bookkeeper's texts. */
 export const BOOKKEEPER_SENDER = "bookkeeper";
@@ -195,8 +195,16 @@ export async function ensureCollections(admin: AdminClient, invoice: Pick<Bookke
   throw error ?? new Error("Could not create the collections row.");
 }
 
+/**
+ * Collections rows for these invoices, read in chunks. THROWS on any read error: callers must
+ * skip the company this run rather than carry on without its holds and spacing.
+ */
 export async function collectionsFor(admin: AdminClient, organizationId: string, invoiceIds: string[]): Promise<Map<string, InvoiceCollectionsRow>> {
-  if (invoiceIds.length === 0) return new Map();
-  const { data } = await (admin as Db).from("invoice_collections").select("*").eq("organization_id", organizationId).in("invoice_id", invoiceIds);
-  return new Map(((data ?? []) as InvoiceCollectionsRow[]).map((r) => [r.invoice_id, r]));
+  const out = new Map<string, InvoiceCollectionsRow>();
+  for (const ids of chunks(invoiceIds)) {
+    const { data, error } = await (admin as Db).from("invoice_collections").select("*").eq("organization_id", organizationId).in("invoice_id", ids);
+    if (error) throw error;
+    for (const r of (data ?? []) as InvoiceCollectionsRow[]) out.set(r.invoice_id, r);
+  }
+  return out;
 }

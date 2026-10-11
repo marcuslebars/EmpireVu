@@ -46,6 +46,8 @@ export async function sendClaimedReminder(
     if (result.status !== "sent") return await finish(result.status, result.reason ?? undefined);
     const at = new Date(nowMs).toISOString();
     await finish("sent");
+    // A payment-plan confirmation/decline isn't a reminder: no schedule bookkeeping.
+    if (row.kind === "plan_notice") return { status: "sent" };
     // Coordinates with the email reminders: "a reminder went out today".
     await db.from("invoices").update({ last_reminder_at: at }).eq("id", invoice.id).eq("organization_id", ctx.organizationId);
     const collections: Record<string, unknown> = { last_sms_at: at };
@@ -121,7 +123,7 @@ export async function queueReminder(
   admin: AdminClient,
   ctx: CompanyCtx,
   invoice: BookkeeperInvoice,
-  input: { key: string; kind: ReminderTextKind; body: string; balanceCents: number; approvalId: string | null },
+  input: { key: string; kind: ReminderTextKind; body: string; balanceCents: number | null; approvalId: string | null },
   nowMs: number,
 ): Promise<SendOutcome> {
   const db = admin as Db;

@@ -10,7 +10,7 @@ import type { AgentTool, TurnState } from "@/server/services/sms-agent/tools";
 import { createBookkeeperApproval, KIND_PAYMENT_PLAN } from "./approvals";
 import { ensureCollections, loadCompanyCtx, openInvoicesForContact, owingCents, payLink, todayIn, type CompanyCtx } from "./context";
 import type { BookkeeperInvoice, Db, Instalment } from "./db-types";
-import { addDays, addMonths, clip, dayDate, daysBetween, fullNameOf, money, shortDate } from "./format";
+import { addDays, addMonths, clip, dayDate, daysBetween, fullNameOf, isDateKey, localParts, money, shortDate } from "./format";
 import { planDates, planShape } from "./texts";
 import { prettyPhone } from "@/server/services/front-desk/approval-text";
 
@@ -108,22 +108,41 @@ const promiseToPay: AgentTool<{ date: string; invoice_number?: string }> = {
     if (!ctx) return OFF;
     const nowMs = state.services.now().getTime();
     const today = todayIn(ctx, nowMs);
+    if (!isDateKey(input.date)) return { ok: false, error: "That isn't a real date - ask for the date they'll pay." };
     const ahead = daysBetween(today, input.date);
     if (!Number.isFinite(ahead) || ahead < 0) return { ok: false, error: "That date is in the past - ask for the date they'll pay." };
     if (ahead > PROMISE_MAX_DAYS) return { ok: false, error: `That's more than ${PROMISE_MAX_DAYS} days out - offer a payment plan (request_payment_plan) or hand off to the owner.` };
     const targets = matchNumber(await openInvoicesForContact(state.admin, ctx, state.contact.id), input.invoice_number);
     if (targets.length === 0) return { ok: false, error: "No unpaid invoice matches - check with my_invoices." };
     const db = state.admin as Db;
+    const rows = await Promise.all(targets.map((inv) => ensureCollections(state.admin, inv)));
+    // One promise per invoice: a second date (or one after a missed promise) is the owner's call,
+    // so reminders can't be pushed back forever.
+    const earlier = rows.find((r) => r.promise_status === "missed" || (r.promise_status === "open" && r.promise_date));
+    if (earlier) {
+      const missed = earlier.promise_status === "missed" || (earlier.promise_date ?? "") < today;
+      return {
+        ok: false,
+        error: missed
+          ? `They already promised to pay by ${shortDate(earlier.promise_date)} and that date passed. Don't record a new date - use hand_off_to_owner.`
+          : `They already promised to pay by ${shortDate(earlier.promise_date)}. To change that date, use hand_off_to_owner.`,
+      };
+    }
     const recorded: string[] = [];
-    for (const inv of targets) {
-      const row = await ensureCollections(state.admin, inv);
+    for (const [i, inv] of targets.entries()) {
+      const row = rows[i];
       // A payment plan's own schedule wins over a promise.
       if (row.hold_reason === "payment_plan" && row.hold_until && row.hold_until >= today) continue;
-      await db
+      // Never hold past 30 days from when the promise was first recorded.
+      const recordedAt = row.promise_recorded_at ?? new Date(nowMs).toISOString();
+      const cap = addDays(localParts(Date.parse(recordedAt), ctx.timeZone).date, PROMISE_MAX_DAYS);
+      const holdUntil = input.date < cap ? input.date : cap;
+      const { error } = await db
         .from("invoice_collections")
-        .update({ hold_until: input.date, hold_reason: "promise", promise_date: input.date, promise_recorded_at: new Date(nowMs).toISOString(), promise_status: "open" })
+        .update({ hold_until: holdUntil, hold_reason: "promise", promise_date: input.date, promise_recorded_at: recordedAt, promise_status: "open" })
         .eq("organization_id", ctx.organizationId)
         .eq("invoice_id", inv.id);
+      if (error) return { ok: false, error: "That didn't save. Don't tell them it's recorded - say you'll pass it on, and use hand_off_to_owner." };
       await recordInvoiceEvent(state.admin as never, { organizationId: ctx.organizationId, invoiceId: inv.id, eventType: "promise_to_pay", metadata: { date: input.date, via: "sms_agent" } });
       recorded.push(inv.invoice_number ?? inv.id);
     }
@@ -166,6 +185,7 @@ const requestPaymentPlan: AgentTool<{ payments: number; frequency: "weekly" | "e
     if (open.length > 1) return { ok: false, error: `They have ${open.length} unpaid invoices (${open.map((i) => i.invoice_number ?? "unnumbered").join(", ")}) - ask which one the plan is for.` };
     const invoice = open[0];
     const first = input.first_payment_date ?? addDays(today, 7);
+    if (!isDateKey(first)) return { ok: false, error: "That first payment date isn't a real date." };
     const lead = daysBetween(today, first);
     if (lead < 0 || lead > PROMISE_MAX_DAYS) return { ok: false, error: `The first payment has to be between today and ${PROMISE_MAX_DAYS} days out.` };
     const owing = owingCents(invoice);
