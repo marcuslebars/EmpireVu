@@ -111,9 +111,10 @@ export function minutesByDay(entries: EntryTimes[], timeZone: string, now: Date 
   return out;
 }
 
-/** CSV-safe cell (quotes, commas, newlines; neutralises spreadsheet formulas). */
+/** CSV-safe cell (quotes, commas, newlines incl. \r; neutralises spreadsheet formulas). */
 export function csvCell(v: string | number | null | undefined): string {
   let s = v === null || v === undefined ? "" : String(v);
-  if (typeof v === "string" && /^[=+\-@]/.test(s)) s = `'${s}`;
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  // A leading = + - @ (or tab / carriage return, which some spreadsheets skip) starts a formula.
+  if (typeof v === "string" && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }

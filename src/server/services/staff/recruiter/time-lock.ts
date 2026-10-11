@@ -31,7 +31,7 @@ interface SupabaseLike {
 
 /**
  * Is an entry of this company (null = general time) starting at `startedAt` inside a locked pay
- * period? Reads pay_periods with the caller's client (every member may read dates + status).
+ * period? General time is covered only by the period marked covers_general_time. Reads pay_periods with the caller's client (every member may read dates + status).
  * A read error counts as not locked here — the trigger still refuses the write.
  */
 export async function isTimeLocked(supabase: SupabaseLike, organizationId: string, companyId: string | null, startedAt: string): Promise<boolean> {
@@ -46,7 +46,9 @@ export async function isTimeLocked(supabase: SupabaseLike, organizationId: strin
       .lte("starts_at", at)
       .gt("ends_at", at)
       .limit(5);
-    if (companyId) q = q.eq("company_id", companyId);
+    // General time is locked only by the period that pays it (covers_general_time) — the same
+    // rule payroll.ts counts it by and the time_entries trigger enforces.
+    q = companyId ? q.eq("company_id", companyId) : q.eq("covers_general_time", true);
     const { data, error } = await q;
     if (error) return false;
     return ((data ?? []) as unknown[]).length > 0;

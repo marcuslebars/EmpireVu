@@ -9,12 +9,12 @@
  *             08:30 digest with `interview_invite` approvals; owner tools applicants,
  *             invite_applicant, close_job.
  *
- * Sweeps: recruiter:payroll, recruiter:applicants (screening + confirmation texts),
+ * Sweeps: recruiter:payroll, recruiter:applicants (screening, confirmation texts, invites queued overnight),
  * recruiter:digest. Off for house orgs unless switched on (settings.ts).
  */
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { emptyRole, type StaffRoleModule, type StaffSweep } from "@/server/services/staff/types";
-import { executeInterviewInvite, sweepConfirmations, sweepDigest, sweepScreening } from "./applicants";
+import { executeInterviewInvite, sweepConfirmations, sweepDigest, sweepQueuedInvites, sweepScreening } from "./applicants";
 import { INTERVIEW_INVITE_KIND, JOB_POST_KIND, PAYROLL_PERIOD_KIND } from "./approvals";
 import { executeJobPost } from "./jobs";
 import { recruiterOwnerTools } from "./owner-tools";
@@ -56,6 +56,7 @@ export const RECRUITER_SWEEPS: StaffSweep[] = [
       const map = byId(companies);
       await sweepScreening(admin, nowMs, map);
       await sweepConfirmations(admin, nowMs, map);
+      await sweepQueuedInvites(admin, nowMs, map);
     },
   },
   {

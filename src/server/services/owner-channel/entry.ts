@@ -230,6 +230,12 @@ async function handleApproval(
   };
 }
 
+/** Is there a pending approval of a kind that takes "anyway" (with this code, if given) for this phone? */
+async function anywayApplies(admin: AdminClient, phone: string, scope: OwnerCompany[], code: number | null, nowMs: number): Promise<boolean> {
+  const asked = await approvalsAskedOf(admin, scope.map((c) => c.companyId), phone, nowMs);
+  return asked.some((p) => p.status === "pending" && !isExpired(p, nowMs) && ANYWAY_NOTE_KINDS.has(p.kind) && (code == null || p.short_code === code));
+}
+
 /**
  * "4821" — the confirmation code for a destructive owner command ("Cancel Dana…? Reply 4821").
  * Only pending confirmations texted to this phone count; three wrong codes cancel them all.
@@ -366,7 +372,10 @@ async function route(admin: AdminClient, sms: InboundOwnerSms, owned: OwnerCompa
     if (confirmed) return confirmed;
   }
 
-  const parsed = parseApprovalReply(body);
+  let parsed = parseApprovalReply(body);
+  // "Y anyway" / "Y 12 anyway" only means something for a pending payroll_period asked of this
+  // phone (the Recruiter); otherwise the text goes down exactly the path it always did.
+  if (parsed?.note === "anyway" && !(await anywayApplies(admin, sms.from, hint ? [hint] : owned, parsed.code, nowMs))) parsed = null;
   if (parsed) return handleApproval(admin, sms, parsed, owned, hint, body, nowMs);
   if (looksLikeApprovalAttempt(body)) {
     const ask = await askDidYouMean(admin, sms, owned, hint, nowMs);

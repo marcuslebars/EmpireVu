@@ -99,7 +99,7 @@ function facts(job: Pick<JobPostingRow, "pay_text" | "employment_type" | "start_
 /** The job_post approval text (without the reply line), ≤ 400 so the owner agent can relay it whole. PURE. */
 export function buildJobPostSummary(job: Pick<JobPostingRow, "title" | "pay_text" | "employment_type" | "start_text" | "location" | "duties" | "requirements" | "custom_questions">, url: string | null): string {
   const head = `Job post "${job.title}"${facts(job) ? ` - ${facts(job)}` : ""}.`;
-  const noPay = job.pay_text ? "" : " No pay listed (posts with pay get more applicants; text me again with the pay to add it).";
+  const noPay = job.pay_text ? "" : ' No pay given - Ontario requires the pay or a pay range on public job posts: reply N and text me again with it, e.g. "$22-$25/hr".';
   const where = url ? `Y publishes it on your website with an apply form and texts you copy for Indeed/Facebook.` : `Y opens it and texts you copy for Indeed/Facebook (your website isn't live, so people apply by texting your business number).`;
   const asks = job.custom_questions.length ? ` Form also asks: ${job.custom_questions.map((q) => `"${clip(q, 60)}"`).join(", ")}.` : "";
   for (const [d, r] of [[4, 3], [3, 3], [2, 2], [1, 1], [0, 0]] as const) {
@@ -111,15 +111,20 @@ export function buildJobPostSummary(job: Pick<JobPostingRow, "title" | "pay_text
   return clip(`${head} ${where}`, 400);
 }
 
-/** Copy for Indeed / Facebook, texted to the owner after Y. PURE. */
+/**
+ * Copy for Indeed / Facebook, texted to the owner after Y. Always ends with how to apply and the
+ * 2026 Ontario job-posting disclosures (a current vacancy; AI helps screen) — only the job details
+ * are clipped to fit 560 characters. PURE.
+ */
 export function pasteCopy(job: JobPostingRow, businessName: string, url: string | null, businessPhone: string | null): string {
-  const lines = [
+  const details = [
     `${businessName} is hiring: ${job.title}${facts(job) ? ` (${facts(job)})` : ""}.`,
     job.duties.length ? `You'll: ${job.duties.slice(0, 4).join("; ")}.` : null,
     job.requirements.length ? `You need: ${job.requirements.slice(0, 4).join("; ")}.` : null,
-    url ? `Apply here: ${url}` : businessPhone ? `To apply, text ${businessPhone} with your name and experience.` : "To apply, message us with your name and experience.",
   ].filter((l): l is string => Boolean(l));
-  return clip(lines.join(" "), 560);
+  const apply = url ? `Apply here: ${url}` : businessPhone ? `To apply, text ${businessPhone} with your name and experience.` : "To apply, message us with your name and experience.";
+  const tail = `${apply} ${VACANCY_STATEMENT} ${AI_DISCLOSURE}`;
+  return `${clip(details.join(" "), Math.max(60, 560 - tail.length - 1))} ${tail}`;
 }
 
 export interface StartHiringInput {

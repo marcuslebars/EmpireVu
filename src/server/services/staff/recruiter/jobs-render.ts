@@ -20,6 +20,8 @@ export interface JobsPageContext {
 export interface FormState {
   values?: Record<string, string>;
   error?: string | null;
+  /** When the form was rendered (the timing check's start without JS). */
+  renderedAtMs?: number;
 }
 
 function page(ctx: JobsPageContext, title: string, body: string, opts: { noindex?: boolean; turnstile?: boolean } = {}): string {
@@ -116,12 +118,11 @@ ${state.error ? `<div class="err" role="alert">${esc(state.error)}</div>` : ""}
 <label>Do you have your own vehicle to get to job sites?</label>${radio("vehicle", v.vehicle)}
 ${questions}
 <div class="hp" aria-hidden="true"><label for="website">Website</label><input type="text" id="website" name="website" tabindex="-1" autocomplete="off"></div>
-<input type="hidden" name="t" value="${esc(v.t ?? "")}" data-started>
+<input type="hidden" name="t" value="${esc(v.t || String(state.renderedAtMs ?? Date.now()))}">
 ${turnstile}
 <button type="submit">Send my application</button>
 <p class="small">By applying you agree that ${esc(name)} may text or email you about this job. Reply STOP to opt out.</p>
 </form>
-<script>(function(){var t=document.querySelector("[data-started]");if(t&&!t.value)t.value=String(Date.now());})();</script>
 </div>`;
   return page(ctx, `${job.title} - ${name}`, body, { turnstile: Boolean(ctx.turnstileSiteKey) });
 }

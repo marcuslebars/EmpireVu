@@ -38,6 +38,11 @@ begin
     raise exception 'FAIL job_applicants is not admin-read only';
   end if;
   raise notice 'ok   % tables: RLS on, no client insert/update/delete, anon reads nothing', array_length(all_tables, 1);
+  if has_function_privilege('authenticated', 'public.time_entry_in_locked_period(uuid, uuid, timestamptz)', 'EXECUTE')
+     or has_function_privilege('anon', 'public.time_entry_in_locked_period(uuid, uuid, timestamptz)', 'EXECUTE') then
+    raise exception 'FAIL a client role can execute time_entry_in_locked_period';
+  end if;
+  raise notice 'ok   time_entry_in_locked_period: service role only';
 end $$;
 
 -- ── The lock ───────────────────────────────────────────────────────────────────────
@@ -55,6 +60,22 @@ on conflict do nothing;
 insert into public.pay_periods (id, organization_id, company_id, frequency, start_date, end_date, starts_at, ends_at, status)
 values ('a5000000-0000-4000-8000-000000000001', 'a2000000-0000-4000-8000-000000000001', 'a3000000-0000-4000-8000-000000000001', 'biweekly', '2026-09-28', '2026-10-11', '2026-09-28 04:00+00', '2026-10-12 04:00+00', 'locked')
 on conflict (id) do update set status = 'locked';
+-- General time (no company) in the same days.
+insert into public.time_entries (id, organization_id, company_id, profile_id, started_at, ended_at, break_minutes, source)
+values ('a4000000-0000-4000-8000-000000000003', 'a2000000-0000-4000-8000-000000000001', null, 'a1000000-0000-4000-8000-000000000001', '2026-10-07 12:00+00', '2026-10-07 14:00+00', 0, 'manual')
+on conflict do nothing;
+
+do $$
+begin
+  begin
+    insert into public.pay_periods (organization_id, company_id, frequency, start_date, end_date, starts_at, ends_at)
+    values ('a2000000-0000-4000-8000-000000000001', 'a3000000-0000-4000-8000-000000000001', 'weekly', '2026-10-07', '2026-10-13', '2026-10-07 04:00+00', '2026-10-14 04:00+00');
+    raise exception 'FAIL an overlapping pay period was accepted';
+  exception when others then
+    if sqlerrm not like '%pay_period_overlap%' then raise; end if;
+  end;
+  raise notice 'ok   denied: overlapping pay periods for a company (frequency / anchor change)';
+end $$;
 
 set role authenticated;
 select set_config('request.jwt.claim.sub', 'a1000000-0000-4000-8000-000000000001', false);
@@ -86,14 +107,34 @@ begin
   end;
   raise notice 'ok   denied: adding an entry inside a locked period';
 
-  update public.time_entries set ended_at = '2026-10-11 20:00+00' where id = 'a4000000-0000-4000-8000-000000000002';
-  raise notice 'ok   allowed: stopping a clock left running in a locked period';
+  -- The timesheet dialog re-sends the start at minute precision: still just stopping the clock.
+  update public.time_entries set ended_at = '2026-10-11 20:00+00', started_at = date_trunc('minute', started_at)
+  where id = 'a4000000-0000-4000-8000-000000000002';
+  raise notice 'ok   allowed: stopping a clock left running in a locked period (start re-sent at minute precision)';
+
+  -- General time: this period doesn't cover it (covers_general_time false) → not locked.
+  update public.time_entries set break_minutes = 5 where id = 'a4000000-0000-4000-8000-000000000003';
+  raise notice 'ok   allowed: general time when the locked period does not cover it';
 
   insert into public.time_entries (organization_id, company_id, profile_id, started_at, ended_at, source)
   values ('a2000000-0000-4000-8000-000000000001', 'a3000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000001', '2026-10-13 12:00+00', '2026-10-13 14:00+00', 'manual');
   raise notice 'ok   allowed: an entry after the locked period';
 end $$;
 
+reset role;
+update public.pay_periods set covers_general_time = true where id = 'a5000000-0000-4000-8000-000000000001';
+set role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-4000-8000-000000000001', false);
+do $$
+begin
+  begin
+    update public.time_entries set break_minutes = 10 where id = 'a4000000-0000-4000-8000-000000000003';
+    raise exception 'FAIL edited general time in the period that pays it';
+  exception when others then
+    if sqlerrm not like '%pay_period_locked%' then raise; end if;
+  end;
+  raise notice 'ok   denied: general time in the locked period that covers it (same rule the payroll counts by)';
+end $$;
 reset role;
 update public.pay_periods set status = 'unlocked' where id = 'a5000000-0000-4000-8000-000000000001';
 set role authenticated;

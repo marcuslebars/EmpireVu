@@ -10,7 +10,8 @@
 --   3. A trigger on time_entries refuses client (browser / user-session) inserts, edits and
 --      deletes of entries that fall in a LOCKED pay period. Stopping a clock that was left
 --      running when the owner locked "anyway" is still allowed. The service role and SECURITY
---      DEFINER functions (close_job_time_entries) are not affected (is_client_role()).
+--      DEFINER functions (close_job_time_entries) are not affected (is_client_role()). Periods of
+--      a company never overlap (trigger), so a frequency / anchor change can't count a day twice.
 --
 -- Hiring
 --   4. job_postings: the AI-drafted job post the owner OKs (`job_post`); open ones are shown on
@@ -38,6 +39,10 @@ create table if not exists public.pay_periods (
   status text not null default 'pending'
     check (status in ('pending', 'awaiting_owner', 'locked', 'unlocked', 'skipped', 'expired', 'empty')),
   approval_id uuid references public.owner_approvals(id) on delete set null,
+  -- This company's period also covers the org's general time (time_entries.company_id null):
+  -- set at creation for the org's payroll company (the oldest company with payroll on). The
+  -- payroll counts and the lock both follow it, so what's paid is exactly what's locked.
+  covers_general_time boolean not null default false,
   -- Company-level totals from the last summary (no per-person hours here).
   people integer not null default 0,
   total_minutes integer not null default 0,
@@ -60,6 +65,25 @@ create table if not exists public.pay_periods (
   unique (company_id, start_date),
   foreign key (company_id, organization_id) references public.companies (id, organization_id) on delete cascade
 );
+alter table public.pay_periods add column if not exists covers_general_time boolean not null default false;
+-- Pay periods of a company never overlap (a frequency / anchor change can't count a day twice).
+create or replace function public.pay_periods_no_overlap()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if exists (select 1 from public.pay_periods p
+             where p.company_id = new.company_id and p.id <> new.id
+               and p.start_date <= new.end_date and p.end_date >= new.start_date) then
+    raise exception 'pay_period_overlap' using errcode = '23P01';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists pay_periods_no_overlap on public.pay_periods;
+create trigger pay_periods_no_overlap before insert or update of start_date, end_date on public.pay_periods
+  for each row execute procedure public.pay_periods_no_overlap();
 create index if not exists pay_periods_org_range_idx on public.pay_periods (organization_id, starts_at, ends_at);
 create index if not exists pay_periods_locked_idx on public.pay_periods (organization_id, starts_at) where status = 'locked';
 
@@ -79,7 +103,9 @@ create index if not exists pay_period_events_period_idx on public.pay_period_eve
 
 -- ── 2. The lock on time_entries ────────────────────────────────────────────────────
 -- True when a locked pay period covers an entry starting at p_started_at. An entry with no
--- company (general time) is covered by any of the org's locked periods.
+-- company (general time) is covered only by periods marked covers_general_time (the payroll
+-- company's — the same rule the payroll uses to count it). Service role only; the lock trigger
+-- below inlines the same check (clients can't execute this).
 create or replace function public.time_entry_in_locked_period(p_org uuid, p_company uuid, p_started_at timestamptz)
 returns boolean
 language sql
@@ -94,11 +120,11 @@ as $$
       and p.status = 'locked'
       and p.starts_at <= p_started_at
       and p.ends_at > p_started_at
-      and (p_company is null or p.company_id = p_company)
+      and (case when p_company is null then p.covers_general_time else p.company_id = p_company end)
   );
 $$;
-revoke all on function public.time_entry_in_locked_period(uuid, uuid, timestamptz) from public, anon;
-grant execute on function public.time_entry_in_locked_period(uuid, uuid, timestamptz) to authenticated, service_role;
+revoke all on function public.time_entry_in_locked_period(uuid, uuid, timestamptz) from public, anon, authenticated;
+grant execute on function public.time_entry_in_locked_period(uuid, uuid, timestamptz) to service_role;
 
 -- SECURITY INVOKER on purpose: is_client_role() must see the caller's role.
 create or replace function public.time_entries_enforce_pay_period_lock()
@@ -114,20 +140,27 @@ begin
     -- Stopping a clock left running when the period was locked "anyway".
     if tg_op = 'UPDATE'
        and old.ended_at is null and new.ended_at is not null
-       and new.started_at = old.started_at
+       -- a start re-sent at minute precision (the timesheet dialog) is the same start
+       and date_trunc('minute', new.started_at) = date_trunc('minute', old.started_at)
        and new.break_minutes = old.break_minutes
        and new.profile_id = old.profile_id
        and new.booking_id is not distinct from old.booking_id
        and new.company_id is not distinct from old.company_id then
       return new;
     end if;
-    if public.time_entry_in_locked_period(old.organization_id, old.company_id, old.started_at) then
+    -- Inline (not time_entry_in_locked_period, which clients can't execute): pay_periods is
+    -- member-readable, and only org members can write time_entries, so RLS lets this see it.
+    if exists (select 1 from public.pay_periods p where p.organization_id = old.organization_id and p.status = 'locked'
+               and p.starts_at <= old.started_at and p.ends_at > old.started_at
+               and (case when old.company_id is null then p.covers_general_time else p.company_id = old.company_id end)) then
       raise exception 'pay_period_locked'
         using errcode = 'P0001', hint = 'These hours are locked for payroll. An owner or admin can unlock the pay period.';
     end if;
   end if;
   if tg_op in ('INSERT', 'UPDATE') then
-    if public.time_entry_in_locked_period(new.organization_id, new.company_id, new.started_at) then
+    if exists (select 1 from public.pay_periods p where p.organization_id = new.organization_id and p.status = 'locked'
+               and p.starts_at <= new.started_at and p.ends_at > new.started_at
+               and (case when new.company_id is null then p.covers_general_time else p.company_id = new.company_id end)) then
       raise exception 'pay_period_locked'
         using errcode = 'P0001', hint = 'These hours are locked for payroll. An owner or admin can unlock the pay period.';
     end if;
@@ -205,6 +238,8 @@ create table if not exists public.job_applicants (
   digest_at timestamptz,
   invite_approval_id uuid references public.owner_approvals(id) on delete set null,
   invited_at timestamptz,
+  -- An invite the owner OK'd outside 08:00–21:00 local waits here for the morning sweep.
+  invite_send_after timestamptz,
   applied_count integer not null default 1,
   last_applied_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
@@ -212,6 +247,9 @@ create table if not exists public.job_applicants (
   unique (job_id, phone),
   foreign key (company_id, organization_id) references public.companies (id, organization_id) on delete cascade
 );
+alter table public.job_applicants add column if not exists invite_send_after timestamptz;
+create index if not exists job_applicants_invite_queue_idx on public.job_applicants (invite_send_after) where invite_send_after is not null and invited_at is null;
+create index if not exists job_applicants_phone_day_idx on public.job_applicants (company_id, phone, created_at);
 create index if not exists job_applicants_company_idx on public.job_applicants (company_id, created_at desc);
 create index if not exists job_applicants_unscreened_idx on public.job_applicants (created_at) where screened_at is null;
 create index if not exists job_applicants_unconfirmed_idx on public.job_applicants (created_at) where confirmation_status = 'pending';
