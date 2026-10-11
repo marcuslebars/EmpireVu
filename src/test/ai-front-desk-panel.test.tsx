@@ -55,7 +55,8 @@ describe("AI front desk settings panel", () => {
     await waitFor(() => expect(screen.getByText(/AI call minutes in October/)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("button", { name: /send a test to me/i })).toBeInTheDocument());
     const headings = screen.getAllByRole("heading", { level: 4 }).map((h) => h.textContent);
-    expect(headings).toEqual(["Text conversations", "Phone answering", "Weekly report", "Your cell for owner texts"]);
+    // The front desk's own sections first; the AI staff sections (docs/ai-staff.md) follow.
+    expect(headings.slice(0, 4)).toEqual(["Text conversations", "Phone answering", "Weekly report", "Your cell for owner texts"]);
     await waitFor(() => expect(screen.getByText("(705) 555-0142")).toBeInTheDocument());
     expect(screen.getByText("Confirmed")).toBeInTheDocument();
     expect(screen.getByText("What happens when Northshore Snow & Lawn misses a call.")).toBeInTheDocument();

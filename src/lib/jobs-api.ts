@@ -103,8 +103,12 @@ export function setJobCrew(orgId: string, bookingId: string, profileIds: string[
   return apiFetch(`${jobs(orgId)}/${bookingId}/crew`, { method: "PUT", body: JSON.stringify({ profileIds }) });
 }
 
-export function markJobEnRoute(orgId: string, bookingId: string): Promise<JobSheet> {
-  return apiFetch(`${jobs(orgId)}/${bookingId}/en-route`, { method: "POST" });
+/** "On my way", optionally with an ETA in minutes (it goes in the customer's heads-up text). */
+export function markJobEnRoute(orgId: string, bookingId: string, etaMinutes?: number | null): Promise<JobSheet> {
+  return apiFetch(`${jobs(orgId)}/${bookingId}/en-route`, {
+    method: "POST",
+    ...(etaMinutes ? { body: JSON.stringify({ etaMinutes }) } : {}),
+  });
 }
 
 export function startJob(orgId: string, bookingId: string): Promise<JobSheet> {
