@@ -140,8 +140,13 @@ export async function executeAiEstimate(admin: AdminClient, approval: OwnerAppro
     .is("decision_claimed_at", null)
     .select("id");
   if (((claimed ?? []) as unknown[]).length !== 1) {
-    const { data: current } = await (admin as Db).from("estimate_requests").select("owner_result").eq("id", row.id).maybeSingle();
-    return { ok: true, message: (current as { owner_result: string | null } | null)?.owner_result ?? "Already on it.", detail: { duplicate: true } };
+    const { data: current } = await (admin as Db).from("estimate_requests").select("owner_result, approval_id").eq("id", row.id).eq("company_id", row.company_id).maybeSingle();
+    const cur = current as { owner_result: string | null; approval_id: string | null } | null;
+    if (cur?.approval_id !== approval.id) {
+      // No estimate points at this approval (it was replaced, or the link never got saved).
+      return { ok: false, message: `#${approval.short_code ?? "?"} isn't linked to an estimate any more, so nothing was sent. Please reply to the customer yourself.`, detail: { unlinked: true } };
+    }
+    return { ok: true, message: cur.owner_result ?? "Already on it.", detail: { duplicate: true } };
   }
 
   const contact = await loadContact(admin, row);

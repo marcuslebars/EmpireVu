@@ -25,8 +25,9 @@ assistant gets what it needs (what, where, roughly how big), then says "Dana wil
 photos and I'll text you the quote as soon as it's ready" — never a price, range or ballpark.
 Dana gets, from the platform number:
 
-> #12 AI estimate for Jamie Lee (705-555-0123): Eavestrough cleaning $150; Re-hang 20 ft of
-> eavestrough $420; Replace one downspout $180 = $750 + HST ($847.50 total). Confidence: medium.
+> #12 AI estimate for Jamie Lee (705-555-0123) - quote "Eavestrough repair": Eavestrough cleaning
+> $150; Re-hang 20 ft of eavestrough $420; Replace one downspout $180 = $750 + HST ($847.50 total).
+> Confidence: medium.
 > Assumed: Single storey; fascia is sound. They said: "The eavestrough fell off…" + 2 photos.
 > Reply Y 12 to send it, Y 12 $price (before HST) to change the total, N 12 to skip.
 
@@ -44,9 +45,14 @@ and optional `details`.
 
 1. **Off for the company** (settings): the agent is told to use `custom_price` instead.
 2. **One open estimate per customer** (`estimating` / `awaiting_owner`, backed by a partial unique
-   index). A second ask gets "still waiting". A `collecting` request from the last 3 days (one
-   where questions were asked) is picked up again, and the new details are appended to its
-   description.
+   index). Asking again about the same job (`same_job: true`) gets "still waiting". A different
+   job while one is open is refused, and the agent is told to use `request_owner_approval`
+   (`custom_price`) or `hand_off_to_owner` for it, so it never promises a quote that isn't coming.
+   A `collecting` request from the last 3 days (one where questions were asked) is reused only
+   when the agent passes `answers_to_questions: true`; the answers are appended to its
+   description. Otherwise the old request is closed and a new one starts.
+   Stuck rows don't block the customer: `estimating` older than 5 minutes (a crash mid-estimate)
+   and `awaiting_owner` whose approval is no longer pending are marked `failed` and ignored.
 3. **Photos.** The customer's MMS from the last 14 days (newest first, up to 4) are downloaded with
    the SMS agent's fetcher (Twilio hosts only, Basic auth, size and type caps). They're copied to
    the private `quote-photos` bucket at `{org}/{company}/{estimate}/{n}.{ext}`, because Twilio's
@@ -63,16 +69,23 @@ and optional `details`.
    same math (HST 13 %, deposit) the quote will use.
    - A list item the list can't price (manual-quote) falls back to the model's amount for it. If
      the model gave none, the line is dropped and an assumption says so.
-   - Custom lines need a plain label (links, `$` amounts and platform names are stripped) and an
-     amount from $1 to $50,000.
+   - Custom lines need a plain label and an amount from $1 to $50,000. Labels and the quote title
+     are customer-facing, so links, `$` amounts, percentages, platform names and deal words
+     ("free", "discount", "10 off", "half off", "as agreed", "promo") are stripped. A bare "off"
+     stays ("take off old shingles").
    - If nothing is priceable, or the request is too vague, the tool returns
      `{ need_more_info, ask_customer: [questions] }` and the status is `collecting`. Nothing goes
      to the owner.
 6. **Otherwise, an `ai_estimate` approval** (`insertApproval`, `requested_by 'estimator'`).
+   - The estimate is linked to the approval before the owner is asked; if that write fails, the
+     approval is withdrawn (`superseded`) so a "Y" can never land on nothing.
    - The owner is texted through `notifyOwnerOfApproval`. In quiet hours it waits for 08:00, like
      every approval.
    - It expires after 24 h, pushed to the next 09:00 local if that would land outside
      09:00–20:00, so the expiry texts never go out at night.
+   - The owner's text always keeps who, the quote title (customer-facing, so the owner sees it),
+     the total + HST and the confidence. Lines get a budget; extra lines fold into
+     "+N more lines ($Z)", then assumptions and the customer's words fill what's left (≤ 480).
    - The tool result tells the agent what to say and carries **no amount**. The reply guard
      would block one anyway (tested).
 
@@ -90,7 +103,9 @@ A model or pricing failure sets status `failed`, and the agent is told to ask th
 | unclear note | Only reachable from a caller other than the SMS parser, which accepts only one clear price. Nothing is done. A fresh code is issued for the same estimate (marked as texted to the owner's phone), and the reply says "Reply Y 13 to send it at $750 + HST, Y 13 $price … or N 13". |
 
 **Idempotent.** The executor claims the estimate (`decision_claimed_at`, conditional on the
-approval id) before anything is sent; a repeat returns the stored `owner_result`. The owner
+approval id) before anything is sent; a repeat returns the stored `owner_result`. If no estimate
+points at the approval any more, the owner is told "#12 isn't linked to an estimate any more, so
+nothing was sent". The owner
 channel records the result on the approval (`executed` / `failed` / `rejected` / `expired`).
 
 `front-desk/approval-text.ts` now has `ai_estimate` in `PRICE_NOTE_KINDS`, so "Y 12 $900" isn't
@@ -100,12 +115,17 @@ refused as "doesn't take a price", and a reply line for the kind.
 
 The sweep `estimator-quote-follow-up` runs every 5 minutes (`follow-up.ts`). It looks at quotes
 with `source` `estimator` or `sms_agent` (the texting AI) and status `sent` / `viewed`, sent in the
-last 33 days. It sends text nudges at +2, +5 and +10 days (settings) from the business number,
+last 33 days, keyset-paged by `sent_at` (500 a page, up to 20 pages), so new quotes are never
+starved. Each company is checked once per pass: disabled and house-org companies, companies
+outside 09:00–20:00, and companies whose business facts can't load are skipped before any
+per-quote work, and quotes whose follow-up already stopped are skipped. Each pass also closes
+follow-up rows whose quote is no longer sent/viewed (`stop_reason 'quote_closed'`), so the
+Settings and `pending_estimates` counts stay right. It sends text nudges at +2, +5 and +10 days (settings) from the business number,
 only 09:00–20:00 company local, and never two within 20 h:
 
 1. "Hi Jamie, it's Northshore. Just checking you got your quote for Eavestrough repair. You can look it over and approve it here: … Any questions, just reply."
 2. "Hi Jamie, Northshore here. Still happy to take care of this for you - your quote for … is here when you're ready: …"
-3. "Hi Jamie, last check-in from Northshore about your quote for …: … Any questions? Just reply and Dana can give you a quick call or pick a time that suits you here: {booking link}". With no booking page it says "reply with a day that works" instead.
+3. (the last nudge, whatever the cadence length) "Hi Jamie, last check-in from Northshore about your quote for …: … Any questions? Just reply and Dana can give you a quick call or pick a time that suits you here: {booking link}". With no booking page it says "reply with a day that works" instead.
 
 It stops for good (`quote_follow_ups.stop_reason`) when:
 - the customer booked: a non-cancelled booking for the quote, or for the customer since the quote
@@ -160,6 +180,10 @@ only the `estimator` key via `updateAiSettings`.
 UI: `src/components/settings/staff/EstimatorSettingsSection.tsx` (on/off, follow-ups on/off,
 cadence presets, counts).
 
+`estimatorActiveFor(admin, { organizationId, companyId })` (`settings.ts`) is true when the
+estimator is enabled for that company; the registry wiring uses it to offer `request_estimate`
+and the prompt notes only there. The notes are worded "If request_estimate is available…".
+
 ### Schema
 
 - `estimate_requests`: org, company, contact, conversation, description, photos
@@ -195,7 +219,7 @@ download.
   that one reply slower.
 - Photos aren't shown to the owner in the app yet. They're in storage for a later "view photos"
   link.
-- A nudge that fails to send isn't retried, and the sweep scans at most 300 open front-desk
+- A nudge that fails to send isn't retried. The sweep visits at most 10,000 open front-desk
   quotes per pass.
 
 ## Bookkeeper

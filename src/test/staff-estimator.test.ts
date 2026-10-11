@@ -52,9 +52,9 @@ import { defaultAgentServices } from "@/server/services/sms-agent/services";
 import { roleAgentPromptNotes, roleApprovalExecutor } from "@/server/services/staff/registry";
 import { executeAiEstimate } from "@/server/services/staff/estimator/approval";
 import { resetEstimatorDeps, setEstimatorDeps, type EstimatorDeps } from "@/server/services/staff/estimator/deps";
-import { buildEstimateSummary, planOwnerPrice, priceDraft } from "@/server/services/staff/estimator/estimate";
+import { buildEstimateSummary, cleanLineLabel, planOwnerPrice, priceDraft } from "@/server/services/staff/estimator/estimate";
 import { nudgeText, sweepQuoteFollowUps } from "@/server/services/staff/estimator/follow-up";
-import { mergeEstimatorSettings, normalizeCadence, readEstimatorSettings } from "@/server/services/staff/estimator/settings";
+import { estimatorActiveFor, mergeEstimatorSettings, normalizeCadence, readEstimatorSettings } from "@/server/services/staff/estimator/settings";
 import { daytimeExpiry } from "@/server/services/staff/estimator/text";
 import { parseEstimateDraft } from "@/server/services/staff/estimator/vision";
 import type { QuoteCustomLineInput, QuotePricing, QuoteServiceInput } from "@/server/services/quotes/pricing";
@@ -285,6 +285,16 @@ describe("estimator settings", () => {
     expect(readEstimatorSettings({ estimator: { cadence_days: [3, 1] } }, { crankleads: true }).cadenceDays).toEqual([2, 5, 10]);
   });
 
+  it("estimatorActiveFor: on for a CrankLeads company, off for a house org, another org, or a missing company", async () => {
+    expect(await estimatorActiveFor(db.client, { organizationId: ORG, companyId: CO })).toBe(true);
+    expect(await estimatorActiveFor(db.client, { organizationId: "other-org", companyId: CO })).toBe(false);
+    expect(await estimatorActiveFor(db.client, { organizationId: ORG, companyId: "nope" })).toBe(false);
+    (db.tables.organizations as Row[])[0].platform_brand = "empirevu";
+    expect(await estimatorActiveFor(db.client, { organizationId: ORG, companyId: CO })).toBe(false);
+    (db.tables.companies as Row[])[0].ai_settings = { estimator: { enabled: true } };
+    expect(await estimatorActiveFor(db.client, { organizationId: ORG, companyId: CO })).toBe(true);
+  });
+
   it("cadence must be 1-3 ascending whole days within 1-30; merge touches only the estimator key", () => {
     expect(normalizeCadence([1, 3, 7])).toEqual([1, 3, 7]);
     expect(normalizeCadence([3, 3])).toBeNull();
@@ -380,6 +390,32 @@ describe("estimate math and texts", () => {
     expect(daytimeExpiry(new Date(late), DAY, "America/Toronto").toISOString()).toBe("2026-10-11T13:00:00.000Z");
   });
 
+  it("a one-nudge cadence gets the final (call / booking) wording", () => {
+    expect(nudgeText({ index: 0, total: 1, firstName: "Jamie", businessName: "Northshore", ownerFirstName: "Dana", title: null, quoteUrl: "https://x/q/1", bookingUrl: null })).toContain("Dana can give you a quick call");
+  });
+
+  it("the owner's text always keeps the title, total + HST and confidence; extra lines fold into '+N more'", () => {
+    const lines = Array.from({ length: 9 }, (_, i) => ({ label: `A long estimated line number ${i + 1} with plenty of words in it`, amountCents: 10000 * (i + 1), custom: true }));
+    const subtotal = lines.reduce((a, l) => a + l.amountCents, 0);
+    const summary = buildEstimateSummary({
+      customerName: "Jamie Lee", customerPhone: PHONE, description: "x".repeat(400), photoCount: 3,
+      estimate: { title: "Full eavestrough replacement and fascia repair", lines, services: [], customLines: [], subtotalCents: subtotal, taxCents: 58500, totalCents: subtotal + 58500, confidence: "low", assumptions: ["Two storey", "Aluminum 5 inch"], questions: [] },
+    });
+    expect(summary.length).toBeLessThanOrEqual(480);
+    expect(summary).toContain('quote "Full eavestrough replacement and fascia repair"');
+    expect(summary).toContain("= $4,500 + HST ($5,085 total). Confidence: low.");
+    const more = /\+(\d+) more lines \((\$[\d,]+)\)/.exec(summary);
+    expect(more).not.toBeNull();
+    const shownCount = 9 - Number(more![1]);
+    expect(more![2]).toBe(`$${(lines.slice(shownCount).reduce((a, l) => a + l.amountCents, 0) / 100).toLocaleString("en-CA")}`);
+  });
+
+  it("customer-facing labels lose deal words, percentages, amounts and links", () => {
+    expect(cleanLineLabel("Gutter repair - 10% off as agreed, FREE downspout! $99 www.x.example", "Northshore")).toBe("Gutter repair - , downspout!");
+    expect(cleanLineLabel("Discounted roof patch, 50 off", "Northshore")).toBe("roof patch,");
+    expect(cleanLineLabel("Take off old shingles", "Northshore")).toBe("Take off old shingles");
+  });
+
   it("nudge texts: the last one offers a call or the booking link; no platform names", () => {
     const base = { total: 3, firstName: "Jamie", businessName: "Northshore", ownerFirstName: "Dana", title: "Eavestrough repair", quoteUrl: "https://x/q/1", bookingUrl: "https://x/book/co" };
     expect(nudgeText({ ...base, index: 0 })).toMatch(/Just checking you got your quote for Eavestrough repair.*https:\/\/x\/q\/1/);
@@ -444,18 +480,62 @@ describe("request_estimate (SMS agent tool)", () => {
     expect(estimates()[0]).toMatchObject({ status: "collecting" });
 
     visionReply = GOOD_ESTIMATE;
-    const second = await runTool(await turnState(), "request_estimate", { description: "over the back porch, about 10 ft" });
+    const second = await runTool(await turnState(), "request_estimate", { description: "over the back porch, about 10 ft", answers_to_questions: true });
     expect(second.result).toMatchObject({ estimate_requested: true });
     expect(estimates()).toHaveLength(1);
     expect(estimates()[0].description).toBe("roof is leaking / over the back porch, about 10 ft");
   });
 
-  it("one open estimate per customer: a second ask while one waits is 'still waiting'", async () => {
+  it("without answers_to_questions a new job isn't merged into the old collecting request", async () => {
+    visionReply = { enough_info: false, questions: ["Which part of the roof?"] };
+    await runTool(await turnState(), "request_estimate", { description: "roof is leaking" });
+    visionReply = GOOD_ESTIMATE;
+    await runTool(await turnState(), "request_estimate", { description: "Eavestrough fell off the back" });
+    expect(estimates()).toHaveLength(2);
+    expect(estimates()[0]).toMatchObject({ status: "failed", error: "replaced by a new request" });
+    expect(estimates()[1]).toMatchObject({ status: "awaiting_owner", description: "Eavestrough fell off the back" });
+  });
+
+  it("one open estimate per customer: same job → 'still waiting'; a different job → ask the owner instead", async () => {
     await runTool(await turnState(), "request_estimate", { description: "Eavestrough fell off" });
-    const again = await runTool(await turnState(), "request_estimate", { description: "Eavestrough fell off, any update?" });
-    expect(again.result).toMatchObject({ ok: true, already_waiting: true });
+    const again = await runTool(await turnState(), "request_estimate", { description: "Eavestrough fell off, any update?", same_job: true });
+    expect(again.result).toMatchObject({ ok: true, already_waiting: true, job: "Eavestrough repair, back of house" });
+    const other = await runTool(await turnState(), "request_estimate", { description: "Also want a quote to replace the deck" });
+    expect(other.result).toMatchObject({ ok: false, estimate_in_progress_for: "Eavestrough repair, back of house" });
+    expect(String(other.result.error)).toMatch(/request_owner_approval \(kind custom_price\) or hand_off_to_owner/);
     expect(approvals()).toHaveLength(1);
     expect(visionCalls).toHaveLength(1);
+  });
+
+  it("stuck estimates don't block the customer: a crashed 'estimating' row (>5 min) and an awaiting_owner row whose approval isn't pending", async () => {
+    estimates().push(
+      { id: "stuck-1", organization_id: ORG, company_id: CO, contact_id: CONTACT, status: "estimating", description: "old", photos: [], created_at: new Date(T0 - 10 * 60_000).toISOString(), updated_at: new Date(T0 - 10 * 60_000).toISOString() },
+    );
+    const first = await runTool(await turnState(), "request_estimate", { description: "Eavestrough fell off" });
+    expect(first.result).toMatchObject({ estimate_requested: true });
+    expect(estimates()[0]).toMatchObject({ id: "stuck-1", status: "failed" });
+
+    // The new one's approval got decided but the executor never finished.
+    approvals()[0].status = "failed";
+    const second = await runTool(await turnState(), "request_estimate", { description: "Eavestrough fell off again" });
+    expect(second.result).toMatchObject({ estimate_requested: true });
+    expect(estimates()[1]).toMatchObject({ status: "failed", error: "approval no longer pending (stale)" });
+    expect(estimates()[2]).toMatchObject({ status: "awaiting_owner" });
+  });
+
+  it("a fresh 'estimating' row (< 5 min, another turn mid-estimate) still blocks", async () => {
+    estimates().push({ id: "busy", organization_id: ORG, company_id: CO, contact_id: CONTACT, status: "estimating", description: "Eavestrough", photos: [], created_at: new Date(T0 - 60_000).toISOString() });
+    const out = await runTool(await turnState(), "request_estimate", { description: "Eavestrough fell off", same_job: true });
+    expect(out.result).toMatchObject({ already_waiting: true });
+    expect(visionCalls).toHaveLength(0);
+  });
+
+  it("if linking the estimate to its approval fails, the approval is withdrawn (a Y can't land on nothing)", async () => {
+    db.failNext("estimate_requests", "update");
+    const out = await runTool(await turnState(), "request_estimate", { description: "Eavestrough fell off" });
+    expect(out.result).toMatchObject({ ok: false, needs_owner: true });
+    expect(approvals()[0]).toMatchObject({ status: "superseded" });
+    expect(smsTo(OWNER)).toHaveLength(0);
   });
 
   it("house org (A1): off by default — no model call, the agent is told to ask the owner", async () => {
@@ -597,6 +677,15 @@ describe("ai_estimate executor (through the owner channel)", () => {
     expect(direct.detail).toMatchObject({ duplicate: true });
     expect(createdQuotes).toHaveLength(1);
     expect(smsTo(PHONE)).toHaveLength(1);
+  });
+
+  it("an approval no estimate points at → a clear failure, nothing sent", async () => {
+    const approval = await pendingEstimate();
+    estimates()[0].approval_id = "something-else";
+    const out = await decideApproval(db.client, String(approval.id), { approved: true, decidedVia: "app", decidedBy: "p-owner" });
+    expect(out.result).toMatchObject({ ok: false });
+    expect(out.message).toMatch(/#1 isn't linked to an estimate any more, so nothing was sent/);
+    expect(createdQuotes).toHaveLength(0);
   });
 
   it("price list moved since the estimate → nothing sent, the owner is told", async () => {
@@ -771,6 +860,38 @@ describe("quote follow-up sweep", () => {
     expect((await sweep(at(2) + 60_000)).sent).toBe(0);
     expect((await sweep(at(3))).sent).toBe(1);
     expect(followRow()).toMatchObject({ stop_reason: "all_nudges_sent" });
+  });
+
+  it("closes follow-ups whose quote was approved / expired / cancelled, so counts don't overstate", async () => {
+    const q = addQuote();
+    await sweep(at(2));
+    expect(followRow()).toMatchObject({ nudges_sent: 1 });
+    expect(followRow().stopped_at ?? null).toBeNull();
+    q.status = "approved";
+    const out = await sweep(at(3));
+    expect(out.stopped).toBe(1);
+    expect(followRow()).toMatchObject({ stop_reason: "quote_closed" });
+  });
+
+  it("new quotes aren't starved by hundreds of older quotes from disabled companies or stopped follow-ups", async () => {
+    (db.tables.organizations as Row[]).push({ id: "org-house", platform_brand: "empirevu" });
+    (db.tables.companies as Row[]).push({ id: "co-house", organization_id: "org-house", name: "House", timezone: "America/Toronto", ai_settings: {} });
+    for (let i = 0; i < 650; i++) {
+      db.tables.quotes.push({ id: `old-${i}`, organization_id: "org-house", company_id: "co-house", contact_id: `c-${i}`, status: "sent", source: "sms_agent", public_token: `t${i}`, subtotal_cents: 100, sent_at: new Date(T0 - 20 * DAY + i * 1000).toISOString(), deposit_paid_at: null });
+    }
+    addQuote({ id: "fresh", sent_at: new Date(T0).toISOString() });
+    expect((await sweep(at(2))).sent).toBe(1);
+    expect(smsTo(PHONE)).toHaveLength(1);
+    expect(db.tables.quote_follow_ups).toHaveLength(1); // nothing written for the house company
+  });
+
+  it("if the business's facts can't load, the company is skipped that pass (never 'it's us')", async () => {
+    installDeps({ loadFacts: async () => { throw new Error("db down"); } });
+    addQuote();
+    expect((await sweep(at(2))).sent).toBe(0);
+    installDeps();
+    expect((await sweep(at(2) + 60_000)).sent).toBe(1);
+    expect(smsTo(PHONE)[0].body).toContain("Northshore Eavestrough & Roofing");
   });
 
   it("follow-ups off (or the estimator off) → nothing", async () => {
