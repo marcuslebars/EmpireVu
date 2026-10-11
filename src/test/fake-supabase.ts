@@ -24,6 +24,22 @@ export interface FakeDb {
   client: { from(table: string): unknown };
 }
 
+/** PostgREST `.or("a.is.null,b.eq.x")`: comma-separated `column.op.value` (eq / neq / is). */
+function orMatcher(spec: string): (read: (column: string) => unknown) => boolean {
+  const lit = (v: string): unknown => (v === "null" ? null : v === "true" ? true : v === "false" ? false : v);
+  const parts = spec.split(",").map((p) => {
+    const [column, op, ...rest] = p.split(".");
+    return { column, op, value: lit(rest.join(".")) };
+  });
+  return (read) =>
+    parts.some(({ column, op, value }) => {
+      const v = read(column) ?? null;
+      if (op === "is" || op === "eq") return v === value;
+      if (op === "neq") return v !== value;
+      throw new Error(`fake-supabase: or(${op}) unsupported`);
+    });
+}
+
 let idCounter = 0;
 
 function readPath(row: Row, column: string): unknown {
@@ -101,6 +117,11 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
       },
       neq: (column: string, value: unknown) => {
         filters.push((row) => readPath(row, column) !== value);
+        return builder;
+      },
+      or: (spec: string) => {
+        const match = orMatcher(spec);
+        filters.push((row) => match((column) => readPath(row, column)));
         return builder;
       },
       gt: (column: string, value: unknown) => {

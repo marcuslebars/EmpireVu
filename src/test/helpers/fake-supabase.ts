@@ -45,6 +45,22 @@ function readColumn(row: Row, column: string): unknown {
   return column.includes("->>") && typeof value !== "string" ? String(value) : value;
 }
 
+/** PostgREST `.or("a.is.null,b.eq.x")`: comma-separated `column.op.value` (eq / neq / is). */
+function orMatcher(spec: string): (read: (column: string) => unknown) => boolean {
+  const lit = (v: string): unknown => (v === "null" ? null : v === "true" ? true : v === "false" ? false : v);
+  const parts = spec.split(",").map((p) => {
+    const [column, op, ...rest] = p.split(".");
+    return { column, op, value: lit(rest.join(".")) };
+  });
+  return (read) =>
+    parts.some(({ column, op, value }) => {
+      const v = read(column) ?? null;
+      if (op === "is" || op === "eq") return v === value;
+      if (op === "neq") return v !== value;
+      throw new Error(`fake-supabase: or(${op}) unsupported`);
+    });
+}
+
 let idCounter = 0;
 
 export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<string, string[][]> = {}): FakeDb {
@@ -148,7 +164,11 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
       },
       eq: (column: string, value: unknown) => filter("eq", column, value, (row) => readColumn(row, column) === value),
       neq: (column: string, value: unknown) => filter("neq", column, value, (row) => row[column] !== value),
-      in: (column: string, values: unknown[]) => filter("in", column, values, (row) => values.includes(row[column])),
+      or: (spec: string) => {
+        const match = orMatcher(spec);
+        return filter("or", spec, spec, (row) => match((column) => readColumn(row, column)));
+      },
+      in: (column: string, values: unknown[]) => filter("in", column, values, (row) => values.includes(readColumn(row, column))),
       gte: (column: string, value: unknown) => filter("gte", column, value, (row) => row[column] != null && cmp(row[column], value) >= 0),
       gt: (column: string, value: unknown) => filter("gt", column, value, (row) => row[column] != null && cmp(row[column], value) > 0),
       lt: (column: string, value: unknown) => filter("lt", column, value, (row) => row[column] != null && cmp(row[column], value) < 0),

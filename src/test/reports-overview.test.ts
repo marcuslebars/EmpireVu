@@ -253,6 +253,21 @@ describe("getBusinessOverview (reads)", () => {
     expect(r.crew.labourCostCents).toBe(2_400);
   });
 
+  it("leaves imported customers, applicants and imported past jobs out (an A1-style import key still counts)", async () => {
+    const db = seed();
+    db.tables.contacts.push(
+      { id: "c-imp", organization_id: ORG, company_id: CO, first_name: "Imp", last_name: null, created_at: "2026-10-03T15:00:00Z", consent_source: "import" },
+      { id: "c-app", organization_id: ORG, company_id: CO, first_name: "App", last_name: null, created_at: "2026-10-03T15:00:00Z", consent_source: "job_application" },
+    );
+    db.tables.bookings.push(
+      { id: "b-imp", organization_id: ORG, company_id: CO, contact_id: "c-imp", scheduled_for: "2026-10-05T16:00:00Z", status: "completed", source_call_id: "import:abc" },
+      { id: "b-a1", organization_id: ORG, company_id: CO, contact_id: "c1", scheduled_for: "2026-10-06T16:00:00Z", status: "completed", source_call_id: "a1:42" },
+    );
+    const r = await getBusinessOverview(fakeTenantContext(db, ORG), { from: "2026-10-01", to: "2026-11-01", companyId: CO }, new Date("2026-10-20T16:00:00Z"));
+    expect(r.customers.newCustomers).toEqual({ value: 1, previous: 1 });
+    expect(r.jobs.completed.value).toBe(1);
+  });
+
   it("covers every company when none is selected", async () => {
     const db = seed();
     const r = await getBusinessOverview(fakeTenantContext(db, ORG), { from: "2026-10-01", to: "2026-11-01" }, new Date("2026-10-20T16:00:00Z"));

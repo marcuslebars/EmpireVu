@@ -650,6 +650,22 @@ describe("sync engine", () => {
     expect(db.tables.accounting_links.some((l) => l.entity_type === "payment")).toBe(false);
   });
 
+  it("never pushes an imported balance (or a payment on it) — not from a job, not from Sync now", async () => {
+    const { ctx, enqueued } = setup({
+      invoice_payments: [{ id: "p1", organization_id: ORG, company_id: CO, invoice_id: INV.id, amount_cents: 20000, method: "cash", status: "succeeded", reference: null, received_at: "2026-10-05T16:00:00Z" }],
+    });
+    db.tables.invoices[0].imported_at = "2026-10-04T12:00:00Z";
+    expect(await engine.syncInvoice(ctx, INV.id)).toMatchObject({ status: "skipped", detail: "Imported balance - it's already in your books." });
+    expect((await engine.syncPayment(ctx, "p1")).status).toBe("skipped");
+    expect(calls).toEqual([]);
+    expect(db.tables.accounting_links).toHaveLength(0);
+    // Sync now / settings save backfill: the imported one isn't queued, an ordinary one is.
+    db.tables.invoices.push({ ...db.tables.invoices[0], id: "inv-own", imported_at: null });
+    const { queueBackfill } = await import("@/server/services/accounting/connections");
+    await queueBackfill(db.client as never, { ...CONN } as never);
+    expect(enqueued.filter(([t]) => t === "invoice").map(([, id]) => id)).toEqual(["inv-own"]);
+  });
+
   it("queues payments that were waiting on their invoice", async () => {
     const { ctx, enqueued } = setup({
       invoice_payments: [{ id: "p1", organization_id: ORG, company_id: CO, invoice_id: INV.id, amount_cents: 100, method: "cash", status: "succeeded", received_at: "2026-10-05T16:00:00Z" }],

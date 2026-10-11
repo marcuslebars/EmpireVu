@@ -32,6 +32,8 @@ export interface ImportRecord {
   invoiceRef: string | null;
   /** Problems that didn't stop the row (a phone we couldn't read, a future job date…). */
   warnings: string[];
+  /** The row's own hash (rowHash): what a row with no phone/email is recognised by on a re-upload. */
+  rowKey: string;
 }
 
 export type DateOrder = "ymd" | "mdy" | "dmy";
@@ -311,6 +313,7 @@ export function buildRecord(cells: string[], mapping: ImportField[], ctx: Record
       balanceDueDate,
       invoiceRef,
       warnings,
+      rowKey: rowHash(cells),
     },
   };
 }

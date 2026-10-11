@@ -1,5 +1,6 @@
 import type { Json } from "@/server/db/database.types";
 import { getAttributionSummary, type PeriodRange } from "@/server/services/attribution";
+import { isImportedPastJob, isReportableLead } from "@/server/services/reports/exclusions";
 import type { TenantServiceContext } from "@/server/services/shared";
 
 /**
@@ -406,7 +407,7 @@ export async function fetchScorecardInputs(
     );
 
   const [
-    contactRows,
+    allContactRows,
     missedRows,
     messageRows,
     callRows,
@@ -415,8 +416,8 @@ export async function fetchScorecardInputs(
     sentQuoteRows,
     approvedQuoteRows,
     paidQuoteRows,
-    bookingCreatedRows,
-    bookingScheduledRows,
+    allBookingCreatedRows,
+    allBookingScheduledRows,
     voiceRows,
   ] = await Promise.all([
     fetchAllPages((a, b) =>
@@ -461,13 +462,13 @@ export async function fetchScorecardInputs(
     quotesIn("approved_at"),
     quotesIn("deposit_paid_at"),
     fetchAllPages((a, b) =>
-      db.from("bookings").select("id, created_at, scheduled_for, status")
+      db.from("bookings").select("id, created_at, scheduled_for, status, source_call_id")
         .eq("organization_id", org).eq("company_id", companyId)
         .gte("created_at", range.from).lt("created_at", range.to)
         .order("created_at", { ascending: true }).range(a, b),
     ),
     fetchAllPages((a, b) =>
-      db.from("bookings").select("id, created_at, scheduled_for, status")
+      db.from("bookings").select("id, created_at, scheduled_for, status, source_call_id")
         .eq("organization_id", org).eq("company_id", companyId)
         .eq("status", "completed")
         .gte("scheduled_for", range.from).lt("scheduled_for", range.to)
@@ -482,6 +483,11 @@ export async function fetchScorecardInputs(
     ),
   ]);
 
+  // Imported customers / job applicants aren't leads, and imported past jobs aren't jobs done
+  // in the period (reports/exclusions.ts).
+  const contactRows = allContactRows.filter((row) => isReportableLead(row));
+  const bookingCreatedRows = allBookingCreatedRows.filter((row) => !isImportedPastJob(row));
+  const bookingScheduledRows = allBookingScheduledRows.filter((row) => !isImportedPastJob(row));
   const contactIds = contactRows.map((row) => row.id);
 
   // raw_leads + public-booking events for the new contacts only (chunked IN lists).

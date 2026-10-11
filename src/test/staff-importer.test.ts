@@ -26,7 +26,7 @@ import { decideApproval } from "@/server/services/owner-channel/approvals";
 import { activeRolesFor, registryProblems } from "@/server/services/staff/registry";
 import { importerRole } from "@/server/services/staff/importer";
 import { chaseEffect, chaseSummary, KIND_CHASE_IMPORTED } from "@/server/services/staff/importer/approvals";
-import { advanceBatch, createBatch, doneText, loadBatch, runBatchAction, runImportSweep } from "@/server/services/staff/importer/batches";
+import { advanceBatch, createBatch, doneText, loadBatch, runBatchAction, runImportSweep, viewOf } from "@/server/services/staff/importer/batches";
 import { withDeps, type ImportStorage, type ImporterDeps } from "@/server/services/staff/importer/deps";
 import { isImportHold } from "@/server/services/staff/importer/hold";
 import { companyForToken, ensureImportLink } from "@/server/services/staff/importer/links";
@@ -616,6 +616,120 @@ describe("imported balances stay on hold until the owner says Y", () => {
     expect(doneText("x.csv", { rowsDone: 1, contactsCreated: 1, contactsMatched: 0, contactsFilled: 0, jobsCreated: 0, jobsSkipped: 0, balancesCreated: 0, balanceCents: 0, balancesSkipped: 0, accountsCreated: 0, invalidRows: 0, repeatRows: 0 })).toBe(
       "Imported 1 customer, 0 past jobs from x.csv. Nobody was texted or emailed.",
     );
+  });
+});
+
+// ── Review fixes ──────────────────────────────────────────────────────────────
+
+describe("review fixes", () => {
+  it("held balances never crowd other tenants out of the email sweep's limit; un-pausing one doesn't lift the hold", async () => {
+    const held = Array.from({ length: 6 }, (_, i) => ({
+      id: `held-${i}`, organization_id: ORG, company_id: CO, contact_id: JAMIE, quote_id: null, status: "sent", due_date: "2026-01-0" + (i + 1),
+      reminder_count: 0, last_reminder_at: null, balance_due_cents: 1000, pending_payment_cents: 0, reminders_paused: i !== 0, import_hold: true,
+    }));
+    // held-0 was un-paused by hand, but it's still on hold.
+    const a1 = { id: "a1-inv", organization_id: A1_ORG, company_id: A1_CO, contact_id: null, quote_id: null, status: "sent", due_date: "2026-09-01", reminder_count: 0, last_reminder_at: null, balance_due_cents: 5000, pending_payment_cents: 0, reminders_paused: false, import_hold: false, bill_to: {} };
+    seed({ invoices: [...held, a1] });
+    const out = await sweepInvoiceReminders(new Date(), 5);
+    expect(out.scanned).toBe(1);
+    expect(out.flaggedOverdue).toEqual(["a1-inv"]);
+  });
+
+  it("a phone shared with someone of a different name isn't merged: a separate customer, flagged in the preview", async () => {
+    const csv = "Name,Phone\nRobin Lee,705-555-0123\nJamie Lee,705-555-0123\n";
+    const view = await uploadFile("shared.csv", csv);
+    expect(view.preview).toMatchObject({ newContacts: 1, matchedContacts: 1 });
+    expect(view.preview!.issues).toEqual([{ row: 2, reason: "same phone or email as Jamie Lee but a different name - added as a separate customer" }]);
+    await runBatchAction(h.db!.client, await company(), view.id, { type: "import" }, deps());
+    await runImportSweep(h.db!.client, Date.now(), deps());
+    const robin = rows("contacts").find((c) => c.first_name === "Robin")!;
+    expect(robin.phone).toBe(JAMIE_PHONE);
+    expect(rows("contacts").find((c) => c.id === JAMIE)).toMatchObject({ first_name: "Jamie", notes: null });
+  });
+
+  it("two John Smiths with no phone or email stay two; re-uploading the file still adds nobody", async () => {
+    const csv = "Name,Address\nJohn Smith,1 Elm St\nJohn Smith,9 Oak Ave\n";
+    await importAll("smiths.csv", csv);
+    expect(rows("contacts").filter((c) => c.first_name === "John")).toHaveLength(2);
+    await importAll("smiths.csv", csv);
+    expect(rows("contacts").filter((c) => c.first_name === "John")).toHaveLength(2);
+  });
+
+  it("customer accounts match whatever the case", async () => {
+    seed({ customer_accounts: [{ id: "acct-1", organization_id: ORG, name: "Ortiz Holdings", archived_at: null }] });
+    await importAll("c.csv", "Name,Company,Phone\nSam Ortiz,ORTIZ HOLDINGS,705-555-0188\n");
+    expect(rows("customer_accounts")).toHaveLength(1);
+    expect(rows("contacts").find((c) => c.first_name === "Sam")!.customer_account_id).toBe("acct-1");
+  });
+
+  it("undo keeps a balance the owner corrected since", async () => {
+    const batch = await importAll();
+    const inv = rows("invoices").find((i) => i.contact_id === JAMIE)!;
+    inv.created_at = "2026-10-13T14:00:00Z";
+    inv.updated_at = "2026-10-13T16:00:00Z";
+    await runBatchAction(h.db!.client, await company(), batch.id, { type: "undo" }, deps());
+    await runImportSweep(h.db!.client, Date.now(), deps());
+    expect(rows("invoices").map((i) => i.id)).toEqual([inv.id]);
+  });
+
+  it("a cancel during a step isn't overwritten by the step's save", async () => {
+    const co = await company();
+    const { batch, upload } = await createBatch(h.db!.client, co, { fileName: "c.csv", fileSize: 10, source: "app", createdBy: null }, deps());
+    files.set(upload.path, new TextEncoder().encode(CSV));
+    rows("import_batches")[0].status = "uploaded";
+    const slowStorage: ImportStorage = {
+      ...storage,
+      download: async (admin, path) => {
+        rows("import_batches")[0].status = "cancelled"; // the owner pressed Cancel meanwhile
+        return storage.download(admin, path);
+      },
+    };
+    await advanceBatch(h.db!.client, (await loadBatch(h.db!.client, co, batch.id))!, co, deps({ storage: slowStorage }));
+    expect(rows("import_batches")[0].status).toBe("cancelled");
+  });
+
+  it("every pass is counted before it runs: a file that keeps killing the worker is given up on", async () => {
+    const co = await company();
+    const { batch, upload } = await createBatch(h.db!.client, co, { fileName: "c.csv", fileSize: 10, source: "app", createdBy: null }, deps());
+    files.set(upload.path, new TextEncoder().encode(CSV));
+    rows("import_batches")[0].status = "uploaded";
+    const crash: ImportStorage = { ...storage, download: async () => { throw new Error("worker died"); } };
+    for (let i = 0; i < 3; i++) await runImportSweep(h.db!.client, Date.now(), deps({ storage: crash }));
+    expect(rows("import_batches")[0]).toMatchObject({ status: "uploaded", failures: 3 });
+    await runImportSweep(h.db!.client, Date.now(), deps({ storage: crash }));
+    expect(rows("import_batches")[0].status).toBe("failed");
+    expect((await loadBatch(h.db!.client, co, batch.id))!.error).toMatch(/couldn't read that file/);
+  });
+
+  it("an import stuck failing goes to failed after 10 passes and the owner is told", async () => {
+    const view = await uploadFile("customers.csv", CSV);
+    const co = await company();
+    await runBatchAction(h.db!.client, co, view.id, { type: "import" }, deps());
+    rows("import_batches")[0].failures = 10;
+    rows("import_batches")[0].error = "db timeout";
+    sendSms.mockClear();
+    await runImportSweep(h.db!.client, Date.now(), deps());
+    const b = (await loadBatch(h.db!.client, co, view.id))!;
+    expect(b.status).toBe("failed");
+    expect(b.error).toBe("Stopped after 10 tries: db timeout");
+    expect(viewOf(b).can.undo).toBe(true);
+    expect(smsTo(OWNER)[0].body).toMatch(/^CrankLeads: Your customer import of customers\.csv stopped after 0 of 8 rows/);
+    expect(customerTexts()).toHaveLength(0);
+  });
+
+  it("a pile of batches from companies with the import off doesn't stall the sweep", async () => {
+    for (let i = 0; i < 25; i++) {
+      const id = `aaaaaaaa-aaaa-aaaa-aaaa-${String(i).padStart(12, "0")}`;
+      rows("import_batches").push({ id, organization_id: A1_ORG, company_id: A1_CO, status: "uploaded", file_path: `${A1_ORG}/${id}.csv`, file_kind: "csv", file_name: "c.csv", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", cursor: -1 });
+    }
+    const co = await company();
+    const { batch, upload } = await createBatch(h.db!.client, co, { fileName: "c.csv", fileSize: 10, source: "app", createdBy: null }, deps());
+    files.set(upload.path, new TextEncoder().encode(CSV));
+    const mine = rows("import_batches").find((b) => b.id === batch.id)!;
+    mine.status = "uploaded";
+    mine.updated_at = "2026-10-13T13:00:00Z";
+    await runImportSweep(h.db!.client, Date.now(), deps());
+    expect((await loadBatch(h.db!.client, co, batch.id))!.status).toBe("previewed");
   });
 });
 

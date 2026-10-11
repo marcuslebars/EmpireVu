@@ -14,7 +14,7 @@
 --    Xero — they came from the owner's books in the first place.
 --
 -- Settings live in companies.ai_settings.import (no column needed).
--- Additive, re-runnable. Members may READ their company's batches; nothing here is
+-- Additive, re-runnable. Owners/admins may READ their company's batches; nothing here is
 -- client-writable (see 20261006170000 — the new invoice columns get no client grants).
 -- Rollback: supabase/rollback/20261012110000_staff_importer.down.sql
 
@@ -129,14 +129,15 @@ create unique index if not exists bookings_import_key_uniq on public.bookings (c
 create index if not exists bookings_import_source_idx on public.bookings (source) where source like 'import:%';
 create index if not exists contacts_import_batch_idx on public.contacts ((metadata -> 'import' ->> 'batchId'));
 
--- ── RLS: members read their batches; links and rows are server-only ────────────────
+-- ── RLS: owners/admins read their batches (samples hold raw customer rows — same as the API);
+--    links and rows are server-only ──────────────────────────────────────────────────
 alter table public.import_links enable row level security;
 alter table public.import_batches enable row level security;
 alter table public.import_rows enable row level security;
 
 drop policy if exists "import_batches_select" on public.import_batches;
 create policy "import_batches_select" on public.import_batches
-  for select using (public.is_organization_member(organization_id));
+  for select using (public.is_organization_admin(organization_id));
 
 revoke all on public.import_links from anon, authenticated;
 revoke all on public.import_rows from anon, authenticated;

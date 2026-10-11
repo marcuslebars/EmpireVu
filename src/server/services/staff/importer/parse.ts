@@ -134,8 +134,8 @@ function clean(cell: string): string {
  * trailing empty columns trimmed, unnamed headers become "Column 7". Throws ImportFileError on a
  * file we can't use (no header, no data, too many rows). PURE.
  */
-export function toSheet(raw: string[][], sheetName: string | null = null): ParsedSheet {
-  const numbered = raw.map((r, i) => ({ cells: r.map(clean), line: i + 1 })).filter((r) => r.cells.some((c) => c !== ""));
+export function toSheet(raw: string[][], sheetName: string | null = null, rawLines?: number[]): ParsedSheet {
+  const numbered = raw.map((r, i) => ({ cells: r.map(clean), line: rawLines?.[i] ?? i + 1 })).filter((r) => r.cells.some((c) => c !== ""));
   if (numbered.length === 0) throw new ImportFileError("That file is empty.");
   const rows = numbered.map((r) => r.cells);
   const [headerRow, ...data] = rows;
@@ -182,33 +182,87 @@ export function cellText(value: unknown): string {
   return "";
 }
 
-/** XLSX → the sheet with the most rows (usually the only one). */
+/** Shared strings are held in memory while a sheet streams: past this, the file is refused. */
+export const MAX_SHARED_STRINGS_BYTES = 32 * 1024 * 1024;
+
+/**
+ * The entries of a zip (an .xlsx) from its central directory, without inflating anything:
+ * name + uncompressed size. Null when it isn't a readable zip (or needs ZIP64). PURE.
+ */
+export function zipEntries(bytes: Uint8Array): Array<{ name: string; size: number }> | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const min = Math.max(0, bytes.byteLength - 22 - 65_535);
+  let eocd = -1;
+  for (let i = bytes.byteLength - 22; i >= min; i--) {
+    if (view.getUint32(i, true) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) return null;
+  const count = view.getUint16(eocd + 10, true);
+  let at = view.getUint32(eocd + 16, true);
+  const out: Array<{ name: string; size: number }> = [];
+  for (let n = 0; n < count; n++) {
+    if (at + 46 > bytes.byteLength || view.getUint32(at, true) !== 0x02014b50) return null;
+    const size = view.getUint32(at + 24, true);
+    const nameLen = view.getUint16(at + 28, true);
+    const extraLen = view.getUint16(at + 30, true);
+    const commentLen = view.getUint16(at + 32, true);
+    if (size === 0xffffffff) return null;
+    out.push({ name: new TextDecoder().decode(bytes.subarray(at + 46, at + 46 + nameLen)), size });
+    at += 46 + nameLen + extraLen + commentLen;
+  }
+  return out;
+}
+
+const XLSX_UNREADABLE = "We couldn't open that spreadsheet. Save it again as .xlsx or .csv and try again.";
+const tooManyRows = () => new ImportFileError(`That sheet has more than ${MAX_ROWS.toLocaleString("en-CA")} rows — the most we take at once. Split it into smaller files.`);
+
+/**
+ * XLSX → the sheet with the most rows (usually the only one). STREAMED (exceljs WorkbookReader)
+ * and stopped at MAX_ROWS: a full workbook load of a 10 MB file with 240k rows takes ~900 MB, so
+ * it's never loaded whole. The shared-strings part (held in memory) is size-checked from the zip
+ * directory first.
+ */
 export async function parseXlsx(bytes: Uint8Array): Promise<ParsedSheet> {
+  const entries = zipEntries(bytes);
+  if (!entries || !entries.some((e) => e.name.startsWith("xl/"))) throw new ImportFileError(XLSX_UNREADABLE);
+  const shared = entries.find((e) => e.name === "xl/sharedStrings.xml");
+  if (shared && shared.size > MAX_SHARED_STRINGS_BYTES) throw new ImportFileError("That spreadsheet is too big to read. Save just the customer columns as a .csv and try again.");
+
   const ExcelJS = (await import("exceljs")).default;
-  const workbook = new ExcelJS.Workbook();
+  const { Readable } = await import("node:stream");
+  let best: { name: string | null; raw: string[][]; lines: number[] } | null = null;
   try {
-    await workbook.xlsx.load(Buffer.from(bytes) as unknown as ArrayBuffer);
-  } catch {
-    throw new ImportFileError("We couldn't open that spreadsheet. Save it again as .xlsx or .csv and try again.");
+    const reader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([Buffer.from(bytes)]), {
+      worksheets: "emit",
+      sharedStrings: "cache",
+      styles: "cache",
+      hyperlinks: "ignore",
+      entries: "ignore",
+    });
+    for await (const sheet of reader) {
+      const raw: string[][] = [];
+      const lines: number[] = [];
+      for await (const row of sheet as AsyncIterable<{ number: number; values: unknown }>) {
+        if (raw.length > MAX_ROWS + 1) throw tooManyRows();
+        const values = (Array.isArray(row.values) ? row.values : []) as unknown[];
+        // exceljs row.values is 1-based (index 0 is empty).
+        const cells: string[] = [];
+        for (let c = 1; c < Math.min(values.length, MAX_COLUMNS + 20); c++) cells.push(cellText(values[c]));
+        raw.push(cells);
+        lines.push(row.number);
+      }
+      const name = (sheet as { name?: string }).name ?? null;
+      if (!best || raw.length > best.raw.length) best = { name, raw, lines };
+    }
+  } catch (err) {
+    if (err instanceof ImportFileError) throw err;
+    throw new ImportFileError(XLSX_UNREADABLE);
   }
-  let best: { name: string; count: number; sheet: (typeof workbook.worksheets)[number] } | null = null;
-  for (const sheet of workbook.worksheets) {
-    const count = sheet.actualRowCount;
-    if (!best || count > best.count) best = { name: sheet.name, count, sheet };
-  }
-  if (!best || best.count === 0) throw new ImportFileError("That spreadsheet is empty.");
-  if (best.count > MAX_ROWS + 1) throw new ImportFileError(`That sheet has ${best.count.toLocaleString("en-CA")} rows — the most we take at once is ${MAX_ROWS.toLocaleString("en-CA")}. Split it into smaller files.`);
-  const raw: string[][] = [];
-  best.sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-    // Keep the spreadsheet's row numbers (empty rows are dropped later, but still counted).
-    while (raw.length < rowNumber - 1) raw.push([]);
-    const values = row.values as unknown[];
-    // exceljs row.values is 1-based (index 0 is empty).
-    const cells: string[] = [];
-    for (let c = 1; c < Math.min(values.length, MAX_COLUMNS + 20); c++) cells.push(cellText(values[c]));
-    raw.push(cells);
-  });
-  return toSheet(raw, best.name);
+  if (!best || best.raw.length === 0) throw new ImportFileError("That spreadsheet is empty.");
+  return toSheet(best.raw, best.name, best.lines);
 }
 
 export async function parseImportFile(bytes: Uint8Array, kind: FileKind): Promise<ParsedSheet> {

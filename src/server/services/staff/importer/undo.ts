@@ -2,7 +2,7 @@
  * Undo a batch: remove what it CREATED, as long as nothing has happened to it since. Run by the
  * sweep in chunks (status "undoing"), phase by phase so a kept record keeps what it hangs on:
  *
- *   invoices  (import_batch_id)        kept if paid / partly paid / viewed / reminded / any payment
+ *   invoices  (import_batch_id)        kept if paid / partly paid / viewed / reminded / any payment / edited
  *   bookings  (source "import:<id>")   kept if edited, no longer completed, invoiced, assigned
  *   contacts  (metadata.import.batchId) kept if they've texted / been texted, have a booking,
  *                                       quote or invoice left, have a conversation, or were edited
@@ -80,19 +80,20 @@ export async function undoStep(admin: AdminClient, batch: ImportBatchRow): Promi
 
   if (phase === "invoices") {
     const rows = must(
-      await base("invoices", "id, contact_id, status, amount_paid_cents, pending_payment_cents, last_reminder_at, reminder_count, invoice_number, bill_to")
+      await base("invoices", "id, contact_id, status, amount_paid_cents, pending_payment_cents, last_reminder_at, reminder_count, invoice_number, bill_to, created_at, updated_at")
         .eq("import_batch_id", batch.id)
         .gt("id", cursor)
         .order("id", { ascending: true })
         .limit(UNDO_CHUNK),
-    ) as Array<{ id: string; status: string; amount_paid_cents: number; pending_payment_cents: number; last_reminder_at: string | null; reminder_count: number; invoice_number: string | null; bill_to: { name?: string } | null }>;
+    ) as Array<{ id: string; status: string; amount_paid_cents: number; pending_payment_cents: number; last_reminder_at: string | null; reminder_count: number; invoice_number: string | null; bill_to: { name?: string } | null; created_at: string | null; updated_at: string | null }>;
     if (rows.length === 0) return { phase: "bookings", cursor: null, report, finished: false };
     const ids = rows.map((r) => r.id);
     const paid = await idsReferencing(db, "invoice_payments", "invoice_id", ids, scope);
     const texted = await idsReferencing(db, "invoice_reminder_texts", "invoice_id", ids, scope);
     const remove: string[] = [];
     for (const r of rows) {
-      const touched = r.status !== "sent" || (r.amount_paid_cents ?? 0) > 0 || (r.pending_payment_cents ?? 0) > 0 || Boolean(r.last_reminder_at) || (r.reminder_count ?? 0) > 0 || paid.has(r.id) || texted.has(r.id);
+      // edited(): the owner corrected it since (amount, due date, who it's for…) — keep their work.
+      const touched = edited(r) || r.status !== "sent" || (r.amount_paid_cents ?? 0) > 0 || (r.pending_payment_cents ?? 0) > 0 || Boolean(r.last_reminder_at) || (r.reminder_count ?? 0) > 0 || paid.has(r.id) || texted.has(r.id);
       if (touched) {
         report.kept.balances++;
         note(report, `${r.bill_to?.name ?? "A customer"}'s balance (${r.invoice_number ?? "invoice"}) has a payment or reminder since`);
