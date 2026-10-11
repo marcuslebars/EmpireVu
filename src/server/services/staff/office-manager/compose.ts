@@ -142,6 +142,12 @@ export function clock(iso: string, timeZone: string): string {
   return `${hour}${minute === "00" ? "" : `:${minute}`}${period}`;
 }
 
+/** End a sentence with "." unless it already ends in terminal punctuation ("...", "?", "!"). PURE. */
+export function sentence(text: string): string {
+  const t = text.trimEnd();
+  return /[.!?]$/.test(t) ? t : `${t}.`;
+}
+
 export function jobsLine(jobs: JobsPart | null, timeZone: string, withCrew = true): string | null {
   if (!jobs || jobs.count <= 0) return null;
   const head = `Today: ${plural(jobs.count, "job")}${jobs.firstStartIso ? `, first at ${clock(jobs.firstStartIso, timeZone)}` : ""}.`;
@@ -149,7 +155,7 @@ export function jobsLine(jobs: JobsPart | null, timeZone: string, withCrew = tru
   if (jobs.members.length === 0) return `${head} None assigned yet.`;
   const crew = jobs.members.map((m) => `${m.first} ${m.count}`);
   if (jobs.unassigned > 0) crew.push(`${jobs.unassigned} unassigned`);
-  return `${head} ${crew.join(", ")}.`;
+  return `${head} ${sentence(crew.join(", "))}`;
 }
 
 function weatherDay(label: string, day: WeatherDayPart): string | null {
@@ -161,7 +167,7 @@ function weatherDay(label: string, day: WeatherDayPart): string | null {
 export function weatherLine(weather: WeatherPart | null, withTomorrow = true): string | null {
   if (!weather) return null;
   const parts = [weatherDay("today", weather.today), withTomorrow ? weatherDay("tomorrow", weather.tomorrow) : null].filter((x): x is string => Boolean(x));
-  return parts.length ? `Weather: ${parts.join("; ")}.` : null;
+  return parts.length ? sentence(`Weather: ${parts.join("; ")}`) : null;
 }
 
 export function moneyLine(money: MoneyPart | null, periodPhrase: string): string | null {
@@ -169,7 +175,7 @@ export function moneyLine(money: MoneyPart | null, periodPhrase: string): string
   const parts: string[] = [];
   if (money.collectedCents > 0) parts.push(`${dollars(money.collectedCents)} came in ${periodPhrase}`);
   if (money.overdueCents > 0) parts.push(`${dollars(money.overdueCents)} overdue (${plural(money.overdueCount, "invoice")})`);
-  return parts.length ? `Money: ${parts.join(", ")}.` : null;
+  return parts.length ? sentence(`Money: ${parts.join(", ")}`) : null;
 }
 
 export function waitingLine(waiting: WaitingPart | null, maxItems = 3, clipTo = 55): string | null {
@@ -177,7 +183,7 @@ export function waitingLine(waiting: WaitingPart | null, maxItems = 3, clipTo = 
   if (maxItems <= 0) return `Waiting on you: ${plural(waiting.total, "approval")} - text "waiting" for the list.`;
   const shown = waiting.items.slice(0, maxItems).map((i) => `${i.code != null ? `#${i.code} ` : ""}${clipOne(i.summary, clipTo)}`);
   const more = waiting.total - shown.length;
-  return `Waiting on you: ${shown.join("; ")}${more > 0 ? `; +${more} more` : ""}.`;
+  return sentence(`Waiting on you: ${shown.join("; ")}${more > 0 ? `; +${more} more` : ""}`);
 }
 
 export function sinceLine(since: SincePart | null): string | null {
@@ -190,8 +196,8 @@ export function sinceLine(since: SincePart | null): string | null {
   if (since.textChats > 0) ai.push(plural(since.textChats, "text chat"));
   if (since.calls > 0) ai.push(plural(since.calls, "call"));
   const sentences: string[] = [];
-  if (parts.length) sentences.push(`${since.label}: ${parts.join(", ")}.`);
-  if (ai.length) sentences.push(`${parts.length ? "AI" : `${since.label}: AI`} handled ${ai.join(" and ")}.`);
+  if (parts.length) sentences.push(sentence(`${since.label}: ${parts.join(", ")}`));
+  if (ai.length) sentences.push(sentence(`${parts.length ? "AI" : `${since.label}: AI`} handled ${ai.join(" and ")}`));
   return sentences.length ? sentences.join(" ") : null;
 }
 
@@ -200,7 +206,7 @@ export const REPLY_HINT = 'Reply "today" for details.';
 /** The briefing text, trimmed to fit. PURE. */
 export function composeBriefing(input: BriefingInput): ComposedBriefing {
   const max = input.maxSeptets ?? MAX_BRIEFING_SEPTETS;
-  const greet = gsmPlain(`Morning${input.ownerFirstName ? ` ${input.ownerFirstName}` : ""} - ${input.businessName}, ${input.dayLabel}.`);
+  const greet = gsmPlain(sentence(`Morning${input.ownerFirstName ? ` ${input.ownerFirstName}` : ""} - ${input.businessName}, ${input.dayLabel}`));
 
   const unreadableJobs = input.unreadable?.jobs === true;
   const unreadableWaiting = input.unreadable?.waiting === true;

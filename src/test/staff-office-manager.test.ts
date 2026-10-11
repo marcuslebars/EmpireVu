@@ -33,7 +33,7 @@ import type { Forecast, WeatherProvider } from "@/server/services/staff/dispatch
 import { clearWeatherMemoryCache } from "@/server/services/staff/dispatcher/weather";
 import { officeManagerRole } from "@/server/services/staff/office-manager";
 import { runMorningBriefings } from "@/server/services/staff/office-manager/briefing";
-import { clock, composeBriefing, gsmPlain, MAX_BRIEFING_SEPTETS, septets, type BriefingInput } from "@/server/services/staff/office-manager/compose";
+import { clock, composeBriefing, gsmPlain, MAX_BRIEFING_SEPTETS, sentence, septets, waitingLine, type BriefingInput } from "@/server/services/staff/office-manager/compose";
 import { isNewLead, sinceWindow, type BriefingDeps } from "@/server/services/staff/office-manager/gather";
 import {
   briefingDue,
@@ -681,6 +681,17 @@ describe("review fixes", () => {
     rows("invoices").push({ id: "inv-imp", organization_id: ORG, company_id: CO, contact_id: PAT, invoice_number: null, status: "sent", total_cents: 840000, credit_cents: 0, balance_due_cents: 840000, pending_payment_cents: 0, due_date: "2026-09-01", issue_date: "2026-09-01", sent_at: null, bill_to: null, public_token: "ti", import_hold: true });
     await run();
     expect(smsTo(OWNER)[0].body).toContain("$1,240 overdue (1 invoice)");
+  });
+
+  it("a clipped item ends in '...', never '....'", () => {
+    const text = composeBriefing(
+      input({ waiting: { items: [{ code: 7, summary: "Nobody has been assigned to the Smith eavestrough job on Thursday morning yet" }], total: 1 } }),
+    ).text;
+    expect(text).toContain("Waiting on you: #7 Nobody has been assigned to the Smith eavestrough jo...\n");
+    expect(text).not.toContain("....");
+    expect(waitingLine({ items: [{ code: 1, summary: "Call Jones back?" }], total: 1 })).toBe("Waiting on you: #1 Call Jones back?");
+    expect(sentence("Done.")).toBe("Done.");
+    expect(sentence("Done")).toBe("Done.");
   });
 
   it("backticks become apostrophes; the quiet line is capped in GSM septets", () => {
