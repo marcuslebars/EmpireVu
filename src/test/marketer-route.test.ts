@@ -16,6 +16,7 @@ vi.mock("@/server/organizations/context", async (importOriginal) => {
 });
 
 import { GET, PATCH } from "@/app/api/organizations/[organizationId]/companies/[companyId]/ai-settings/marketing/route";
+import { POST as STOP } from "@/app/api/organizations/[organizationId]/companies/[companyId]/ai-settings/marketing/stop/route";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const COMPANY = "22222222-2222-4222-8222-222222222222";
@@ -31,7 +32,11 @@ function seed(brand: string): FakeDb {
       },
     ],
     organizations: [{ id: ORG, platform_brand: brand }],
-    marketing_campaigns: [],
+    marketing_campaigns: [{ id: "camp-1", organization_id: ORG, company_id: COMPANY, kind: "win_back", status: "sending", created_at: "2026-10-10T00:00:00Z", audience_count: 2, approval_id: null }],
+    marketing_campaign_recipients: [
+      { id: "r-1", organization_id: ORG, company_id: COMPANY, campaign_id: "camp-1", contact_id: "c-1", status: "sent", sent_at: "2026-10-10T15:00:00Z", created_at: "2026-10-10T00:00:00Z" },
+      { id: "r-2", organization_id: ORG, company_id: COMPANY, campaign_id: "camp-1", contact_id: "c-2", status: "queued", created_at: "2026-10-10T00:00:00Z" },
+    ],
     google_reviews: [],
     google_post_drafts: [],
   });
@@ -50,7 +55,7 @@ describe("/ai-settings/marketing route", () => {
     const res = await GET(new Request("http://x/api"), ctx);
     expect(res.status).toBe(200);
     const { data } = await res.json();
-    expect(data).toMatchObject({ crankleads: true, canManage: true, settings: { winBack: { enabled: true, monthsMin: 9, monthsMax: 24 }, reviewReplies: { enabled: true }, googlePosts: { enabled: true } }, lastCampaign: null });
+    expect(data).toMatchObject({ crankleads: true, canManage: true, settings: { winBack: { enabled: true, monthsMin: 9, monthsMax: 24 }, reviewReplies: { enabled: true }, googlePosts: { enabled: true } }, lastCampaign: { active: true, sent: 1, queued: 1 } });
     h.db = seed("empirevu");
     h.role = "member";
     const house = (await (await GET(new Request("http://x/api"), ctx)).json()).data;
@@ -76,5 +81,16 @@ describe("/ai-settings/marketing route", () => {
     expect((await patch({ winBack: { monthsMin: 12, monthsMax: 10 } })).status).toBe(400);
     expect((await patch({ winBack: { enabled: false } }, OTHER)).status).toBeGreaterThanOrEqual(400);
     expect(h.db!.tables.companies[0].ai_settings).toEqual({ sms_agent: { autonomy: "ask_first" } });
+  });
+
+  it("POST /stop (owner/admin): cancels the active campaign and skips what's queued; members can't", async () => {
+    h.role = "member";
+    expect((await STOP(new Request("http://x/api", { method: "POST" }), ctx)).status).toBe(403);
+    expect(h.db!.tables.marketing_campaigns[0].status).toBe("sending");
+    h.role = "owner";
+    const res = await STOP(new Request("http://x/api", { method: "POST" }), ctx);
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.lastCampaign).toMatchObject({ active: false, status: "cancelled", sent: 1, skipped: 1 });
+    expect(h.db!.tables.marketing_campaign_recipients.map((r) => r.status)).toEqual(["sent", "skipped"]);
   });
 });

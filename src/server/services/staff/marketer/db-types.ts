@@ -41,6 +41,9 @@ export interface MarketingCampaignRow {
   period_key: string | null;
   created_by: string;
   cancel_reason: string | null;
+  held_since?: string | null;
+  hold_reason?: string | null;
+  hold_notified_at?: string | null;
   approved_at: string | null;
   started_at: string | null;
   completed_at: string | null;

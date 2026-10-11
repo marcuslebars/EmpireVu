@@ -12,6 +12,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { extractAiUsage, isAIConfigured } from "@/server/ai/claude";
 import { FRONT_DESK_DEFAULT_MODEL } from "@/server/ai/config";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
+import { prettyPhone } from "@/server/services/front-desk/approval-text";
+import { siteUrl } from "@/server/services/dfy/site-url";
 import { getPack } from "@/server/services/packs";
 import { parseAppliedIndustryPack } from "@/server/services/packs/types";
 import { quotePublicBaseUrlFor } from "@/server/services/quotes/config";
@@ -67,6 +69,11 @@ export interface BusinessBrief {
   services: string[];
   bookingUrl: string | null;
   website: string | null;
+  /**
+   * How to reach the business, required in every commercial text (CASL): the website, else the
+   * generated site, else the business phone. Null → no campaign can be drafted.
+   */
+  contact: string | null;
 }
 
 export async function loadBusinessBrief(admin: AdminClient, company: MarketingCompany): Promise<BusinessBrief> {
@@ -88,6 +95,8 @@ export async function loadBusinessBrief(admin: AdminClient, company: MarketingCo
     services = [];
   }
   const applied = parseAppliedIndustryPack(raw.industry_pack);
+  const website = text(raw.brand_website_url) ?? text(raw.website);
+  const phone = prettyPhone(text(raw.brand_reply_phone));
   let bookingUrl: string | null = null;
   try {
     if (parseOnlineBookingSettings(raw.online_booking_settings).enabled) {
@@ -102,8 +111,26 @@ export async function loadBusinessBrief(admin: AdminClient, company: MarketingCo
     serviceArea: text(raw.service_area),
     services,
     bookingUrl,
-    website: text(raw.brand_website_url) ?? text(raw.website),
+    website,
+    contact: website ?? (await generatedSiteUrl(db, company)) ?? phone,
   };
+}
+
+/** The company's published generated site (company_sites), if any. */
+async function generatedSiteUrl(db: Db, company: MarketingCompany): Promise<string | null> {
+  try {
+    const { data } = await db
+      .from("company_sites")
+      .select("slug, status")
+      .eq("organization_id", company.organizationId)
+      .eq("company_id", company.companyId)
+      .eq("status", "published")
+      .limit(1);
+    const slug = ((data ?? []) as Array<{ slug: string | null }>)[0]?.slug;
+    return slug ? siteUrl(slug, company.crankleads ? "crankleads" : "empirevu") : null;
+  } catch {
+    return null;
+  }
 }
 
 function factSheet(brief: BusinessBrief): string {

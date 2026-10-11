@@ -5,7 +5,7 @@
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { updateAiSettings } from "@/server/services/front-desk/ai-settings-write";
 import { isPlacesConfigured } from "@/server/services/dfy/places";
-import { campaignResults, lastCampaign, type CampaignResults } from "@/server/services/staff/marketer/campaigns";
+import { ACTIVE_STATUSES, campaignResults, cancelActiveCampaign, lastCampaign, type CampaignResults } from "@/server/services/staff/marketer/campaigns";
 import type { Db } from "@/server/services/staff/marketer/db-types";
 import { loadMarketingCompany, mergeMarketingSettings, type MarketingSettings, type MarketingSettingsPatch } from "@/server/services/staff/marketer/settings";
 
@@ -13,7 +13,7 @@ export interface MarketingView {
   companyId: string;
   crankleads: boolean;
   settings: MarketingSettings;
-  lastCampaign: CampaignResults | null;
+  lastCampaign: (CampaignResults & { active: boolean; holdReason: string | null }) | null;
   google: {
     connected: boolean;
     rating: number | null;
@@ -36,7 +36,9 @@ export async function getMarketingView(admin: AdminClient, scope: { organization
     companyId: company.companyId,
     crankleads: company.crankleads,
     settings: company.settings,
-    lastCampaign: campaign ? await campaignResults(admin, campaign) : null,
+    lastCampaign: campaign
+      ? { ...(await campaignResults(admin, campaign)), active: ACTIVE_STATUSES.includes(campaign.status), holdReason: campaign.held_since ? campaign.hold_reason ?? "on hold" : null }
+      : null,
     google: {
       connected: Boolean(company.googlePlaceId) && isPlacesConfigured(),
       rating: company.googleRating,
@@ -54,5 +56,11 @@ export async function updateMarketingSettings(
 ): Promise<MarketingView | null> {
   const written = await updateAiSettings(admin, scope, (current) => mergeMarketingSettings(current, patch));
   if (!written) return null;
+  return getMarketingView(admin, scope);
+}
+
+/** Settings -> "Stop this campaign": cancel the active campaign, skip what's queued. */
+export async function stopMarketingCampaign(admin: AdminClient, scope: { organizationId: string; companyId: string }): Promise<MarketingView | null> {
+  await cancelActiveCampaign(admin, scope, "owner_stopped", Date.now());
   return getMarketingView(admin, scope);
 }
