@@ -26,6 +26,7 @@ import CrankleadsWelcomePage from "@/screens/CrankleadsWelcomePage";
 import SetupIntakePage from "@/screens/SetupIntakePage";
 import PublicImportPage from "@/screens/PublicImportPage";
 import PublicPortPage from "@/screens/PublicPortPage";
+import PublicComplianceUploadPage from "@/screens/PublicComplianceUploadPage";
 import SignInPage from "./screens/SignInPage";
 import SignUpPage from "./screens/SignUpPage";
 import OAuthCallbackPage from "./screens/OAuthCallbackPage";
@@ -351,6 +352,8 @@ function AppRoutes() {
       <Route path="/forward/:token" element={<ForwardPage />} />
       {/* Keep your number: the owner's port form (texted). Public: the token is the credential. */}
       <Route path="/port/:token" element={<PublicPortPage />} />
+      {/* Compliance: a sub uploads their WSIB clearance / insurance (texted link). Public: the token is the credential. */}
+      <Route path="/compliance/upload/:token" element={<PublicComplianceUploadPage />} />
       {/* Operator-only concierge console (OPERATOR_EMAILS); everyone else sees NotFound. */}
       <Route path="/concierge" element={<ConciergeListPage />} />
       <Route path="/concierge/ports" element={<ConciergePortsPage />} />

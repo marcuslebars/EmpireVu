@@ -141,6 +141,11 @@ export function replyInstruction(kind: ApprovalKind, code: number | null, payloa
       return `Reply Y${c} to post it, N${c} to skip.`;
     case "interview_invite":
       return `Reply Y${c} to text them, N${c} to skip.`;
+    // Compliance (docs/ai-staff.md → "Compliance").
+    case "request_sub_docs":
+      return payload.channel === "email" ? `Reply Y${c} to email them the link, N${c} to skip.` : `Reply Y${c} to text them the link, N${c} to skip.`;
+    case "share_compliance_doc":
+      return `Reply Y${c} to send it, N${c} to skip.`;
     default:
       return `Reply Y${c} to approve, N${c} to skip.`;
   }

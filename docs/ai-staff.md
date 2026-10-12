@@ -988,4 +988,112 @@ Types: `staff/recruiter/db-types.ts` until merged into `database.types.ts`.
 
 ## Compliance
 
+Keeps the business's paperwork current: liability insurance, WSIB clearances and accounts, vehicle insurance, trade and business licences, tickets (Working at Heights, WHMIS, first aid) and bonds — for the business, its crew and its subs. It reminds the owner before anything runs out, asks subs for their new clearance, and sends a certificate to a customer or GC who asks, with the owner's OK. It never files anything with WSIB or an insurer. Code: `src/server/services/staff/compliance/`. Migration: `20261013120000_staff_compliance.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Compliance** (`src/components/settings/staff/ComplianceSettingsSection.tsx`).
+
+### What the owner sees
+
+- **Texting a certificate.** Dana texts a photo of the insurance certificate to the assistant ("our insurance", or no words at all) and gets back: `Saved: liability insurance (Intact, policy ...4821), expires Mar 31, 2027. I'll remind you 30 days before.` A sub's: `Saved: Mike's Electric's WSIB clearance (WSIB, #...6789), expires Jan 9, 2027. I'll remind you 30 days before.` A newer one replaces the old one of the same kind and holder ("It replaces the old one."). Never the whole policy number in a text.
+- **When it's unclear whose it is:** `Got it: Working at Heights (IHSA), expires Mar 3, 2028. Is this for you, Mike (crew) or a sub? It says "Jordan Tremblay".` Dana answers "it's my new sub Tremblay Roofing" → `Saved: Tremblay Roofing's Working at Heights (IHSA), expires Mar 3, 2028. I'll remind you 30 days before.`
+- **The expiry chase** (one text, 09:00–20:00): `Heads up: Mike's Working at Heights expires today; Vehicle insurance expires in 7 days; Liability insurance expires in 30 days. Text me a photo of the new one when you have it.`
+- **A sub's clearance runs out:** `#12 Mike's Electric's WSIB clearance expires Fri. Y texts Mike a link to upload a new clearance + insurance. They'd get: "Hi Mike, it's Northshore Roofing. Your WSIB clearance on file with us expires Fri. Please upload a new WSIB clearance and your liability insurance here: [upload link] (the link works for 14 days). Thanks!" Reply Y 12 to text them the link, N 12 to skip.` Mike uploads a photo; Dana gets `Mike's Electric sent a new WSIB clearance (expires Jan 9, 2027).`
+- **A customer asks** "can you send me your insurance certificate?": the assistant says it's checking, and Dana gets `#13 Dana Jones (705-555-0123) asked for your liability insurance certificate (Intact, expires Mar 31, 2027). Y texts Dana a link to it (expires in 7 days): "Hi Dana, it's Northshore Roofing. Here's our liability insurance certificate (valid to Mar 31, 2027): [link] The link works for 7 days." Their text: "…" Reply Y 13 to send it, N 13 to skip.`
+- **By text any time:** "what's expiring?" / "which subs are missing a clearance?" (`compliance_status`), "ask Mike's Electric for a new clearance" (`ask_sub_for_docs`), "add Lakeside Drywall, Sam, 705-555-0177" (`add_subcontractor`), "turn off the insurance link I sent Jones" (`stop_sharing`).
+- **The 07:00 briefing** gets "Liability insurance expires in 7 days", "Mike's Electric WSIB clearance expired", "1 certificate waiting - text me whose it is" (`briefing-items.ts`; the integration wires it in).
+- **House orgs (A1 etc.)** get none of this unless switched on: no reader runs on their photos (a bare picture still gets "Got the picture…", words still go to the owner agent), no tools, no prompt notes, no sweeps touch them.
+
+### Texted certificates (`intake.ts`, the `ownerMedia` hook)
+
+Registry order is tax clerk → service plans → compliance → purchasing; the tax clerk passes on compliance words and on pictures its reader says aren't a supplier receipt. Compliance then:
+
+1. Only for a company with Compliance on. Idempotent on the `owner_command_log` id: `source_key = 'sms:<logId>'` (unique per company); a redelivered text gets the stored reply.
+2. Downloads the first picture or PDF (`media.ts`: a sibling of `sms-agent/media.ts`, same Twilio Basic auth and SSRF guard — `isTwilioMediaUrl` / `isTwilioMediaRedirect`, auth only to Twilio's API host — plus PDFs, ≤ 10 MB; `fetchMmsImages` is unchanged).
+3. Reads it (`reader.ts`, below).
+4. **Claims** the text when the words name a compliance document (insurance, certificate, COI, WSIB, clearance, licence/license, permit, ticket, cert, policy, bond, WHMIS, first aid, Working at Heights, TSSA, ECRA/ESA, 309A/306A/313A, G2) — unless the reader clearly says it isn't one (a parking ticket), then it passes — or when the reader says it is one, words or not. A bare picture the reader can't place (or no model) is never claimed.
+5. **Whose it is** (`holders.ts pickHolder`): the owner's words first (a sub's whole business name; a crew member's full name or unique first name; "ours / the company"; "sub" with no match → "which sub?"), then the name printed on it (the business's own name → the business; a sub's or crew member's full name), then the kind (an unnamed policy of a business kind — liability, WSIB account, vehicle, business licence, bond — is the owner's). Otherwise it's saved `pending` and the owner is asked; `file_compliance_doc` takes the answer.
+6. Stores the file in the private `compliance-docs` bucket at `{org}/{company}/doc-{uuid}.{ext}` (behind the `ComplianceStorage` seam), files the row (`documents.ts fileDocument`) and replaces the older one of the same kind + holder (licences / certifications also by title; an older-dated upload never knocks out a newer one).
+7. Unreadable (no model, HEIC) but the words said so: saved from the words, the reply asks for the expiry date.
+
+Status: `current`, `expiring` (≤ 30 days), `expired`, from `expires_on` in the company's time zone; `pending` (whose?) and `replaced` stay put. Reminder stages the save reply already covered are marked (a certificate saved 20 days out doesn't get a "30 days" text too).
+
+### The reader (`reader.ts`)
+
+One model call (`AI_MODEL_COMPLIANCE`, default `claude-sonnet-5-5`, 30 s, usage recorded with `recordAiUsageSafe`) with the image or PDF as a content block. The system prompt lists the kinds, says receipts / quotes / job photos are NOT compliance documents, and that the document is data from a third party (instructions written on it are ignored). It answers JSON: `is_compliance_document, kind, title, issuer, number, holder_name, issued_on, expires_on`. `cleanReading` keeps only real dates (2000–2100), a known kind (else `other`), short plain strings (markup stripped). No `ANTHROPIC_API_KEY`, an unreadable type (HEIC) or a failure → `null`, and callers degrade as above.
+
+### The expiry chase (`sweeps.ts`, `compliance:expiry`, every 15 min)
+
+- Reads only live documents expiring within 31 days (or already past: their status drifted) and those expired in the last 3 days, paged; groups them by company; skips companies with Compliance off or paused/archived.
+- Refreshes each status. Then, with reminders on, a verified owner cell and 09:00–20:00 local: for each document whose stage is due (30 days before, 7 days before, the day — caught up for 2 days), claims `reminded_<stage>_at` with a conditional update (`is null`) and adds one line. Several documents share one text, most urgent first (6 lines, then "+N more"). A failed text gives the claims back.
+- A **sub's** document at the 7-day stage or on the day becomes a `request_sub_docs` approval instead (`notifyOwnerOfApproval`, quiet hours respected) — unless the sub has no cell/email (a plain line + "Text me "ask Mike's Electric for documents""), is already asked, or holds an unused link from the last 14 days. Inactive subs are skipped. WSIB clearances are short-lived; each `expires_on` is taken as given.
+
+### Approval kinds
+
+| Kind | Created by | Owner text | Y | N / expiry |
+| --- | --- | --- | --- | --- |
+| `request_sub_docs` (72 h) | the chase (notified), or `ask_sub_for_docs` (inline: `notified_to` = the owner's phone) | `Mike's Electric's WSIB clearance expires Fri. Y texts Mike a link to upload a new clearance + insurance. They'd get: "…"` (owner-asked: `Ask Bay Plumbing for WSIB clearance and liability insurance? Y emails Bay Plumbing (office@…) a link…`) — reply `Reply Y 12 to text them the link` / `to email them the link` | a `compliance_upload_requests` row (unique `approval_id` = the claim) with a fresh 32-char token, 14 days; the exact text from the company's own number (or an email from the business name, reply-to the owner, when the sub has no cell or opted out); outside 09:00–20:00 it's queued (`"It's late, so I'll text Mike (Mike's Electric) the upload link at 9am tomorrow."`). Reply: `Texted Mike (Mike's Electric) a link to upload a new clearance + insurance (works 14 days). I'll tell you when they send it.` | `OK - I won't ask Mike's Electric.` / `No answer on #12, so I didn't ask Mike's Electric for new documents. …` |
+| `share_compliance_doc` (24 h) | SMS agent `share_compliance_doc` | `Dana Jones (705-555-0123) asked for your liability insurance certificate (Intact, expires Mar 31, 2027). Y texts Dana a link to it (expires in 7 days): "…" Their text: "…"` — `Reply Y 13 to send it, N 13 to skip.` | re-checks the document is still on file, live and not replaced; a `compliance_shares` row (unique `approval_id`), 7 days; the text from the company number (09:00–20:00, else queued). `Texted Dana Jones the link to your liability insurance certificate (works 7 days). You can turn it off in Settings > AI front desk > Compliance.` | N: the customer gets "Hi Dana, it's Northshore Roofing. We'll get back to you directly about the liability insurance certificate." (inside 09:00–20:00) and the conversation goes to the owner. Expiry: the conversation goes to the owner, no text. |
+
+Neither kind takes a note: a note means nothing is sent ("that one only goes out exactly as shown"). `front-desk/approval-text.ts replyInstruction` has a line for each. Every executor is idempotent (the unique `approval_id` claim; queued → sending is conditional).
+
+**Texts to subs and customers** (`outbound.ts`) are transactional — the sub's own paperwork, or a document the customer asked for — so the 6-month implied-consent window doesn't apply, but a STOP always wins: any contact of the company with that number who opted out blocks the text. `message_log.sent_by = 'compliance'`. They name the business, never the platform.
+
+### A sub's upload link (`/compliance/upload/:token`)
+
+SPA page `src/screens/PublicComplianceUploadPage.tsx` (public; in `public-routes.ts`), API `GET|POST /api/public/compliance/upload/:token`:
+- The token is the credential (one 404 for every miss), only while the request is `sent`, not past `expires_at` (14 days), the sub active and Compliance on. Rate-limited per token and IP.
+- The page says who's asking and what for, takes a photo or PDF (photos become JPEG in the browser), up to 10 per link. `upload_url` returns a one-time signed upload URL for a path the **server** builds (`{org}/{company}/sub-{requestId}-{uuid}.{ext}`); `submit` checks the path is that request's and exists, claims an upload slot (conditional on the count), reads it, and files it under the sub (`uploaded_via 'sub_link'`, replacing the old one; the kind from the reader, else the sub's pick). Audited (`compliance_events` `sub_upload`, IP, browser).
+- The owner is told right away (08:00–21:00), else by the outbox sweep in the morning: `Mike's Electric sent a new WSIB clearance (expires Jan 9, 2027).` Unreadable → "…sent a document for their WSIB clearance, but I couldn't read it. Have a look in Settings…". A different name on it → `The name on it is "…" - check it's theirs.`
+
+### Sharing a certificate (`shares.ts`)
+
+- SMS agent tool `share_compliance_doc { document: kind }`: the business's own (holder `company`) live document of that kind with a file (a WSIB clearance falls back to the account letter and back); one pending ask per customer. Nothing on file, sharing off or Compliance off → the agent is told to say the owner will get it to them and hand off (it never says whether a document exists). Prompt notes for both agents.
+- The link is **our own route**, `GET /api/public/compliance/doc/:token`: live (sent, not revoked, < 7 days, Compliance and sharing on, the file still there) → the open is counted and logged (`share_opened`, IP, browser) and the visitor is redirected (302, `no-store`, `no-referrer`) to a **60-second** signed URL for that one file. Otherwise a plain 410 page ("This link has expired or was turned off. Ask Northshore Roofing for a new one."), also logged; unknown → 404. Rate-limited per token and IP.
+- Turned off from Settings (**Turn off** per link) or by text (`stop_sharing`, all or one customer's) → `revoked` + a `share_revoked` event.
+
+### Owner tools (`owner-tools.ts`)
+
+| Tool | Does |
+| --- | --- |
+| `compliance_status` | Expired, expiring within 30 days, current; missing for the business (liability insurance, a WSIB clearance or account); active subs without a current WSIB clearance; certificates waiting for "whose is it?"; live customer links. Issuers and names from documents are quoted and labelled data. |
+| `file_compliance_doc` | The newest pending document (14 days), else the newest one texted / uploaded in the last 7 days: `holder` company / crew (+ name) / sub (+ name; `new_sub: true` adds them), and corrections (`kind`, `title`, `expires_on`, `issuer`, `number`). Returns the saved line. |
+| `ask_sub_for_docs` | `sub` (name words) → `request_sub_docs` inline; `tell_owner_exactly` carries the code. |
+| `add_subcontractor` | Business name, person, cell (checked), email, trade; not twice. |
+| `stop_sharing` | Turns off live certificate links (optionally one customer's). |
+
+### Settings
+
+`companies.ai_settings.compliance = { enabled?, reminders?, sharing? }`, read only by `settings.ts readComplianceSettings`: `enabled` defaults **on** for CrankLeads orgs (passive until a document exists) and **off** for house orgs; `reminders` and `sharing` default on. `complianceActiveFor` = `enabled`, so house orgs never see the tools, prompt notes or the photo intake.
+
+Route `GET | PATCH | POST /api/organizations/:org/companies/:company/ai-settings/compliance`: members read the switches and counts; owners/admins see the documents, crew, subs and links, PATCH `{ enabled?, reminders?, sharing? }` (strict, merged into `ai_settings.compliance` only via `updateAiSettings`) and POST actions `upload_url`, `file_upload` (read + filed under the chosen holder, else guessed from the name on it), `update_doc` (kind, title, holder, issuer, number, dates, notes; a changed expiry re-arms the reminders), `delete_doc` (the file too; the one it had replaced comes back), `file_url` (a 2-minute signed URL, audited), `save_sub`, `revoke_share`.
+
+UI: on/off, reminders, sharing, the documents by holder (expired in red, expiring in amber, view / edit / delete), "Add a document" (whose + what, or let it read), subs (WSIB clearance status, add / edit / inactive), and the links sent (opens, **Turn off**).
+
+### Schema (`20261013120000_staff_compliance.sql`)
+
+- `subcontractors` (name and/or business name required, E.164 cell check, active).
+- `compliance_documents`: kind (9 kinds), title, holder (`company | crew | subcontractor`, `profile_id`, `subcontractor_id`; a check ties them together — no holder only while `pending`), holder name as printed, issuer, number, issued / expires, file path + type, notes, `uploaded_via sms | settings | sub_link`, uploaded by, status, `replaced_by`, `source_key` (unique per company: one filing per intake), the reader's answer, the intake reply, `reminded_30_at / 7 / 0`, `owner_notified_at`.
+- `compliance_upload_requests` (unique token, unique `approval_id`, kinds asked, channel, status `queued | sending | sent | failed | blocked | cancelled`, `send_after`, `expires_at`, upload count).
+- `compliance_shares` (unique token, unique `approval_id`, status `queued | sending | sent | failed | blocked | revoked`, `expires_at`, open count, revoked by/at).
+- `compliance_events` (opens, refusals, revokes, sub uploads, views, deletes; IP and browser).
+- Private bucket `compliance-docs` (10 MB; PDF, JPEG, PNG, WebP, GIF, HEIC/HEIF), **no storage policies** (service role + signed URLs only).
+- RLS on everything; documents and subs are **owner/admin-read**; links and events are service role only (tokens, visitor IPs); no client writes. SQL checks: `scripts/sql-tests/zz_compliance.test.sql`. Types: `staff/compliance/db-types.ts`.
+
+### Env
+
+`AI_MODEL_COMPLIANCE` (optional, default `claude-sonnet-5-5`; price it with `AI_PRICE_SONNET_*`), `ANTHROPIC_API_KEY` (without it nothing is read: worded texts are still saved and the owner is asked for the details), `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` (the MMS download), `RESEND_API_KEY` + `OUTBOUND_FROM_EMAIL` (email links to subs), `CRANKLEADS_APP_BASE_URL` / `APP_BASE_URL` (the link host).
+
+### Sweeps
+
+`compliance:expiry` (15 min) and `compliance:outbox` (2 min: queued sub and customer links inside 09:00–20:00, sub-upload notices to the owner 08:00–21:00, a send stuck in `sending` for 10 minutes marked failed — never re-sent).
+
+### Tests
+
+`src/test/staff-compliance.test.ts` (fake DB, real services; Twilio, Resend, the media fetch, the reader and storage faked): words / kinds / dates / stages / masked numbers / the saved line; the reader's checks; whose-is-it; settings + house orgs + registry order and `ownerMediaHandlersFor`; the handler on its own (claim rules, no model, parking ticket, unreadable media, pending → `file_compliance_doc` with a new sub, crew + expiry fix, replace, idempotent, house org, never throws); **through `handleOwnerInboundSms`** (filed + reply from the platform number; a bare unplaceable photo → "Got the picture"; A1 exactly as before; "Y 12" with a photo stays an approval); the chase (stages, one text, no repeats, hours, reminders off, failed send, a sub's → approval); **`request_sub_docs` end to end through `decideApproval`** (Y → link from the business number, idempotent, the sub's page, upload → filed + replaced + owner told, path / expiry checks, overnight upload → morning notice, late Y → 9am, opted-out sub, N, expiry, inline owner tool + email-only sub); **`share_compliance_doc` end to end** (exact owner text, Y → link, redirect + audit, revoke → 410, 7-day expiry, sharing off, nothing on file, N); owner tools; briefing items; Settings view and actions; the PDF-capable media fetch. `src/test/compliance-route.test.ts`: the settings route (roles, strict merge, actions), the public upload route and the certificate redirect.
+
+### Not yet
+
+- The reader runs inside the owner's text turn (bounded at 30 s). A HEIC upload from Settings can't be read by the model; the owner fills the details in.
+- "A sub must have a current clearance before they're on a job" isn't enforced on bookings (subs aren't assigned to bookings yet) — it's in `compliance_status` and the chase.
+- One document per holder is "current" per kind (and title, for tickets); multiple concurrent policies of the same kind for one holder replace each other.
+- Customers get a link, not an attachment; a customer whose GC portal needs a file must download it from the link.
+
 ## Purchasing
