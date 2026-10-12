@@ -3,12 +3,14 @@
  * a customer / GC (the certificate they asked for). Both are transactional: the sub's own
  * paperwork for a job, or a document the customer asked for. So the 6-month implied-consent window
  * doesn't apply, but a STOP always wins: any contact of the company with that number who opted out
- * blocks the text. Sent from the company's own number (deliverMessage, smsFrom "company"),
- * message_log.sent_by = 'compliance'.
+ * blocks the text. Sent ONLY from the company's own number: deliverMessage's smsFrom "company"
+ * falls back to the shared platform number when a company has none, so we check first and refuse
+ * (a sub or customer must never get a business's text from another number). message_log.sent_by =
+ * 'compliance'.
  */
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
-import { deliverMessage, type DeliverMessageResult } from "@/server/services/workflow-engine/messaging";
+import { deliverMessage, resolveCompanySmsFrom, type DeliverMessageResult } from "@/server/services/workflow-engine/messaging";
 import type { Db } from "./db-types";
 
 export const COMPLIANCE_SENDER = "compliance";
@@ -28,11 +30,17 @@ export async function phoneOptedOut(admin: AdminClient, scope: { organizationId:
   return ((data ?? []) as Array<{ phone: string | null; sms_opt_out_at: string | null }>).some((c) => normalizePhoneLast10(c.phone) === last10 && Boolean(c.sms_opt_out_at));
 }
 
+/** The company's own texting number, or null (then nothing goes out by text). */
+export async function companySmsNumber(admin: AdminClient, scope: { organizationId: string; companyId: string }): Promise<string | null> {
+  return resolveCompanySmsFrom({ organizationId: scope.organizationId, actorProfileId: null, supabase: admin as never }, scope.companyId);
+}
+
 export async function sendText(
   admin: AdminClient,
   scope: { organizationId: string; companyId: string },
   input: { to: string; body: string; contactId?: string | null },
 ): Promise<DeliverMessageResult> {
+  if (!(await companySmsNumber(admin, scope))) return { status: "blocked", reason: "no_company_number", body: input.body };
   if (await phoneOptedOut(admin, scope, input.to)) return { status: "blocked", reason: "opted_out", body: input.body };
   return deliverMessage({
     context: { organizationId: scope.organizationId, actorProfileId: null, supabase: admin as never },

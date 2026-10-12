@@ -9,7 +9,7 @@ import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { UserFacingError } from "@/server/errors";
 import type { ComplianceDocumentRow, ComplianceKind, Db, ShareRow, SubcontractorRow, UploadRequestRow } from "./db-types";
 import { complianceDeps } from "./deps";
-import { assignHolder, fileDocument, holderLabelFor, liveStatus, loadDocument, loadDocuments, logEvent, savedLine } from "./documents";
+import { assignHolder, fileDocument, trackUpload, holderLabelFor, liveStatus, loadDocument, loadDocuments, logEvent, savedLine } from "./documents";
 import { COMPANY_HOLDER, firstName, forCrew, forSub, loadCrew, loadSubs, pickHolder, subLabel, type HolderPick } from "./holders";
 import { holderContext } from "./intake";
 import { capitalize, daysBetween, isComplianceKind, isDateKey, kindLabel } from "./kinds";
@@ -196,6 +196,7 @@ export async function createSettingsUpload(admin: AdminClient, scope: Scope, con
   const company = await enabledCompany(admin, scope);
   const path = docPathFor(company.organizationId, company.companyId, contentType);
   if (!path) throw new ValidationError("Upload a photo (JPG, PNG, HEIC) or a PDF.");
+  await trackUpload(admin, company, path, Date.now());
   const upload = await complianceDeps().storage(admin).createUploadUrl(path);
   return { ...upload, bucket: "compliance-docs" };
 }
@@ -244,7 +245,7 @@ export async function fileSettingsUpload(
     nowMs,
   });
   const message = holder
-    ? savedLine({ kind, title: filed.doc.title, issuer: filed.doc.issuer, number: filed.doc.number, expiresOn: filed.doc.expires_on, holderLabel: holder.label, today, reminders: company.settings.reminders, replacedCount: filed.replaced.length })
+    ? savedLine({ kind, title: filed.doc.title, issuer: filed.doc.issuer, number: filed.doc.number, expiresOn: filed.doc.expires_on, holderLabel: holder.label, today, reminders: company.settings.reminders, replacedCount: filed.replaced.length, keptExpiresOn: filed.replaced.length || !filed.kept.length ? undefined : filed.kept[0].expires_on ?? "" })
     : "Saved. Pick whose it is below so I know who to remind.";
   return { message: reading ? message : `${message} I couldn't read the file, so fill in the details.`, documentId: filed.doc.id };
 }

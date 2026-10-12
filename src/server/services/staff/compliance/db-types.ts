@@ -37,6 +37,7 @@ export interface ComplianceDocumentRow {
   expires_on: string | null;
   file_path: string | null;
   file_content_type: string | null;
+  extra_file_paths: string[] | null;
   notes: string | null;
   uploaded_via: UploadedVia;
   uploaded_by: string | null;

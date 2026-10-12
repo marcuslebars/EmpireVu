@@ -37,7 +37,7 @@ import { createSubUploadUrl, getUploadPageView, kindsToRequest, proposeSubDocsRe
 import { complianceActiveFor, loadComplianceCompany, mergeComplianceSettings, readComplianceSettings } from "@/server/services/staff/compliance/settings";
 import { openShare, revokeShares } from "@/server/services/staff/compliance/shares";
 import type { ComplianceStorage } from "@/server/services/staff/compliance/storage";
-import { sweepExpiry, sweepOutbox } from "@/server/services/staff/compliance/sweeps";
+import { sweepExpiry, sweepOrphanUploads, sweepOutbox } from "@/server/services/staff/compliance/sweeps";
 import { deleteDocument, fileSettingsUpload, getComplianceView, updateDocument } from "@/server/services/staff/compliance/view";
 
 const TZ = "America/Toronto";
@@ -66,7 +66,7 @@ let db: FakeDb;
 let files: Map<string, Uint8Array>;
 let reading: ComplianceReading | null;
 const read = vi.fn((_input: ReaderInput) => Promise.resolve(reading));
-const fetchMedia = vi.fn(() => Promise.resolve({ bytes: new Uint8Array([1, 2, 3]), contentType: "image/jpeg" } as { bytes: Uint8Array; contentType: string } | null));
+const fetchMedia = vi.fn(() => Promise.resolve([{ bytes: new Uint8Array([1, 2, 3]), contentType: "image/jpeg" }] as Array<{ bytes: Uint8Array; contentType: string }>));
 
 function fakeStorage(): ComplianceStorage {
   return {
@@ -131,6 +131,7 @@ function seed(): FakeDb {
       compliance_upload_requests: [],
       compliance_shares: [],
       compliance_events: [],
+      compliance_uploads: [],
       owner_approvals: [],
       owner_command_log: [],
       message_log: [],
@@ -324,7 +325,7 @@ describe("settings and registry", () => {
     expect(roleApprovalExecutor("share_compliance_doc")).toBeTypeOf("function");
     expect(roleOwnerTools().map((t) => t.tool.name)).toEqual(expect.arrayContaining(["compliance_status", "file_compliance_doc", "ask_sub_for_docs", "add_subcontractor", "stop_sharing"]));
     expect(complianceRole.agentTools.map((t) => t.name)).toEqual(["share_compliance_doc"]);
-    expect(complianceRole.sweeps.map((s) => s.name)).toEqual(["compliance:expiry", "compliance:outbox"]);
+    expect(complianceRole.sweeps.map((s) => s.name)).toEqual(["compliance:expiry", "compliance:outbox", "compliance:orphans"]);
     expect((await activeRolesFor(db.client, scope)).map((r) => r.role)).toContain("compliance");
     expect((await activeRolesFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO })).map((r) => r.role)).not.toContain("compliance");
     expect((await ownerMediaHandlersFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO })).map((h) => h.role)).not.toContain("compliance");
@@ -370,9 +371,9 @@ describe("texted certificates (ownerMedia handler on its own)", () => {
   });
 
   it("media that won't download: words → a plain reply; no words → pass", async () => {
-    fetchMedia.mockResolvedValueOnce(null);
+    fetchMedia.mockResolvedValueOnce([]);
     expect((await handleComplianceMedia(db.client, mediaInput("insurance")))?.reply).toContain("couldn't open that file");
-    fetchMedia.mockResolvedValueOnce(null);
+    fetchMedia.mockResolvedValueOnce([]);
     expect(await handleComplianceMedia(db.client, mediaInput("", "log-2"))).toBeNull();
   });
 
@@ -617,12 +618,23 @@ describe("request_sub_docs through decideApproval", () => {
     expect(smsTo(SUB_PHONE)).toHaveLength(1);
   });
 
-  it("a sub who opted out gets nothing by text", async () => {
-    rows("contacts").push({ id: "c-mike", organization_id: ORG, company_id: CO, first_name: "Mike", phone: SUB_PHONE, sms_opt_out_at: "2026-09-01T00:00:00Z" });
+  it("the channel shown to the owner is locked: a sub who opts out after the ask gets nothing (no switch to email)", async () => {
+    (rows("subcontractors")[0] as Record<string, unknown>).email = "mike@electric.test";
     const id = await ask();
+    expect(rows("owner_approvals")[0].payload).toMatchObject({ channel: "sms" });
+    rows("contacts").push({ id: "c-mike", organization_id: ORG, company_id: CO, first_name: "Mike", phone: SUB_PHONE, sms_opt_out_at: "2026-09-01T00:00:00Z" });
     const out = await decideApproval(db.client, id, { approved: true, decidedVia: "sms", decidedBy: OWNER });
-    expect(out.result?.message).toContain("opted out");
+    expect(out.result?.message).toBe(`Nothing sent: I was going to text Mike's Electric, but Mike's Electric has opted out of texts from you. Text me "ask Mike's Electric for documents" to try again.`);
     expect(smsTo(SUB_PHONE)).toHaveLength(0);
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(rows("compliance_upload_requests")).toHaveLength(0);
+  });
+
+  it("an opted-out sub with no email: nothing is asked; the owner is told why", async () => {
+    rows("contacts").push({ id: "c-mike", organization_id: ORG, company_id: CO, first_name: "Mike", phone: SUB_PHONE, sms_opt_out_at: "2026-09-01T00:00:00Z" });
+    const out = await runOwnerTool(ownerState(), "ask_sub_for_docs", { sub: "Mike's Electric" });
+    expect(out.error).toBe("Mike's Electric has opted out of texts from you and there's no email for Mike's Electric, so I can't send them a link. Add their email (or cell) in Settings > AI front desk > Compliance.");
+    expect(rows("owner_approvals")).toHaveLength(0);
   });
 
   it("N and expiry: nothing sent", async () => {
@@ -722,12 +734,12 @@ describe("share_compliance_doc", () => {
     expect(rows("owner_approvals")).toHaveLength(0);
   });
 
-  it("N: the customer is told the owner will be in touch and the conversation goes to the owner; expiry: no text", async () => {
+  it("N: nothing goes to the customer (the owner didn't approve any text); the conversation goes to the owner", async () => {
     doc({ id: "dins" });
     await tool().run(turnState(), { document: "liability_insurance" } as never);
     const out = await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: false, decidedVia: "sms", decidedBy: OWNER });
     expect(out.result?.message).toBe("OK - nothing sent. Dana Jones is yours to answer now.");
-    expect(smsTo(JONES_PHONE)[0].body).toContain("Hi Dana, it's Northshore Roofing. We'll get back to you directly about the liability insurance certificate.");
+    expect(smsTo(JONES_PHONE)).toHaveLength(0);
     expect(rows("sms_conversations")[0]).toMatchObject({ state: "owner" });
     expect(rows("compliance_shares")).toHaveLength(0);
   });
@@ -833,8 +845,222 @@ describe("Twilio media fetch (PDFs too, SSRF guard, auth only to Twilio)", () =>
       ],
       { fetchImpl },
     );
-    expect(got).toMatchObject({ contentType: "application/pdf" });
+    expect(got).toHaveLength(1);
+    expect(got[0]).toMatchObject({ contentType: "application/pdf" });
     expect(calls).toHaveLength(1);
     expect(calls[0].auth).toMatch(/^Basic /);
+  });
+});
+
+// ── Review fixes ─────────────────────────────────────────────────────────────────────
+
+describe("unreadable / non-certificate files never replace a live document", () => {
+  async function linkFor() {
+    const c = (await loadComplianceCompany(db.client, scope))!;
+    const live = doc({ id: "dsub", kind: "wsib_clearance", issuer: "WSIB", holder_type: "subcontractor", subcontractor_id: SUB, expires_on: "2026-10-16", status: "expiring", reminded_30_at: "2026-10-01T00:00:00Z" });
+    const res = await proposeSubDocsRequest(db.client, c, SUB, { documentId: live.id, nowMs: Date.now() });
+    await decideApproval(db.client, String(res.approvalId), { approved: true, decidedVia: "sms", decidedBy: OWNER });
+    const req = rows("compliance_upload_requests")[0];
+    const upload = await createSubUploadUrl(db.client, String(req.token), "image/jpeg");
+    files.set(upload!.path, new Uint8Array([7]));
+    return { live, token: String(req.token), path: upload!.path };
+  }
+
+  it("a sub's selfie: saved as pending (not under the sub), nothing replaced, the owner asked, the chase goes on", async () => {
+    const { live, token, path } = await linkFor();
+    reading = { ...insurance(), isComplianceDocument: false, kind: null };
+    const out = await submitSubUpload(db.client, token, { path, contentType: "image/jpeg", kind: "wsib_clearance" }, { ip: null, userAgent: null });
+    expect(out?.result.read).toBe(false);
+    const filed = rows("compliance_documents").find((d) => d.file_path === path)!;
+    expect(filed).toMatchObject({ status: "pending", holder_type: null, subcontractor_id: SUB, kind: "wsib_clearance" });
+    expect(live).toMatchObject({ status: "expiring", replaced_by: null });
+    expect(ownerTexts().at(-1)).toContain("Mike's Electric sent a file for their WSIB clearance, but I couldn't read it as a certificate, so I haven't filed it");
+    // Fri Oct 16: the chase still covers the live clearance (the request is pending → no 2nd ask, a plain line).
+    await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER }).catch(() => null);
+    vi.setSystemTime(Date.parse("2026-10-16T14:00:00Z"));
+    rows("compliance_upload_requests")[0].uploads = 1;
+    await sweepExpiry(db.client, Date.now());
+    expect(live.reminded_0_at).toBeTruthy();
+    // The owner files it after a look: it replaces the old one only now, with a later date.
+    const fixed = await runOwnerTool(ownerState(), "file_compliance_doc", { holder: "sub", name: "Mike's Electric", expires_on: "2027-01-09" });
+    expect(fixed.tell_owner).toContain("It replaces the old one.");
+    expect(live.status).toBe("replaced");
+  });
+
+  it("a sub's old copy (same date): filed but not newer, so the one on file stays current", async () => {
+    const { live, token, path } = await linkFor();
+    reading = insurance({ kind: "wsib_clearance", issuer: "WSIB", holderName: "Mike's Electric", expiresOn: "2026-10-16" });
+    await submitSubUpload(db.client, token, { path, contentType: "image/jpeg" }, { ip: null, userAgent: null });
+    expect(live).toMatchObject({ status: "expiring", replaced_by: null });
+    const copy = rows("compliance_documents").find((d) => d.file_path === path)!;
+    expect(copy).toMatchObject({ holder_type: "subcontractor", status: "replaced", replaced_by: "dsub" });
+    expect(copy.reminded_7_at ?? null).toBeNull();
+    expect(copy.reminded_0_at ?? null).toBeNull();
+    expect(ownerTexts().at(-1)).toBe("CrankLeads: Mike's Electric sent a new WSIB clearance (expires Oct 16). It isn't newer than the one on file (expires Oct 16), so that one stays current.");
+  });
+
+  it("the same upload sent twice uses one slot", async () => {
+    const { token, path } = await linkFor();
+    reading = insurance({ kind: "wsib_clearance", issuer: "WSIB", holderName: "Mike's Electric", expiresOn: "2027-01-09" });
+    await submitSubUpload(db.client, token, { path, contentType: "image/jpeg" }, { ip: null, userAgent: null });
+    const again = await submitSubUpload(db.client, token, { path, contentType: "image/jpeg" }, { ip: null, userAgent: null });
+    expect(again?.result).toEqual({ label: "WSIB clearance", expiresOn: "2027-01-09", read: true });
+    expect(rows("compliance_upload_requests")[0].uploads).toBe(1);
+    expect(rows("compliance_documents").filter((d) => d.file_path === path)).toHaveLength(1);
+  });
+
+  it("a receipt texted with \"truck insurance\" while the reader is down: the live vehicle insurance stays current and is still chased", async () => {
+    const live = doc({ id: "dveh", kind: "vehicle_insurance", issuer: "Aviva", expires_on: "2026-10-19" });
+    reading = null;
+    const out = await handleComplianceMedia(db.client, mediaInput("truck insurance"));
+    expect(out?.reply).toBe(`Saved: vehicle insurance. The one already on file (expires Oct 19, 2026) stays the current one until I know this one's date. I couldn't see an expiry date - text me "expires" and the date if it has one.`);
+    expect(live).toMatchObject({ status: "current", replaced_by: null });
+    await sweepExpiry(db.client, NOW);
+    expect(ownerTexts().at(-1)).toContain("Vehicle insurance expires in 7 days");
+  });
+});
+
+describe("handoff with the tax clerk: words alone", () => {
+  it("never claims what the reader says isn't a certificate, whatever the words", async () => {
+    reading = { ...insurance(), isComplianceDocument: false, kind: null };
+    for (const [i, body] of ["building permit fee Jones job", "insurance payment", "our WSIB clearance"].entries()) {
+      expect(await handleComplianceMedia(db.client, mediaInput(body, `log-r${i}`))).toBeNull();
+    }
+  });
+
+  it("reader down: claims only a specific kind with no payment words", async () => {
+    reading = null;
+    for (const [i, body] of ["building permit fee Jones job", "insurance payment", "paid the insurance bill", "permit", "policy", "ticket", "cert", "fee"].entries()) {
+      expect(await handleComplianceMedia(db.client, mediaInput(body, `log-n${i}`))).toBeNull();
+    }
+    expect((await handleComplianceMedia(db.client, mediaInput("Mike's working at heights ticket", "log-y1")))?.reply).toContain("Saved: Mike's certification.");
+    expect(rows("compliance_documents")).toHaveLength(1);
+  });
+});
+
+describe("front and back pages", () => {
+  it("up to 3 files in one text are one document", async () => {
+    fetchMedia.mockResolvedValueOnce([
+      { bytes: new Uint8Array([1]), contentType: "image/jpeg" },
+      { bytes: new Uint8Array([2]), contentType: "image/jpeg" },
+    ]);
+    read.mockResolvedValueOnce(insurance({ expiresOn: null, number: null })).mockResolvedValueOnce(insurance({ issuer: null, number: null, expiresOn: "2027-03-31" }));
+    const out = await handleComplianceMedia(db.client, mediaInput("our insurance"));
+    expect(out?.reply).toBe("Saved (2 pages): liability insurance (Intact), expires Mar 31, 2027. I'll remind you 30 days before.");
+    const saved = rows("compliance_documents")[0];
+    expect((saved.extra_file_paths as string[]).length).toBe(1);
+    expect(rows("compliance_uploads") ?? []).toHaveLength(0);
+  });
+});
+
+describe("no business number of its own: never the shared platform line", () => {
+  beforeEach(() => {
+    db.tables.voice_numbers = [];
+  });
+
+  it("subs: email when they have one, else the owner is told; customers: hand off", async () => {
+    const out = await runOwnerTool(ownerState(), "ask_sub_for_docs", { sub: "Mike's Electric" });
+    expect(out.error).toBe("Your business has no texting number of its own yet and there's no email for Mike's Electric, so I can't send them a link. Add their email (or cell) in Settings > AI front desk > Compliance.");
+    (rows("subcontractors")[0] as Record<string, unknown>).email = "mike@electric.test";
+    const ok = await runOwnerTool(ownerState(), "ask_sub_for_docs", { sub: "Mike's Electric" });
+    expect(ok.tell_owner_exactly).toContain("Y emails Mike (mike@electric.test)");
+    doc({ id: "dins" });
+    const share = await complianceRole.agentTools[0].run(
+      { admin: db.client, facts: { organizationId: ORG, companyId: CO, businessName: "Northshore Roofing", ownerFirstName: "Dana" }, contact: rows("contacts")[0], conversation: { id: "conv-1" }, services: { now: () => new Date() }, effects: newTurnEffects(), customerText: "insurance?" } as never,
+      { document: "liability_insurance" } as never,
+    );
+    expect(String(share.error)).toContain("hand_off_to_owner");
+    expect(sendSms.mock.calls.filter((c) => (c[0] as { to: string }).to !== OWNER)).toHaveLength(0);
+  });
+
+  it("a share approved earlier isn't sent once the number is gone", async () => {
+    db.tables.voice_numbers = [{ organization_id: ORG, company_id: CO, provider: "twilio", active: true, phone_e164: BUSINESS_NUMBER, mode: "missed_call_catcher" }];
+    doc({ id: "dins" });
+    await complianceRole.agentTools[0].run(
+      { admin: db.client, facts: { organizationId: ORG, companyId: CO, businessName: "Northshore Roofing", ownerFirstName: "Dana" }, contact: rows("contacts")[0], conversation: { id: "conv-1" }, services: { now: () => new Date() }, effects: newTurnEffects(), customerText: null } as never,
+      { document: "liability_insurance" } as never,
+    );
+    db.tables.voice_numbers = [];
+    const out = await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER });
+    expect(out.result?.message).toBe("Nothing sent: your business has no texting number of its own yet, so I can't text Dana Jones from it.");
+    expect(smsTo(JONES_PHONE)).toHaveLength(0);
+  });
+});
+
+describe("whose is it: the answer only ever lands on the waiting document", () => {
+  it("a pending document weeks old is still the one answered; a filed one is never re-held without naming it", async () => {
+    const filed = doc({ id: "dfiled", kind: "liability_insurance", created_at: "2026-10-11T12:00:00Z" });
+    const waiting = doc({ id: "dwait", kind: "certification", title: "First Aid", holder_type: null, status: "pending", created_at: "2026-09-01T00:00:00Z" });
+    expect(await briefingItems(db.client, scope, "2026-10-12")).toContain("1 certificate waiting - text me whose it is");
+    const out = await runOwnerTool(ownerState(), "file_compliance_doc", { holder: "crew", name: "Mike" });
+    expect(out.tell_owner).toContain("Saved: Mike's First Aid");
+    expect(waiting).toMatchObject({ holder_type: "crew", profile_id: MIKE });
+    expect(filed).toMatchObject({ holder_type: "company" });
+    // Nothing pending now: "it's Mike's" without naming the document changes nothing.
+    expect(await runOwnerTool(ownerState(), "file_compliance_doc", { holder: "crew", name: "Mike" })).toMatchObject({ error: expect.stringContaining("say which one") });
+    expect(filed.holder_type).toBe("company");
+  });
+
+  it("a date given before whose it is: kept on the pending document, and asked again", async () => {
+    const waiting = doc({ id: "dwait", kind: "certification", title: "First Aid", holder_type: null, status: "pending" });
+    const out = await runOwnerTool(ownerState(), "file_compliance_doc", { expires_on: "2028-01-01" });
+    expect(out).toMatchObject({ still_waiting: true });
+    expect(waiting).toMatchObject({ status: "pending", expires_on: "2028-01-01" });
+  });
+});
+
+describe("certificate links follow the document", () => {
+  async function shared() {
+    doc({ id: "dins", expires_on: "2026-11-30" });
+    await complianceRole.agentTools[0].run(
+      { admin: db.client, facts: { organizationId: ORG, companyId: CO, businessName: "Northshore Roofing", ownerFirstName: "Dana" }, contact: rows("contacts")[0], conversation: { id: "conv-1" }, services: { now: () => new Date() }, effects: newTurnEffects(), customerText: null } as never,
+      { document: "liability_insurance" } as never,
+    );
+  }
+
+  it("410 once the document is replaced or has expired", async () => {
+    await shared();
+    await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER });
+    const token = String(rows("compliance_shares")[0].token);
+    expect((await openShare(db.client, token, { ip: null, userAgent: null })).ok).toBe(true);
+    const d = rows("compliance_documents").find((x) => x.id === "dins")!;
+    d.status = "replaced";
+    expect(await openShare(db.client, token, { ip: null, userAgent: null })).toMatchObject({ ok: false, status: 410 });
+    d.status = "current";
+    d.expires_on = "2026-10-11";
+    expect(await openShare(db.client, token, { ip: null, userAgent: null })).toMatchObject({ ok: false, status: 410 });
+  });
+
+  it("a queued share is re-checked before it goes: a replaced document isn't sent", async () => {
+    await shared();
+    vi.setSystemTime(Date.parse("2026-10-13T01:30:00Z")); // 9:30pm → queued
+    await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER });
+    rows("compliance_documents").find((x) => x.id === "dins")!.status = "replaced";
+    await sweepOutbox(db.client, Date.parse("2026-10-13T13:05:00Z"));
+    expect(smsTo(JONES_PHONE)).toHaveLength(0);
+    expect(rows("compliance_shares")[0]).toMatchObject({ status: "revoked", last_error: "replaced" });
+  });
+});
+
+describe("orphan files", () => {
+  it("an upload URL nobody files is deleted after 24 h; a filed one only forgotten", async () => {
+    const c = (await loadComplianceCompany(db.client, scope))!;
+    void c;
+    const live = doc({ id: "dsub", kind: "wsib_clearance", holder_type: "subcontractor", subcontractor_id: SUB, expires_on: "2026-10-16" });
+    const res = await proposeSubDocsRequest(db.client, (await loadComplianceCompany(db.client, scope))!, SUB, { documentId: live.id, nowMs: Date.now() });
+    await decideApproval(db.client, String(res.approvalId), { approved: true, decidedVia: "sms", decidedBy: OWNER });
+    const token = String(rows("compliance_upload_requests")[0].token);
+    const abandoned = await createSubUploadUrl(db.client, token, "image/jpeg");
+    files.set(abandoned!.path, new Uint8Array([1]));
+    const used = await createSubUploadUrl(db.client, token, "image/jpeg");
+    files.set(used!.path, new Uint8Array([2]));
+    reading = insurance({ kind: "wsib_clearance", issuer: "WSIB", holderName: "Mike's Electric", expiresOn: "2027-01-09" });
+    await submitSubUpload(db.client, token, { path: used!.path, contentType: "image/jpeg" }, { ip: null, userAgent: null });
+    expect(rows("compliance_uploads").map((r) => r.path)).toEqual([abandoned!.path]);
+    expect(await sweepOrphanUploads(db.client, NOW + HOUR)).toBe(0);
+    expect(await sweepOrphanUploads(db.client, NOW + 25 * HOUR)).toBe(1);
+    expect(files.has(abandoned!.path)).toBe(false);
+    expect(files.has(used!.path)).toBe(true);
+    expect(rows("compliance_uploads")).toHaveLength(0);
   });
 });

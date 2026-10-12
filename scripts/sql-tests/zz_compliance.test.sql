@@ -14,8 +14,8 @@ declare
   t text;
   r text;
   p text;
-  all_tables text[] := array['subcontractors','compliance_documents','compliance_upload_requests','compliance_shares','compliance_events'];
-  hidden text[] := array['compliance_upload_requests','compliance_shares','compliance_events'];
+  all_tables text[] := array['subcontractors','compliance_documents','compliance_upload_requests','compliance_shares','compliance_events','compliance_uploads'];
+  hidden text[] := array['compliance_upload_requests','compliance_shares','compliance_events','compliance_uploads'];
 begin
   raise notice '== compliance: RLS on, no client writes';
   foreach t in array all_tables loop

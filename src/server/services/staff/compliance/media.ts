@@ -14,15 +14,18 @@ export interface FetchedDoc {
 
 const MAX_REDIRECTS = 2;
 
-/** The first picture or PDF that downloads (≤ 10 MB). Null when there's none. */
-export async function fetchComplianceMedia(media: InboundMedia[], options: { fetchImpl?: typeof fetch; timeoutMs?: number; maxBytes?: number } = {}): Promise<FetchedDoc | null> {
+/** Up to `max` (default 3: front + back pages) pictures or PDFs that download (≤ 10 MB each). */
+export async function fetchComplianceMedia(media: InboundMedia[], options: { fetchImpl?: typeof fetch; timeoutMs?: number; maxBytes?: number; max?: number } = {}): Promise<FetchedDoc[]> {
+  const max = options.max ?? 3;
+  const out: FetchedDoc[] = [];
   const doFetch = options.fetchImpl ?? fetch;
   const maxBytes = options.maxBytes ?? MAX_DOC_BYTES;
   const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const token = process.env.TWILIO_AUTH_TOKEN?.trim();
   const auth = sid && token ? `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}` : null;
 
-  for (const item of media.slice(0, 5)) {
+  for (const item of media.slice(0, 10)) {
+    if (out.length >= max) break;
     if (!item?.url || !isTwilioMediaUrl(item.url)) continue;
     if (item.contentType && !normalizeDocType(item.contentType)) continue;
     const controller = new AbortController();
@@ -50,12 +53,12 @@ export async function fetchComplianceMedia(media: InboundMedia[], options: { fet
       if (declared > maxBytes) continue;
       const buffer = new Uint8Array(await response.arrayBuffer());
       if (buffer.byteLength === 0 || buffer.byteLength > maxBytes) continue;
-      return { bytes: buffer, contentType };
+      out.push({ bytes: buffer, contentType });
     } catch (err) {
       console.warn("[compliance] media fetch failed:", err instanceof Error ? err.message : err);
     } finally {
       clearTimeout(timer);
     }
   }
-  return null;
+  return out;
 }

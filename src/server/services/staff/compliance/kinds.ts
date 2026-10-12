@@ -64,19 +64,35 @@ export function mentionsCompliance(text: string | null | undefined): boolean {
   return Boolean(text && COMPLIANCE_WORDS.test(text));
 }
 
-/** The kind the owner's words point to, if they're specific enough. PURE. */
+/**
+ * The kind the owner's words point to, only when they name a SPECIFIC document. Generic words
+ * ("permit", "policy", "ticket", "cert", "certificate") are not enough on their own. PURE.
+ */
 export function kindFromWords(text: string | null | undefined): ComplianceKind | null {
   const t = (text ?? "").toLowerCase();
   if (!t.trim()) return null;
   if (/\bwsib\b/.test(t)) return /\baccount\b/.test(t) && !/\bclearance/.test(t) ? "wsib_account" : "wsib_clearance";
-  if (/\bclearance/.test(t)) return "wsib_clearance";
+  if (/\bclearance (cert|certificate|letter)\b|\bclearance\b/.test(t)) return "wsib_clearance";
   if (/\b(vehicle|auto|truck|car|fleet)\b.*\binsurance\b|\binsurance\b.*\b(vehicle|auto|truck|car|fleet)\b/.test(t)) return "vehicle_insurance";
   if (/\b(insurance|coi|liability|insured|insurer)\b/.test(t)) return "liability_insurance";
-  if (/\bbond(ed)?\b/.test(t)) return "bond";
+  if (/\b(surety|performance|bid|licen[cs]e) bond\b|\bbonded\b/.test(t)) return "bond";
   if (/\bbusiness licen[cs]e/.test(t)) return "business_licence";
-  if (/\b(309a|306a|313a|tssa|g2|ecra|esa|licen[cs]e)/.test(t)) return "trade_licence";
-  if (/\b(whmis|first[ -]aid|working at heights|ticket|certification|cert)\b/.test(t)) return "certification";
+  if (/\b(309a|306a|313a|tssa|g2|ecra|esa)\b|\b(trade|gas|electrical|electrician'?s?|plumbing|plumber'?s?|contractor'?s?) licen[cs]e/.test(t)) return "trade_licence";
+  if (/\b(whmis|first[ -]aid|working at heights|cpr|fall arrest|forklift)\b/.test(t)) return "certification";
   return null;
+}
+
+/** Words that mean money changed hands (a receipt, a bill, a fee) — never a certificate on words alone. */
+const PAYMENT_WORDS = /\b(paid|pay|payment|payments|fee|fees|invoice|invoiced|receipt|receipts|bill|billed|bills|renewal cost|premium paid)\b/i;
+
+export function mentionsPayment(text: string | null | undefined): boolean {
+  return Boolean(text && PAYMENT_WORDS.test(text));
+}
+
+/** Words alone (no reading) are enough to claim: a specific kind and nothing about paying. PURE. */
+export function wordsClaim(text: string | null | undefined): ComplianceKind | null {
+  if (mentionsPayment(text)) return null;
+  return kindFromWords(text);
 }
 
 // ── Dates ────────────────────────────────────────────────────────────────────────────

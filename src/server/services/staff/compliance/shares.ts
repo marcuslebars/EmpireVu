@@ -23,7 +23,7 @@ import { complianceDeps } from "./deps";
 import { loadDocument, logEvent } from "./documents";
 import { firstName } from "./holders";
 import { cleanText, kindLabel, prettyDate } from "./kinds";
-import { sendText } from "./outbound";
+import { companySmsNumber, sendText } from "./outbound";
 import { isLinkToken, newLinkToken } from "./requests";
 import { loadComplianceCompany, type ComplianceCompany } from "./settings";
 import { inSendWindow, localDate, nextWindowLabel, nextWindowStart } from "./time";
@@ -103,6 +103,8 @@ export async function proposeShare(admin: AdminClient, ask: ShareAsk): Promise<S
   const askedLabel = kindLabel(ask.kind);
   if (!company || !company.settings.enabled) return { ok: false, reason: "off", label: askedLabel };
   if (!company.settings.sharing) return { ok: false, reason: "sharing_off", label: askedLabel };
+  // Only ever from the business's own number (never the shared platform line).
+  if (!(await companySmsNumber(admin, company))) return { ok: false, reason: "sharing_off", label: askedLabel };
   const doc = await shareableDocument(admin, company, ask.kind, ask.nowMs);
   if (!doc) return { ok: false, reason: "not_on_file", label: askedLabel };
   const label = shareLabel(doc);
@@ -143,14 +145,8 @@ export async function executeShareDoc(admin: AdminClient, approval: OwnerApprova
   const label = doc ? shareLabel(doc) : "document";
 
   if (!decision.approved) {
+    // Nothing goes to the customer that the owner didn't see: the conversation is simply theirs now.
     if (contactId) await markOwnerTakeover(admin, { companyId: scope.companyId, contactId, at: new Date(nowMs) });
-    if (decision.decidedVia !== "expiry" && contactId && company && inSendWindow(nowMs, company.timeZone)) {
-      const phone = await contactPhone(admin, scope, contactId);
-      if (phone) {
-        const hi = customerFirst ? `Hi ${customerFirst}` : "Hi";
-        await sendText(admin, scope, { to: phone, contactId, body: `${hi}, it's ${company.name}. We'll get back to you directly about the ${label}.` });
-      }
-    }
     return decision.decidedVia === "expiry"
       ? { ok: true, message: `No answer on #${approval.short_code ?? ""}, so nothing went to ${customer}. The conversation is yours now.` }
       : { ok: true, message: `OK - nothing sent. ${customer} is yours to answer now.` };
@@ -165,6 +161,7 @@ export async function executeShareDoc(admin: AdminClient, approval: OwnerApprova
   if (doc.expires_on && doc.expires_on < today) return { ok: false, message: `Your ${label} expired ${prettyDate(doc.expires_on)}, so nothing went to ${customer}. Text me a photo of the new one.` };
   const phone = await contactPhone(admin, scope, contactId);
   if (!phone) return { ok: false, message: `${customer} has no cell on file, so nothing was sent.` };
+  if (!(await companySmsNumber(admin, scope))) return { ok: false, message: `Nothing sent: your business has no texting number of its own yet, so I can't text ${customer} from it.` };
 
   const { data: existing } = await (admin as Db).from("compliance_shares").select("*").eq("approval_id", approval.id).maybeSingle();
   let row = existing as ShareRow | null;
@@ -218,6 +215,14 @@ export async function sendShare(admin: AdminClient, company: ComplianceCompany, 
   const { data: claimed, error } = await db.from("compliance_shares").update({ status: "sending" }).eq("id", row.id).eq("status", "queued").select("id");
   if (error) throw error;
   if (((claimed ?? []) as unknown[]).length === 0) return "already";
+  // Re-check right before it goes (it may have waited overnight): the document must still be live.
+  const doc = await loadDocument(admin, company, row.document_id);
+  const why = docGone(doc, localDate(nowMs, company.timeZone));
+  if (why) {
+    await db.from("compliance_shares").update({ status: "revoked", revoked_at: new Date(nowMs).toISOString(), revoked_by: "system", last_error: why }).eq("id", row.id);
+    await logEvent(admin, { organizationId: company.organizationId, companyId: company.companyId, event: "share_skipped", shareId: row.id, documentId: row.document_id, actor: "system", detail: { reason: why } });
+    return why;
+  }
   const phone = row.contact_id ? await contactPhone(admin, company, row.contact_id) : null;
   const result = phone ? await sendText(admin, company, { to: phone, body: row.body ?? "", contactId: row.contact_id }) : { status: "blocked", reason: "no_phone" };
   const status = result.status === "sent" ? "sent" : result.status === "blocked" ? "blocked" : "failed";
@@ -254,14 +259,38 @@ export async function openShare(admin: AdminClient, token: string, meta: { ip: s
   if (row.status !== "sent") return gone(row.status);
   if (Date.parse(row.expires_at) <= nowMs) return gone("expired");
   if (!company || !company.settings.enabled || !company.settings.sharing) return gone("off");
+  // Only the exact document the owner approved, and only while it's still the live one: a
+  // replaced or expired certificate is never served (410), so a customer can't be shown old cover.
   const doc = await loadDocument(admin, company, row.document_id);
-  if (!doc?.file_path) return gone("no_file");
+  const why = docGone(doc, localDate(nowMs, company.timeZone));
+  if (why || !doc?.file_path) return gone(why ?? "no_file");
   const name = `${company.name} - ${shareLabel(doc)}`.replace(/[^A-Za-z0-9 ._-]/g, "").slice(0, 80) + extFor(doc.file_content_type);
   const url = await complianceDeps().storage(admin).signedUrl(doc.file_path, OPEN_URL_TTL_SECONDS, name);
   if (!url) return gone("storage");
-  await db.from("compliance_shares").update({ open_count: (row.open_count ?? 0) + 1, last_opened_at: new Date(nowMs).toISOString() }).eq("id", row.id);
+  await bumpOpenCount(admin, row, nowMs);
   await logEvent(admin, { organizationId: row.organization_id, companyId: row.company_id, event: "share_opened", shareId: row.id, documentId: row.document_id, actor: "visitor", ip: meta.ip, userAgent: meta.userAgent });
   return { ok: true, url };
+}
+
+/** Why a document can't be sent / served any more, or null. PURE. */
+export function docGone(doc: Pick<ComplianceDocumentRow, "status" | "expires_on" | "file_path"> | null, today: string): string | null {
+  if (!doc || !doc.file_path) return "no_file";
+  if (doc.status === "replaced") return "replaced";
+  if (doc.status === "pending") return "pending";
+  if (doc.status === "expired" || (doc.expires_on && doc.expires_on < today)) return "expired";
+  return null;
+}
+
+/** open_count + 1 without losing a concurrent open (conditional update on the count we read). */
+async function bumpOpenCount(admin: AdminClient, row: ShareRow, nowMs: number): Promise<void> {
+  const db = admin as Db;
+  let count = row.open_count ?? 0;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const { data } = await db.from("compliance_shares").update({ open_count: count + 1, last_opened_at: new Date(nowMs).toISOString() }).eq("id", row.id).eq("open_count", count).select("id");
+    if (((data ?? []) as unknown[]).length) return;
+    const { data: fresh } = await db.from("compliance_shares").select("open_count").eq("id", row.id).maybeSingle();
+    count = (fresh as { open_count: number } | null)?.open_count ?? count + 1;
+  }
 }
 
 function extFor(contentType: string | null): string {

@@ -3,6 +3,7 @@
 -- share_compliance_doc are left in place (they're history); their executors are gone once the
 -- code is reverted. Shared links stop working (the redirect route and its rows are gone).
 -- The bucket's files must be emptied first (Storage → compliance-docs) or the bucket delete fails.
+drop table if exists public.compliance_uploads;
 drop table if exists public.compliance_events;
 drop table if exists public.compliance_shares;
 drop table if exists public.compliance_upload_requests;

@@ -60,6 +60,8 @@ create table if not exists public.compliance_documents (
   expires_on date,
   file_path text,
   file_content_type text,
+  -- More pages of the same document (front + back), same bucket.
+  extra_file_paths text[] not null default '{}',
   notes text,
   uploaded_via text not null check (uploaded_via in ('sms', 'settings', 'sub_link')),
   uploaded_by text,
@@ -80,6 +82,8 @@ create table if not exists public.compliance_documents (
   updated_at timestamptz not null default now(),
   foreign key (company_id, organization_id) references public.companies (id, organization_id) on delete cascade
 );
+alter table public.compliance_documents add column if not exists extra_file_paths text[] not null default '{}';
+
 -- Whose it is: nobody yet only while we ask the owner (pending); a company document points at no
 -- person; a crew document never at a sub; a sub's never at a profile. (Re-created on re-run.)
 alter table public.compliance_documents drop constraint if exists compliance_documents_holder;
@@ -149,6 +153,19 @@ create table if not exists public.compliance_shares (
 create index if not exists compliance_shares_queue_idx on public.compliance_shares (status, send_after) where status = 'queued';
 create index if not exists compliance_shares_company_idx on public.compliance_shares (organization_id, company_id, created_at desc);
 
+-- ── Files written / handed out but not filed yet ─────────────────────────────────────
+-- Every path we upload to (owner texts) or hand a signed upload URL for (Settings, a sub's link)
+-- is recorded here and dropped once a document files it. The compliance:orphans sweep deletes the
+-- object (and the row) when it's still unfiled after 24 h.
+create table if not exists public.compliance_uploads (
+  path text primary key,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  company_id uuid not null,
+  created_at timestamptz not null default now(),
+  foreign key (company_id, organization_id) references public.companies (id, organization_id) on delete cascade
+);
+create index if not exists compliance_uploads_created_idx on public.compliance_uploads (created_at);
+
 -- ── Audit trail ──────────────────────────────────────────────────────────────────────
 create table if not exists public.compliance_events (
   id uuid primary key default gen_random_uuid(),
@@ -174,6 +191,7 @@ alter table public.compliance_documents enable row level security;
 alter table public.compliance_upload_requests enable row level security;
 alter table public.compliance_shares enable row level security;
 alter table public.compliance_events enable row level security;
+alter table public.compliance_uploads enable row level security;
 
 -- Names, cells, policy numbers: owners/admins read; every write goes through the server.
 drop policy if exists "subcontractors_select" on public.subcontractors;
@@ -187,8 +205,8 @@ revoke insert, update, delete on public.subcontractors, public.compliance_docume
 revoke select on public.subcontractors, public.compliance_documents from anon;
 grant select on public.subcontractors, public.compliance_documents to authenticated;
 -- Tokens and visitor details: no client access at all.
-revoke all on public.compliance_upload_requests, public.compliance_shares, public.compliance_events from anon, authenticated;
-grant all on public.subcontractors, public.compliance_documents, public.compliance_upload_requests, public.compliance_shares, public.compliance_events to service_role;
+revoke all on public.compliance_upload_requests, public.compliance_shares, public.compliance_events, public.compliance_uploads from anon, authenticated;
+grant all on public.subcontractors, public.compliance_documents, public.compliance_upload_requests, public.compliance_shares, public.compliance_events, public.compliance_uploads to service_role;
 
 drop trigger if exists subcontractors_set_updated_at on public.subcontractors;
 create trigger subcontractors_set_updated_at before update on public.subcontractors
@@ -209,4 +227,4 @@ values (
   'compliance-docs', 'compliance-docs', false, 10485760,
   array['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif']
 )
-on conflict (id) do nothing;
+on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
