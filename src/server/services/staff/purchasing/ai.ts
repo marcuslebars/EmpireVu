@@ -82,6 +82,9 @@ function clean(text: unknown, max: number): string | null {
   return t.length > max ? t.slice(0, max).trim() : t;
 }
 
+/** An AI line never asks for more than this many of anything (capped lines say "check it"). */
+export const MAX_AI_QTY = 1_000;
+
 /** The model's JSON → clean estimate lines (bad lines dropped). PURE. */
 export function parseEstimate(raw: string | null): PoLine[] | null {
   if (!raw) return null;
@@ -100,9 +103,12 @@ export function parseEstimate(raw: string | null): PoLine[] | null {
     const m = (item ?? {}) as Record<string, unknown>;
     const label = clean(m.label, 60);
     const qty = typeof m.qty === "number" ? m.qty : Number(m.qty);
-    if (!label || !Number.isFinite(qty) || qty <= 0 || qty > 10_000) continue;
+    if (!label || !Number.isFinite(qty) || qty <= 0) continue;
     const cost = typeof m.unit_cost === "number" && Number.isFinite(m.unit_cost) && m.unit_cost >= 0 && m.unit_cost <= 50_000 ? Math.round(m.unit_cost * 100) : null;
-    out.push({ label, qty: Math.max(1, Math.ceil(qty - 1e-9)), unit: clean(m.unit, 20), estUnitCostCents: cost, source: "ai" });
+    const whole = Math.max(1, Math.ceil(qty - 1e-9));
+    const line: PoLine = { label, qty: Math.min(MAX_AI_QTY, whole), unit: clean(m.unit, 20), estUnitCostCents: cost, source: "ai" };
+    if (whole > MAX_AI_QTY) line.capped = true;
+    out.push(line);
   }
   return out;
 }

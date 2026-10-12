@@ -5,6 +5,7 @@ import { ANYWAY_NOTE_KINDS, PRICE_NOTE_KINDS, TEXT_NOTE_KINDS } from "@/server/s
 import { SHORT_CODE_REUSE_MS } from "@/server/services/front-desk/approvals";
 import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
 import { runOwnerCommandAgent } from "./agent";
+import { orderNoteFits } from "@/server/services/staff/purchasing/notes";
 import { decideApproval, isExpired, listLine, looksLikeApprovalAttempt, parseApprovalReply, parseTextNoteReply, type ParsedApprovalReply } from "./approvals";
 import { consumeLimit, findOwnerCompanies, sameOwnerPhone, sendOwnerSms, type OwnerCompany } from "./common";
 import { CONFIRM_CODE_RE, confirmationMatches, MAX_CONFIRM_ATTEMPTS, OWNER_COMMAND_KIND } from "./owner-commands";
@@ -208,7 +209,7 @@ async function handleApproval(
 
   // A note is a price (or "anyway" for payroll); on a kind that can't take it, ask rather than drop it.
   const anyway = parsed.note === "anyway";
-  if (parsed.note && target.status === "pending" && !(anyway ? ANYWAY_NOTE_KINDS : PRICE_NOTE_KINDS).has(target.kind) && !TEXT_NOTE_KINDS.has(target.kind)) {
+  if (parsed.note && target.status === "pending" && !(parsed.textNote ? TEXT_NOTE_KINDS : anyway ? ANYWAY_NOTE_KINDS : PRICE_NOTE_KINDS).has(target.kind)) {
     const code = target.short_code ?? "?";
     return {
       intent: "approval_note_not_allowed",
@@ -239,13 +240,16 @@ async function anywayApplies(admin: AdminClient, phone: string, scope: OwnerComp
 
 /**
  * Does "Y 12 <words>" go to a TEXT_NOTE_KINDS approval (materials_order) asked of this phone? With a
- * code: that code's pending row is one. Without: it's the only thing waiting on this phone.
+ * code: that code's pending row is one. Without: it's the only thing waiting. Either way the words
+ * must read in full as a note on that order (staff/purchasing/notes.ts) — otherwise the text takes
+ * the old did-you-mean / command path.
  */
-async function textNoteApplies(admin: AdminClient, phone: string, scope: OwnerCompany[], code: number | null, nowMs: number): Promise<boolean> {
+async function textNoteApplies(admin: AdminClient, phone: string, scope: OwnerCompany[], parsed: ParsedApprovalReply, nowMs: number): Promise<boolean> {
   const asked = await approvalsAskedOf(admin, scope.map((c) => c.companyId), phone, nowMs);
   const live = asked.filter((p) => p.status === "pending" && !isExpired(p, nowMs) && p.kind !== OWNER_COMMAND_KIND);
-  if (code != null) return live.some((p) => p.short_code === code && TEXT_NOTE_KINDS.has(p.kind));
-  return live.length === 1 && TEXT_NOTE_KINDS.has(live[0].kind);
+  const target = parsed.code != null ? live.find((p) => p.short_code === parsed.code) : live.length === 1 ? live[0] : null;
+  if (!target || !TEXT_NOTE_KINDS.has(target.kind) || !parsed.note) return false;
+  return orderNoteFits(admin, target, parsed.note);
 }
 
 /**
@@ -413,7 +417,7 @@ async function route(admin: AdminClient, sms: InboundOwnerSms, owned: OwnerCompa
   // this phone (Purchasing); otherwise the text goes down exactly the path it always did.
   if (!parsed) {
     const withWords = parseTextNoteReply(body);
-    if (withWords && (await textNoteApplies(admin, sms.from, hint ? [hint] : owned, withWords.code, nowMs))) parsed = withWords;
+    if (withWords && (await textNoteApplies(admin, sms.from, hint ? [hint] : owned, withWords, nowMs))) parsed = withWords;
   }
   if (parsed) return handleApproval(admin, sms, parsed, owned, hint, body, nowMs);
   if (looksLikeApprovalAttempt(body)) {

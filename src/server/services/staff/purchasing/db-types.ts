@@ -49,6 +49,8 @@ export interface PoLine {
   /** Estimated cost per unit (cents), null when unknown. Never sent to the supplier. */
   estUnitCostCents: number | null;
   source: LineSource;
+  /** An AI estimate whose prices were dropped (over the cap) — check it. */
+  capped?: boolean;
 }
 
 export interface PurchaseOrderRow {
@@ -78,6 +80,11 @@ export interface PurchaseOrderRow {
   status_changed_at: string | null;
   cancel_reason: string | null;
   notes: string | null;
+  /** The job's name and start when the order was made (kept if the booking is deleted; a move is noticed). */
+  job_label: string | null;
+  job_scheduled_for: string | null;
+  /** The last job change the owner was told about ("moved:<iso>" / "cancelled"). */
+  job_change_notice: string | null;
   created_at: string;
   updated_at: string;
 }

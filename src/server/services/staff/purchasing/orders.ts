@@ -23,6 +23,17 @@ import { loadPurchasingCompany } from "./settings";
 
 export const MATERIALS_ORDER_KIND = "materials_order";
 const MAX_TTL_MS = 48 * 3_600_000;
+/** AI estimates above this lose their prices (and say "check it"). */
+export const MAX_AI_TOTAL_CENTS = 10_000_000;
+/** A draft PO that never got its question (a crash between the two) is cleared after this. */
+export const ORPHAN_DRAFT_MS = 5 * 60_000;
+
+/** The job already has an open order (the partial unique index on purchase_orders.booking_id). */
+export class AlreadyOrderedError extends Error {
+  constructor(readonly poNumber: string | null) {
+    super(`The job already has ${poNumber ?? "an open order"}.`);
+  }
+}
 const HOUR = 3_600_000;
 
 export interface PurchasingDeps {
@@ -163,6 +174,8 @@ function tradeOf(pack: unknown): string | null {
 export async function buildLines(admin: AdminClient, company: PurchasingCompany, job: JobInfo, deps: PurchasingDeps): Promise<DraftLines | null> {
   const scope = { organizationId: company.organizationId, companyId: company.companyId };
   const quote = job.quoteId ? await loadQuoteForMaterials(admin, scope, job.quoteId) : null;
+  // A job booked from a quote we can't read (gone, another company's): don't guess.
+  if (job.quoteId && !quote) return null;
   const services = quote?.services ?? [];
   const recipes = await loadRecipes(admin, scope, services.map((s) => s.catalogItemId).filter((id): id is string => Boolean(id)));
   const expanded = expandRecipes(services, recipes);
@@ -188,6 +201,10 @@ export async function buildLines(admin: AdminClient, company: PurchasingCompany,
         deps.model,
       )) ?? [];
   }
+  // An AI estimate over $100k is not a list anyone should order from: keep the lines, drop its prices.
+  if (aiLines.length && aiLines.reduce((sum, l) => sum + Math.round(l.qty * (l.estUnitCostCents ?? 0)), 0) > MAX_AI_TOTAL_CENTS) {
+    aiLines = aiLines.map((l) => ({ ...l, estUnitCostCents: null, capped: true }));
+  }
   const lines = [...expanded.lines, ...aiLines];
   if (lines.length === 0) return null;
   return {
@@ -199,7 +216,7 @@ export async function buildLines(admin: AdminClient, company: PurchasingCompany,
 
 // ── PO rows ────────────────────────────────────────────────────────────────────
 
-async function insertPurchaseOrder(admin: AdminClient, row: Omit<PurchaseOrderRow, "id" | "po_seq" | "po_number" | "updated_at" | "sent_at" | "sent_via" | "sent_to" | "send_error" | "reminder_sent_at" | "status_changed_at" | "cancel_reason" | "notes">): Promise<PurchaseOrderRow> {
+async function insertPurchaseOrder(admin: AdminClient, row: Omit<PurchaseOrderRow, "id" | "po_seq" | "po_number" | "updated_at" | "sent_at" | "sent_via" | "sent_to" | "send_error" | "reminder_sent_at" | "status_changed_at" | "cancel_reason" | "notes" | "job_change_notice">): Promise<PurchaseOrderRow> {
   const db = admin as Db;
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 6; attempt++) {
@@ -213,9 +230,45 @@ async function insertPurchaseOrder(admin: AdminClient, row: Omit<PurchaseOrderRo
       .single();
     if (!error) return data as PurchaseOrderRow;
     lastError = error;
+    if ((error as { code?: string }).code === "23505" && row.booking_id) {
+      const open = await openOrderFor(admin, row.company_id, row.booking_id);
+      if (open) throw new AlreadyOrderedError(open.po_number);
+    }
     if ((error as { code?: string }).code !== "23505") throw error;
   }
   throw lastError ?? new Error("Could not number the purchase order.");
+}
+
+/** The job's open (not cancelled) order, if any. */
+export async function openOrderFor(admin: AdminClient, companyId: string, bookingId: string): Promise<Pick<PurchaseOrderRow, "id" | "po_number" | "status" | "approval_id" | "created_at"> | null> {
+  const { data, error } = await (admin as Db).from("purchase_orders").select("id, po_number, status, approval_id, created_at").eq("company_id", companyId).eq("booking_id", bookingId);
+  if (error) throw error;
+  return ((data ?? []) as Array<Pick<PurchaseOrderRow, "id" | "po_number" | "status" | "approval_id" | "created_at">>).find((p) => p.status !== "cancelled") ?? null;
+}
+
+/**
+ * Cancel draft orders that never got their question (a worker died between the two inserts),
+ * and withdraw any question that was never linked to them. Older than ORPHAN_DRAFT_MS only.
+ */
+export async function clearOrphanDrafts(admin: AdminClient, companyId: string, nowMs: number): Promise<number> {
+  const db = admin as Db;
+  const cutoff = new Date(nowMs - ORPHAN_DRAFT_MS).toISOString();
+  const { data, error } = await db.from("purchase_orders").select("id, created_at").eq("company_id", companyId).eq("status", "draft").is("approval_id", null).lt("created_at", cutoff).limit(100);
+  if (error) throw error;
+  let cleared = 0;
+  for (const po of (data ?? []) as Array<{ id: string }>) {
+    const { data: hit } = await db
+      .from("purchase_orders")
+      .update({ status: "cancelled", cancel_reason: "orphan", status_changed_at: new Date(nowMs).toISOString() })
+      .eq("id", po.id)
+      .eq("status", "draft")
+      .is("approval_id", null)
+      .select("id");
+    if (((hit ?? []) as unknown[]).length === 0) continue;
+    cleared += 1;
+    await db.from("owner_approvals").update({ status: "superseded" }).eq("company_id", companyId).eq("kind", MATERIALS_ORDER_KIND).eq("status", "pending").eq("payload->>poId", po.id);
+  }
+  return cleared;
 }
 
 export async function loadPurchaseOrder(admin: AdminClient, scope: { organizationId: string; companyId: string }, id: string): Promise<PurchaseOrderRow | null> {
@@ -240,6 +293,7 @@ export function orderView(company: PurchasingCompany, job: JobInfo, po: Pick<Pur
     lines: po.lines,
     estTotalCents: estTotalCents(po.lines),
     aiEstimate: po.lines.some((l) => l.source === "ai"),
+    capped: po.lines.some((l) => l.capped === true),
     supplier: supplierLabel(supplier),
     supplierEmail: supplier?.email ?? null,
     supplierPhone: supplier?.phone ?? null,
@@ -277,7 +331,9 @@ async function askOwner(
     requestedBy: "purchasing",
     createdAt: now,
     expiresAt: approvalExpiry(job.scheduledFor, opts.nowMs),
-    notifiedAt: opts.askedInlineTo ? now : null,
+    // Inserted as already "notified" to nobody, so neither the approvals sweep nor a "Y" can reach it
+    // until it's linked to the order below (a crash in between leaves nothing to answer).
+    notifiedAt: now,
     notifiedTo: opts.askedInlineTo,
   });
   const { data: linked, error } = await (admin as Db)
@@ -293,6 +349,7 @@ async function askOwner(
     throw new Error("Could not link the order to its approval.");
   }
   if (!opts.askedInlineTo) {
+    await admin.from("owner_approvals").update({ notified_at: null, notified_to: null }).eq("id", row.id).eq("status", "pending");
     try {
       await deps.notify(admin, row.id, opts.nowMs);
     } catch (err) {
@@ -337,6 +394,8 @@ export async function draftForJob(
     basis: built.basis,
     source: opts.source,
     approval_id: null,
+    job_label: jobName(job),
+    job_scheduled_for: job.scheduledFor,
     created_at: new Date(opts.nowMs).toISOString(),
   });
   try {
@@ -423,7 +482,7 @@ export async function executeMaterialsOrder(admin: AdminClient, approval: OwnerA
   const neededBy = neededByFor(job.scheduledFor, company.timeZone, nowMs);
   const { data: claimed } = await (admin as Db)
     .from("purchase_orders")
-    .update({ status: "approved", lines, fulfilment, needed_by: neededBy, est_total_cents: estTotalCents(lines), status_changed_at: nowIso })
+    .update({ status: "approved", lines, fulfilment, needed_by: neededBy, est_total_cents: estTotalCents(lines), status_changed_at: nowIso, job_scheduled_for: job.scheduledFor, job_label: jobName(job) })
     .eq("id", po.id)
     .eq("organization_id", company.organizationId)
     .eq("approval_id", approval.id)
@@ -436,10 +495,10 @@ export async function executeMaterialsOrder(admin: AdminClient, approval: OwnerA
   const callIn = () =>
     callInText({ poNumber: po.po_number, job: jobName(job), supplier: name, supplierPhone: supplier?.phone ?? null, accountNumber: supplier?.account_number ?? null, fulfilment, neededBy, lines });
 
-  const replyTo = supplier?.email ? await ownerReplyEmail(admin, company) : null;
-  if (!supplier || !supplier.email || !replyTo) {
+  const replyTo = supplier?.email && supplier.active ? await ownerReplyEmail(admin, company) : null;
+  if (!supplier || !supplier.active || !supplier.email || !replyTo) {
     await (admin as Db).from("purchase_orders").update({ sent_via: "owner_call_in" }).eq("id", po.id).eq("status", "approved");
-    const why = supplier?.email && !replyTo ? "No email on file for you, so the supplier's reply couldn't reach you - " : "";
+    const why = supplier?.active && supplier.email && !replyTo ? "No email on file for you, so the supplier's reply couldn't reach you - " : "";
     return { ok: true, message: `${why}${callIn()}`.slice(0, 680), detail: { poNumber: po.po_number, sentVia: "owner_call_in" } };
   }
 

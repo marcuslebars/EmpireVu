@@ -14,7 +14,8 @@ import type { ToolRunState } from "@/server/services/owner-channel/tools";
 import type { RoleOwnerTool } from "@/server/services/staff/types";
 import type { Db } from "./db-types";
 import { formatQty } from "./format";
-import { BOOKING_COLUMNS, defaultPurchasingDeps, draftForJob, jobDay, jobName, toJobs, type PurchasingDeps } from "./orders";
+import { claimDraft, finishDraft } from "./claims";
+import { AlreadyOrderedError, BOOKING_COLUMNS, clearOrphanDrafts, defaultPurchasingDeps, draftForJob, jobDay, jobName, openOrderFor, toJobs, type PurchasingDeps } from "./orders";
 import { loadPurchasingCompany, type PurchasingCompany } from "./settings";
 import { jobMatches, markOrder, materialsStatus, saveRecipe, saveSupplier, type MarkAs, type RecipeLineInput } from "./tracking";
 
@@ -85,10 +86,29 @@ async function orderTool(state: ToolRunState, input: Input, deps: PurchasingDeps
   if (jobs.length === 0) return { error: `No upcoming job matches "${ref}".` };
   if (jobs.length > 1) return { ok: false, ask_owner: `Which one? ${jobs.slice(0, 5).map((j) => `${jobName(j)} ${jobDay(j, company.timeZone)}`).join("; ")}` };
   const job = jobs[0];
-  const { data: existing } = await db.from("purchase_orders").select("po_number, status").eq("company_id", company.companyId).eq("booking_id", job.bookingId);
-  const open = ((existing ?? []) as Array<{ po_number: string; status: string }>).find((p) => p.status !== "cancelled");
-  if (open) return { ok: false, tell_owner: `${jobName(job)} already has ${open.po_number} (${open.status === "draft" ? "waiting on your Y/N" : open.status.replace("_", " ")}). Text "materials status" for it.` };
-  const result = await draftForJob(state.admin, company, job, { source: "owner", nowMs: state.nowMs, askedInlineTo: state.ownerPhone }, deps);
+  await clearOrphanDrafts(state.admin, company.companyId, state.nowMs);
+  const already = (open: { po_number: string; status: string }) => ({
+    ok: false,
+    tell_owner: `${jobName(job)} already has ${open.po_number} (${open.status === "draft" ? "waiting on your Y/N" : open.status.replace("_", " ")}). Text "materials status" for it.`,
+  });
+  const open = await openOrderFor(state.admin, company.companyId, job.bookingId);
+  if (open) return already(open);
+  // The same per-job claim the draft sweep takes, so the two can't both draft this job.
+  const claim = await claimDraft(state.admin, company, job.bookingId, state.nowMs, { owner: true });
+  if (!claim) return { ok: false, tell_owner: `I'm already putting together the materials for ${jobName(job)} - give me a minute.` };
+  let result: Awaited<ReturnType<typeof draftForJob>>;
+  try {
+    result = await draftForJob(state.admin, company, job, { source: "owner", nowMs: state.nowMs, askedInlineTo: state.ownerPhone }, deps);
+  } catch (err) {
+    if (err instanceof AlreadyOrderedError) {
+      await finishDraft(state.admin, claim.id, "already_ordered", {}, state.nowMs);
+      const now = await openOrderFor(state.admin, company.companyId, job.bookingId);
+      return already(now ?? { po_number: err.poNumber ?? "an order", status: "draft" });
+    }
+    await finishDraft(state.admin, claim.id, "failed", { error: err instanceof Error ? err.message : String(err) }, state.nowMs);
+    throw err;
+  }
+  await finishDraft(state.admin, claim.id, result.outcome === "asked" ? "asked" : "no_materials", { poId: result.outcome === "asked" ? result.po.id : null }, state.nowMs);
   if (result.outcome === "no_materials") {
     return { ok: false, tell_owner: `I couldn't work out any materials for ${jobName(job)} - it has no recipe${company.settings.aiEstimate ? " and the estimate came back empty" : ""}. Add a recipe in Settings > AI front desk > Purchasing.` };
   }

@@ -1423,7 +1423,8 @@ Orders the materials for booked jobs. A quoted job gets a materials list from th
   When the list came from the AI, the total reads "(~$1,162, AI estimate - check it)".
 - **`Y 12`** → Home Depot Pro gets an email from "Northshore Roofing" (reply-to the owner's email) with PO-1, the list, the pickup day and the account number. The owner gets back: `Emailed PO-1 to Home Depot Pro (Barrie) for pickup Wed Oct 14. Their reply goes to dana@northshore.ca. Text "PO-1 ready" when it's ready.`
 - **`Y 12 delivery no nails`** → the same email, but "Please deliver this order by Wednesday, October 14", with the job site address and no nails. The reply says what changed: `… for delivery by Wed Oct 14 (delivery; no nails) …`. **`Y 12 25 bundles shingles`** changes an amount.
-- **A note it can't read** (`Y 12 make it friday`, `Y 12 from Rona`, `Y 12 $700`): nothing is sent. The PO gets a fresh question, asked inline: `Nothing was sent: I'm not sure what "make it friday" means. I can do "delivery" / "pickup", leave items out ("no nails") or change an amount ("25 bundles shingles"). #13 Materials for … Reply Y 13 to order it, …`
+- **Words that don't read as a note on that order** (`Y 12 make it friday`, `ok delivered`, `ok picked up`) aren't a decision at all. They take the old path ("Did you mean Y or N to #12?"), and nothing is sent. `ok move Jones to Friday` / `OK send Jones the invoice` stay commands for the owner agent. `Y 12 $700` gets "doesn't take a price". A note that reaches the executor some other way (the app) and can't be read sends nothing and is re-asked inline under a fresh code.
+- **The job moves to another day or is cancelled after the order went out** (08:00–21:00): `Jones - Roof replacement moved to Fri Oct 16 - PO-1 at Home Depot Pro (Barrie) still says pickup Wed Oct 14; call them.` / `… was cancelled - PO-1 at Home Depot Pro (Barrie) is still on order. Call them to cancel, then text "cancel PO-1".` A move also re-arms the day-before reminder for the new day.
 - **No supplier email** (or no supplier at all): Y texts the owner the list to call in: `Call in PO-1 to Home Depot Pro (Barrie) (705-555-1234) for pickup Wed Oct 14 (Jones - Roof replacement). Account 12345. 22 bundles shingles, 3 rolls underlay, 1 box nails. Text "PO-1 ready" when it's ready.` The same text is used when the email fails, or when no owner email is on file for the reply-to.
 - **The afternoon before the job** (15:00–20:00 local), if it isn't picked up or delivered: `Tomorrow: Jones - Roof replacement (8:00 a.m.). Materials PO-1 from Home Depot Pro (Barrie) aren't picked up yet. Text "PO-1 picked up" once you have them.`
 - **The 07:00 briefing** (Office manager, via `briefingItems`): `Pick up materials at Home Depot Pro (Barrie) for Jones (PO-1)` the day before, `… - job today` on the day.
@@ -1434,11 +1435,15 @@ Orders the materials for booked jobs. A quoted job gets a materials list from th
 
 | Kind | Created by | Y | N / expiry |
 | --- | --- | --- | --- |
-| `materials_order` | the draft sweep (notified through `notifyOwnerOfApproval`, so quiet hours apply), or owner tool `order_materials` (asked inline). TTL 48 h, ending 6 h before the job (at least 2 h). | Re-checks the job is still pending/confirmed and the PO is still the draft for this approval (conditional `draft → approved`), applies the note, recomputes needed-by, then emails the supplier (`sent`, `sent_via 'email'`) or texts the call-in list (`approved`, `sent_via 'owner_call_in'`). | `cancelled` (`owner_said_no` / `expired`). N: `OK - nothing ordered for Jones - Roof replacement (Thu Oct 15).` Expiry: `No answer on #12, so nothing was ordered for … Text "order materials for Jones" to start again.` |
+| `materials_order` | the draft sweep (notified through `notifyOwnerOfApproval`, so quiet hours apply; asked only after the PO is linked), or owner tool `order_materials` (asked inline). TTL 48 h, ending 6 h before the job (at least 2 h). | Re-checks the job is still pending/confirmed and the PO is still the draft for this approval (conditional `draft → approved`), applies the note, recomputes needed-by, then emails the supplier (`sent`, `sent_via 'email'`) or texts the call-in list (`approved`, `sent_via 'owner_call_in'`). | `cancelled` (`owner_said_no` / `expired`). N: `OK - nothing ordered for Jones - Roof replacement (Thu Oct 15).` Expiry: `No answer on #12, so nothing was ordered for … Text "order materials for Jones" to start again.` |
 
-**Words after Y.** `parseApprovalReply` is unchanged. A new `parseTextNoteReply` (owner-channel/approvals.ts) reads "Y [code] <words>". `owner-channel/entry.ts` treats it as a decision only when a `TEXT_NOTE_KINDS` approval (`materials_order`, in `approval-text.ts`) waits on this phone: with a code, that code's pending row must be one; without a code, it must be the only thing waiting. Otherwise the text takes exactly the old path ("did you mean", or a command). Questions and thank-yous ("ok thanks") never count. A price note on a `materials_order` goes to the executor, which asks again. `format.ts parseOrderNote` understands:
-- pickup / delivery ("delivery", "deliver it", "I'll pick it up");
-- leaving items out ("no nails", "without the underlay", "skip drip edge");
+**Words after Y.** `parseApprovalReply` is unchanged. A new `parseTextNoteReply` (owner-channel/approvals.ts) reads "Y [code] <words>". It returns null for anything `looksLikeApprovalAttempt` doesn't treat as an answer (so "ok/okay + move/send/text/…" stays a command), for questions and for thank-yous. `owner-channel/entry.ts` treats it as a decision only when all of these hold:
+- the target is a `TEXT_NOTE_KINDS` approval (`materials_order`, in `approval-text.ts`) waiting on this phone (with a code: that code's row; without: the only thing waiting);
+- **and** the whole note reads as a note on that order's own lines (`staff/purchasing/notes.ts orderNoteFits`).
+
+Otherwise the text takes exactly the old path ("did you mean", or a command); nothing is failed or re-asked. A price note on a `materials_order` gets "doesn't take a price". `format.ts parseOrderNote` understands:
+- pickup / delivery as instructions only ("delivery", "deliver it", "have it delivered", "pickup", "I'll pick it up"). Status words ("delivered", "dropped off", "picked up") are never read as an instruction;
+- leaving items out ("no nails", "without the underlay", "skip drip edge"), a whole-word match on the item's own name (never its unit: "no box" matches nothing). The reply lists exactly what was removed;
 - amounts ("25 bundles shingles", "shingles 30").
 
 Items match on every meaningful word (plurals and unit words ignored). Anything else, an item that isn't on the list, or a note that would leave nothing → nothing is sent, and the owner is asked again under a fresh code (the PO is re-pointed to it).
@@ -1452,7 +1457,7 @@ Items match on every meaningful word (plurals and unit words ignored). Anything 
    - per-unit items: the quantity;
    - flat items: 1.
 2. **Recipes first.** `material_recipes` × units, rounded **up** to whole units (21.6 bundles → 22), merged by label + unit.
-3. **AI fallback** (setting on). Services with no recipe, and hand-priced lines, go to Claude (`AI_MODEL_PURCHASING`) with the job title/description and the trade (industry pack). The quote and job text are fenced as `<job note="data …">` with angle brackets stripped. It returns JSON: at most 12 lines, links and markup stripped, quantities rounded up, a rough unit cost. It's marked `source: "ai"` and "AI estimate - check it" in the owner's text. No model or a bad answer → no AI lines. An empty answer means the job needs no materials.
+3. **AI fallback** (setting on). A job whose quote can't be read is not drafted at all. Services with no recipe, and hand-priced lines, go to Claude (`AI_MODEL_PURCHASING`) with the job title/description and the trade (industry pack). The quote and job text are fenced as `<job note="data …">` with angle brackets stripped. It returns JSON: at most 12 lines, links and markup stripped, quantities rounded up and capped at 1,000 per line, a rough unit cost. An estimate over $100k loses its prices. Capped estimates say "AI estimate capped - check it". `est_total_cents` is bigint and clamped. It's marked `source: "ai"` and "AI estimate - check it" in the owner's text. No model or a bad answer → no AI lines. An empty answer means the job needs no materials.
 4. **Supplier.** The one the recipe lines name most, else the preferred supplier, else the only one. Its name is snapshotted on the PO.
 5. **Needed by** the local day before the job (never before today). Pickup/delivery comes from the setting.
 
@@ -1511,7 +1516,11 @@ Job sheet: `GET /api/organizations/:org/jobs/:bookingId/materials-orders` (`crew
   - `sent_at`, `sent_via`, `sent_to`, `send_error`, `reminder_sent_at`, `status_changed_at`, `cancel_reason`.
 
   Members read it (the job sheet).
-- `purchase_order_drafts`: the draft sweep's claim, unique `booking_id`, outcome `working | asked | no_materials | failed`, attempts. Service role only.
+- **One open order per job:** a partial unique index on `purchase_orders(booking_id) where status <> 'cancelled'`. The sweep and `order_materials` can't both draft a job; the loser gets 23505 → `AlreadyOrderedError` ("already has PO-1").
+- **History:** `booking_id` is `on delete set null`, and `job_label` / `job_scheduled_for` are stored, so a deleted booking keeps its orders. `job_change_notice` records the last move / cancel told.
+- `purchase_order_drafts`: the per-job claim taken by the sweep **and** `order_materials` (`claims.ts`), unique `booking_id`. Outcome is `working | asked | no_materials | already_ordered | failed`, plus attempts. A `working` claim older than 15 min is re-claimable (conditional on `updated_at`). Service role only.
+- `purchasing_daily_counts`: one row per company per local day. The sweep reserves a question slot with a conditional increment before drafting, and gives it back when nothing was asked, so `max_per_day` holds across workers. Service role only.
+- **Crash safety:** the question is inserted already marked notified (to nobody), linked to its PO, and only then opened up and texted, so the approvals sweep can never send a question with no order. A draft PO with no question after 5 minutes is cancelled (`orphan`), and any unlinked question for it is withdrawn, at the start of each draft pass and by `order_materials`.
 - All four: RLS on, composite FK to `companies (id, organization_id)`, no client writes. The rollback supersedes pending `materials_order` approvals, then drops the tables. SQL checks: `scripts/sql-tests/zz_purchasing.test.sql`. Local types: `staff/purchasing/db-types.ts`.
 
 ### Env
@@ -1524,7 +1533,7 @@ Job sheet: `GET /api/organizations/:org/jobs/:bookingId/materials-orders` (`crew
 
 The companies are loaded at most once per 30 s per worker (`loadPurchasingCompanies`): every CrankLeads company with the feature on, plus house-org companies with `any_on`. Active ones only, filtered at the query.
 - **`purchasing:draft`** (10 min). Confirmed bookings with a `quote_id`, starting from now + `lead_days` to now + 14 days, at most 25 jobs per company per pass. Jobs that already have a non-cancelled PO are skipped. The claim (`purchase_order_drafts`) is inserted before any work. A failure is retried after 30 min, up to 3 tries. "No materials" is remembered, so the model is asked once per job.
-- **`purchasing:reminders`** (10 min). 15:00–20:00 local. POs `approved | sent | confirmed | ready` whose job (pending/confirmed) is tomorrow, claimed by `reminder_sent_at` (released if the text fails).
+- **`purchasing:reminders`** (10 min). First the job-change check (08:00–21:00 local): orders that are out whose job moved to another local day, or was cancelled or deleted, get one owner text each (claimed by a conditional update on `job_scheduled_for`; a failed text is given back), and a move clears `reminder_sent_at`. Then the reminder, 15:00–20:00 local: POs `approved | sent | confirmed | ready` whose job (pending/confirmed) is tomorrow, claimed by `reminder_sent_at` (released if the text fails).
 
 ### Tests
 
@@ -1549,4 +1558,5 @@ The companies are loaded at most once per 30 s per worker (`loadPurchasingCompan
 - Supplier replies go to the owner's inbox. Nothing reads them, so "confirmed" / "ready" are marked by the owner.
 - Cancelling a sent PO doesn't email the supplier.
 - Saving a recipe deletes then inserts its lines (not one transaction).
-- A job moved after its PO was approved keeps its needed-by date; the reminder follows the job's new day.
+- A job moved after its PO went out keeps the needed-by the supplier was given; the owner is told to call them.
+- On Y, an inactive (removed) supplier is never emailed; the owner gets the call-in list instead.

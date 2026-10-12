@@ -4,21 +4,23 @@
  *   purchasing:draft      every 10 min. Confirmed jobs with a quote that start between `lead_days`
  *                         and 14 days from now get a materials list and ONE materials_order
  *                         question each (at most `max_per_day` per company per local day).
- *                         Claimed per job in purchase_order_drafts (unique booking_id), so a job is
- *                         looked at once across workers; a failure is retried up to 3 times.
+ *                         Claimed per job in purchase_order_drafts (claims.ts), the daily cap by a
+ *                         per-day counter; a failure is retried up to 3 times, a dead worker's
+ *                         claim after 15 min. Draft orders that never got their question are cleared.
  *   purchasing:reminders  every 10 min. From 15:00 to 20:00 local the day before a job, one text
- *                         to the owner per PO that isn't picked up / delivered yet.
+ *                         to the owner per PO that isn't picked up / delivered yet. Also (08:00–21:00)
+ *                         a text when a job with an order out is moved to another day or cancelled.
  */
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { addDays, localDate, zonedInstant } from "@/server/services/booking-windows";
 import { localHour } from "@/server/services/owner-channel/common";
+import { claimable, claimDraft, finishDraft, releaseDailySlot, reserveDailySlot } from "./claims";
 import type { Db, PurchaseOrderDraftRow, PurchaseOrderRow } from "./db-types";
-import { BOOKING_COLUMNS, defaultPurchasingDeps, draftForJob, jobName, toJobs, type PurchasingDeps } from "./orders";
+import { dayLabel } from "./format";
+import { AlreadyOrderedError, BOOKING_COLUMNS, clearOrphanDrafts, defaultPurchasingDeps, draftForJob, jobName, toJobs, type PurchasingDeps } from "./orders";
 import { HORIZON_DAYS, type PurchasingCompany } from "./settings";
 
 const DAY = 86_400_000;
-const RETRY_AFTER_MS = 30 * 60_000;
-const MAX_ATTEMPTS = 3;
 /** Jobs looked at per company per pass (the rest wait for the next pass). */
 const JOBS_PER_PASS = 25;
 
@@ -27,47 +29,15 @@ function localMidnight(dateStr: string, timeZone: string): Date {
   return zonedInstant(dateStr, "00:00", timeZone);
 }
 
-/** Questions the draft sweep asked today (local) for a company. */
-async function askedToday(admin: AdminClient, company: PurchasingCompany, nowMs: number): Promise<number> {
-  const since = localMidnight(localDate(new Date(nowMs), company.timeZone), company.timeZone).toISOString();
-  const { data, error } = await (admin as Db)
-    .from("purchase_order_drafts")
-    .select("id")
-    .eq("company_id", company.companyId)
-    .eq("outcome", "asked")
-    .gte("updated_at", since);
-  if (error) throw error;
-  return ((data ?? []) as unknown[]).length;
-}
-
-/** Claim a job: a new claim row, or a failed one past its retry wait. Null → someone else has it. */
-async function claimJob(admin: AdminClient, company: PurchasingCompany, bookingId: string, existing: PurchaseOrderDraftRow | undefined, nowMs: number): Promise<PurchaseOrderDraftRow | null> {
-  const db = admin as Db;
-  const nowIso = new Date(nowMs).toISOString();
-  if (!existing) {
-    const { data, error } = await db
-      .from("purchase_order_drafts")
-      .insert({ organization_id: company.organizationId, company_id: company.companyId, booking_id: bookingId, outcome: "working", attempts: 1, created_at: nowIso, updated_at: nowIso })
-      .select("*")
-      .single();
-    if (error) return null;
-    return data as PurchaseOrderDraftRow;
-  }
-  if (existing.outcome !== "failed" || existing.attempts >= MAX_ATTEMPTS || nowMs - Date.parse(existing.updated_at) < RETRY_AFTER_MS) return null;
-  const { data } = await db
-    .from("purchase_order_drafts")
-    .update({ outcome: "working", attempts: existing.attempts + 1, updated_at: nowIso })
-    .eq("id", existing.id)
-    .eq("outcome", "failed")
-    .eq("attempts", existing.attempts)
-    .select("*");
-  return ((data ?? []) as PurchaseOrderDraftRow[])[0] ?? null;
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String((err as { message?: unknown })?.message ?? err);
 }
 
 /** One company's draft pass. */
 export async function runCompanyDrafts(admin: AdminClient, company: PurchasingCompany, nowMs: number, deps: PurchasingDeps = defaultPurchasingDeps): Promise<{ asked: number; skipped: number }> {
   const db = admin as Db;
   if (!company.settings.enabled || !company.active) return { asked: 0, skipped: 0 };
+  await clearOrphanDrafts(admin, company.companyId, nowMs);
   const from = new Date(nowMs + company.settings.leadDays * DAY).toISOString();
   const to = new Date(nowMs + HORIZON_DAYS * DAY).toISOString();
   if (from >= to) return { asked: 0, skipped: 0 };
@@ -100,32 +70,42 @@ export async function runCompanyDrafts(admin: AdminClient, company: PurchasingCo
     // A job the owner already ordered for by hand (order_materials) isn't drafted again.
     for (const p of (pos ?? []) as Array<{ booking_id: string; status: string }>) if (p.status !== "cancelled") hasPo.add(p.booking_id);
   }
-  const todo = rows.filter((b) => !hasPo.has(b.id) && (!claims.has(b.id) || claims.get(b.id)!.outcome === "failed")).slice(0, JOBS_PER_PASS);
+  const todo = rows.filter((b) => !hasPo.has(b.id) && (!claims.has(b.id) || claimable(claims.get(b.id)!, nowMs))).slice(0, JOBS_PER_PASS);
   if (todo.length === 0) return { asked: 0, skipped: 0 };
-  let budget = company.settings.maxPerDay - (await askedToday(admin, company, nowMs));
-  if (budget <= 0) return { asked: 0, skipped: todo.length };
+  const today = localDate(new Date(nowMs), company.timeZone);
   const jobs = await toJobs(admin, company.organizationId, todo as never);
   let asked = 0;
   let skipped = 0;
   for (const job of jobs) {
-    if (budget <= 0) break;
-    const claim = await claimJob(admin, company, job.bookingId, claims.get(job.bookingId), nowMs);
-    if (!claim) continue;
+    // The day's slot first (a conditional increment), so overlapping workers can't pass the cap.
+    if (!(await reserveDailySlot(admin, company, today, company.settings.maxPerDay))) {
+      skipped += 1;
+      break;
+    }
+    const claim = await claimDraft(admin, company, job.bookingId, nowMs, { existing: claims.get(job.bookingId) ?? null });
+    if (!claim) {
+      await releaseDailySlot(admin, company.companyId, today);
+      continue;
+    }
     try {
       const result = await draftForJob(admin, company, job, { source: "auto", nowMs }, deps);
-      const outcome = result.outcome === "asked" ? "asked" : "no_materials";
-      await db
-        .from("purchase_order_drafts")
-        .update({ outcome, purchase_order_id: result.outcome === "asked" ? result.po.id : null, last_error: null, updated_at: new Date(nowMs).toISOString() })
-        .eq("id", claim.id);
       if (result.outcome === "asked") {
+        await finishDraft(admin, claim.id, "asked", { poId: result.po.id }, nowMs);
         asked += 1;
-        budget -= 1;
-      } else skipped += 1;
+      } else {
+        await finishDraft(admin, claim.id, "no_materials", {}, nowMs);
+        await releaseDailySlot(admin, company.companyId, today);
+        skipped += 1;
+      }
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String((err as { message?: unknown })?.message ?? err);
+      await releaseDailySlot(admin, company.companyId, today);
+      if (err instanceof AlreadyOrderedError) {
+        await finishDraft(admin, claim.id, "already_ordered", {}, nowMs);
+        continue;
+      }
+      const reason = errorText(err);
       console.error("[purchasing] draft failed", job.bookingId, reason);
-      await db.from("purchase_order_drafts").update({ outcome: "failed", last_error: reason.slice(0, 500), updated_at: new Date(nowMs).toISOString() }).eq("id", claim.id);
+      await finishDraft(admin, claim.id, "failed", { error: reason }, nowMs);
     }
   }
   return { asked, skipped };
@@ -192,4 +172,69 @@ export async function runCompanyReminders(admin: AdminClient, company: Purchasin
     else sent += 1;
   }
   return sent;
+}
+
+// ── A job with an order out was moved or cancelled ───────────────────────────────
+
+const OWNER_FROM_HOUR = 8;
+const OWNER_UNTIL_HOUR = 21;
+
+/** The owner's text about a moved / cancelled job. PURE. */
+export function jobChangeText(input: { job: string; poNumber: string; supplier: string | null; fulfilment: "pickup" | "delivery"; neededBy: string | null; movedTo: string | null }): string {
+  const at = input.supplier ? ` at ${input.supplier}` : "";
+  if (!input.movedTo) return `${input.job} was cancelled - ${input.poNumber}${at} is still on order. Call them to cancel, then text "cancel ${input.poNumber}".`;
+  const says = input.neededBy ? ` still says ${input.fulfilment === "pickup" ? "pickup" : "delivery"} ${dayLabel(input.neededBy)}` : " is still on order";
+  return `${input.job} moved to ${input.movedTo} - ${input.poNumber}${at}${says}; call them.`;
+}
+
+/**
+ * Orders that are out (approved / sent / confirmed / ready) whose job moved to another local day or
+ * was cancelled (or deleted): one text each, claimed by a conditional update on the job time we last
+ * knew. A move also clears reminder_sent_at, so the day-before reminder follows the new day.
+ */
+export async function runCompanyJobChanges(admin: AdminClient, company: PurchasingCompany, nowMs: number, deps: PurchasingDeps = defaultPurchasingDeps): Promise<number> {
+  if (!company.settings.enabled || !company.active) return 0;
+  const hour = localHour(nowMs, company.timeZone);
+  if (hour < OWNER_FROM_HOUR || hour >= OWNER_UNTIL_HOUR) return 0;
+  const db = admin as Db;
+  const { data: pos, error } = await db
+    .from("purchase_orders")
+    .select("*")
+    .eq("organization_id", company.organizationId)
+    .eq("company_id", company.companyId)
+    .in("status", [...WAITING_STATUSES])
+    .limit(200);
+  if (error) throw error;
+  const open = ((pos ?? []) as PurchaseOrderRow[]).filter((p) => p.job_scheduled_for && p.job_change_notice !== "cancelled");
+  if (open.length === 0) return 0;
+  const bookingIds = [...new Set(open.map((p) => p.booking_id).filter((id): id is string => Boolean(id)))];
+  const { data: bookings, error: bErr } = bookingIds.length
+    ? await db.from("bookings").select(BOOKING_COLUMNS).eq("organization_id", company.organizationId).eq("company_id", company.companyId).in("id", bookingIds)
+    : { data: [], error: null };
+  if (bErr) throw bErr;
+  const jobs = new Map((await toJobs(admin, company.organizationId, (bookings ?? []) as never)).map((j) => [j.bookingId, j]));
+  let told = 0;
+  for (const po of open) {
+    const job = po.booking_id ? jobs.get(po.booking_id) : undefined;
+    if (job?.status === "completed") continue;
+    const cancelled = !job || job.status === "cancelled" || job.status === "no_show";
+    const was = localDate(new Date(po.job_scheduled_for!), company.timeZone);
+    const now = job ? localDate(new Date(job.scheduledFor), company.timeZone) : null;
+    if (!cancelled && now === was) continue;
+    const label = job ? jobName(job) : po.job_label ?? po.po_number;
+    const update: Record<string, unknown> = cancelled
+      ? { job_change_notice: "cancelled" }
+      : { job_scheduled_for: job!.scheduledFor, job_change_notice: `moved:${job!.scheduledFor}`, reminder_sent_at: null };
+    const { data: claimed } = await db.from("purchase_orders").update(update).eq("id", po.id).eq("job_scheduled_for", po.job_scheduled_for).select("id");
+    if (((claimed ?? []) as unknown[]).length === 0) continue;
+    const body = jobChangeText({ job: label, poNumber: po.po_number, supplier: po.supplier_name, fulfilment: po.fulfilment, neededBy: po.needed_by, movedTo: cancelled ? null : dayLabel(now) });
+    const sent = await deps.textOwner(admin, company, body);
+    if (sent.status === "failed") {
+      // Give the change back so the next pass tells them.
+      await db.from("purchase_orders").update({ job_scheduled_for: po.job_scheduled_for, job_change_notice: po.job_change_notice, reminder_sent_at: po.reminder_sent_at }).eq("id", po.id);
+      continue;
+    }
+    told += 1;
+  }
+  return told;
 }

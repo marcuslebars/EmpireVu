@@ -111,7 +111,7 @@ export async function getPurchasingView(admin: AdminClient, scope: Scope, opts: 
         id: p.id,
         poNumber: p.po_number,
         status: p.status,
-        job: job ? jobName(job) : null,
+        job: job ? jobName(job) : p.job_label ?? null,
         jobDay: job ? dayLabel(localDate(new Date(job.scheduledFor), company.timeZone)) : null,
         supplier: p.supplier_name,
         fulfilment: p.fulfilment,
