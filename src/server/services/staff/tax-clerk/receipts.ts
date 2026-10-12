@@ -25,6 +25,7 @@ import { randomUUID } from "node:crypto";
 import { readReceipt, ReceiptReadingUnavailableError, type ReaderImageType, type ReceiptDocKind } from "@/server/ai/receipt-reader";
 import { isAIConfigured } from "@/server/ai/claude";
 import { addDays, localDate } from "@/server/services/booking-windows";
+import { findOwnerCompanies } from "@/server/services/owner-channel/common";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { receiptPathFor, type ExpenseCategory, type ReceiptScan, type ReceiptType } from "@/server/services/expenses/rules";
 import { recordAiUsageSafe } from "@/server/services/usage";
@@ -99,6 +100,11 @@ const SHORT_CATEGORY: Record<string, string> = {
   other: "Other",
 };
 
+/** A receipt waiting to be finished because its total couldn't be read (vs. one waiting for another reason). */
+export function needsTotal(row: Pick<ReceiptTextRow, "amount_cents" | "missing">): boolean {
+  return !row.amount_cents || (row.missing ?? []).includes("total");
+}
+
 export function shortCategory(category: string): string {
   return SHORT_CATEGORY[category] ?? "Other";
 }
@@ -109,9 +115,12 @@ export function dayLabel(date: string): string {
   return d.toLocaleDateString("en-CA", { timeZone: "UTC", month: "short", day: "numeric" });
 }
 
-/** Words that say "this picture is a receipt" when there's no reader to ask. */
+/**
+ * Words that CLEARLY say "this picture is a receipt" — used only when there's no reader (no
+ * ANTHROPIC_API_KEY) or the reader failed. "paid", a card or a category word alone isn't enough.
+ */
 export function soundsLikeReceipt(text: string): boolean {
-  return /\b(receipts?|invoices?|bills?|bought|purchased?|paid|expense)\b/i.test(text) || Boolean(poReferenceIn(text) || paidWithIn(text) || categoryIn(text));
+  return /\b(receipts?|invoices?|bills?)\b/i.test(text) || Boolean(poReferenceIn(text));
 }
 
 // ── Jobs ─────────────────────────────────────────────────────────────────────
@@ -162,6 +171,34 @@ export async function bookingForPo(admin: AdminClient, scope: { organizationId: 
   }
 }
 
+/** That PO's job, loaded directly (it may be far from the receipt date, outside the ±window list). */
+export async function jobForPo(admin: AdminClient, scope: { organizationId: string; companyId: string }, po: string): Promise<JobCandidate | null> {
+  const bookingId = await bookingForPo(admin, scope, po);
+  if (!bookingId) return null;
+  try {
+    const db = admin as Db;
+    const { data: b } = await db
+      .from("bookings")
+      .select("id, title, scheduled_for, contact_id, status")
+      .eq("organization_id", scope.organizationId)
+      .eq("company_id", scope.companyId)
+      .eq("id", bookingId)
+      .maybeSingle();
+    const booking = b as { id: string; title: string | null; scheduled_for: string; contact_id: string | null; status: string } | null;
+    if (!booking || booking.status === "cancelled") return null;
+    let first: string | null = null;
+    let last: string | null = null;
+    if (booking.contact_id) {
+      const { data: c } = await db.from("contacts").select("first_name, last_name").eq("organization_id", scope.organizationId).eq("id", booking.contact_id).maybeSingle();
+      first = (c as { first_name: string | null } | null)?.first_name ?? null;
+      last = (c as { last_name: string | null } | null)?.last_name ?? null;
+    }
+    return { bookingId: booking.id, title: booking.title ?? "", scheduledFor: booking.scheduled_for, contactId: booking.contact_id, firstName: first, lastName: last };
+  } catch {
+    return null;
+  }
+}
+
 /** "Jones roof (Oct 14)". */
 export function jobPhrase(job: JobCandidate, timeZone: string): string {
   return `${jobLabel(job)} (${dayLabel(localDate(new Date(job.scheduledFor), timeZone))})`;
@@ -188,6 +225,8 @@ export async function findDuplicate(
   scope: { organizationId: string; companyId: string },
   e: { vendor: string | null; spentOn: string; amountCents: number },
 ): Promise<ExpenseLite | null> {
+  // No vendor read: two "$20 on Oct 14" receipts are as likely two coffees as one twice.
+  if (!norm(e.vendor)) return null;
   const { data } = await (admin as Db)
     .from("expenses")
     .select("id, organization_id, company_id, booking_id, spent_on, vendor, description, category, amount_cents, tax_cents, paid_with, receipt_path, receipt_type, created_by, created_at")
@@ -243,7 +282,8 @@ async function claim(admin: AdminClient, company: TaxClerkCompany, input: OwnerM
       log_id: input.logId,
       media_index: index,
       status: "reading",
-      created_at: new Date(input.nowMs).toISOString(),
+      // + index: the pictures of one text keep their order ("fix" means the last one).
+      created_at: new Date(input.nowMs + index).toISOString(),
       owner_words: input.body.trim().slice(0, 500) || null,
     })
     .select("*")
@@ -287,8 +327,7 @@ async function fileReceipt(
   }
   // "PO-12" with no job named: the job that Purchasing ordered PO-12 for.
   if (!job && match.kind !== "ambiguous" && meaning.po) {
-    const poBooking = await bookingForPo(admin, scope, meaning.po);
-    if (poBooking) job = (await jobs()).find((j) => j.bookingId === poBooking) ?? null;
+    job = await jobForPo(admin, scope, meaning.po);
   }
   const category: ExpenseCategory = meaning.category ?? scan.category ?? "other";
   const tax = scan.taxCents ?? 0;
@@ -417,8 +456,10 @@ export async function handleReceiptMedia(admin: AdminClient, input: OwnerMediaIn
   const company = await loadTaxClerkCompany(admin, input.scope.organizationId, input.scope.companyId);
   if (!company || !company.settings.receipts.enabled) return null;
   const body = input.body.trim();
-  // A compliance document (insurance, WSIB clearance, licence…): the Compliance role's.
-  if (namesComplianceDoc(body)) return null;
+  // Words naming a compliance document (insurance, WSIB clearance, licence…): still read the
+  // picture, and file it only when the reader says it's a receipt / supplier bill ("building
+  // permit fee", "insurance payment"); anything else is the Compliance role's.
+  const complianceWords = namesComplianceDoc(body);
   if (!input.media.some((m) => !m.contentType || receiptMediaType(m.contentType))) return null;
 
   // A redelivered text: answer the same way, file nothing again.
@@ -433,7 +474,7 @@ export async function handleReceiptMedia(admin: AdminClient, input: OwnerMediaIn
 
   const fetched = await deps.fetchMedia(input.media, { max: 3 });
   if (fetched.length === 0) {
-    return soundsLikeReceipt(body) ? { reply: "I couldn't open that picture. Try sending the receipt again.", intent: "receipt" } : null;
+    return soundsLikeReceipt(body) && !complianceWords ? { reply: "I couldn't open that picture. Try sending the receipt again.", intent: "receipt" } : null;
   }
 
   const today = localDate(new Date(input.nowMs), company.timeZone);
@@ -459,8 +500,10 @@ export async function handleReceiptMedia(admin: AdminClient, input: OwnerMediaIn
         skipped += 1;
         continue;
       }
-      // No reader (or it failed): only the owner's words can say it's a receipt.
-      if (!read && !(readFailed || soundsLikeReceipt(body))) {
+      // No reader, or it failed: only words that clearly say "receipt" claim it (never with
+      // compliance words), so Compliance and the old "Got the picture" reply still run.
+      if (!read && (complianceWords || !soundsLikeReceipt(body))) {
+        if (readFailed) console.warn("[tax-clerk] passing on a picture the reader couldn't read");
         await updateRow(admin, row, { status: "not_receipt" });
         skipped += 1;
         continue;
@@ -474,7 +517,9 @@ export async function handleReceiptMedia(admin: AdminClient, input: OwnerMediaIn
     }
   }
   if (filed.length === 0) return null;
-  const reply = composeReply(filed, skipped);
+  // An owner with several businesses: say which one it went to.
+  const owned = await findOwnerCompanies(admin, input.ownerPhone).catch(() => []);
+  const reply = `${owned.length > 1 ? `${company.name}: ` : ""}${composeReply(filed, skipped)}`;
   await updateRow(admin, filed[0].row, { reply: reply.slice(0, 700) }).catch(() => null);
   return {
     reply,

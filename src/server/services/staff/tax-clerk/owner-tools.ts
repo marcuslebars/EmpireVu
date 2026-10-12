@@ -20,7 +20,7 @@ import { ACCOUNTANT_PACKET_KIND, createPacketApproval } from "./approvals";
 import type { Db, ExpenseLite, ReceiptTextRow } from "./db-types";
 import { breakdownText, daysBetween, DISCLAIMER, lastEndedPeriod, money, netPhrase, periodContaining, periodName, worksheetFor, type HstPeriod } from "./hst";
 import { packetDestination } from "./packet";
-import { currentReceiptDeps, dayLabel, findDuplicate, jobCandidates, jobPhrase, shortCategory, type ReceiptDeps } from "./receipts";
+import { currentReceiptDeps, dayLabel, needsTotal, findDuplicate, jobCandidates, jobPhrase, shortCategory, type ReceiptDeps } from "./receipts";
 import { isEmail, loadTaxClerkCompany, ownerProfileId, type TaxClerkCompany } from "./settings";
 import { jobWordsIn, matchJob } from "./words";
 import { JOB_CATEGORIES } from "./nudges";
@@ -72,9 +72,10 @@ async function lastReceipt(state: ToolRunState): Promise<ReceiptTextRow | null> 
     .select("*")
     .eq("organization_id", state.scope.organizationId)
     .eq("company_id", state.scope.companyId)
-    .in("status", ["filed", "needs_review"])
+    .in("status", ["filed", "needs_review", "duplicate"])
     .gte("created_at", since)
     .order("created_at", { ascending: false })
+    .order("media_index", { ascending: false })
     .limit(1);
   return ((data ?? []) as ReceiptTextRow[])[0] ?? null;
 }
@@ -96,6 +97,10 @@ async function fixReceipt(state: ToolRunState, input: Input, deps: ReceiptDeps):
   const db = state.admin as Db;
   const org = state.scope.organizationId;
   const today = localDate(new Date(state.nowMs), company.timeZone);
+  // The newest one was a copy of a receipt already on file: it was never added.
+  if (row.status === "duplicate") {
+    return { error: input.delete === true ? "That one wasn't added (it was a copy of one already on file), so there's nothing to delete." : "That one wasn't added (it was a copy of one already on file). Change the original in the app (Expenses)." };
+  }
 
   // Delete (24 h).
   if (input.delete === true) {
@@ -114,7 +119,7 @@ async function fixReceipt(state: ToolRunState, input: Input, deps: ReceiptDeps):
   if (category && !(EXPENSE_CATEGORIES as readonly string[]).includes(category)) return { error: `Category must be one of: ${EXPENSE_CATEGORIES.join(", ")}.` };
   const amount = input.amount !== undefined ? centsOf(input.amount) : null;
   if (input.amount !== undefined && amount === null) return { error: "Give the total like $84.20." };
-  const tax = input.tax !== undefined ? (str(input.tax) === "0" || input.tax === 0 ? 0 : centsOf(input.tax)) : null;
+  const tax = input.tax !== undefined ? (input.tax === 0 || /^\$?\s?0+(\.0{1,2})?$/.test(str(input.tax, 20) ?? "") ? 0 : centsOf(input.tax)) : null;
   if (input.tax !== undefined && tax === null) return { error: "Give the HST like $9.69." };
   const date = str(input.date, 10);
   if (date && (!isValidDateString(date) || daysBetween(date, today) < -7 || daysBetween(date, today) > 366)) return { error: "Give the date like 2026-10-14 (within the last year)." };
@@ -251,8 +256,8 @@ async function receiptsSummary(state: ToolRunState, input: Input): Promise<Recor
   const summary = summarizeExpenses(rows);
   const noJob = rows.filter((r) => JOB_CATEGORIES.has(r.category) && !r.booking_id);
   const noReceipt = rows.filter((r) => !r.receipt_path);
-  const { data: review } = await db.from("receipt_texts").select("vendor, created_at").eq("organization_id", company.organizationId).eq("company_id", company.companyId).eq("status", "needs_review").limit(50);
-  const toFinish = (review ?? []) as Array<{ vendor: string | null; created_at: string }>;
+  const { data: review } = await db.from("receipt_texts").select("vendor, created_at, amount_cents, missing").eq("organization_id", company.organizationId).eq("company_id", company.companyId).eq("status", "needs_review").limit(50);
+  const toFinish = ((review ?? []) as Array<{ vendor: string | null; created_at: string; amount_cents: number | null; missing: string[] }>).filter(needsTotal);
   const top = summary.byCategory.slice(0, 5).map((c) => `${shortCategory(c.category)} ${money(c.cents)}`);
   return {
     ok: true,

@@ -41,8 +41,10 @@ export interface TaxClerkView {
     packet: { emailedAt: string | null; emailedTo: string | null; error: string | null; sendsTo: string | null };
     disclaimer: string;
   } | null;
-  toFinish: Array<{ id: string; vendor: string | null; spentOn: string | null; taxCents: number | null; category: string | null; createdAt: string; pictureUrl: string | null; missing: string[] }> | null;
+  toFinish: Array<{ id: string; vendor: string | null; spentOn: string | null; amountCents: number | null; needsTotal: boolean; taxCents: number | null; category: string | null; createdAt: string; pictureUrl: string | null; missing: string[] }> | null;
   recent: Array<{ id: string; status: string; vendor: string | null; amountCents: number | null; createdAt: string; poReference: string | null }> | null;
+  /** Set by "Email the packet now". */
+  packetResult?: { status: string; to: string | null; message: string };
 }
 
 type Patch = {
@@ -69,10 +71,10 @@ function lastDayOf(month: number): number {
   return new Date(Date.UTC(2025, month, 0)).getUTCDate();
 }
 
-const STATUS_WORD: Record<string, string> = { filed: "Filed", duplicate: "Duplicate (skipped)", needs_review: "Needs a total" };
+const STATUS_WORD: Record<string, string> = { filed: "Filed", duplicate: "Duplicate (skipped)", needs_review: "To finish" };
 
 function FinishRow({ item, disabled, onFile, onDiscard }: { item: NonNullable<TaxClerkView["toFinish"]>[number]; disabled: boolean; onFile: (amountCents: number, taxCents: number | undefined, spentOn: string | undefined) => void; onDiscard: () => void }) {
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(item.amountCents ? (item.amountCents / 100).toFixed(2) : "");
   const [tax, setTax] = useState(item.taxCents != null ? (item.taxCents / 100).toFixed(2) : "");
   const [date, setDate] = useState(item.spentOn ?? "");
   const cents = (v: string) => {
@@ -95,7 +97,10 @@ function FinishRow({ item, disabled, onFile, onDiscard }: { item: NonNullable<Ta
   return (
     <li className="rounded-lg border border-border p-2.5 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-sm font-medium text-foreground">{item.vendor ?? "Receipt"}</span>
+        <span className="text-sm font-medium text-foreground">
+          {item.vendor ?? "Receipt"}
+          <span className="ml-2 text-xs font-normal text-muted-foreground">{item.needsTotal ? "needs the total" : "check and file"}</span>
+        </span>
         <span className="text-xs text-muted-foreground">
           Texted {new Date(item.createdAt).toLocaleDateString("en-CA", { month: "short", day: "numeric" })}
           {item.pictureUrl && (
@@ -163,8 +168,10 @@ export function TaxClerkSettingsSection({ orgId, companyId, canManage }: AiFront
   const packet = useMutation({
     mutationFn: () => apiFetch<TaxClerkView>(`${base(orgId, companyId)}/packet`, { method: "POST" }),
     onSuccess: (view) => {
-      qc.setQueryData(queryKey, view);
-      toast.success("Packet emailed");
+      const { packetResult, ...rest } = view;
+      qc.setQueryData(queryKey, rest);
+      if (packetResult?.status === "sent") toast.success(packetResult.message);
+      else toast.message(packetResult?.message ?? "It's already going out.");
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not send"),
   });
@@ -226,7 +233,7 @@ export function TaxClerkSettingsSection({ orgId, companyId, canManage }: AiFront
 
         {data.toFinish && data.toFinish.length > 0 && (
           <div className="space-y-2">
-            <p className="text-sm font-medium text-foreground">Receipts that need a total</p>
+            <p className="text-sm font-medium text-foreground">Texted receipts to finish</p>
             <ul className="space-y-2">
               {data.toFinish.map((item) => (
                 <FinishRow

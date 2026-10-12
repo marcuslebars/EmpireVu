@@ -25,7 +25,10 @@ export const TIP_TEXT =
 export interface NudgeCounts {
   noReceipt: number;
   noJob: number;
+  /** Texted receipts waiting for their total. */
   toFinish: number;
+  /** Texted receipts waiting for another reason (finish them in Settings). */
+  otherWaiting?: number;
 }
 
 export async function nudgeCounts(admin: AdminClient, company: Pick<TaxClerkCompany, "organizationId" | "companyId">, today: string): Promise<NudgeCounts> {
@@ -40,11 +43,14 @@ export async function nudgeCounts(admin: AdminClient, company: Pick<TaxClerkComp
     .lte("spent_on", today)
     .limit(2000);
   const rows = (data ?? []) as Array<{ category: string; booking_id: string | null; receipt_path: string | null }>;
-  const { data: review } = await db.from("receipt_texts").select("id").eq("organization_id", company.organizationId).eq("company_id", company.companyId).eq("status", "needs_review").limit(200);
+  const { data: review } = await db.from("receipt_texts").select("id, amount_cents, missing").eq("organization_id", company.organizationId).eq("company_id", company.companyId).eq("status", "needs_review").limit(200);
+  const waiting = (review ?? []) as Array<{ amount_cents: number | null; missing: string[] }>;
+  const needTotal = waiting.filter((r) => !r.amount_cents || (r.missing ?? []).includes("total")).length;
   return {
     noReceipt: rows.filter((r) => !r.receipt_path).length,
     noJob: rows.filter((r) => JOB_CATEGORIES.has(r.category) && !r.booking_id).length,
-    toFinish: ((review ?? []) as unknown[]).length,
+    toFinish: needTotal,
+    otherWaiting: waiting.length - needTotal,
   };
 }
 
@@ -55,17 +61,31 @@ export function weeklyNudgeText(c: NudgeCounts): string | null {
   if (c.noJob) parts.push(`${c.noJob} materials buy${c.noJob === 1 ? " has" : "s have"} no job`);
   const first = parts.length ? `Receipts check (last 30 days): ${parts.join(" and ")}.` : "";
   const finish = c.toFinish ? ` ${c.toFinish} receipt picture${c.toFinish === 1 ? " still needs its" : "s still need their"} total.` : "";
-  if (!first && !finish) return null;
-  return `${first || "Receipts check:"}${finish} Text me a photo of any receipt, or "receipts" for the list.`.replace(/\s+/g, " ").trim();
+  const other = c.otherWaiting ? ` ${c.otherWaiting} texted receipt${c.otherWaiting === 1 ? " is" : "s are"} waiting in Settings > AI front desk > Receipts & HST.` : "";
+  if (!first && !finish && !other) return null;
+  return `${first || "Receipts check:"}${finish}${other} Text me a photo of any receipt, or "receipts" for the list.`.replace(/\s+/g, " ").trim();
 }
 
 async function claimNotice(admin: AdminClient, company: TaxClerkCompany, kind: TaxClerkNoticeRow["kind"], key: string, nowMs: number, status: TaxClerkNoticeRow["status"] = "claimed"): Promise<TaxClerkNoticeRow | null> {
-  const { data, error } = await (admin as Db)
+  const db = admin as Db;
+  const { data, error } = await db
     .from("tax_clerk_notices")
     .insert({ organization_id: company.organizationId, company_id: company.companyId, kind, key, status, created_at: new Date(nowMs).toISOString() })
     .select("*")
     .single();
-  return error || !data ? null : (data as TaxClerkNoticeRow);
+  if (!error && data) return data as TaxClerkNoticeRow;
+  if (status !== "claimed") return null;
+  // A send that failed earlier is re-claimed (one winner: conditional on status 'failed').
+  const { data: again } = await db
+    .from("tax_clerk_notices")
+    .update({ status: "claimed" })
+    .eq("organization_id", company.organizationId)
+    .eq("company_id", company.companyId)
+    .eq("kind", kind)
+    .eq("key", key)
+    .eq("status", "failed")
+    .select("*");
+  return ((again ?? []) as TaxClerkNoticeRow[])[0] ?? null;
 }
 
 async function settleNotice(admin: AdminClient, row: TaxClerkNoticeRow, status: TaxClerkNoticeRow["status"], body: string | null, nowMs: number): Promise<void> {
@@ -104,7 +124,7 @@ export async function runCompanyTip(admin: AdminClient, company: TaxClerkCompany
   const db = admin as Db;
   const { data: seen } = await db.from("tax_clerk_notices").select("*").eq("organization_id", company.organizationId).eq("company_id", company.companyId).in("kind", ["first_seen", "receipt_tip"]);
   const rows = (seen ?? []) as TaxClerkNoticeRow[];
-  if (rows.some((r) => r.kind === "receipt_tip")) return "not_due";
+  if (rows.some((r) => r.kind === "receipt_tip" && r.status !== "failed")) return "not_due";
   const first = rows.find((r) => r.kind === "first_seen");
   if (!first) {
     await claimNotice(admin, company, "first_seen", "once", nowMs, "skipped");

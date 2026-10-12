@@ -33,6 +33,7 @@ export const defaultPacketDeps: PacketDeps = {
   orgOwnerEmail: (admin, organizationId) => orgOwnerEmail(ctxFor(admin, organizationId)),
 };
 
+/** A money cell: digits, a dot and maybe a minus — never formula-guarded (csvCell would put ' before a negative). */
 const dollars = (c: number) => (c / 100).toFixed(2);
 /** A packet claim older than this is a crashed attempt and may be retried. */
 const CLAIM_STALE_MS = 10 * 60_000;
@@ -50,22 +51,23 @@ export async function packetDestination(admin: AdminClient, company: TaxClerkCom
 
 // ── Files ────────────────────────────────────────────────────────────────────
 
-export const EXPENSE_CSV_HEADER = ["Date", "Vendor", "Description", "Category", "Total", "HST", "ITC claimed", "Before tax", "Job", "Paid with", "Receipt link"];
+export const EXPENSE_CSV_HEADER = ["Date", "Vendor", "Description", "Category", "Total", "HST", "ITC claimed", "Before tax", "Job", "Paid with", "Receipt link", "Claimed late (from)"];
 
-export function expensesCsv(expenses: ExpenseLite[], jobTitles: Map<string, string>, links: Map<string, string>): string {
+export function expensesCsv(expenses: Array<ExpenseLite & { fromLabel?: string }>, jobTitles: Map<string, string>, links: Map<string, string>): string {
   const rows = expenses.map((e) =>
     [
       csvCell(e.spent_on),
       csvCell(e.vendor),
       csvCell(e.description),
       csvCell(categoryLabel(e.category)),
-      csvCell(dollars(e.amount_cents)),
-      csvCell(dollars(e.tax_cents)),
-      csvCell(dollars(itcOf(e))),
-      csvCell(dollars(e.amount_cents - e.tax_cents)),
+      dollars(e.amount_cents),
+      dollars(e.tax_cents),
+      dollars(itcOf(e)),
+      dollars(e.amount_cents - e.tax_cents),
       csvCell(e.booking_id ? (jobTitles.get(e.booking_id) ?? "") : ""),
       csvCell(e.paid_with === "personal" ? "Out of pocket" : "Business"),
       csvCell(e.receipt_path ? (links.get(e.receipt_path) ?? "(link unavailable)") : "No receipt"),
+      csvCell(e.fromLabel ?? ""),
     ].join(","),
   );
   return `${[EXPENSE_CSV_HEADER.join(","), ...rows].join("\r\n")}\r\n`;
@@ -82,12 +84,12 @@ export function invoicesCsv(invoices: InvoiceLite[]): string {
       csvCell(i.issue_date),
       csvCell(name || i.title),
       csvCell(i.subtotal_cents < 0 ? "credit note" : i.status.replace(/_/g, " ")),
-      csvCell(dollars(i.subtotal_cents)),
-      csvCell(dollars(i.tax_cents)),
-      csvCell(dollars(i.total_cents)),
-      csvCell(dollars(i.credit_cents)),
-      csvCell(dollars(i.amount_paid_cents)),
-      csvCell(dollars(i.balance_due_cents)),
+      dollars(i.subtotal_cents),
+      dollars(i.tax_cents),
+      dollars(i.total_cents),
+      dollars(i.credit_cents),
+      dollars(i.amount_paid_cents),
+      dollars(i.balance_due_cents),
     ].join(",");
   });
   return `${[INVOICE_CSV_HEADER.join(","), ...rows].join("\r\n")}\r\n`;
@@ -105,10 +107,11 @@ export interface BuiltPacket {
 }
 
 export async function buildPacket(admin: AdminClient, company: TaxClerkCompany, period: HstPeriod, nowMs: number, deps: PacketDeps = defaultPacketDeps): Promise<BuiltPacket> {
-  const scope = { organizationId: company.organizationId, companyId: company.companyId };
-  const { invoices, expenses } = await loadPeriodRecords(admin, scope, period);
+  const records = await loadPeriodRecords(admin, company, period);
+  const { invoices } = records;
+  const expenses: Array<ExpenseLite & { fromLabel?: string }> = [...records.expenses, ...records.late];
   const counted = invoices.filter((i) => invoiceCounts(i, period));
-  const worksheet = computeWorksheet(invoices, expenses, period);
+  const worksheet = computeWorksheet(invoices, records.expenses, period, records.late);
   const bookingIds = [...new Set(expenses.map((e) => e.booking_id).filter((v): v is string => !!v))];
   const jobTitles = new Map<string, string>();
   for (let i = 0; i < bookingIds.length; i += 200) {
@@ -206,7 +209,7 @@ export async function emailPacket(
       "",
       `Line 101 sales and other revenue: ${money(w.salesCents)}`,
       `Line 103 GST/HST collected: ${money(w.collectedCents)}`,
-      `Line 106 input tax credits: ${money(w.itcCents)}`,
+      `Line 106 input tax credits: ${money(w.itcCents)}${w.lateItcCents ? ` (incl. ${money(w.lateItcCents)} from ${w.lateExpenseCount} receipt${w.lateExpenseCount === 1 ? "" : "s"} of earlier periods not claimed before - flagged in the CSV)` : ""}`,
       `Line 109 net tax: ${money(w.netCents)} (${netPhrase(w.netCents)})`,
       "",
       `Attached: a one-page summary (PDF), ${built.expenseCount} expense${built.expenseCount === 1 ? "" : "s"} with receipt links (the links work for 30 days) and ${built.invoiceCount} invoice${built.invoiceCount === 1 ? "" : "s"}.`,

@@ -9,6 +9,7 @@ import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db } from "./db-types";
 import { daysBetween, money, worksheetFor } from "./hst";
 import { periodToRemind } from "./reminders";
+import { needsTotal } from "./receipts";
 import { hstRemindersOn, loadTaxClerkCompany } from "./settings";
 
 export async function briefingItems(admin: AdminClient, scope: { organizationId: string; companyId: string }, localDate: string): Promise<string[]> {
@@ -27,9 +28,12 @@ export async function briefingItems(admin: AdminClient, scope: { organizationId:
       }
     }
     if (company.settings.receipts.enabled) {
-      const { data } = await (admin as Db).from("receipt_texts").select("id").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("status", "needs_review").limit(50);
-      const n = ((data ?? []) as unknown[]).length;
-      if (n) items.push(`${n} receipt picture${n === 1 ? " needs" : "s need"} a total`);
+      const { data } = await (admin as Db).from("receipt_texts").select("id, amount_cents, missing").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("status", "needs_review").limit(50);
+      const waiting = (data ?? []) as Array<{ amount_cents: number | null; missing: string[] }>;
+      const total = waiting.filter(needsTotal).length;
+      const other = waiting.length - total;
+      if (total) items.push(`${total} receipt picture${total === 1 ? " needs" : "s need"} a total`);
+      if (other) items.push(`${other} texted receipt${other === 1 ? "" : "s"} to finish in Settings`);
     }
     return items;
   } catch (err) {

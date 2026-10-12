@@ -11,7 +11,7 @@ import { EXPENSE_CATEGORIES, type ExpenseCategory } from "@/server/services/expe
 import type { Db, HstPeriodRow, ReceiptTextRow } from "./db-types";
 import { DISCLAIMER, lastEndedPeriod, periodContaining, worksheetFor, type HstPeriod } from "./hst";
 import { defaultPacketDeps, emailPacket, loadPeriodRow, packetDestination, type PacketDeps } from "./packet";
-import { findDuplicate } from "./receipts";
+import { findDuplicate, needsTotal } from "./receipts";
 import { hstRemindersOn, loadTaxClerkCompany, mergeTaxClerkSettings, type TaxClerkPatch, type TaxClerkSettings } from "./settings";
 import { supabaseReceiptStorage, type ReceiptStorage } from "./storage";
 
@@ -35,7 +35,7 @@ export interface TaxClerkView {
     packet: { emailedAt: string | null; emailedTo: string | null; error: string | null; sendsTo: string | null };
     disclaimer: string;
   } | null;
-  toFinish: Array<{ id: string; vendor: string | null; spentOn: string | null; taxCents: number | null; category: string | null; createdAt: string; pictureUrl: string | null; missing: string[] }> | null;
+  toFinish: Array<{ id: string; vendor: string | null; spentOn: string | null; amountCents: number | null; needsTotal: boolean; taxCents: number | null; category: string | null; createdAt: string; pictureUrl: string | null; missing: string[] }> | null;
   recent: Array<{ id: string; status: string; vendor: string | null; amountCents: number | null; createdAt: string; poReference: string | null }> | null;
 }
 
@@ -100,6 +100,8 @@ export async function getTaxClerkView(admin: AdminClient, organizationId: string
       id: r.id,
       vendor: r.vendor,
       spentOn: r.spent_on,
+      amountCents: r.amount_cents,
+      needsTotal: needsTotal(r),
       taxCents: r.tax_cents,
       category: r.category,
       createdAt: r.created_at,

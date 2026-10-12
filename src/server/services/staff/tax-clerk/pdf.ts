@@ -88,6 +88,7 @@ export async function hstSummaryPdf(input: SummaryInput): Promise<Uint8Array> {
     `Sales: ${input.invoiceCount} invoice${input.invoiceCount === 1 ? "" : "s"} issued in the period (not drafts or voided)${w.creditNoteCount ? `, including ${w.creditNoteCount} credit note${w.creditNoteCount === 1 ? "" : "s"}` : ""}. Deposits applied are payments and don't change the sales figure.`,
     w.importedExcluded ? `${w.importedExcluded} invoice${w.importedExcluded === 1 ? " was" : "s were"} imported from the previous system and left out (already reported there).` : null,
     `ITCs: the sales tax on ${input.expenseCount} expense${input.expenseCount === 1 ? "" : "s"} in the period${w.mealsDisallowedCents ? `; meals and entertainment at 50% (${money(w.mealsDisallowedCents)} left out)` : ""}.`,
+    w.lateItcCents ? `Line 106 includes ${money(w.lateItcCents)} of ITCs from ${w.lateExpenseCount} receipt${w.lateExpenseCount === 1 ? "" : "s"} of earlier periods that came in after those periods were done (CRA allows claiming them later; flagged in the expenses CSV).` : null,
     w.missingReceipts ? `${w.missingReceipts} expense${w.missingReceipts === 1 ? " has" : "s have"} no receipt picture - see the expenses CSV.` : "Every expense in the CSV has a receipt link (good for 30 days).",
     "Adjustments (lines 104 and 107), instalments and rebates aren't worked out here.",
     DISCLAIMER,

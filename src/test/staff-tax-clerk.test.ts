@@ -46,7 +46,7 @@ import { handleOwnerInboundSms } from "@/server/services/owner-channel/entry";
 import { runOwnerTool, type ToolRunState } from "@/server/services/owner-channel/tools";
 import { activeRolesFor, ownerMediaHandlersFor, roleApprovalExecutor, staffRoles } from "@/server/services/staff/registry";
 import { taxClerkRole, briefingItems, TAX_CLERK_SWEEPS, resetTaxClerkCompanyCache } from "@/server/services/staff/tax-clerk";
-import { computeWorksheet, lastEndedPeriod, periodContaining, reminderText, type HstPeriod } from "@/server/services/staff/tax-clerk/hst";
+import { computeWorksheet, lastEndedPeriod, periodContaining, reminderText, worksheetFor, type HstPeriod } from "@/server/services/staff/tax-clerk/hst";
 import { expensesCsv, invoicesCsv } from "@/server/services/staff/tax-clerk/packet";
 import { composeReply, handleReceiptMedia, setReceiptDeps, type ReadResult, type ReceiptDeps } from "@/server/services/staff/tax-clerk/receipts";
 import { periodToRemind, runCompanyHstReminder, defaultReminderDeps } from "@/server/services/staff/tax-clerk/reminders";
@@ -86,6 +86,9 @@ const MEDIA: Record<string, { type: "image/jpeg" | "image/png" | "application/pd
   blurry: { type: "image/jpeg", bytes: Buffer.from("BLURRY") },
   pdf: { type: "application/pdf", bytes: Buffer.from("%PDF-RONA") },
   webp: { type: "image/webp", bytes: Buffer.from("WEBP-TIMS") },
+  cert: { type: "image/jpeg", bytes: Buffer.from("CERTIFICATE") },
+  broken: { type: "image/jpeg", bytes: Buffer.from("THROW") },
+  novendor: { type: "image/jpeg", bytes: Buffer.from("NOVENDOR") },
 };
 
 function mediaUrl(key: string) {
@@ -98,6 +101,8 @@ const SCANS: Record<string, ReadResult> = {
   "NOT-A-RECEIPT": { kind: "not_receipt", scan: { vendor: null, spentOn: null, amountCents: null, taxCents: null, category: null, description: null } },
   BLURRY: { kind: "receipt", scan: { vendor: "Rona", spentOn: null, amountCents: null, taxCents: null, category: null, description: null } },
   "%PDF-RONA": { kind: "supplier_invoice", scan: { vendor: "Rona Pro", spentOn: null, amountCents: 22600, taxCents: 2600, category: "materials", description: "Lumber" } },
+  CERTIFICATE: { kind: "not_receipt", scan: { vendor: null, spentOn: null, amountCents: null, taxCents: null, category: null, description: null } },
+  NOVENDOR: { kind: "receipt", scan: { vendor: null, spentOn: "2026-10-14", amountCents: 2000, taxCents: 230, category: "meals", description: null } },
   "WEBP-TIMS": { kind: "receipt", scan: { vendor: "Tim Hortons", spentOn: "2026-10-14", amountCents: 1130, taxCents: 130, category: "meals", description: null } },
 };
 
@@ -349,14 +354,36 @@ describe("receipts by text (through the owner channel)", () => {
     expect(rows("receipt_texts")[0].status).toBe("not_receipt");
   });
 
-  it("words naming a compliance document pass before anything is read (the Compliance role, next in line, takes it)", async () => {
-    await text("insurance certificate renewal", [mediaUrl("depot")]);
-    expect(reads).toHaveLength(0);
-    expect(rows("receipt_texts")).toHaveLength(0);
+  it("compliance words with a certificate picture: read, not a receipt, passed (the Compliance role, next in line, takes it)", async () => {
+    await text("insurance certificate renewal", [mediaUrl("cert")]);
+    expect(reads).toEqual(["CERTIFICATE"]);
+    expect(rows("receipt_texts")[0].status).toBe("not_receipt");
     expect(rows("expenses")).toHaveLength(0);
     const intent = String(rows("owner_command_log").at(-1)?.intent ?? "");
-    expect(intent).not.toBe("media:tax_clerk");
+    expect(intent).not.toBe("receipt");
     expect(intent === "command" || intent.startsWith("media:compliance") || intent.startsWith("compliance")).toBe(true);
+  });
+
+  it("compliance words with a real receipt ('building permit fee', 'insurance payment'): filed anyway", async () => {
+    await text("building permit fee Jones job", [mediaUrl("depot")]);
+    expect(rows("expenses")).toHaveLength(1);
+    expect(rows("expenses")[0]).toMatchObject({ booking_id: JONES_ROOF, vendor: "Home Depot" });
+    expect(rows("owner_command_log").at(-1)!.intent).toBe("receipt");
+    await text("insurance payment", [mediaUrl("pdf")]);
+    expect(rows("expenses")).toHaveLength(2);
+    for (const w of ["g2 ticket", "309A", "first aid course", "working at heights", "bonded"]) expect(namesComplianceDoc(w)).toBe(true);
+  });
+
+  it("the reader fails (model outage): a bare photo or compliance words pass; only clear receipt words keep it to finish", async () => {
+    await text("", [mediaUrl("broken")]);
+    expect(replies().at(-1)).toContain("Got the picture");
+    expect(rows("receipt_texts")[0].status).toBe("not_receipt");
+    await text("wsib clearance receipt", [mediaUrl("broken")]);
+    expect(rows("receipt_texts")[1].status).toBe("not_receipt");
+    expect(String(rows("owner_command_log").at(-1)!.intent)).not.toBe("receipt");
+    await text("receipt for the Jones job", [mediaUrl("broken")]);
+    expect(rows("receipt_texts")[2].status).toBe("needs_review");
+    expect(rows("expenses")).toHaveLength(0);
   });
 
   it("house org (A1): exactly as before - no reading, no rows, the old reply", async () => {
@@ -513,7 +540,7 @@ describe("the worksheet", () => {
     const w = computeWorksheet(db.tables.invoices as never, db.tables.expenses as never, { start: "2026-07-01", end: "2026-09-30" });
     expect(w).toEqual({
       salesCents: 140000, collectedCents: 18200, itcCents: 3700, netCents: 14500, invoiceCount: 3, creditNoteCount: 1, importedExcluded: 1,
-      expenseCount: 3, mealsDisallowedCents: 500, missingReceipts: 2,
+      lateItcCents: 0, lateExpenseCount: 0, expenseCount: 3, mealsDisallowedCents: 500, missingReceipts: 2,
     });
     const period = lastEndedPeriod("2026-10-21", { frequency: "quarterly", fiscalYearEndMonth: 12, filer: "corporation" }) as HstPeriod;
     expect(reminderText(period, w, 2026)).toBe("Q3 HST: collected $182, ITCs $37, owing about $145. Due Oct 31.");
@@ -523,11 +550,14 @@ describe("the worksheet", () => {
   it("CSV files: receipt links, ITC claimed, formula-safe cells", () => {
     seedQ3();
     const csv = expensesCsv(db.tables.expenses.slice(0, 2) as never, new Map(), new Map([[`${ORG}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg`, "https://signed.test/r1"]]));
-    expect(csv.split("\r\n")[0]).toBe("Date,Vendor,Description,Category,Total,HST,ITC claimed,Before tax,Job,Paid with,Receipt link");
-    expect(csv).toContain("2026-08-03,Home Depot,,Materials & supplies,261.00,30.00,30.00,231.00,,Business,https://signed.test/r1");
-    expect(csv).toContain("2026-09-02,Swiss Chalet,,Meals,87.00,10.00,5.00,77.00,,Business,No receipt");
+    expect(csv.split("\r\n")[0]).toBe("Date,Vendor,Description,Category,Total,HST,ITC claimed,Before tax,Job,Paid with,Receipt link,Claimed late (from)");
+    expect(csv).toContain("2026-08-03,Home Depot,,Materials & supplies,261.00,30.00,30.00,231.00,,Business,https://signed.test/r1,");
+    expect(csv).toContain("2026-09-02,Swiss Chalet,,Meals,87.00,10.00,5.00,77.00,,Business,No receipt,");
     const inv = invoicesCsv([{ ...(db.tables.invoices[0] as Record<string, unknown>), bill_to: { name: "=HYPERLINK(1)" } } as never]);
     expect(inv).toContain("'=HYPERLINK(1)");
+    const credit = invoicesCsv([db.tables.invoices.find((i) => i.id === "CN-1") as never]);
+    expect(credit).toContain("CN-1,2026-09-20,Dana Jones,credit note,-100.00,-13.00,-113.00,");
+    expect(credit).not.toContain("'-");
   });
 });
 
@@ -755,5 +785,120 @@ describe("readReceipt (extended)", () => {
       if (prev === undefined) delete process.env.ANTHROPIC_API_KEY;
       else process.env.ANTHROPIC_API_KEY = prev;
     }
+  });
+});
+
+// ── Review fixes ──────────────────────────────────────────────────────────────
+
+describe("review fixes", () => {
+  it("fix after a multi-picture text edits / deletes the LAST picture, not the first", async () => {
+    await handleReceiptMedia(db.client, input("", ["depot", "pdf"]));
+    const out = await runOwnerTool(ownerState(NOW + HOUR), "fix_receipt", { delete: true });
+    expect(out).toMatchObject({ ok: true, tell_owner: "Deleted: Rona Pro $226." });
+    expect(rows("expenses").map((e) => e.vendor)).toEqual(["Home Depot"]);
+  });
+
+  it("'delete' right after a duplicate reply refuses (the original stays)", async () => {
+    await handleReceiptMedia(db.client, input("", ["depot"]));
+    await handleReceiptMedia(db.client, input("", ["depot"], "e0000000-0000-4000-8000-000000000002", NOW + 60_000));
+    const out = await runOwnerTool(ownerState(NOW + 2 * 60_000), "fix_receipt", { delete: true });
+    expect(String(out.error)).toContain("wasn't added");
+    expect(rows("expenses")).toHaveLength(1);
+  });
+
+  it("two receipts with no vendor are not duplicates; tax '$0' is accepted", async () => {
+    await handleReceiptMedia(db.client, input("", ["novendor"]));
+    await handleReceiptMedia(db.client, input("", ["novendor"], "e0000000-0000-4000-8000-000000000002", NOW + 60_000));
+    expect(rows("expenses")).toHaveLength(2);
+    const out = await runOwnerTool(ownerState(NOW + 2 * 60_000), "fix_receipt", { tax: "$0.00" });
+    expect(out).toMatchObject({ ok: true });
+    expect(rows("expenses")[1].tax_cents).toBe(0);
+  });
+
+  it("no reader: 'paid' alone doesn't claim a picture", async () => {
+    readerOn = false;
+    expect(await handleReceiptMedia(db.client, input("paid personal card", ["depot"]))).toBeNull();
+    expect(await handleReceiptMedia(db.client, input("PO-12", ["depot"], "e0000000-0000-4000-8000-000000000002"))).not.toBeNull();
+  });
+
+  it("an owner with several businesses is told which one the receipt went to", async () => {
+    db.tables.companies.push(company({ id: "22222222-2222-4222-8222-222222222299", name: "Northshore Snow" }));
+    const out = await handleReceiptMedia(db.client, input("", ["depot"]));
+    expect(out?.reply.startsWith("Northshore Roofing: Got it: Home Depot")).toBe(true);
+  });
+
+  it("a PO's job is loaded directly, even far from the receipt date", async () => {
+    db.tables.bookings.push({ id: "b0000000-0000-4000-8000-000000000009", organization_id: ORG, company_id: CO, contact_id: SAM, title: "Deck", scheduled_for: "2027-03-01T14:00:00Z", status: "confirmed" });
+    db.tables.purchase_orders = [{ id: "po-9", organization_id: ORG, company_id: CO, po_number: "PO-9", booking_id: "b0000000-0000-4000-8000-000000000009" }];
+    const out = await handleReceiptMedia(db.client, input("PO-9", ["depot"]));
+    expect(rows("expenses")[0].booking_id).toBe("b0000000-0000-4000-8000-000000000009");
+    expect(out?.reply).toContain("Smith Deck (Mar 1)");
+  });
+
+  it("a receipt waiting for another reason (with its total) isn't called 'needs a total'", async () => {
+    db.tables.receipt_texts.push({ id: "rt-x", organization_id: ORG, company_id: CO, status: "needs_review", amount_cents: 4520, missing: ["owner_profile"], created_at: "2026-10-14T12:00:00Z" });
+    expect(await briefingItems(db.client, { organizationId: ORG, companyId: CO }, "2026-10-14")).toEqual(["1 texted receipt to finish in Settings"]);
+    expect(weeklyNudgeText({ noReceipt: 0, noJob: 0, toFinish: 0, otherWaiting: 1 })).toContain("1 texted receipt is waiting in Settings");
+  });
+
+  it("a failed reminder text is retried with the same ask; a pass stuck in 'reminding' is retried", async () => {
+    seedQ3();
+    const c = (await loadTaxClerkCompany(db.client, ORG, CO))!;
+    let ok = false;
+    const deps = { ...defaultReminderDeps, approvals: { notify: async () => ({ notified: ok }) } };
+    expect(await runCompanyHstReminder(db.client, c, REMIND, deps)).toBe("failed");
+    expect(rows("hst_periods")[0]).toMatchObject({ status: "failed", attempts: 1 });
+    expect(await runCompanyHstReminder(db.client, c, REMIND + 10 * 60_000, deps)).toBe("claimed_elsewhere");
+    ok = true;
+    expect(await runCompanyHstReminder(db.client, c, REMIND + 31 * 60_000, deps)).toBe("asked");
+    expect(rows("owner_approvals")).toHaveLength(1);
+    expect(rows("hst_periods")[0]).toMatchObject({ status: "reminded", attempts: 2 });
+
+    rows("hst_periods")[0].status = "reminding";
+    rows("hst_periods")[0].updated_at = new Date(REMIND).toISOString();
+    expect(await runCompanyHstReminder(db.client, c, REMIND + 2 * HOUR, deps)).toBe("asked");
+    expect(rows("owner_approvals")).toHaveLength(1);
+  });
+
+  it("a failed Monday nudge is retried", async () => {
+    const c = (await loadTaxClerkCompany(db.client, ORG, CO))!;
+    db.tables.expenses.push({ id: "n1", organization_id: ORG, company_id: CO, booking_id: null, spent_on: "2026-10-10", category: "materials", receipt_path: null });
+    const MONDAY = Date.parse("2026-10-19T14:00:00Z");
+    let status: "sent" | "failed" = "failed";
+    const deps = { sendOwnerSms: async () => ({ status }) };
+    expect(await runCompanyWeeklyNudge(db.client, c, MONDAY, deps)).toBe("failed");
+    status = "sent";
+    expect(await runCompanyWeeklyNudge(db.client, c, MONDAY + 15 * 60_000, deps)).toBe("sent");
+    expect(await runCompanyWeeklyNudge(db.client, c, MONDAY + 30 * 60_000, deps)).toBe("claimed_elsewhere");
+  });
+
+  it("late receipts: an earlier period's receipt that came in after it closed is claimed in the next return (once)", async () => {
+    seedQ3();
+    const exp = (id: string, spent: string, created: string, tax: number) => ({
+      id, organization_id: ORG, company_id: CO, booking_id: null, spent_on: spent, vendor: `V-${id}`, description: null, category: "materials",
+      amount_cents: tax * 10, tax_cents: tax, paid_with: "business", receipt_path: null, receipt_type: null, created_by: P_OWNER, created_at: created,
+    });
+    db.tables.expenses.push(
+      exp("late-q2", "2026-06-15", "2026-09-10T12:00:00Z", 500), // Q2 closed Aug 1 (due Jul 31): late → Q3
+      exp("ontime-q2", "2026-06-20", "2026-07-10T12:00:00Z", 900), // came in before Q2 closed: Q2's own
+    );
+    const c = (await loadTaxClerkCompany(db.client, ORG, CO))!;
+    const q3 = { start: "2026-07-01", end: "2026-09-30" };
+    const w = await worksheetFor(db.client, c, q3);
+    expect(w).toMatchObject({ itcCents: 4200, lateItcCents: 500, lateExpenseCount: 1, netCents: 14000 });
+    const period = lastEndedPeriod("2026-10-21", c.settings.hst);
+    expect(reminderText(period, w, 2026)).toBe("Q3 HST: collected $182, ITCs $42 (incl. $5 from earlier periods), owing about $140. Due Oct 31.");
+
+    // The Q3 packet goes out; a Q3 receipt texted after that is next quarter's (late), not Q3's.
+    db.tables.companies[0].ai_settings = mergeTaxClerkSettings({}, { hst: { accountantEmail: "books@acct.ca" } });
+    await runCompanyHstReminder(db.client, c, REMIND);
+    await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER }, { organizationId: ORG, nowMs: REMIND + HOUR });
+    const csv = Buffer.from((sendEmail.mock.calls[0][0] as { attachments: Array<{ content: string }> }).attachments[1].content, "base64").toString();
+    expect(csv).toMatch(/V-late-q2,.*,Q2 2026\r\n/);
+    rows("hst_periods")[0].packet_emailed_at = new Date(REMIND + HOUR).toISOString();
+    db.tables.expenses.push(exp("late-q3", "2026-09-25", new Date(REMIND + 2 * HOUR).toISOString(), 300));
+    expect((await worksheetFor(db.client, c, q3)).itcCents).toBe(4200);
+    const q4 = await worksheetFor(db.client, c, { start: "2026-10-01", end: "2026-10-22" });
+    expect(q4).toMatchObject({ lateItcCents: 300, lateExpenseCount: 1 });
   });
 });

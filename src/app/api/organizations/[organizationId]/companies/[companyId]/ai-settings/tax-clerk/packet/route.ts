@@ -23,6 +23,6 @@ export async function POST(_request: Request, context: RouteContext): Promise<Ne
     if (result.status === "no_email") throw new UserFacingError(result.message, { status: 400 });
     if (result.status === "failed") throw new UserFacingError(result.message, { status: 502 });
     const data = await getTaxClerkView(admin, organizationId, companyId, { manage: true });
-    return NextResponse.json({ data, result });
+    return NextResponse.json({ data: data ? { ...data, packetResult: result } : null, result });
   });
 }

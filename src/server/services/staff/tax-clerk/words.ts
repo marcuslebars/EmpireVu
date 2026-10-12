@@ -5,11 +5,13 @@
 import type { ExpenseCategory } from "@/server/services/expenses/rules";
 
 /**
- * Words that name a compliance document (insurance certificate, WSIB clearance, licence…). The
- * Tax Clerk passes on a picture sent with any of them, so the Compliance role can claim it.
+ * Words that name a compliance document (insurance certificate, WSIB clearance, licence…), the
+ * same list as staff/compliance/kinds.ts. With these words the Tax Clerk still reads the picture
+ * but files it only when its reader says it IS a receipt / supplier bill; otherwise it passes
+ * and the Compliance role (next in registry order) takes it.
  */
 const COMPLIANCE_RE =
-  /\b(insurance|insured|insurer|certificates?|certs?|certification|coi|wsib|clearances?|licen[cs]es?|licen[cs]ed|permits?|tickets?|polic(y|ies)|tssa|esa|ecra|whmis|bond)\b/i;
+  /\b(insurance|insured|insurer|certificates?|certs?|certifications?|coi|wsib|clearances?|licen[cs]es?|licen[cs]ed|permits?|tickets?|polic(y|ies)|bond(ed)?|whmis|first[ -]aid|working at heights|tssa|ecra|esa|309a|306a|313a|g2)\b/i;
 
 export function namesComplianceDoc(text: string): boolean {
   return COMPLIANCE_RE.test(text);

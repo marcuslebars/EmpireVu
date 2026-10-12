@@ -39,7 +39,7 @@ export async function createPacketApproval(
   input: { organizationId: string; companyId: string; summary: string; payload: PacketPayload; askedInlineTo?: string | null },
   nowMs: number,
   deps: TaxApprovalDeps = defaultTaxApprovalDeps,
-): Promise<{ id: string; shortCode: number | null; summary: string }> {
+): Promise<{ id: string; shortCode: number | null; summary: string; notified: boolean }> {
   const now = new Date(nowMs);
   const row = await insertApproval(admin, {
     organizationId: input.organizationId,
@@ -54,12 +54,13 @@ export async function createPacketApproval(
     notifiedAt: input.askedInlineTo ? now : null,
     notifiedTo: input.askedInlineTo ?? null,
   });
+  let notified = Boolean(input.askedInlineTo);
   if (!input.askedInlineTo) {
     try {
-      await deps.notify(admin, row.id, nowMs);
+      notified = (await deps.notify(admin, row.id, nowMs)).notified;
     } catch (err) {
       console.error("[tax-clerk] notifyOwnerOfApproval failed:", err instanceof Error ? err.message : err);
     }
   }
-  return { id: row.id, shortCode: row.short_code ?? null, summary: row.summary };
+  return { id: row.id, shortCode: row.short_code ?? null, summary: row.summary, notified };
 }

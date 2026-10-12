@@ -64,8 +64,10 @@ async function claimPeriod(admin: AdminClient, company: TaxClerkCompany, period:
   if (!error && data) return data as HstPeriodRow;
   const existing = await loadPeriodRow(admin, company, period);
   if (!existing) return null;
-  // Made for a packet the owner asked for (no reminder yet), or a failed pass due a retry.
-  const retry = existing.status === "failed" && existing.attempts < MAX_ATTEMPTS && nowMs - Date.parse(existing.updated_at) >= RETRY_AFTER_MS;
+  // Made for a packet the owner asked for (no reminder yet), a failed pass due a retry, or a pass
+  // that died mid-way (still "reminding" after 30 min).
+  const stale = nowMs - Date.parse(existing.updated_at) >= RETRY_AFTER_MS;
+  const retry = (existing.status === "failed" || existing.status === "reminding") && existing.attempts < MAX_ATTEMPTS && stale;
   if (existing.status !== "pending" && !retry) return null;
   const { data: claimed } = await db
     .from("hst_periods")
@@ -98,6 +100,20 @@ export async function runCompanyHstReminder(admin: AdminClient, company: TaxCler
     const text = reminderText(period, w, Number(today.slice(0, 4)));
     const dest = await packetDestination(admin, company, deps.packet);
     const figures = { salesCents: w.salesCents, collectedCents: w.collectedCents, itcCents: w.itcCents, netCents: w.netCents, invoiceCount: w.invoiceCount, expenseCount: w.expenseCount };
+    // A retry after the ask was made but its text didn't go out: re-send that one, don't ask twice.
+    if (row.approval_id) {
+      const { data: prior } = await db.from("owner_approvals").select("id, status, notified_at").eq("organization_id", company.organizationId).eq("id", row.approval_id).maybeSingle();
+      const p = prior as { id: string; status: string; notified_at: string | null } | null;
+      if (p && p.status === "pending") {
+        const notified = p.notified_at ? true : (await deps.approvals.notify(admin, p.id, nowMs).catch(() => ({ notified: false }))).notified;
+        await db
+          .from("hst_periods")
+          .update({ status: notified ? "reminded" : "failed", reminded_at: notified ? nowIso : null, updated_at: nowIso })
+          .eq("id", row.id)
+          .eq("organization_id", company.organizationId);
+        return notified ? "asked" : "failed";
+      }
+    }
     if (dest) {
       const summary = `${text} ${DISCLAIMER} Y emails the ${period.label} packet to ${dest.to}. Text 'hst' for the breakdown.`;
       const approval = await createPacketApproval(
@@ -111,12 +127,13 @@ export async function runCompanyHstReminder(admin: AdminClient, company: TaxCler
         nowMs,
         deps.approvals,
       );
+      // Not texted (owner-text budget, a failed send…): failed, so a later pass re-sends this ask.
       await db
         .from("hst_periods")
-        .update({ status: "reminded", reminded_at: nowIso, updated_at: nowIso, reminder_body: summary.slice(0, 700), figures, approval_id: approval.id })
+        .update({ status: approval.notified ? "reminded" : "failed", reminded_at: approval.notified ? nowIso : null, updated_at: nowIso, reminder_body: summary.slice(0, 700), figures, approval_id: approval.id })
         .eq("id", row.id)
         .eq("organization_id", company.organizationId);
-      return "asked";
+      return approval.notified ? "asked" : "failed";
     }
     const body = `${text} ${DISCLAIMER} Text 'hst' for the breakdown. Add your accountant's email in Settings > AI front desk > Receipts & HST and I'll send them the packet.`;
     const sent = await deps.sendOwnerSms(admin, { to: company.ownerPhone, body, organizationId: company.organizationId, companyId: company.companyId, platformBrand: company.platformBrand });
