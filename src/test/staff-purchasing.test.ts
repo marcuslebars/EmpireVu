@@ -742,7 +742,7 @@ describe("robustness", () => {
 
 describe("registry + settings view", () => {
   it("one kind, five owner tools, two sweeps, no clashes; prompt note present", () => {
-    expect(staffRoles().at(-1)).toBe(purchasingRole);
+    expect(staffRoles().find((r) => r.role === "purchasing")).toBe(purchasingRole);
     expect(Object.keys(purchasingRole.approvalExecutors)).toEqual([MATERIALS_ORDER_KIND]);
     expect(purchasingRole.ownerTools.map((t) => t.tool.name)).toEqual(["materials_status", "mark_materials", "order_materials", "add_supplier", "set_recipe"]);
     expect(purchasingRole.sweeps.map((s) => s.name)).toEqual(["purchasing:draft", "purchasing:reminders"]);

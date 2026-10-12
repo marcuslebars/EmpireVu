@@ -167,6 +167,17 @@ export function replyInstruction(kind: ApprovalKind, code: number | null, payloa
       const item = typeof payload.exampleItem === "string" && /^[a-z]{3,14}$/.test(payload.exampleItem) ? payload.exampleItem : null;
       return `Reply Y${c} to order it, Y${c} ${other} for ${other}${item ? `, Y${c} no ${item} to leave ${item} out` : ""}, N${c} to skip.`;
     }
+    // Email inbox (docs/ai-staff.md → "Email inbox").
+    case "email_reply":
+      return `Reply Y${c} to send it, N${c} to skip.`;
+    // Customer care (docs/ai-staff.md → "Customer care & warranty").
+    case "care_followup":
+      return payload.option === "call" ? `Reply Y${c} for the call, N${c} to leave it.` : `Reply Y${c} for the visit, N${c} to leave it.`;
+    case "warranty_claim":
+      return `Reply Y${c} or N${c}.`;
+    // Profit advisor (docs/ai-staff.md → "Profit advisor").
+    case "price_change":
+      return `Reply Y${c} to raise it, N${c} to leave it.`;
     default:
       return `Reply Y${c} to approve, N${c} to skip.`;
   }

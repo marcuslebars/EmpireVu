@@ -476,7 +476,7 @@ Each part is read on its own. A part with nothing to say is left out. A failed r
 | Weather | Only when the Dispatcher's weather check is on for the company (`dispatch.weather.enabled`, and `WEATHER_PROVIDER` isn't `off`) and its location is already stored (the Dispatcher geocodes; the briefing never does). `getCompanyForecast` (the shared hourly cache) + `assessWindow` with the owner's limits: today's and tomorrow's daytime (07:00–19:00 local; today from now) and each weather-sensitive open job's own window. Nothing is fetched otherwise. |
 | Money | Collected since the last briefing day (succeeded invoice payments + quote deposits), and the overdue total and count (`ar.ts` `loadOpenInvoicesWithNames` + `agingSummary`). Imported balances still on hold (`invoices.import_hold`, read tolerantly) are left out of the overdue total. |
 | Money alert | The Bookkeeper's 8am items not told yet (see below), one line per kind, exactly as the alert words them. |
-| Heads-ups | Other AI staff (`staff-items.ts` → each role's `briefing-items.ts`), most urgent first, at most 4: Compliance (expiring / expired certificates, certificates waiting to be filed), Purchasing (materials to pick up), Service plans (unpaid renewals, lapses today), Receipts & HST (HST due within 10 days, receipt pictures needing a total). Each role decides whether it's on for the company; a role whose read fails is just left out. A briefing with only heads-ups isn't the quiet one-liner. |
+| Heads-ups | Other AI staff (`staff-items.ts` → each role's `briefing-items.ts`), at most 4, picked fairly: each role's most urgent line first, in this order, then each role's second line. Customer care (unhappy customers, warranty visits today), Compliance (expiring / expired certificates, certificates waiting to be filed), Purchasing (materials to pick up), Fleet (rentals due back, vehicle service, plate stickers), Email inbox (customer emails waiting, bid invites), Service plans (unpaid renewals, lapses today), Profit advisor (cash tight in the next 30 days), Receipts & HST (HST due within 10 days, receipt pictures needing a total). Each role decides whether it's on for the company; a role whose read fails is just left out. A briefing with only heads-ups isn't the quiet one-liner. |
 | Waiting on you | `listPendingApprovals` (codes assigned first, as `waiting_on_me` does), minus expired ones and owner-command confirmations: up to 3 one-liners, then "+N more". |
 | Yesterday | New leads (contacts created, not imported ones (`consent_source 'import'`) or job applicants (`consent_source 'job_application'` or `metadata.kind 'applicant'`)), quotes sent / approved, customers the AI texted with (`message_log.sent_by 'sms_agent'`, one per contact) and calls it answered (inbound, not voicemail, 5 s or more — the weekly report's rule). |
 
@@ -1573,3 +1573,561 @@ The companies are loaded at most once per 30 s per worker (`loadPurchasingCompan
 - Saving a recipe deletes then inserts its lines (not one transaction).
 - A job moved after its PO went out keeps the needed-by the supplier was given; the owner is told to call them.
 - On Y, an inactive (removed) supplier is never emailed; the owner gets the call-in list instead.
+
+## Email inbox
+
+Answers the business's email the way the front desk answers its texts, without reading Gmail through its API (Gmail read scopes are "restricted" and need a paid yearly CASA assessment). The owner sets their mailbox (Gmail, Outlook, anything) to auto-forward to a private address; Resend Inbound receives it and calls our signed webhook. Customer emails land in the app inbox with a reply drafted for the owner's Y. Bid invites are texted as they come, and suppliers, bills and junk are summed up once a day. Replies go out through Resend from the business name, with Reply-To set to the inbox, so the customer's next email comes back into the same thread. Code: `src/server/services/staff/email-clerk/`. Migration: `20261014100000_staff_email_clerk.sql` (rollback in `supabase/rollback/`). Webhook: `src/app/api/webhooks/email/inbound/route.ts`. Settings: Settings → AI front desk → **Email inbox** (`src/components/settings/staff/EmailClerkSettingsSection.tsx`).
+
+### What the owner sees
+
+- **Setting it up.** In Settings the owner taps **Get my inbox address** (a page view never makes one), or texts "set up email" (`email_setup`). They get the business inbox (`northshore-roofing-k3j9x2ab@in.crankleads.com`) with a copy button and the Gmail and Outlook steps. Gmail then emails its confirmation to the inbox, and the owner gets, at any hour (they're setting it up right then): `Gmail (dana@gmail.com) wants to confirm forwarding to your business inbox. Code: 123456789. In Gmail: Settings > See all settings > Forwarding and POP/IMAP, enter the code, Verify, then choose "Forward a copy of incoming mail to" northshore-roofing-k3j9x2ab@in.crankleads.com and Save. Didn't ask for this? Ignore it.` The mailbox that asked is recorded as the forwarding mailbox. The code is redacted from the stored email (`[code]`) and kept nowhere. A Microsoft forwarding code gets the same treatment. **No link in any email is ever opened.** Forwarding counts as working once real mail (not spam, bounces, auto-replies or no-reply) arrives *through* that mailbox: addressed to it, or naming it in X-Forwarded-For / X-Forwarded-To / X-Original-To / Delivered-To. Without a recorded mailbox, any real mail that wasn't addressed to the inbox directly counts, and the mailbox is read from those headers.
+- **A customer emails** ("Can you quote a full roof on 12 Bay St?"). The email shows in the app inbox like a text, and the owner gets (08:00–21:00, otherwise in the morning):
+
+  > #12 Email from Dana Jones: "Can you quote a full roof on 12 Bay St?" Draft: "Hi Dana, Thanks for reaching out to Northshore Roofing. Dana will get back to you with a price for the full roof - could you send a few photos? Thanks, Northshore Roofing" Full draft: https://app.crankleads.com/settings?section=front-desk&email=… Reply Y 12 to send it, N 12 to skip.
+
+  **Y 12** sends the reply exactly as drafted (`Sent your reply to Dana Jones (dana@example.com).`). **N 12** sends nothing, and the email waits in the inbox for the owner to answer by hand. With no model, drafts off, or a customer who unsubscribed from email, the owner just gets `Email from Dana Jones: "Roof quote" Answer it in the app: https://app.crankleads.com/inbox`.
+- **A bid invite** from a GC: `Bid invite: Smith Build - roof, due Fri. It's on your task list.` (plus a high-priority task due that day).
+- **A supplier about one of our POs**: `Rona (Midland) emailed about PO-3: "PO-3 confirmed"`.
+- **Everything else** comes once a day at 16:00: `Email today: 2 suppliers (PO-3 confirmed; Kent: Price list update), 1 bill (Rona $412 due Oct 30), 5 newsletters ignored. Text "email status" for more.` Bills are only reported; v1 doesn't file them as expenses.
+- **By text any time:** "any emails?" / "is my email working?" (`email_status`), "did Rona email about PO-3" (`email_find`), "set up email" (`email_setup`).
+- **The 07:00 briefing** gets `2 customer emails waiting on you` and `Bid invite: Smith Build - roof, due Fri` (`briefing-items.ts`).
+- **House orgs (A1 etc.)** get none of this unless switched on. They have no inbox address, so the webhook ignores anything addressed to them, no sweep touches them, and no tools or prompt notes are offered.
+
+### How an email is handled
+
+1. **Webhook** (`intake.ts`). Steps in order:
+   - The Svix signature is checked over the raw body (`signing.ts`: HMAC-SHA256 of `id.timestamp.body` with the base64-decoded `whsec_` secret, any `v1,` entry, constant-time, ±5 minutes). A bad signature gets a 400 and nothing is stored.
+   - The inbox is found from the envelope recipient (Resend's `received_for`, which carries our address when Gmail forwards an email still addressed to the owner). Only when that's empty are To / Cc / Bcc used. An address that isn't one of ours, or a company with the feature off, gets a 200 and is ignored. **The tenant comes only from that address**, looked up server-side.
+   - One row is stored per Message-ID per inbox (and per Resend id), so a retry is a no-op.
+   - The content is fetched (`GET /emails/receiving/{id}`, 8 s), and the webhook answers 200.
+   - A failed fetch still stores the row (`new`), and the sweep fetches it later. Only a failed DB write answers 500, so Resend retries.
+   - A body over 256 KB is refused (413): first by its declared `content-length`, before anything is read, then by the bytes actually received.
+2. **Sweep `email_clerk:process`** (every minute, `process.ts`). Each email is claimed with a conditional update (status → `processing`, a 5-minute lease taken from the clock at the claim, attempts + 1). A failure is retried after 10 minutes. After 3 tries the row is `dead`, and so is a row whose last lease ran out with a worker gone. The queue is read in SQL: `new`/`received`/`failed` rows with tries left (failed ones 10 minutes after the last try), and `processing` rows whose lease ran out. A pile of dead rows can never crowd out new mail. An email gone at the provider is `ignored`. The bid task and the per-email alert are claimed with conditional updates (`task_id is null`; alert `none → sending`), so two workers can't both make them.
+3. **Classification** (`classify.ts`, deterministic first):
+   - **Sender check:** Resend's `authentication` must say DKIM or DMARC **passed** and DMARC didn't fail. An unverified sender (failed, or neither passed, or no result) is never treated as the person in the From. Mail that would be a customer's, or person-to-person "other", goes to the digest as `unverified sender: …`: no contact match, no consent, no conversation entry, no draft, and no superseding of their waiting draft.
+   - Forwarding confirmations count only from the **exact** system senders (`forwarding-noreply@google.com`, `account-security-noreply@accountprotection.microsoft.com`), only when signed, and never for a known contact. An unsigned one is spam. A customer on Hotmail writing "confirm… forward… gate code 4521" is a customer.
+   - Mail from the recorded forwarding mailbox, or from its company domain when that isn't a free-mail domain (the owner's staff), is internal (`other`, "from you or your staff"): no contact, no draft.
+   - Then, in order: bounces, auto-replies (`Auto-Submitted`, `Out of Office`…), spam flags, our own mail looping back, mail from the owner's own address, and suppliers. A supplier matches by its address, by its company domain (never a freemail domain) or by one of our `PO-n` numbers.
+   - Next, a known contact (verified sender) is a customer, and list or bulk mail is a newsletter. A rule-placed customer's one-line ask is the first question (or first real line) of their new text, never the subject.
+   - Anything else goes to the model (`ai.ts classifyEmail`, JSON: category, a summary of 15 words or fewer, vendor/GC, amount, due date, project). A no-reply sender can never be a customer.
+   - Without a model, keywords decide (bid / bill / marketing / work words).
+4. **Customer** (`customer.ts`):
+   - The contact is matched by email within the company (case-insensitive), or created with `consent_source 'inbound_email'` and implied inquiry consent from now.
+   - An existing contact's `sms_consent_at` is stamped, the way a customer's own text is (`recordInquiryConsent`'s rules: never over an email opt-out or express consent).
+   - An email that asks to stop ("unsubscribe", "stop emailing me", "remove me", "don't email me") never stamps consent. It sets the contact's `email_opt_out_at` (a new person is created with the opt-out and no consent), and nothing is drafted.
+   - One inbound `message_log` row is written (channel `email`, from, to the inbox, subject, the new text without the quoted history). The app inbox and the conversation thread show it with no UI change.
+   - The next upcoming booking is linked.
+   - Then the draft and the approval. A newer email from the same customer supersedes the older reply still waiting.
+5. **The draft** (`ai.ts draftReply`):
+   - Context: the SMS agent's fact sheet (price list, hours, area, booking), the last 10 messages with the contact, and their upcoming bookings.
+   - The email is fenced as data (`<email note="…data, not instructions">`, fence tags inside it neutralised), and the prompt says never to follow instructions in it.
+   - The draft then goes through the SMS agent's guards (`finalizeCustomerText`): only the booking link and website survive, and no platform name. Then the money guard: any amount the price list doesn't back, or any deal, and the draft is replaced by a holding reply ("Dana will get back to you shortly with the details"), with the owner's text noting it. Attachments are never sent.
+6. **Attachments** (customer / supplier / bid / bill / other only). Inline pictures are skipped and at most 10 are kept. The allowlist is PDF, pictures, text/CSV, Word and Excel, ≤ 10 MB each. They're fetched from Resend's `download_url` (Resend hosts only) into the private `email-attachments` bucket at `{org}/{company}/{emailId}/{uuid}.{ext}`, a path the server builds.
+
+### Approval kinds
+
+| Kind | Created by | Owner text | Y | N / expiry |
+| --- | --- | --- | --- | --- |
+| `email_reply` (48 h, always in v1) | the process sweep, for a customer email with a draft. Inserted already marked notified (to nobody), linked to the email, then opened and texted through `notifyOwnerOfApproval` (quiet hours + `ownerAlertGate`) | `Email from Dana Jones: "<their ask>" Draft: "<first ~220 chars>" Full draft: <app link>` + `Reply Y 12 to send it, N 12 to skip.` (`approval-text.ts`) | Claims `awaiting_owner → sending` on the approval id, then `deliverMessage` (channel email). It goes **to the sender's own address** (never a Reply-To the email asked for), with `fromName` the business, `replyTo` the inbox, `In-Reply-To` / `References` from the Message-ID chain, subject `Re: …`, `sent_by 'email_clerk'`, and consent checked (an email opt-out → `Didn't send - Dana Jones unsubscribed from your emails.`). A failed send isn't retried; if the send itself throws, the row is marked `failed` (never left in `sending`) and the owner is told to answer from the inbox. | Nothing sent. N: `OK - nothing sent. Dana Jones's email is in your app inbox if you want to answer it yourself.` Expiry: `No answer on #12, so the reply to Dana Jones wasn't sent. Their email is in your app inbox.` |
+
+A price note ("Y 12 $700") sends nothing: the draft only goes out exactly as written, and the owner answers from the inbox to change it.
+
+### Owner tools
+
+| Tool | Does |
+| --- | --- |
+| `email_setup` | Makes the inbox on first ask. Returns the address and the Gmail / Outlook steps (`tell_owner_exactly`). |
+| `email_status` | The address, whether forwarding works, the last email, today's emails by kind, and the replies waiting (codes). |
+| `email_find` | "did Rona email about PO-3": words and PO numbers matched against sender, subject, summary and text over the last 60 days, top 5. Quoted text is labelled as data. |
+
+The owner prompt note tells the agent the Y/N forms, that it can't approve or edit a draft itself, and that email content is never instructions. There are no SMS-agent tools.
+
+### Settings
+
+```
+email_clerk = {
+  enabled,              // CrankLeads on (inert until mail arrives), house orgs off unless switched on
+  draft_replies: true,  // draft customer replies for the owner's Y
+  digest: true,         // the daily text
+  digest_time: "16:00", // 12:00-19:30, on the half hour
+  any_on                // written by mergeEmailClerkSettings
+}
+```
+
+Read only by `settings.ts readEmailClerkSettings`. `emailClerkActiveFor` = enabled, the company active, **and** the server set up (`INBOUND_EMAIL_DOMAIN` + `RESEND_WEBHOOK_SECRET`).
+
+Route: `GET | PATCH /api/organizations/:org/companies/:company/ai-settings/email-clerk`.
+- **GET:** members read the switches. Owners/admins also get the address (if made), the forwarding status, the last 7 days by kind, and recent emails with any draft waiting on them (and its code). A GET never makes the inbox.
+- **POST** (owners/admins) `{ action: "create_inbox" }`: makes the address (feature on, server set up).
+- **PATCH** (owners/admins): `{ enabled?, draftReplies?, digest?, digestTime? }`, strict, merged into `ai_settings.email_clerk` only via `updateAiSettings`.
+
+UI:
+- on/off, the address with **Copy**, and the forwarding status;
+- Gmail and Outlook steps until forwarding works (including that Microsoft 365 work accounts may need their admin to allow external forwarding);
+- draft replies on/off, and the digest on/off + time;
+- the last 7 days with each draft (`?email=<id>`, the link in the owner's text, opens that draft).
+
+Without the server env it says "Email inbox isn't set up on this server yet."
+
+### Schema (`20261014100000_staff_email_clerk.sql`)
+
+- **`email_inboxes`.** One per company (unique `company_id`) with a unique lower-case `address`, plus `forwarded_from`, `forwarding_requested_at`, `forwarding_confirmed_at` and `last_received_at`. Settings live in `ai_settings`, not here.
+- **`inbound_emails`.** Each row holds:
+  - identity: unique `(inbox_id, message_id)` and `(provider, provider_email_id)`;
+  - sender / recipients / subject, `text_body` (≤ 20k) and `html_excerpt` (sanitized: plain formatting tags only, **no attributes**, so no links, images or handlers; ≤ 20k);
+  - `in_reply_to`, `reference_ids`, `thread_key` (the root id), a few routing headers, SPF/DKIM/DMARC, and the attachment metadata;
+  - processing: `status new | received | processing | done | failed | dead | ignored`, `attempts`, `locked_until`, `last_error`;
+  - `category` (11 values, checked), `classified_by`, `detail` (vendor / amount / due / project / PO / forwarding provider — **never the confirmation code**) and `ai_summary`;
+  - links: contact, booking, supplier, PO, message_log, task;
+  - the reply: `draft_subject`, `draft_reply`, `approval_id` (unique) and `reply_status` (`none | no_draft | awaiting_owner | sending | sent | skipped | expired | superseded | blocked | failed`);
+  - alerts: `owner_alert_status` (`none | sending | held | sent | dropped | approval | digest`) and `digest_date`.
+- **`email_attachments`.** One row per file (unique email + Resend attachment id), status `stored | skipped_type | skipped_size | failed`, and a stored row must have a path.
+- **`email_clerk_digests`.** The daily claim, unique `(company_id, local_date)`, with attempts. Service role only.
+- **Bucket `email-attachments`.** Private, 10 MB, the allowlist above, and **no storage policies** (service role + signed URLs only).
+
+All four tables have RLS on, the composite FK to `companies (id, organization_id)` and no client writes. Inboxes, emails and attachments are **owner/admin-read** (the address lets anyone drop mail into the inbox, and the mail is the customer's); members see customer mail through `message_log` in the inbox as before. The rollback supersedes pending `email_reply` approvals, then drops the tables and the bucket (empty it first). SQL checks: `scripts/sql-tests/zz_email_clerk.test.sql`. Local types: `staff/email-clerk/db-types.ts`.
+
+### Env
+
+- `INBOUND_EMAIL_DOMAIN` (e.g. `in.crankleads.com`) and `RESEND_WEBHOOK_SECRET` (the webhook's `whsec_…` signing secret). Without either, the role is inert: the webhook answers 503, no inbox is made, there are no sweeps or tools, and Settings says so.
+- `RESEND_API_KEY` must be allowed to read received emails (full access), plus `OUTBOUND_FROM_EMAIL` for replies (already set).
+- `AI_MODEL_EMAIL_CLERK` (optional, default `claude-sonnet-5-5`) and `ANTHROPIC_API_KEY`. Without the key, emails are sorted by rules and keywords, and customers get a heads-up text instead of a draft.
+- `TWILIO_FROM_NUMBER` (owner texts) and `CRANKLEADS_APP_BASE_URL` / `APP_BASE_URL` (the app links).
+
+### Operator setup (once)
+
+1. Resend dashboard → **Domains** → add `in.crankleads.com` (a **subdomain**, so the main domain's mail is untouched) → turn on **Receiving**, then add the MX record Resend shows at the DNS host (it must be the lowest-priority MX for that subdomain), and wait for "verified".
+2. Resend → **Webhooks** → add `https://app.crankleads.com/api/webhooks/email/inbound` with the event `email.received`, then copy its signing secret.
+3. Set `INBOUND_EMAIL_DOMAIN=in.crankleads.com` and `RESEND_WEBHOOK_SECRET=whsec_…` on the web service and the workers (the sweeps run there). Make sure `RESEND_API_KEY` has full access (receiving reads), then redeploy.
+4. Check it: open Settings → AI front desk → Email inbox on a CrankLeads test business, send an email to the address shown, and it appears under "Last 7 days" within a minute.
+
+### Sweeps
+
+- `email_clerk:process` (1 min): claims and processes stored emails (≤ 25 a pass), then sends the alerts held overnight as one text per company (08:00–21:00; claimed `held → sent`, given back if the text fails).
+- `email_clerk:digest` (5 min): companies with an inbox and the feature on (house orgs only with an inbox, which needs them switched on), loaded at most every 30 s. A company is due from the digest time until 20:00 with a verified owner cell. It covers emails not yet in a digest from the last 48 h, minus those already texted. It claims the day's row before sending and retries a failed text after 10 minutes (3 tries). If there's nothing but junk, no text goes out, and that junk is marked covered for the day (tomorrow's digest doesn't count it again).
+
+### Shared files edited
+
+- `front-desk/approval-text.ts`: the `email_reply` reply-instruction case.
+
+Nothing else shared: `outbound/email.ts` / `messaging.ts` already pass the threading headers (Phase 5 base).
+
+### Tests
+
+- `src/test/staff-email-clerk.test.ts` uses the fake DB with real services (insertApproval, notify, deliverMessage, createContact, createTask, decideApproval, the registry) and **the real signed webhook route**. Twilio, Resend outbound, Resend Inbound's fetches, the bucket and the model are faked. It covers:
+  - Svix's published test vector, stale / tampered / wrong-version / missing signatures;
+  - address, Message-ID, thread, HTML, quoted-history and snippet parsing;
+  - the classification rules (a fake Gmail confirmation is spam; freemail suppliers aren't matched by domain), the model's JSON checks, the prompt fencing, and the draft guards (links, platform names, an injected price → holding reply);
+  - the owner texts and digest wording;
+  - the webhook: stored once, retry no-op, 400 / 503 / ignored, tenant only from the address, fetch failure → the sweep fetches;
+  - customers: new contact + consent + message_log + the exact approval text, a known contact stamped + booking linked, no model → a heads-up held overnight and sent at 8am, supersede, an unsubscribed customer;
+  - **`email_reply` end to end through `decideApproval`**: Y with the exact headers / Reply-To / from name / sent_by, idempotent; N; expiry; price note; opted out → blocked; send failure;
+  - forwarding confirmation (any hour, code not stored, forwarding marked working later), bid invite + task, supplier on a PO, bill + junk → one digest at 16:00 sent once, attachments (allowlist, inline, size);
+  - house orgs untouched, owner tools, briefing items, the view, and the registry.
+- `src/test/email-clerk-route.test.ts`: the settings route (member vs owner, the inbox made once, not set up, strict PATCH merge).
+- `src/test/email-clerk-settings-section.test.tsx`: the Settings section.
+- `scripts/sql-tests/zz_email_clerk.test.sql`: RLS / grants / constraints / the bucket.
+
+### Not yet
+
+- No "send as" the owner's own address (Gmail `gmail.send` / Microsoft Graph). Replies come from our sending domain with the business name, with Reply-To set to the inbox.
+- The owner can't edit a draft by text. A changed reply is written in the app inbox (which sends from the app's normal email path, without the inbox Reply-To or the threading headers).
+- Bills are summarised, not filed as expenses; supplier emails don't change a PO's status.
+- An email the owner forwards by hand ("Fwd:") is treated as coming from the owner (`other`), not from the original sender.
+- Attachments are kept but not shown in the app yet (the Settings list counts them), and they aren't read by the model.
+- One inbox per company. Changing the address means deleting its row (the old address then stops working).
+- Senders without a DKIM/DMARC pass (some small mail hosts) land in the digest as "unverified sender" rather than the inbox, even when they're real customers.
+
+## Customer care & warranty
+
+Checks in with every customer after a job, gets an unhappy customer in front of the owner the same day, and runs callbacks and warranty visits with the owner's OK. Keeps a workmanship warranty for every finished job and the equipment the business installed. Code: `src/server/services/staff/customer-care/`. Migration: `20261014110000_staff_customer_care.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Customer care & warranty** (`src/components/settings/staff/CustomerCareSettingsSection.tsx`).
+
+**On for CrankLeads companies where the texting assistant (SMS agent) is on** — customers answer the check-in and pick visit times through it (`careActiveFor` = switched on + SMS agent active + company active). **House orgs (A1 …) are off** unless they switch both on: no check-ins, no warranties recorded, no tools, no prompt notes, no sweeps touch them, and their invoices and review requests are exactly as before.
+
+**Google review policy (hard rule).** The check-in never gates review requests. Nothing here reads a rating to decide whether, when or whom to ask for a review; `reviews/*` and `review_requests` are untouched (tested: a 5/5 and a 2/5 leave the review rows byte-for-byte the same). The only link is the other way round: a check-in moves a day so it doesn't land on top of a review request. The SMS agent is told never to ask for a review.
+
+### What the owner and customers see
+
+- **The day after a job, 10:00** (setting), from the business number: "Hi Dana, it's Northshore Roofing - how did the roof replacement go? Reply 1-5 (5 = great), or tell us anything we missed."
+- **Dana replies "5, great job"** → the assistant thanks her. Nothing else (no review ask, no owner text).
+- **Dana replies "2 - still leaking by the chimney"** → the assistant says sorry and that Mike will follow up; Mike gets, right away (08:00–21:00, else at 08:00): `Dana Jones rated the roof replacement job 2/5: "still leaking by the chimney". Y 1 books a callback visit (I'll text them times). Y 2 texts them "Mike will call you today." N 1 to leave it.`
+  - `Y 1` → Dana: "Hi Dana, it's Northshore Roofing. Mike would like to come back and take a look at the roof replacement. Would any of these work: Wed Oct 14 in the morning, Wed Oct 14 in the afternoon or Thu Oct 15 in the morning? Just reply with the one that suits." Mike: "Texted Dana Jones times for a callback visit: …. I'll book the one they pick." Dana answers "Thursday morning" → the assistant books it → Mike: "Booked Dana Jones's callback visit for Thu Oct 15 in the morning (no charge - it won't be invoiced). It's pending on your calendar."
+  - `Y 2` → Dana: "Hi Dana, it's Northshore Roofing. Mike will call you today about the roof replacement." Mike: "Texted Dana Jones that you'll call today. Their number: 705-555-0123." The assistant steps back from Dana's conversation (owner takeover, 72 h).
+  - `N 1` → nothing is sent; the case stays open ("text "resolve Dana Jones" when it's sorted").
+- **A customer texts "the roof is leaking again"** → the assistant checks the warranty; if the job is still under warranty, Mike gets `#3 Dana Jones says "the roof leaks" (job May 4, 2026; 12-month workmanship warranty to May 4, 2027). Y books a no-charge warranty visit (I'll text them times), N and I'll tell them you'll call. Reply Y 3 or N 3.` Y → the same times text ("… look at the roof replacement - no charge for the visit …") and booking; N → "Hi Dana, it's Northshore Roofing. Mike will give you a call about the roof replacement." The customer is never told it's covered — that's the owner's call.
+- **By text:** "how's customer care?" (`care_status`), "warranty for Dana Jones" (`warranty_lookup`), "Dana's sorted" (`resolve_case`), "add a Lennox EL296 furnace for Dana, warranty to Nov 2035" (`add_equipment`).
+- **The 07:00 briefing** (`briefing-items.ts`, wired at integration): "1 unhappy customer waiting (Dana Jones 2/5)", "Warranty question from Dana Jones waiting on you", "Warranty visit for Dana today".
+
+### Check-ins (`checkins.ts`)
+
+- **Planning** (`customer_care:jobs`, every 5 min): `booking.completed` activity events from the last 3 days for the companies where the role works. Each job gets ONE `care_checkins` row (unique `booking_id` — the claim): `scheduled`, or `skipped` with the reason (check-ins off, no cell, opted out, under the minimum job size / no price on it when a minimum is set, no business texting number, finished too long ago). Callback / warranty visits (`care_case_bookings`) get none.
+- **When:** `delay_days` (1) after the job's local day at `time` (10:00), always 09:00–20:00 local, DST-safe (10:00 EDT = 14:00Z, 10:00 EST = 15:00Z, tested). Job value = `bookings.price_cents`, else its quote's subtotal.
+- **Reviews:** if a review request for that customer (scheduled, sending or sent) falls within 24 h of the check-in, either way, the check-in moves to the next day at the same time — **once**. If it still clashes after moving, it goes anyway (never moved again, never skipped). The review request is never touched. With the default review delay (2 h after the job, so ~22 h before a next-day 10:00 check-in) the check-in usually moves to the day after.
+- **Sending** (`customer_care:checkins`, every 5 min): claimed `scheduled → sending`, then re-checked — still on, the job still done, a cell, not opted out, the customer hasn't texted in the last 24 h, no check-in to them in the last 7 days, no open care case, the review rule above — and only 09:00–20:00 (a due check-in waits for the morning; more than 36 h late → skipped). From the company's own number only (`resolveCompanySmsFrom`), CASL consent through `deliverMessage` (`consentContact` with the job as `last_purchase_at`), STOP footer automatic, `message_log.sent_by = 'customer_care'`. Right before the send, a `care_checkin_claims` row (unique company + customer + local day) is inserted, so two jobs or two workers can never text the same customer twice in a day.
+
+### Replies — SMS agent tools (`agent-tools.ts`)
+
+| Tool | Does |
+| --- | --- |
+| `record_job_feedback {rating?, comment?, unhappy?}` | Only when a check-in went to this customer in the last 14 days. Records the rating / words on it. 4–5 (not unhappy) → "thank them warmly … don't ask for a review". 1–3, or `unhappy: true` → `openComplaint` (below); the agent says sorry and that the owner will follow up (no hand-off needed: the tool told the owner). A second unhappy text adds to the same case's notes (one case per check-in, partial unique index + a pre-check), no second alert. |
+| `check_warranty {problem, job_hint?}` | The customer's jobs (`job_warranties`) and installed equipment, as facts **for the agent only** ("don't quote warranty terms … never say it's covered or free"). Picks the job / equipment the customer's words plausibly name (never an unrelated job). A customer with an open claim gets "already has this". A matching job / equipment under warranty → a `warranty` case + a `warranty_claim` approval. No matching job, or nothing under warranty → `no_matching_job` / `under_warranty: false`, and the agent is told to hand off as before. |
+| `book_care_visit {pick?, date?, window?, starts_at?}` | The customer picks a time from the visit offer. The pick is matched against the case's **offered** times only (`offered_slots`): by `pick` (its position in the texted list — what the prompt note asks for), an exact `starts_at` (a time without an offset is read in the company's zone), the label, or (booking windows) date + window. A bare date in hourly mode only counts when one offered time is on that day; otherwise the tool returns `which_one` with the numbered list and the agent asks. Then the case is claimed `offered → booking`, the time re-checked against the calendar (`defaultAgentServices.checkAvailability`) and booked (below). Taken → back to `offered` with fresh numbered alternatives. An offer is good for 14 days. A repeat of the same call within 10 minutes reports the booking it made. |
+
+Prompt notes: answer a check-in with `record_job_feedback`; problems with past work → `check_warranty` first, never say covered / free, never promise a visit; a pick from a visit offer → `book_care_visit`, never `book_slot`; never ask for a review. The front desk's own rule ("hand off warranty claims", "never promise warranties") is unchanged: the tools only add the owner's question, and hand off whenever nothing is under warranty. A house org (role off) gets none of the tools or notes.
+
+### Care cases (`cases.ts`)
+
+`care_cases`: kind `complaint | callback | warranty`, status `open → scheduled → resolved | closed`, `opened_via checkin | sms_agent | owner`, the rating and the customer's words, the job, the owner's choice (`followup visit | call | none | expired`, claimed once), the visit offer (`visit_kind`, `visit_stage offered | booking | booked | owner_calls`, `offered_slots`), the owner alert and its approvals.
+
+**One owner text, two codes.** A low rating creates two `care_followup` approvals (visit, call). They're inserted already "notified" to nobody, so the approvals sweep never texts them one by one and a "Y" can't land on them yet. The case's alert carries both codes (an owner with several businesses sees the business name first); once it went out (08:00–21:00, verified cell, owner-alert budget) both rows are stamped `notified_to` the owner's phone, so "Y 1" / "Y 2" / "N 1" work like any approval. At night the alert waits (`owner_alert_status pending`) for the outbox sweep at 08:00; an alert whose approvals were all decided in the app first is dropped. If creating the approvals fails, the owner still gets a plain heads-up.
+
+### Approval kinds (`approvals.ts`)
+
+| Kind | Asked by | Owner text | Y | N / expiry |
+| --- | --- | --- | --- | --- |
+| `care_followup` (48 h, expiry inside 09:00–20:00) | `record_job_feedback`, two rows per case, one text (above) | `Dana Jones rated the roof replacement job 2/5: "…". Y 1 books a callback visit (I'll text them times). Y 2 texts them "Mike will call you today." N 1 to leave it.` (each row's own summary: `… Y books a callback visit (I'll text them times).` / `… Y texts them "Mike will call you today."`; reply lines `Reply Y 1 for the visit, N 1 to leave it.` / `Reply Y 2 for the call, N 2 to leave it.`) | visit row → the times text (`offerVisit`); call row → "Mike will call you today about …" + owner takeover. The other row is superseded. | N: nothing sent, case open. Expiry: nothing sent; the owner gets "No answer on #1, so nothing was sent to Dana Jones. Their case stays open - text "care status" to see it." (08:00–21:00). |
+| `warranty_claim` (48 h) | `check_warranty`, through `notifyOwnerOfApproval` (quiet hours respected) | `Dana Jones says "the roof leaks" (job May 4, 2026; 12-month workmanship warranty to May 4, 2027). Y books a no-charge warranty visit (I'll text them times), N and I'll tell them you'll call.` + `Reply Y 3 or N 3.` (equipment: `(Lennox EL296 installed Nov 2, 2025; manufacturer warranty to Nov 2, 2035)`) | the no-charge visit times text | N: "Hi Dana, it's Northshore Roofing. Mike will give you a call about …" + takeover; owner: "OK - I told Dana Jones you'll give them a call. Their number: …". Expiry: the same customer text, and the owner is told. |
+
+Idempotent: the first decision claims the case (`followup_decided_at is null → set`) before anything is sent; a repeat answers "Already handled: …". Neither kind takes a note (a price note is refused by the owner channel as for every non-price kind). A case already resolved / closed sends nothing.
+
+### Visits (`visits.ts`)
+
+- **Offer:** the owner's Y texts the customer the first 2–3 open times from the business's own calendar — the SMS agent's availability (`defaultAgentServices.checkAvailability`: booking windows via `availabilityForTenant`, else hourly online-booking times), the same core as `check_availability` and the phone. No cell / opted out / no business number, or the owner is handling the customer's texts (takeover or paused) → no times go out and the owner is told to call. No open times (no online booking, a full calendar) → the customer gets "Mike will call you to set up a time…", the owner is told, the conversation is the owner's.
+- **Booking** (`book_care_visit`): a NEW booking, service role, mirroring the agent's own booking insert — title `Callback: Roof replacement (Dana Jones)` / `Warranty visit: …`, `status pending`, `source 'customer_care'`, the window (or the hourly slot length), a description saying it's no charge — then `care_case_bookings` (unique `booking_id`; if the link can't be written the booking is cancelled, so no unlinked visit can ever be invoiced), the case `scheduled / booked`, `booking.created` emitted (reminders work as usual), the owner told (08:00–21:00).
+- **Never auto-invoiced:** `invoices/auto.ts` asks `care-visit.ts isCareVisitBooking` (a light module — only the service-role client — so other roles, e.g. the Profit advisor, can import it to leave care visits out of job counts) (one service-role read of `care_case_bookings`, pinned to the booking's org and id; any error → false) and skips with "a no-charge callback / warranty visit". Every other job, A1's included, is invoiced exactly as before (tested).
+- Texts after hours (the owner answered at 22:00) wait in the outbox for 09:00 ("It's late, so I'll text Dana Jones times … at 9am tomorrow").
+- **The case moves on with the visit** (`customer_care:jobs`): the visit marked done → its case is `resolved`; the visit cancelled (`booking.cancelled`) with no other visit of the case still on → the case goes back to `open` (`owner_calls`) and the owner is told "Dana Jones's warranty visit (Wed, Oct 14, 9:00 a.m.) was cancelled, so their case is open again. Call them at …" (08:00–21:00; the 3-day look-back catches it in the morning).
+- **Housekeeping** (`customer_care:outbox`): an offer not answered in 14 days → `owner_calls` and the owner is told ("Dana Jones never picked a time for the callback visit (offered 2 weeks ago). Give them a call at …"); a `booking` claim older than 10 minutes (a crashed worker) → back to `offered`.
+- **Switched off after the owner was asked** (Customer care or the texting assistant): Y / N / expiry send the customer nothing and the owner is told "Customer care is off for Northshore Roofing now, so I didn't text Dana Jones." 
+
+### Customer texts (`outbox.ts`)
+
+Every case text is a `care_messages` row (unique company + kind + dedupe key = the case), claimed `queued → sending` before `deliverMessage`, from the company's own number only, 09:00–20:00 local (else `not_before` = the next 09:00 and the `customer_care:outbox` sweep sends it after checking the case is still open and, for an offer, still offered; older than 3 days → skipped). CASL: they answer the customer's own message about their job — `consentContact` with the latest finished job as `last_purchase_at`; an opt-out always wins. `message_log.sent_by = 'customer_care'`. A row stuck `sending` for 10 minutes is marked failed, never re-sent.
+
+### Warranty (`warranty.ts`)
+
+- Default workmanship warranty in Settings (`warranty.months`, default 12; 0 = none; optional terms text). Per price-list item override in `warranty_terms` (months, terms).
+- Each finished job (planning sweep) gets a `job_warranties` row: the booking's own price-list item plus its quote's services (`input_snapshot.services`) → the longest term among them, where an item without an override has the company default (no item at all → the default); starts on the job's local day, ends `months` later (end-of-month clamped). Callback / warranty visits don't start a new warranty.
+- `installed_equipment` (make, model, serial, installed, manufacturer warranty end, the customer, optionally the job): Settings or the owner's `add_equipment`.
+
+### Owner tools (`owner-tools.ts`)
+
+| Tool | Does |
+| --- | --- |
+| `care_status` | Open cases (who, phone, unhappy / warranty claim / callback, rating, their words, where it stands), check-ins and answers in the last 30 days, the average rating, upcoming care visits. Customer words quoted as data. |
+| `warranty_lookup` | `customer` (name or phone, this company only) → their jobs with warranty dates and terms, and their equipment with manufacturer warranty dates. "Whether you cover something is your call." |
+| `resolve_case` | `customer`, `outcome resolved | closed`, optional note → marks their open cases and withdraws any pending question about them. |
+| `add_equipment` | `customer`, make / model, serial, installed, manufacturer warranty end (YYYY-MM-DD) → saved. Not customer-facing, so no approval. |
+
+### Settings
+
+`companies.ai_settings.customer_care`, read only by `settings.ts readCustomerCareSettings`:
+
+```
+customer_care = {
+  enabled,                                            // CrankLeads on, house orgs off unless switched on
+  checkins: { enabled: true, time: "10:00",           // 09:00–19:00 local
+              delay_days: 1, min_job_cents: 0 },      // 1–7 days; 0 = every job
+  warranty: { months: 12, terms: null },              // 0–600 months
+  any_on                                              // written by mergeCustomerCareSettings: the sweeps' filter for house orgs
+}
+```
+
+Route `GET | PATCH | POST /api/organizations/:org/companies/:company/ai-settings/customer-care`: members read (settings, the numbers, warranty overrides, equipment); the open cases only for owners/admins. Owners/admins PATCH `{ enabled?, checkins?: { enabled, time, delayDays, minJobCents }, warranty?: { months, terms } }` (strict; merged into `ai_settings.customer_care` only via `updateAiSettings`) and POST `{ action: "save_term", catalogItemId, months | null }`, `{ action: "save_equipment", equipment: { customer, make, model, serial, installedOn, warrantyEnds, notes } }`, `{ action: "remove_equipment", equipmentId }`, `{ action: "resolve_case", caseId, outcome }`.
+
+UI: on/off, a note when the texting assistant is off, the 30-day numbers, check-ins (on/off, the next day … at …, skip jobs under $…), the default warranty + terms, per-service overrides, installed equipment (add / remove), open cases with **Resolved** / **Close**.
+
+### Schema (`20261014110000_staff_customer_care.sql`)
+
+- `warranty_terms` (unique per company + item; the job's warranty is the longest of its items' terms, an item without an override counting as the default), `job_warranties` (unique `booking_id`), `installed_equipment`, `care_case_bookings` (unique `booking_id`): members read.
+- `care_checkins` (unique `booking_id`; rating 1–5), `care_cases` (one case per check-in answer, one **open** warranty claim per customer — partial unique indexes; a claim whose visit is booked doesn't block the next one): owners/admins read (customers' complaints).
+- `care_messages` (unique company + kind + dedupe key) and `care_checkin_claims` (unique company + customer + local day — the send claim): service role only.
+- RLS on all seven, composite FKs to `companies (id, organization_id)`, no client writes, `updated_at` triggers. No column is added to `bookings`. Rollback withdraws pending `care_followup` / `warranty_claim` approvals, then drops the tables (visits stay on the calendar as ordinary bookings). SQL checks: `scripts/sql-tests/zz_customer_care.test.sql`. Local types: `staff/customer-care/db-types.ts`.
+
+### Env
+
+None of its own, and no model calls: every text is built in code; replies are read by the SMS agent's own model. Uses Twilio (`TWILIO_*`, `PLATFORM_SMS_NUMBER`) like the rest of the front desk.
+
+### Sweeps
+
+`customer_care:jobs` (5 min), `customer_care:checkins` (5 min), `customer_care:outbox` (2 min). Companies are loaded at most once a minute per worker (`loadCareCompanies`: every CrankLeads company with the role and the SMS agent on, plus house-org companies with `any_on`, filtered at the query).
+
+### Shared files edited
+
+`invoices/auto.ts` (the care-visit skip, 3 lines), `front-desk/approval-text.ts` (`replyInstruction` lines for `care_followup` and `warranty_claim`).
+
+### Tests
+
+`src/test/staff-customer-care.test.ts` (fake DB, real services; Twilio and the calendar faked): settings and words, DST times, reply lines; the registry and gating (CrankLeads on, SMS agent off → off, A1 off / opted in); check-ins (planned once, the 12-month warranty, sent once from the business number with `sent_by`, A1 untouched, per-service override, 0 months, the review clash moves the check-in and leaves the review row untouched, skips, never at night, no check-in for care visits); `record_job_feedback` (5/5 → nothing but thanks and the review rows unchanged; not a check-in answer; 2/5 → one case and ONE owner text with both codes, a second text adds to it; at night the alert and the codes wait for 08:00); **`care_followup` end to end through `handleOwnerInboundSms` → `decideApproval`** (Y visit → times → `book_care_visit` books the "Callback: …" visit linked to the case, owner told, idempotent; a taken time; Y call → text + takeover + the sibling superseded; N; expiry; a late Y waits for 9am; no open times); **`warranty_claim` end to end** (exact owner text, one open claim, Y → no-charge times → "Warranty visit: …" booking; N; expiry; nothing under warranty → hand off; equipment; A1 off); owner tools; briefing items (incl. a failed read → []); the Settings view and actions; the review fixes (hourly: "2pm" books 14:00, a bare date asks which one, a local `starts_at`; a done visit resolves its case, a cancelled one reopens it and tells the owner; the review rule moves once then sends; one check-in per customer per day; 14-day offers and stuck claims; no fallback to an unrelated job; the default counts for items without an override; switched off after asking; owner takeover; a STOPped owner; the business name for multi-business owners). `src/test/customer-care-route.test.ts`: the route (roles, strict PATCH, actions) and job done → invoice (a care visit skipped; other jobs and A1's invoiced; tolerant). `src/test/customer-care-settings-section.test.tsx`: the Settings section.
+
+### Not yet
+
+- Check-ins go by SMS only (no email for customers without a cell).
+- A job whose price is unknown (no `price_cents`, no quote) is skipped when a minimum job size is set.
+- The owner's Y on a visit offers the next 2–3 open times only; "after 3pm" or a specific day goes through the conversation (the customer asks, the assistant hands off).
+- A visit booked by `book_care_visit` is `pending` like every assistant booking; the owner confirms it in the app.
+- A held owner alert whose worker crashed mid-send is re-sent once (better twice than never: the codes ride on it). An owner who texted STOP to the platform number gets no alert at all (it's dropped, not retried); the app's Approvals card still has both.
+- No ownerMedia handler (no photos needed).
+
+## Profit advisor
+
+Tells the owner where the money is going: a short money text each week, a monthly check on the price list (with a raise to approve when a service is clearly underpriced), and a 30/60/90-day cash forecast that warns when cash looks tight. Every number is built in code from the app's own data — no model calls — and nothing changes a price without the owner's `Y`. **Estimates from your app data - not financial advice** (said in the tools, the price question and Settings). Code: `src/server/services/staff/profit-advisor/`. Migration: `20261014120000_staff_profit_advisor.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Profit advisor** (`src/components/settings/staff/ProfitAdvisorSettingsSection.tsx`).
+
+### What the owner sees
+
+- **Friday 15:00** (setting: day and time), from the platform number, only when 2+ jobs were finished in the last 7 days or the next 30 days look tight:
+
+  > CrankLeads: This week: 6 jobs done, $8,420 billed, profit about $3,100 (37%). Best: Jones roof $1,200. Watch: Smith deck lost $180 (labour 9h over). Next 30 days: about $11k in, $7k out - fine. Text 'profit' for more.
+
+  When the numbers are a guess it says so ("3 crew have no pay rate - profit is a guess.", "2 jobs have no price yet.", "4 jobs have no hours or receipts logged."). An owner with more than one business gets the business name first ("Northshore Roofing: This week: …"). Tight: "… Next 30 days: about $4k in, $7k out - tight around Nov 6 (about $2,400 short)."
+- **The first Tuesday of the month**, when a service makes well under the business's average margin but customers still say yes to it:
+
+  > CrankLeads: #12 Price check - Gutter cleaning: 18 jobs in 6 months, 12% margin (you average 35%), and you win 92% of quotes. Y raises it from $189 to $215 (+14%) for new quotes. Estimates from your app data - not financial advice. Reply Y 12 to raise it, N 12 to leave it.
+
+  `Y 12` → "Done - Gutter cleaning is now $215 on your price list (was $189). New quotes use it; quotes already sent keep their price. I'll show you how it does in next month's price check." `N 12` → "OK - Gutter cleaning stays at $189. I won't ask about it again for 90 days."
+- **The 07:00 briefing** (Office manager, via `briefingItems`), only when cash looks tight in the next 30 days: "Cash looks tight around Nov 6 (about $2,400 short)".
+- **By text:** "profit" / "how did we do this month" (`profit`), "how did the Jones roof do" (`job_profit`), "will I be OK for cash" (`cash_forecast`), "am I charging enough" (`pricing_check`).
+- **House orgs (A1 etc.)** get none of this unless the owner switches it on in Settings.
+
+### Job profit (`jobs.ts`, `summary.ts`)
+
+The app's own job costing, untouched: `time/service.ts profitReport` (revenue = the job's invoice, else the approved quote / series price, before tax; cost = crew hours × `member_pay_rates` + `job_materials` + receipts on the job before tax). `jobs.ts` is a small service-role wrapper (`serviceCtx` + `profitReport` per 31-day slice, since profitReport caps at 500 jobs; `truncated` says if a slice hit it) that adds the booked length, crew count, quote and price-list item per job. **Imported past jobs** (`source_call_id` `import:…`) are history and left out (`reports/exclusions.ts`). `job_profit` uses `time/service.ts jobProfit` the same way.
+
+- **Best** = the most profit. **Watch** = the job that lost money, else the one under 15% margin. **Why** (`watchReason`): labour 1h+ over the booked time (booked length × crew on it) → "labour 9h over"; else the bigger of materials+receipts or labour ("materials $640").
+- Jobs with no price (no invoice, quote or series price) are left out of billed / profit and counted ("2 jobs have no price yet").
+- **Free visits aren't jobs.** Customer care callback / warranty visits (`care_case_bookings`, the same rule as `customer-care/care-visit.ts isCareVisitBooking`, read in one tolerant batch) and visits already paid for by an annual service plan (`service-plans/prepaid.ts isPrepaidPlanVisit`) are never counted as jobs done or "no price yet". **Our call:** a callback's cost is *not* charged back to the original job — that job is often from an earlier week or month, so it would quietly rewrite numbers the owner already saw — it's reported on its own instead ("1 free callback/warranty visit cost about $80."; `profit` lists the count and cost). Plan visits were paid up front and are only counted in `profit` (`plan_visits`).
+- **The week** is the 7 days before this week's send time (`weekWindow`: same local time a week ago → this send time), so weeks never overlap or leave a gap. `profit`'s default period (`week`) is exactly that window for the latest send (`lastWeeklyWindow`), so "Text 'profit' for more" answers for the same 7 days ("the 7 days to Fri Oct 16 3pm (the weekly money text)"); `this_week` is Monday to now.
+
+### Pricing check (`pricing.ts` — pure; `pricing-check.ts` — the data)
+
+Over the last **180 days**, but for each item **only at its current price**: jobs whose quote was sent (or approved) after the item's last price change, and quotes sent / approved after it. The last change is the later of its last applied `price_change` (`applied_at`) and a change by hand noticed by the **price watch** (`price_watch`: the rate and minimum the monthly check last saw; a different rate or minimum now → "changed now"; the monthly sweep records it, the read-only tool and Settings only compare). So a raise never stacks on old-price margins, and after the 90-day hold there must again be 5+ jobs and 5+ decided quotes at the new price.
+- **Margin per price-list item.** A job booked from a quote is split across the quote's lines the customer took (`approved_line_items`, else `line_items`, unselected optional lines out) **in proportion to each line's amount**: a $900 roof line + a $100 vent line → 90% / 10% of that job's revenue and profit. Hand-priced (custom) lines take their share but belong to no item. A job with no quote counts wholly for its `bookings.service_item_id`. Item margin = its share of profit ÷ its share of revenue; "jobs" = every job it was on. The company average = all priced jobs' profit ÷ revenue.
+- **Win rate per item**: quotes sent (or approved without ever being "sent") in the window that had it (not replaced by a revision): approved ÷ decided. A quote sent in the last 30 days that isn't approved, expired or cancelled isn't decided yet and is left out.
+- **Flag**: ≥ 5 finished jobs AND ≥ 5 decided quotes, margin ≥ 10 points under the company average, win rate ≥ 70%.
+- **Proposal**: the raise that would bring the item to the average at the same cost ((1 − item margin) ÷ (1 − average)), **capped at +15%**, rounded **down** to a tidy price ($5 steps from $100, $1 from $20, 25¢ from $5); under +3% isn't asked; **never a cut**. A minimum charge moves with it (whole dollars, same cap). Only simple prices (flat, per unit, per measure, per unit declining) — tiered and banded prices are shown, never changed — and never an item switched off on the price list (`held: inactive`). **At most one change per item per 90 days**: an applied or declined change holds the item for 90 days; an open question holds it until answered. At most **2** questions per monthly check (the thinnest margins first).
+- **The effect** of past changes: jobs and quotes since `applied_at` vs the numbers the owner saw (`price_changes.basis`), in `pricing_check` and Settings ("Gutter cleaning: raised 30 days ago - 4 jobs since at 31% margin (was 12%), winning 85% of quotes (was 92%)").
+
+### Approval kind `price_change` (`price-change.ts`)
+
+| Kind | Created by | Y | N / expiry |
+| --- | --- | --- | --- |
+| `price_change` (7 days) | the monthly check (`profit_advisor:pricing`), notified through `notifyOwnerOfApproval` (quiet hours and the owner-text budget respected) | claims the `price_changes` row `proposed → applying` (conditional on the approval id), re-checks the cap (> old, ≤ +15%, minimum never down or over +15%, a simple price type), then writes the price list — the service-role twin of `quotes/catalog-items.ts updateCatalogItemPrices` (rate, and minimum when it moves; **`active` is never written**, so a switched-off item is never switched back on) — **conditional on the rate, the minimum (when it moves), the pricing type and `active = true` all still being what the owner saw**. → `applied` + `applied_at`, and the price watch records the new price. Anything changed since → `stale`, nothing written ("Nothing changed - Gutter cleaning is $199 now, not $189 (it was changed since I asked).", "… is switched off on your price list.", "… was edited since I asked (its minimum or how it's priced)."). Item gone → `stale`. A row stuck in `applying` for 10+ minutes (a dead worker) is finished by the pricing sweep after re-checking the current price: already the new price → recorded `applied` (no second write); still the old one → the conditional write; else `stale`. | N: `declined` (held for 90 days). Expiry: `expired`, nothing changed (may be asked again next month). |
+
+- The question is inserted "notified to nobody", linked to its `price_changes` row, then opened and texted, so the approvals sweep can never text a question that isn't linked. One open question per item (partial unique index); a failed link withdraws the question (`superseded`).
+- **Notes**: the kind isn't in `PRICE_NOTE_KINDS`, so "Y 12 $199" by text is refused by the owner channel ("doesn't take a price") and nothing changes. A note arriving any other way changes nothing and is asked again inline under a fresh code ("Nothing changed yet - #12 only raises Gutter cleaning to exactly $215 (+14%). For another price, change it in your price list. #13 Reply Y 13 to raise it, N 13 to leave it.").
+- **Idempotent**: a second Y is "already" (owner channel); an executor re-run is "Already done - Gutter cleaning is $215." and writes nothing. A question with no `price_changes` row → "#12 isn't linked to a price change any more, so nothing changed."
+- The DB backstop: `price_changes_raise_only` (new > old, ≤ floor(old × 1.15)) and the same for the minimum.
+- `front-desk/approval-text.ts replyInstruction`: `price_change` → "Reply Y 12 to raise it, N 12 to leave it."
+
+### Cash forecast (`forecast.ts` — pure; `forecast-data.ts` — tolerant reads)
+
+There's no bank balance in the app, so the forecast is **relative**: it starts at $0 today and, day by day for 90 days, adds what's expected in and takes off what's expected out. Two cases: **likely** and **low** (cautious: money in later and smaller, money out +10%).
+
+| In (tax included — it's cash) | Likely | Low |
+| --- | --- | --- |
+| Open invoices (sent / viewed / partially paid, balance > 0) | due date + that customer's usual lateness (median days paid after the due date over the last 12 months; else the company's; else 7 days). Already later than usual → in a week. 90+ days overdue → half | 2 weeks later; later than usual → in a month; 90+ days overdue → nothing |
+| Approved quotes with no invoice yet (approved in the last year) | an unpaid deposit within a week; the balance after the booked job (+ the company's usual days from invoice to paid, else 14; no booking → in 30 days) | half the deposit in 3 weeks; 75% of the balance 2 weeks later |
+| Booked jobs (pending / confirmed, next 90 days, no quote counted above, no invoice, not imported, not a Customer care warranty/callback visit — tolerant read of `care_case_bookings`) | price (booking `price_cents`, else the series price, else a flat price-list price) + 13% HST, **minus an online-booking deposit that has its own invoice** (`deposit_invoice_id`: unpaid, it's counted with the open invoices; paid, it's already in), 90%, after the job | 70%, 2 weeks later |
+| | no price → half the average invoice of the last 90 days | nothing |
+| Recurring visits past the generated horizon (`recurring_jobs` active; the series' own `visit_dates`, else its rule via `occurrencesBetween`, after `generated_through`) | like booked jobs | like booked jobs |
+| Annual service-plan renewals ending in the window (`service_agreements` active / renewal due, not declined) | 70% on the term end | nothing |
+
+| Out | Likely | Low |
+| --- | --- | --- |
+| Overhead: the last 90 days of `expenses` (this company's, plus company-less ones in a one-company org; amounts as paid, HST included) as a daily rate | single expenses over **$2,500** are one-offs and left out (noted) | +10% |
+| Payroll: the last 28 days of closed `time_entries` × `member_pay_rates` as a daily rate | crew without a rate at the average known rate (noted) | +10% |
+| HST: returns whose payment is due in the window (the Tax Clerk's `hst.ts` periods + `worksheetFor`; registrants only; a period still running is scaled to its full length by the days so far, today included — only once it has 7+ days, else it's left out with a note) | net tax | same |
+| Open purchase orders (approved / sent / confirmed / ready) | only what's beyond the usual materials spend already in the overhead rate up to the last needed-by day | each in full on its needed-by day |
+| Fleet rentals still out (tolerant read of `rentals`: `rate_cents_per_day` until due back, paid on return) | same | same |
+
+**Tight** = the likely running total drops below −cushion (setting, default $0: more going out than coming in) **by at least $1,000 and at least a week of normal spending**. A smaller dip is just the days between paying bills and the next payment landing, which any running business covers from the bank — flagging it every week would teach the owner to ignore the warning. The day reported is the lowest point, and "short" is how far below −cushion it is then. `tight30` drives the weekly text and the briefing; `tight90` and the low case show in `cash_forecast` and Settings.
+
+**Tolerant**: every source is read on its own. A failed read leaves that source out with a note ("HST not included - couldn't read it."); Fleet's `rentals` is optional (no note when the table isn't there). The forecast as a whole never fails the weekly text, the briefing or a tool.
+
+### Owner tools (`owner-tools.ts`, all read-only)
+
+| Tool | Does |
+| --- | --- |
+| `profit` | `period`: `week` (default — the weekly text's 7 days) / `this_week` / `last_week` / `this_month` / `last_month` / `last_30_days`. Jobs done, billed, costs, profit, margin, the top and bottom 3 (with why), crew without a pay rate, free callback visits (count + cost), plan visits, caveats, how profit is worked out, the disclaimer. |
+| `job_profit` | `job` (customer name / job words), jobs of the last 6 months. Billed (and from what), labour hours and cost vs booked, materials, receipts, profit, margin, why, crew without a rate. Several matches → "which one" (or `most_recent: true`). |
+| `cash_forecast` | The one-line summary, 30/60/90 likely + cautious, tight in 30 / 90 days / if things go slow, the biggest money coming in, what's going out (overhead by category, payroll, lumps), notes, how it works, the disclaimer. |
+| `pricing_check` | Per item: price, counted since (the last price change, else 6 months), jobs, margin, decided quotes, win rate, looks underpriced, what the monthly check would ask, why not asked (switched off, changed in 90 days, question waiting, tiered price, too small). Questions waiting, past changes and their effect. Says it changed nothing. |
+
+Every tool refuses for a paused / archived business. Prompt note: when to use each, keep it short, say figures are estimates, the forecast starts at $0 (no bank balance), and prices only change by the owner's Y on a `price_change` question.
+
+### Briefing items (`briefing-items.ts`)
+
+`briefingItems(admin, scope, localDate)` → `["Cash looks tight around Nov 6 (about $2,400 short)"]` only when the forecast (as of 07:00 that day) is tight in the next 30 days. `[]` when cash looks fine, for house orgs / the advisor off, and on any failure. Never throws. The Office manager isn't wired to it yet (integration does that).
+
+### Settings
+
+`companies.ai_settings.profit_advisor`, read only by `staff/profit-advisor/settings.ts readProfitAdvisorSettings`:
+
+```
+profit_advisor = {
+  enabled,                                       // CrankLeads on, house orgs off
+  weekly: { enabled: true, day: 5, time: "15:00" },  // 0 = Sunday; 07:00–19:30 in half hours (sent until 20:00)
+  pricing_check: { enabled: true },
+  tight_cushion_cents: 0,                        // 0–$100,000
+  any_on                                         // written by mergeProfitAdvisorSettings: the sweeps' filter for house orgs
+}
+```
+
+Route `GET | PATCH /api/organizations/:org/companies/:company/ai-settings/profit-advisor`: members read the switches; **owners/admins** also get the cash forecast, the price check (items, questions waiting, past changes) and the last weekly text (margins come from pay rates, which are owner/admin-only). PATCH (owners/admins) `{ enabled?, weekly?: { enabled, day, time }, pricingCheck?: { enabled }, tightCushionCents? }`, strict, merged into `ai_settings.profit_advisor` only via `updateAiSettings`.
+
+UI: the switch, the weekly text (day + time), the monthly price check, the cushion ("Call cash 'tight' when money out runs ahead of money in by more than…" — $0 / $1,000 / $2,500 / $5,000 / $10,000 / $25,000), a note when no confirmed cell is on file, and for owners/admins the forecast table (likely + "if slow"), "looks tight later", notes, the services with jobs / margin / win rate / "would ask", questions waiting, past changes, the last weekly text, and the disclaimer.
+
+`profitAdvisorActiveFor` = enabled and the company active. The registry uses it to offer the owner tools and the prompt note only there. No SMS-agent tools, no `ownerMedia` handler.
+
+### Schema (`20261014120000_staff_profit_advisor.sql`)
+
+- `price_changes`: item (`service_catalog_item_id`, **set null** on delete — the history stays), label / pricing type / unit snapshot, status `proposed | applying | applied | declined | expired | stale | failed`, old / new rate and minimum, `pct`, `basis` (jobs, margin %, company margin %, quotes, win %, window), `run_key` (`YYYY-MM`), `approval_id` (unique), `decided_at`, `applied_at`, `result`. Checks: a raise only, ≤ +15% (rate and minimum). One open question per item (partial unique index on `service_catalog_item_id` where `proposed | applying`). **Owners/admins read** (`is_organization_admin`).
+- `profit_advisor_runs`: the sweeps' claims, unique `(company_id, kind, run_key)` (`weekly` + ISO week `2026-W42` — moving the day mid-week can't send twice —, `pricing` + month), status `claimed | sent | skipped | failed`, attempts, body, detail, last error. **Service role only.**
+- `price_watch`: one row per price-list item (unique, cascade with the item): the rate and minimum last seen, `changed_at` (when it last changed; null = unchanged since first seen), `seen_at`. **Service role only.**
+- All three: RLS on, composite FK to `companies (id, organization_id)`, `updated_at` triggers, no client writes. Re-runnable. The rollback withdraws pending `price_change` questions and drops the three tables (raised prices stay — they're the owner's approved prices). SQL checks: `scripts/sql-tests/zz_profit_advisor.test.sql`. Local types: `staff/profit-advisor/db-types.ts`.
+
+### Env
+
+None of its own, and **no model calls** (no `AI_MODEL_PROFIT_ADVISOR`): money is worked out and worded in code so a text can never state a number the data doesn't support. Texts use `TWILIO_FROM_NUMBER` (the platform number).
+
+### Sweeps
+
+The companies are loaded at most once per 30 s per worker (`loadProfitCompanies`): every CrankLeads company with the advisor on, plus house-org companies with `any_on`; active ones only, filtered at the query.
+- **`profit_advisor:weekly`** (10 min): on the owner's day from their time until 20:00 local, with a verified owner cell. Claimed in `profit_advisor_runs` (`weekly`, ISO week) before anything is read. Fewer than 2 jobs (free visits don't count) and cash fine → `skipped`. A failed text → `failed`, and a run stuck at `claimed` (a dead worker) — both re-claimed after 30 min (3 tries in all, conditional on status, attempts and `updated_at`) inside the window; a platform STOP → `skipped`.
+- **`profit_advisor:pricing`** (30 min): every pass first finishes price changes stuck in `applying` 10+ minutes (any day). Then the first Tuesday of the month, caught up through Friday, 09:00–17:00 local: claimed per month (`pricing`, `YYYY-MM`; failed or stuck → retried after 30 min, 3 tries), the check (which records the price watch), up to 2 `price_change` questions.
+
+### Shared files edited
+
+`front-desk/approval-text.ts` (one `replyInstruction` case). `time/service.ts` is **not** edited (wrapper instead).
+
+### Tests
+
+`src/test/staff-profit-advisor.test.ts` (fake DB, real services — `profitReport` / `jobProfit`, insertApproval, notify, the owner channel; Twilio faked):
+- the forecast maths: pay lags, invoices (customer lateness, behind, 90+ days), quotes, jobs (priced / no price / prepaid visit), series, overhead one-offs, payroll at the average rate, POs beyond the usual spend, rentals, windows, tight (date, shortfall, cushion, the noise floor), the low case, the texts;
+- the pricing maths: proportional attribution of multi-line jobs, win rates, the flag rules, the raise (cap, tidy, never a cut, simple prices only, minimum), the owner text, quote lines;
+- the weekly text word for word (the brief's example), caveats, shortening, a quiet week;
+- settings, house orgs, registry wiring (after purchasing, no duplicates);
+- the weekly sweep: the real week's job costing (imported and A1 jobs left out), once across workers, day / time / 20:00, quiet week skipped, tight week sent anyway, retry after a failed send, off / no cell;
+- the pricing check (read-only report), **`price_change` end to end through `decideApproval`** (the exact owner text, Y raises once + recorded + idempotent, the next check shows the effect and holds the item; N held 90 days; expiry; stale price; a note re-asks under a fresh code), **through `handleOwnerInboundSms`** ("Y 1 $199" changes nothing, "Y 1" raises it), A1 never checked;
+- the forecast inputs from every source, a failed source as a note, a missing `rentals` table;
+- owner tools, briefing items, the Settings view (member vs owner);
+- the review fixes: a switched-off item is never proposed or switched back on; a hand-changed minimum or price type isn't overwritten; a hand raise and day 91 after an approved raise (counted only at the current price); approved quotes never "sent"; stuck `applying` / `claimed` rows; one text per ISO week; free callback and plan visits; online-booking deposits; Fleet's `rate_cents_per_day`; HST scaling (today included, not before 7 days); `profit` = the weekly text's window; paused businesses.
+
+`src/test/profit-advisor-route.test.ts` (member vs owner, strict PATCH, another org's company), `src/test/profit-advisor-settings-section.test.tsx` (the section).
+
+### Not yet
+
+- No bank balance: the forecast is relative to today and only knows money that's already invoiced, quoted or booked, so 60–90 days out it is pessimistic for a business that books close in (new work isn't guessed at). The cushion setting is how the owner tells it what's usually in the bank.
+- Overhead and payroll are spread evenly per day (not on actual pay days or bill dates).
+- The pricing check only raises simple prices; tiered / banded items are reported, not changed. A job's labour isn't split by line beyond the line amounts.
+- Owner-chosen prices ("Y 12 $199") aren't taken — the owner changes the price list directly.
+- Warranty / callback visits are recognised only through the Customer care tables; their cost is reported on its own, not charged back to the original job.
+- A change by hand is noticed at the next monthly check (so it's dated then, not when it was made); the first check after this ships only starts the watch.
+
+## Fleet & equipment
+
+Keeps track of the business's trucks, trailers, machines, tools and rented gear: oil changes by date or by km, Ontario plate stickers, annual safety inspections, equipment service, what's out on which job, and rentals due back. The owner gets **one heads-up text a day** when something's due. Record keeping only: nothing here texts a customer or moves money, so there's **no approval kind**. Code: `src/server/services/staff/fleet/`. Migration: `20261014130000_staff_fleet.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Fleet & equipment** (`src/components/settings/staff/FleetSettingsSection.tsx`).
+
+### What the owner sees
+
+- **By text, any time** (owner tools, below): "add truck 2, 2019 F-150, plate ABCD 123, sticker due Mar 31" → `Added Truck 2 (2019 Ford F-150, plate ABCD 123). On file: plate sticker Mar 31, 2027. Text me a service schedule like "oil change every 8,000 km on truck 2".` · "truck 2 at 83,900" → `Truck 2: 83,900 km logged. Oil change due in about 200 km or by Apr 12.` · "oil change done on truck 2 at 84,200" → `Logged: Truck 2 oil change at 84,200 km (Nov 11, 2026). Next one due in about 8,000 km or by May 11.` · "rented a mini-ex from Sunbelt, $380 a day, back Thursday 5pm, for the Jones job" → `Rental saved: Sunbelt mini-ex for Jones due back Oct 15 5pm, $380/day. I'll remind you the afternoon before and that morning.` · "mini-ex is back" → `Marked the Sunbelt mini-ex returned (Oct 15). 3 days at $380/day = about $1,140.` · "mini-ex out to the Jones job with Mike" → `Mini-ex out - Jones job with Mike.` · "fleet" / "what's due on the trucks" → the status.
+- **The daily heads-up** (one text, 09:00–20:00 local, from the platform number): `Fleet heads-up: Rental: Sunbelt mini-ex due back today 5pm - $380/day after; Truck 1 plate sticker expires in 7 days; Truck 2 oil change due (about 8,100 km since last). Text me "mini-ex returned" when it's back.` From 15:00 a second, afternoon text carries only rentals due back tomorrow (`Fleet heads-up: Rental: Wacker plate compactor due back tomorrow 8am.`). Overdue rentals come every morning until returned: `Rental: Sunbelt mini-ex was due back Oct 12 (1 day late, about $380 extra)`. A km schedule with an old reading asks: `Truck 1: what's the odometer at? Text me "truck 1 at 60,000"`.
+- **An odometer photo** with "truck 2 km" is read and logged: `Truck 2: 84,200 km logged (read off the photo - tell me if it's wrong).`
+- **The 07:00 briefing** gets `Rental mini-ex due back today 5pm (Sunbelt)`, `Truck 2 oil change due (about 8,100 km since last)`, `Truck 1 plate sticker expires in 7 days` (`briefing-items.ts`).
+- **House orgs (A1 etc.)** get none of this unless switched on: no tools, no prompt note, no photo handling (a bare picture still gets "Got the picture…", words still go to the owner agent), no sweep touches them.
+
+### When things are due (`due.ts`, pure)
+
+| What | Due | Stages (claim keys) |
+| --- | --- | --- |
+| Vehicle service (`vehicle_service_items`) | by date: last done + every N months, "due" within 7 days; by km: last done km + every N km against the **projected** odometer (last reading + average km/day × days since), "due" within 10% of the interval (300–1,000 km). Past either → "overdue". km wins the wording when both. | `svc:<last done date>/<last done km>:due`, then `…:overdue` — once each per service cycle (logging the service starts a new cycle). |
+| Odometer reading | a vehicle with a km schedule whose last reading is over 30 days old (projections still run; the line says "a guess"), or a km schedule with nothing to count from because there's no reading yet (the first reading becomes its start). | `odo:<last reading date or none>:<n>` — once per 30 days. |
+| Plate sticker / safety inspection (only vehicles marked as needing one) | 30 days before (8–30 days out), 7 days before (1–7), on the day (caught up 3 days). | `plate:<date>:<stage>`, `safety:<date>:<stage>` — a renewed date starts fresh. |
+| Equipment service | by months and/or by hour meter (every N hours, 10% / ≥ 5 h ahead). | `eqsvc:<last serviced date>/<hours>:due` / `:overdue`. |
+| Rentals | due back tomorrow (afternoon text), due back later today (morning or afternoon), overdue (every morning). | `before:<due back>`, `day:<due back>`, `overdue:<local date>`. |
+
+Average km/day: the oldest and newest reading of the last 180 days, at least 7 days apart, never backwards, capped at 2,000 km/day. A new reading only replaces the stored average with a real one (never with "not enough history"); only a correction below every earlier reading clears it. Readings are km; a dash in miles is asked about, never converted.
+
+### The reminder sweep (`reminders.ts`, `fleet:reminders`, every 15 min)
+
+Modelled on the compliance expiry chase:
+1. Loads active vehicles, live equipment and open rentals due back within 3 days (paged), groups them by company, and keeps companies with Fleet **and** its reminders on, active, and a **verified** owner cell. Fleet rows only exist where Fleet was on, so a house org never enters unless it opted in.
+2. Only 09:00–20:00 company-local. Collects every due item (above) with its line and claim key.
+3. **Reads before it writes:** the claims already taken for these subjects (and today's day slots) are read first and dropped; a pass with nothing new writes nothing.
+4. **One text a day:** claims `daily:<date>:morning` (a `fleet_reminders` row with subject `company`). If that's used and it's 15:00+, `daily:<date>:afternoon` carries rental lines only (due back tomorrow / later today). Anything else that became due after the day's text waits for tomorrow's. **A rental due back before 09:00 tomorrow** is never held back: if both of today's texts are gone, it goes on its own (`daily:<date>:early:<hour>`). If the afternoon has passed (added after 20:00), the 09:00 text says it "was due back today 7:30am" — the time is always stated.
+5. Claims each item with a unique insert on `(company_id, subject_type, subject_id, reminder_key)` — a stage is never texted twice, on any worker. Most urgent first, up to 6 lines (`+N more - text "fleet" for the list`) and one hint ("Text me "mini-ex returned" when it's back.").
+6. `sendOwnerSms` (platform number, platform opt-out respected). **A failed text deletes every claim, the day slot included**, so the next sweep tries again; a blocked one (owner opted out) keeps them.
+7. Claims older than 90 days (`local_date`) are pruned each pass; every stage window is far shorter, so at worst a service left undone for 90 days is mentioned again.
+
+### Owner tools (`owner-tools.ts`)
+
+| Tool | Does |
+| --- | --- |
+| `fleet_status` | Each vehicle's odometer (and projection), plate sticker, safety inspection, driver and schedules with what's next; equipment in / out / in the shop and service; rentals out; **vehicle insurance as Compliance has it** (read-only, tolerant); what needs attention. Optional `vehicle`. |
+| `log_odometer` | `vehicle` + `km`, or `equipment` + `hours` (hour meter). A reading lower than the last (km or hours), or a jump of more than 2,000 km a day since, comes back as `ask_owner`; `correct: true` logs it anyway. Recomputes km/day; starts km schedules that had no reading to count from. |
+| `log_service` | `vehicle` + `service` (+ `km`, `date`): resets the matching schedule (no km → today's projected km, said "about"); `every_km` / `every_months` set the schedule too; no schedule → still logged, with an offer. `equipment` (+ `hours`) marks it serviced (and back from the shop). |
+| `set_service_schedule` | `vehicle` + `service` + `every_km` / `every_months` (+ last done). A new schedule with no history starts from today and the **projected** km (said "about"); a reading over 30 days old, or none, gets "what's the odometer at now?" in the reply. `remove: true` stops it. |
+| `add_vehicle` | Add / update by name: year, make, model, plate, VIN (checked), plate sticker, safety inspection, odometer, driver (crew name), notes; `retire: true`. Re-adding a **retired** vehicle's name asks "Truck 2 is retired. Bring it back to keep its history…?" and `reactivate: true` brings that one back (never a twin with no history). |
+| `add_fleet_equipment` | Add / update the business's own equipment by name: serial, value, service every hours / months, last serviced, hour meter, location; `retire: true`. Named so it can't clash with an installed-equipment tool (customer care). |
+| `add_rental` | item, vendor (+ phone → E.164), `rate_per_day`, `due_back_date` + `due_back_time` (default 5pm, said so), `job` (customer name → that booking), `out_date`. Due back must be after it went out. The reply says only what will really happen (`reminders.ts rentalReminderWords`, from today's used texts): "the afternoon before and that morning", "this afternoon", "It's due back too soon for a reminder from me", "It's already past due…", plus "each morning until it's back" if late. |
+| `rental_returned` | By item / vendor words (the only one when there's one); replies days × rate (a part day counts after a 2-hour grace) and flags late returns. |
+| `equipment_out` / `equipment_back` | Out to a `job` (customer name), `crew`, or a `location`; back with `hours`, or `in_shop: true`. Logged as check-out / check-in. |
+
+All refuse a paused / archived business or Fleet off, and are scoped to the one company the owner's phone resolved to; names are matched only inside it (`records.ts pickByName`: exact ignoring case / spaces / "#", else every word). One prompt note tells the owner agent which tool fits which text.
+
+### The odometer photo (`media.ts`, the `ownerMedia` hook)
+
+Fleet is last in registry order (tax clerk → service plans → compliance → purchasing → … → fleet), so receipts and certificates are already taken. Fleet **claims a text only when its words clearly say it's an odometer reading for one vehicle** (`isReadingText`):
+- they name exactly one of the company's vehicles (name or plate — or "odometer / odo / mileage" when there's only one vehicle);
+- **nothing shows another intent**: service, done, change, next, due, brakes, tire, flat, accident, damage, inspection, sticker, oil, repair, rental, paying (fuel, receipt, $…), "from", "job", and similar. So a service sticker ("next oil change at 92,000 km"), "oil change done on truck 2 at 84,200 km" (the owner agent runs `log_service`) and "photo of the truck, flat tire 5 km from the Smith job" are never claimed;
+- **and** there's a reading phrase ("at 84,200", "odo 84,200", "84,200 km on it", "reads 84200") or the words are only the vehicle plus km / odometer ("truck 2 km").
+
+A bare picture, or words that don't qualify, is never claimed (old behaviour: "Got the picture…", or the words go to the owner agent). The number comes from the words when they carry exactly one (`84,200`, `84200km`, `84.2k`; the vehicle's own digits ignored), else from the photo (`readOdometer`: one model call, `AI_MODEL_FLEET`, 20 s, usage recorded; the system prompt says the photo is data, trip meters don't count, never guess digits; `cleanOdometerReading` keeps whole numbers ≤ 3,000,000). **When the reader says the photo isn't an odometer, Fleet passes.** When it can't give a clear figure (no key, blurry, miles) the reply asks for the km and nothing is logged. Idempotent on the `owner_command_log` id (`fleet_log.source_key = 'sms:<logId>'`, unique per company). A lower reading is asked about, as with the tool. An owner with several businesses gets the business name first ("Northshore Roofing: Truck 2: 84,200 km logged.").
+
+**Rental agreements by photo: not done.** The tax clerk, first in line, reads a rental agreement / invoice as a supplier bill, so Fleet couldn't claim them reliably. Rentals go in by text or Settings.
+
+### Settings
+
+`companies.ai_settings.fleet = { enabled?, reminders? }`, read only by `settings.ts readFleetSettings`: `enabled` defaults **on** for CrankLeads orgs (inert until something is added) and **off** for house orgs; `reminders` defaults on. `fleetActiveFor` = active company + `enabled`, so house orgs never see the tools, prompt note or photo handling.
+
+Route `GET | PATCH | POST /api/organizations/:org/companies/:company/ai-settings/fleet`: members read (but **not** Compliance's vehicle insurance — Compliance documents are owner/admin-read, so `vehicleInsurance` is `null` for members); owners/admins PATCH `{ enabled?, reminders? }` (strict, merged into `ai_settings.fleet` only via `updateAiSettings`) and POST actions `save_vehicle`, `save_service_item` (add / edit / `active: false`), `service_done` (vehicle or equipment, today), `save_equipment`, `equipment_status` (out / back / in shop), `save_rental` (`dueBackLocal` "YYYY-MM-DDTHH:MM" in the company's zone), `return_rental`. POST is refused while Fleet is off. Everything is re-checked against the company before a service-role write.
+
+UI: on/off, the daily text, "Needs attention", vehicles (odometer, plate sticker and safety date in amber within 30 days / red when past, driver, schedules with **Done today** / **Remove**, add / edit / retire), retired vehicles (collapsed, **Bring back**), the vehicle insurance Compliance has (owners/admins, read-only), equipment (status, service, **Out** / **Back** / **In shop** / **Serviced**, add / edit / retire), rentals (**Returned**, add, recently returned).
+
+### Schema (`20261014130000_staff_fleet.sql`)
+
+- `vehicles` (name — one active per name per company; year, make, model, plate, VIN check, driver `profile_id`, `odometer_km` + `odometer_at`, `avg_km_per_day`, `plate_sticker_due`, `safety_inspection_required` + `_due`, notes, active).
+- `vehicle_service_items` (vehicle, label — one active per label per vehicle; `every_km` and/or `every_months` required; `last_done_km`, `last_done_on`, active).
+- `equipment` (name — one live per name; serial, `value_cents`, status `available | out | in_shop | retired`, location, `booking_id` (set null on delete), `out_at`, `out_profile_id`, hour meter, `service_every_hours` / `_months`, last serviced date / hours).
+- `rentals` (item, vendor, `vendor_phone` E.164, `booking_id` (set null), `out_at`, `due_back_at`, `rate_cents_per_day`, `returned_at`, `created_via owner_sms | settings`).
+- `fleet_log` (exactly one of vehicle / equipment / rental; kind `odometer | hours | service | check_out | check_in | rental_out | rental_returned`; reading, label, booking, crew, source `owner_sms | owner_photo | settings | system`, `source_key` unique per company, `happened_at`). Deleting a vehicle takes its schedules and log.
+- `fleet_reminders` (the sweep's claims: subject, `reminder_key`, local date — indexed for the 90-day prune; unique per company + subject + key). **Service role only.**
+- RLS on everything; the fleet tables are **member-read** (the crew can see what's out and where); no client writes. SQL checks: `scripts/sql-tests/zz_fleet.test.sql`. Types: `staff/fleet/db-types.ts`.
+
+### Env
+
+`AI_MODEL_FLEET` (optional, default `claude-sonnet-5-5`; only the odometer photo), `ANTHROPIC_API_KEY` (without it a photo with the number in the words still logs; otherwise the owner is asked for the km), `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` (the MMS download). No operator setup.
+
+### Sweeps
+
+`fleet:reminders` (15 min).
+
+### Briefing items (`briefing-items.ts`)
+
+`briefingItems(admin, scope, localDate)`: read-only, never throws, `[]` when Fleet is off, nothing is due or a read fails. Overdue rentals, rentals due back today, overdue then due services, plate stickers / safety inspections within 7 days (or up to 30 days past), equipment service; 4 lines at most (`+N more fleet items - text "fleet"`).
+
+### Shared files edited
+
+None. (No approval kind, so no `approval-text.ts` case.)
+
+### Tests
+
+`src/test/staff-fleet.test.ts` (fake DB, real services; Twilio, the MMS fetch and the odometer reader faked): dates / name matching; km/day, projection, service due by km and date (the brief's wording), sticker / safety stages, equipment by hours and months, rental stages and lines; settings, house orgs, registry order and `ownerMediaHandlersFor`; the owner tools end to end (add / schedule / readings incl. lower and impossible jumps / service / status, equipment out-back-serviced-hours, rentals add-return with cost); **the sweep** (one combined text, no repeats, the afternoon text, overdue every morning, hours, reminders off, unverified cell, A1 left alone and A1 opted in, a failed text releases every claim, the odometer ask, `runStaffSweeps`, the 6-line cap); **the odometer photo through `handleOwnerInboundSms`** (read off the photo, number in the words, unreadable, not claimed cases incl. the service sticker, "oil change done on truck 2 at 84,200 km" reaching the agent and "flat tire 5 km from the Smith job", the reader saying it isn't an odometer, two businesses, A1 exactly as before, idempotent, never throws); projected-km schedules and the stale-reading ask; the average not wiped; lower hour readings; rental reply wording and early-morning rentals; retired vehicles; members and Fleet-off in Settings; a repeat sweep pass writes nothing, and the prune; briefing items; the Settings view and actions. `src/test/fleet-route.test.ts`: the route (roles, strict merge, actions, bad input). `src/test/fleet-settings-section.test.tsx`: the section.
+
+### Not yet
+
+- Rental agreements and service invoices by photo (see above); fuel and repair costs stay with receipts (tax clerk), not linked to a vehicle.
+- Distances are km only; a US-plated truck in miles must be texted in km.
+- The day's text is one per day (plus the rental-only afternoon text): something that becomes due after it waits for tomorrow's.
+- Vehicle insurance is Compliance's (shown read-only, never reminded here); it isn't tied to a particular vehicle.
+- No crew-facing view of the fleet beyond Settings (members can read it there).

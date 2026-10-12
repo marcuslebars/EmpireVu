@@ -872,6 +872,35 @@ async function main(): Promise<void> {
     setMark();
   });
 
+  // P5 runs when its window comes (the first plan visit's −10 days depends on today's date): before
+  // whichever later step would move the clock past it, else in its usual place after M0+12.
+  let p5Done = false;
+  const runP5 = async (): Promise<void> => {
+    if (p5Done) return;
+    p5Done = true;
+    await step("P5. ~10 days before the first plan visit (09:00–20:00): ONE heads-up per customer from the business number; not again", async () => {
+      const visit = ids.firstVisit;
+      await clockTo(at(addDays(visit, -10), "10:00"));
+      await tick();
+      const got = sinceMark();
+      const wd = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][weekday(visit)];
+      for (const p of [ERIN, PAT]) {
+        const h = smsTo(got, p.phone);
+        console.log(`   ${p.first}: ${short(h[0]?.body)}`);
+        check(h.length === 1 && h[0].from === dana.catcher && new RegExp(`^Hi ${p.first}, it's Northshore Snow & Lawn\\. Your .+ is booked for ${wd} ${esc(mon(visit))}, morning\\. Reply to change\\.`).test(String(h[0].body)), `${p.first}'s heads-up`);
+      }
+      setMark();
+      await clockTo(at(addDays(visit, -10), "14:00"));
+      await tick();
+      check(allSms(sinceMark()).filter((m) => m.to === ERIN.phone || m.to === PAT.phone).length === 0, "no second heads-up");
+      setMark();
+    });
+  };
+  const p5Before = async (date: string, hhmm: string): Promise<void> => {
+    if (!p5Done && ids.firstVisit && at(addDays(ids.firstVisit, -10), "14:00") <= at(date, hhmm)) await runP5();
+  };
+
+  await p5Before(D(7), "10:00");
   await step("P4. Monday M0+7: the renewal batch → plan_renewals (Pat, ending in 18-11 days) → Y → Pat texted the renewal link; the renewal page works", async () => {
     await clockTo(at(D(7), "10:00"));
     await tick();
@@ -903,6 +932,7 @@ async function main(): Promise<void> {
     setMark();
   });
 
+  await p5Before(D(8), "10:00");
   await step("C3. M0+8: the certificate's 30-day text (one); the first share link has expired (410); a second share → Y → link works → turned off in Settings → 410", async () => {
     await clockTo(at(D(8), "10:00"));
     await tick();
@@ -938,13 +968,17 @@ async function main(): Promise<void> {
     setMark();
   });
 
+  await p5Before(D(9), "09:05");
   await step("T1. M0+9 09:05: the HST reminder (10 days before the due date, correct figures: imported + draft invoices out, meals at 50%) → accountant_packet → \"Y n\" emails the packet (PDF + 2 CSVs) to the accountant", async () => {
     await clockTo(at(D(9), "09:05"));
     await tick();
-    const got = sinceMark();
+    // The reminder goes out at the first pass inside its window (due − 10 days … due). Depending on
+    // today's date that can be an earlier tick than this one (M0+7 / M0+8), so look at every text.
     const appr = await latestApproval(dana.companyId!, "accountant_packet");
     ids.packetCode = String(appr?.short_code ?? "");
-    const ask = smsTo(got, dana.phone).find((m) => /HST: collected/.test(String(m.body)));
+    const reminders = smsTo(captured(), dana.phone).filter((m) => /^(CrankLeads: )?#\d+ Q\d HST: collected/.test(String(m.body)));
+    check(reminders.length === 1, `one HST reminder (${reminders.length})`);
+    const ask = reminders[0];
     console.log(`   owner: ${short(ask?.body, 600)}`);
     // Collected 520 + 195 = $715 (the draft and the imported OLD-77 are out); ITCs 130 + 6.50/2 + 13 = $146.25.
     const due = mon(hst.due);
@@ -1098,6 +1132,7 @@ async function main(): Promise<void> {
     setMark();
   });
 
+  await p5Before(D(11), "07:01");
   await step("O1. M0+11 07:01: the briefing carries the heads-ups — the sub's clearance (≤ 7 days), Smith's materials pickup (job tomorrow), HST due — and stays ≤ 612 septets", async () => {
     await clockTo(at(D(11), "07:01"));
     await tick();
@@ -1108,7 +1143,13 @@ async function main(): Promise<void> {
     check(b.length === 1 && b[0].from === PLATFORM, `one briefing from the platform number (${b.length})`);
     check(/Mike's Electric('s)? WSIB clearance expires in 5 days/.test(body), "heads-up: the sub's WSIB clearance expires in 5 days");
     check(new RegExp(`Pick up materials at Home Depot Pro \\(Barrie\\) for Smith \\(${ids.smithPo}\\)`).test(body), "heads-up: the materials pickup");
-    check(new RegExp(`${hst.label} HST due in ${daysBetween(D(11), hst.due)} days \\(about \\$568\\.75\\)`).test(body), "heads-up: HST due");
+    // Since Phase 5 the Profit advisor's cash line ranks ahead of Receipts & HST (docs/ai-staff.md →
+    // Office manager: at most 4 heads-ups, each role's first line in role order). With compliance,
+    // purchasing, service plans and a tight forecast all reporting, the HST line is the fifth and is
+    // left out; otherwise it must be there.
+    const hstLine = new RegExp(`${hst.label} HST due in ${daysBetween(D(11), hst.due)} days \\(about \\$568\\.75\\)`).test(body);
+    const fourBefore = /Cash looks tight around/.test(body) && /plan renewal unpaid/.test(body);
+    check(hstLine || fourBefore, `heads-up: HST due${!hstLine && fourBefore ? " (left out: four earlier roles fill the four slots)" : ""}`);
     check(septets(body) <= 612, `≤ 612 GSM septets (${septets(body)})`);
     check([...body].every((ch) => ch.charCodeAt(0) < 128), "plain ASCII");
     setMark();
@@ -1179,23 +1220,7 @@ async function main(): Promise<void> {
     setMark();
   });
 
-  await step("P5. ~10 days before the first plan visit (09:00–20:00): ONE heads-up per customer from the business number; not again", async () => {
-    const visit = ids.firstVisit;
-    await clockTo(at(addDays(visit, -10), "10:00"));
-    await tick();
-    const got = sinceMark();
-    const wd = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][weekday(visit)];
-    for (const p of [ERIN, PAT]) {
-      const h = smsTo(got, p.phone);
-      console.log(`   ${p.first}: ${short(h[0]?.body)}`);
-      check(h.length === 1 && h[0].from === dana.catcher && new RegExp(`^Hi ${p.first}, it's Northshore Snow & Lawn\\. Your .+ is booked for ${wd} ${esc(mon(visit))}, morning\\. Reply to change\\.`).test(String(h[0].body)), `${p.first}'s heads-up`);
-    }
-    setMark();
-    await clockTo(at(addDays(visit, -10), "14:00"));
-    await tick();
-    check(allSms(sinceMark()).filter((m) => m.to === ERIN.phone || m.to === PAT.phone).length === 0, "no second heads-up");
-    setMark();
-  });
+  await runP5();
 
   await step("C6. the certificate's 7-day text (M0+31), one", async () => {
     await clockTo(at(D(31), "10:00"));
