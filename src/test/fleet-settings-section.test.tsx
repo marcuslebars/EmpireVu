@@ -39,6 +39,7 @@ const view: FleetView = {
   equipment: [{ id: "e-1", name: "Mini-ex", serial: null, valueCents: 4_200_000, status: "out", location: "Jones job", hours: 390, serviceEveryHours: 250, serviceEveryMonths: null, lastServicedOn: null, statusWords: "out - Jones job since Oct 10", serviceWords: "service in 10 hours", tone: "soon" }],
   rentals: [{ id: "r-1", item: "plate compactor", vendor: "Wacker", vendorPhone: null, dueBackAt: "2026-10-13T12:00:00Z", rateCentsPerDay: null, returnedAt: null, words: "Wacker plate compactor, due back Oct 13 8am", tone: "soon" }],
   vehicleInsurance: [{ issuer: "Intact", expiresOn: "2027-03-31", status: "current" }],
+  retiredVehicles: [{ id: "v-9", name: "Old van", description: "2009 Ford E-250" }],
   crew: [{ profileId: "p-1", name: "Mike Dunn" }],
   attention: ["Truck 2 oil change overdue (about 8,100 km since last)"],
 };
@@ -70,6 +71,9 @@ describe("FleetSettingsSection", () => {
     fireEvent.click(screen.getByText("Returned"));
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(PATH, { method: "POST", body: JSON.stringify({ action: "return_rental", rentalId: "r-1" }) }));
 
+    fireEvent.click(screen.getByText("Bring back"));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(PATH, { method: "POST", body: JSON.stringify({ action: "save_vehicle", vehicle: { id: "v-9", active: true } }) }));
+
     fireEvent.click(screen.getByText("Add rental"));
     fireEvent.change(screen.getByLabelText("What"), { target: { value: "mini-ex" } });
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "Sunbelt" } });
@@ -84,10 +88,13 @@ describe("FleetSettingsSection", () => {
     );
   });
 
-  it("members read only", async () => {
+  it("members read only (no vehicle insurance, no edits)", async () => {
+    apiFetch.mockImplementation(() => Promise.resolve({ ...view, vehicleInsurance: null }));
     wrap(<FleetSettingsSection orgId="org-1" companyId="co-1" companyName="Northshore Roofing" canManage={false} />);
     await waitFor(() => expect(screen.getByText("Only owners and admins can change this.")).toBeInTheDocument());
     expect(screen.queryByText("Add vehicle")).toBeNull();
     expect(screen.queryByText("Done today")).toBeNull();
+    expect(screen.queryByText(/Vehicle insurance/)).toBeNull();
+    expect(screen.queryByText("Bring back")).toBeNull();
   });
 });

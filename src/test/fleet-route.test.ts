@@ -53,6 +53,9 @@ describe("fleet settings route", () => {
     const res = await json(await GET(req("GET"), ctx));
     expect(res.data?.settings).toMatchObject({ enabled: true, reminders: true });
     expect((res.data?.vehicles as Array<Record<string, unknown>>)[0]).toMatchObject({ name: "Truck 2", plate: "ABCD 123", odometerWords: "no odometer reading yet" });
+    expect(res.data?.vehicleInsurance).toBeNull(); // Compliance documents are owner/admin-read
+    h.role = "owner";
+    expect((await json(await GET(req("GET"), ctx))).data?.vehicleInsurance).toEqual([]);
   });
 
   it("PATCH: owners/admins only, strict, merges only ai_settings.fleet", async () => {
@@ -81,5 +84,10 @@ describe("fleet settings route", () => {
     expect((await POST(req("POST", { action: "save_rental", rental: { item: "x", dueBackLocal: "soon" } }), ctx)).status).toBe(400);
     expect((await POST(req("POST", { action: "drop_tables" }), ctx)).status).toBe(400);
     expect((await POST(req("POST", { action: "return_rental", rentalId: "a4000000-0000-4000-8000-000000000009" }), ctx)).status).toBe(400);
+    // Fleet off: nothing is added.
+    h.db!.tables.companies[0].ai_settings = { fleet: { enabled: false } };
+    const off = await POST(req("POST", { action: "save_vehicle", vehicle: { name: "Van" } }), ctx);
+    expect(off.status).toBe(400);
+    expect(h.db!.tables.vehicles).toHaveLength(1);
   });
 });

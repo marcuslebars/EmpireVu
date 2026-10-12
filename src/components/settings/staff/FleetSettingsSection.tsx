@@ -58,7 +58,9 @@ export interface FleetView {
     tone: Tone | null;
   }>;
   rentals: Array<{ id: string; item: string; vendor: string | null; vendorPhone: string | null; dueBackAt: string | null; rateCentsPerDay: number | null; returnedAt: string | null; words: string; tone: Tone | null }>;
-  vehicleInsurance: Array<{ issuer: string | null; expiresOn: string | null; status: string }>;
+  /** Owners/admins only (null for members). */
+  vehicleInsurance: Array<{ issuer: string | null; expiresOn: string | null; status: string }> | null;
+  retiredVehicles: Array<{ id: string; name: string; description: string }>;
   crew: Array<{ profileId: string; name: string }>;
   attention: string[];
 }
@@ -328,6 +330,8 @@ export function FleetSettingsSection({ orgId, companyId, canManage }: AiFrontDes
 
   const s = data.settings;
   const busy = act.isPending;
+  // Changes only while Fleet is on (the route refuses them otherwise).
+  const edit = canManage && s.enabled;
   const open = data.rentals.filter((r) => !r.returnedAt);
   const returned = data.rentals.filter((r) => r.returnedAt);
 
@@ -382,7 +386,7 @@ export function FleetSettingsSection({ orgId, companyId, canManage }: AiFrontDes
                       <span className={cn("block text-xs", toneCls(v.plateTone))}>Plate sticker: {v.plateStickerDue ?? "no date"}</span>
                       {v.safetyInspectionRequired && <span className={cn("block text-xs", toneCls(v.safetyTone))}>Safety inspection: {v.safetyInspectionDue ?? "no date"}</span>}
                     </span>
-                    {canManage && (
+                    {edit && (
                       <button type="button" aria-label={`Edit ${v.name}`} onClick={() => setEditing(`vehicle:${v.id}`)} className="h-7 w-7 grid place-items-center text-muted-foreground hover:text-foreground shrink-0">
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
@@ -393,7 +397,7 @@ export function FleetSettingsSection({ orgId, companyId, canManage }: AiFrontDes
                       {v.services.map((svc) => (
                         <li key={svc.id} className="flex items-center justify-between gap-2 text-xs">
                           <span className={toneCls(svc.tone)}>{svc.words}</span>
-                          {canManage && (
+                          {edit && (
                             <span className="flex gap-1 shrink-0">
                               <button type="button" disabled={busy} onClick={() => act.mutate({ action: "service_done", vehicleId: v.id, label: svc.label })} className="h-6 px-2 rounded border border-border">
                                 Done today
@@ -407,7 +411,7 @@ export function FleetSettingsSection({ orgId, companyId, canManage }: AiFrontDes
                       ))}
                     </ul>
                   )}
-                  {canManage &&
+                  {edit &&
                     (editing === `service:${v.id}` ? (
                       <ServiceForm busy={busy} onSave={(item) => act.mutate({ action: "save_service_item", vehicleId: v.id, item })} onCancel={() => setEditing(null)} />
                     ) : (
@@ -419,7 +423,7 @@ export function FleetSettingsSection({ orgId, companyId, canManage }: AiFrontDes
               ),
             )}
           </ul>
-          {canManage &&
+          {edit &&
             (editing === "vehicle:new" ? (
               <VehicleForm view={data} busy={busy} onSave={(vehicle) => act.mutate({ action: "save_vehicle", vehicle })} onCancel={() => setEditing(null)} />
             ) : (
@@ -427,12 +431,34 @@ export function FleetSettingsSection({ orgId, companyId, canManage }: AiFrontDes
                 <Plus className="w-3.5 h-3.5" /> Add vehicle
               </button>
             ))}
-          <p className="text-xs text-muted-foreground">
-            Vehicle insurance (kept by Compliance):{" "}
-            {data.vehicleInsurance.length
-              ? data.vehicleInsurance.map((d) => `${d.issuer ?? "policy"}${d.expiresOn ? ` - ${d.status === "expired" ? "expired" : "expires"} ${d.expiresOn}` : ""}`).join("; ")
-              : "none on file. Text a photo of the policy or add it under Compliance."}
-          </p>
+          {data.retiredVehicles.length > 0 && (
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer">Retired vehicles ({data.retiredVehicles.length})</summary>
+              <ul className="mt-1 space-y-1">
+                {data.retiredVehicles.map((v) => (
+                  <li key={v.id} className="flex items-center justify-between gap-2">
+                    <span>
+                      {v.name}
+                      {v.description ? ` (${v.description})` : ""}
+                    </span>
+                    {edit && (
+                      <button type="button" disabled={busy} onClick={() => act.mutate({ action: "save_vehicle", vehicle: { id: v.id, active: true } })} className="h-6 px-2 rounded border border-border text-xs">
+                        Bring back
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {data.vehicleInsurance && (
+            <p className="text-xs text-muted-foreground">
+              Vehicle insurance (kept by Compliance):{" "}
+              {data.vehicleInsurance.length
+                ? data.vehicleInsurance.map((d) => `${d.issuer ?? "policy"}${d.expiresOn ? ` - ${d.status === "expired" ? "expired" : "expires"} ${d.expiresOn}` : ""}`).join("; ")
+                : "none on file. Text a photo of the policy or add it under Compliance."}
+            </p>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -452,7 +478,7 @@ export function FleetSettingsSection({ orgId, companyId, canManage }: AiFrontDes
                     <span className="block text-xs text-muted-foreground">{e.statusWords}</span>
                     {e.serviceWords && <span className={cn("block text-xs", toneCls(e.tone))}>{e.serviceWords}</span>}
                   </span>
-                  {canManage && (
+                  {edit && (
                     <span className="flex flex-wrap gap-1 shrink-0 justify-end">
                       {e.status !== "out" && (
                         <button type="button" disabled={busy} onClick={() => act.mutate({ action: "equipment_status", equipmentId: e.id, status: "out" })} className="h-6 px-2 rounded border border-border text-xs">
@@ -481,7 +507,7 @@ export function FleetSettingsSection({ orgId, companyId, canManage }: AiFrontDes
               ),
             )}
           </ul>
-          {canManage &&
+          {edit &&
             (editing === "equipment:new" ? (
               <EquipmentForm busy={busy} onSave={(equipment) => act.mutate({ action: "save_equipment", equipment })} onCancel={() => setEditing(null)} />
             ) : (
@@ -498,7 +524,7 @@ export function FleetSettingsSection({ orgId, companyId, canManage }: AiFrontDes
             {open.map((r) => (
               <li key={r.id} className="flex items-center justify-between gap-2 rounded-lg border border-border px-2.5 py-2 text-sm">
                 <span className={cn("min-w-0 text-xs", toneCls(r.tone))}>{r.words}</span>
-                {canManage && (
+                {edit && (
                   <button type="button" disabled={busy} onClick={() => act.mutate({ action: "return_rental", rentalId: r.id })} className="h-6 px-2 rounded border border-border text-xs shrink-0">
                     Returned
                   </button>
@@ -506,7 +532,7 @@ export function FleetSettingsSection({ orgId, companyId, canManage }: AiFrontDes
               </li>
             ))}
           </ul>
-          {canManage &&
+          {edit &&
             (editing === "rental:new" ? (
               <RentalForm busy={busy} onSave={(rental) => act.mutate({ action: "save_rental", rental })} onCancel={() => setEditing(null)} />
             ) : (

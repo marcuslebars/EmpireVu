@@ -6,14 +6,20 @@
  * We claim the text ONLY when its words clearly say it's a reading for one vehicle:
  *   • the words name exactly one of the company's vehicles ("truck 2", its plate) — or the company
  *     has a single vehicle and the words say "odometer" / "odo" / "mileage";
- *   • AND they say km / kms / odometer / odo / mileage;
- *   • AND nothing about paying (fuel, gas, receipt, paid, invoice, bill, $) — that's a receipt.
+ *   • AND nothing shows another intent (OTHER_INTENT: service, done, change, next, due, brakes,
+ *     tire, flat, accident, damage, inspection, sticker, oil, rental, paying, "from", "job"…):
+ *     "next oil change at 92,000 km" (a service sticker), "oil change done on truck 2 at 84,200 km"
+ *     (that's log_service, for the owner agent) and "flat tire 5 km from the Smith job" all pass;
+ *   • AND there's a reading phrase ("at 84,200", "odo 84,200", "84,200 km on it", "reads 84200")
+ *     or the words are only the vehicle plus km / odometer ("truck 2 km").
  * A bare picture, or one whose words don't name a vehicle, is never claimed (the owner still gets
  * "Got the picture…", and words still reach the owner agent).
  *
  * The number: from the words when they carry one ("truck 2 84,200 km"), else read off the photo
- * (`readOdometer`, AI_MODEL_FLEET). If neither gives a clear km figure we still answer (the words
- * were clear) but log nothing: "…couldn't read the odometer - text me the km like …".
+ * (`readOdometer`, AI_MODEL_FLEET). When the reader says the photo ISN'T an odometer we pass. When
+ * it can't give a clear km figure (no key, blurry, miles) we answer — the words were clear — but
+ * log nothing: "…couldn't read the odometer - text me the km like …". An owner with several
+ * businesses is told which one it went to.
  *
  * Rental agreements are NOT handled here: the tax clerk (first in line) reads a rental agreement /
  * invoice as a supplier bill, so we couldn't claim them reliably. Rentals go in by text.
@@ -32,6 +38,7 @@ import { fmtNum } from "./dates";
 import type { VehicleRow } from "./db-types";
 import { MAX_KM, logOdometer, loadVehicles, norm } from "./records";
 import { loadFleetCompany } from "./settings";
+import { findOwnerCompanies } from "@/server/services/owner-channel/common";
 
 export const MEDIA_INTENT = "fleet_odometer";
 
@@ -118,9 +125,29 @@ export function resetFleetMediaDeps(): void {
   current = { ...defaults };
 }
 
-const ODO_WORDS = /\b(km|kms|kilometers|kilometres|odometer|odo|mileage)\b/i;
 const STRONG_ODO_WORDS = /\b(odometer|odo|mileage)\b/i;
-const MONEY_WORDS = /(\$|\b(fuel|gas|diesel|receipt|paid|pay|invoice|bill|rental|rented|rent)\b)/i;
+/**
+ * Words that say the text is about something else (a service sticker, a job, damage, paying…):
+ * then it's not a reading, even with a number and "km" in it — the owner agent gets it.
+ */
+const OTHER_INTENT =
+  /(\$|\b(fuel|gas|diesel|receipt|paid|pay|invoice|bill|rental|rented|rent|service|serviced|servicing|done|change|changed|changing|next|due|brakes?|tires?|tyres?|flat|accident|damage|damaged|dent|crash|crashed|inspection|sticker|oil|repair|repaired|fix|fixed|broke|broken|warning|light|insurance|plate|wash|mechanic|shop|tow|towed|stuck|from|away|until|left|job|site)\b)/i;
+/** "at 84,200", "reads 84200", "odo 84,200", "odometer is 84,200", "84,200 km (on it)". */
+const READING_PHRASE = [/\b(at|reads?|reading|odo(?:meter)?(?:\s+(?:is|at|reads?|now))?)\s*:?\s*\d[\d,. ]{2,}/i, /\d[\d,.]*\s*(km|kms|k)\b(\s+on\s+it)?/i];
+/** Words that may sit next to a vehicle's name in a bare "here's the odometer" text. */
+const FILLER = new Set(["km", "kms", "kilometers", "kilometres", "odometer", "odo", "mileage", "reading", "the", "my", "our", "here", "heres", "s", "is", "its", "it", "on", "current", "now", "today", "photo", "pic", "picture", "of", "for", "at"]);
+
+/**
+ * Do the words say "this is an odometer reading for <vehicle>"? A reading phrase, or only the
+ * vehicle's name plus odometer / km words — and nothing that shows another intent. PURE.
+ */
+export function isReadingText(body: string, vehicle: VehicleRow): boolean {
+  if (OTHER_INTENT.test(body)) return false;
+  if (READING_PHRASE.some((re) => re.test(body))) return true;
+  const nameWords = new Set([vehicle.name, vehicle.plate].flatMap((n) => norm(n).split(" ")).filter(Boolean));
+  const rest = norm(body.replace(/['’]s\b/gi, "").replace(/['’]/g, "")).split(" ").filter((w) => w && !nameWords.has(w) && !FILLER.has(w));
+  return rest.length === 0 && /\b(km|kms|odometer|odo|mileage)\b/i.test(body);
+}
 
 /** The one vehicle the words name (whole words of its name or plate), else null. PURE. */
 export function vehicleNamedIn(body: string, vehicles: VehicleRow[]): VehicleRow | null {
@@ -149,13 +176,16 @@ export function kmInWords(body: string, vehicle: VehicleRow): number | null {
 
 export async function handleFleetMedia(admin: AdminClient, input: OwnerMediaInput): Promise<OwnerMediaResult | null> {
   const body = input.body ?? "";
-  if (!body.trim() || !ODO_WORDS.test(body) || MONEY_WORDS.test(body)) return null;
+  if (!body.trim() || OTHER_INTENT.test(body)) return null;
   const company = await loadFleetCompany(admin, input.scope);
   if (!company || !company.active || !company.settings.enabled) return null;
   const vehicles = await loadVehicles(admin, company);
   if (vehicles.length === 0) return null;
   const vehicle = vehicleNamedIn(body, vehicles) ?? (vehicles.length === 1 && STRONG_ODO_WORDS.test(body) ? vehicles[0] : null);
-  if (!vehicle) return null;
+  if (!vehicle || !isReadingText(body, vehicle)) return null;
+  // An owner with several businesses is told which one it went to.
+  const owned = await findOwnerCompanies(admin, input.ownerPhone).catch(() => []);
+  const who = owned.length > 1 ? `${input.scope.companyName}: ` : "";
 
   const ask = `text me the km like "${vehicle.name.toLowerCase()} at 84,200"`;
   let km = kmInWords(body, vehicle);
@@ -163,21 +193,23 @@ export async function handleFleetMedia(admin: AdminClient, input: OwnerMediaInpu
   if (km == null) {
     const images = await current.fetchImages(input.media);
     const reading = images[0] ? await current.readOdometer({ image: images[0], scope: company }) : null;
+    // The reader says it isn't an odometer at all: not ours (the old reply / the agent take it).
+    if (reading && !reading.isOdometer) return null;
     if (reading?.isOdometer && reading.miles && reading.km != null) {
-      return { reply: `That odometer reads ${fmtNum(reading.km)} in miles. I track km - ${ask}.`, intent: MEDIA_INTENT, result: { logged: false, reason: "miles" } };
+      return { reply: `${who}That odometer reads ${fmtNum(reading.km)} in miles. I track km - ${ask}.`, intent: MEDIA_INTENT, result: { logged: false, reason: "miles" } };
     }
     if (!reading || !reading.isOdometer || reading.km == null) {
-      return { reply: `Got the photo for ${vehicle.name}, but I couldn't read the odometer - ${ask}.`, intent: MEDIA_INTENT, result: { logged: false, reason: reading ? "unreadable" : "no_reader" } };
+      return { reply: `${who}Got the photo for ${vehicle.name}, but I couldn't read the odometer - ${ask}.`, intent: MEDIA_INTENT, result: { logged: false, reason: reading ? "unreadable" : "no_reader" } };
     }
     km = reading.km;
     fromPhoto = true;
   }
   const logged = await logOdometer(admin, company, vehicle, km, input.nowMs, { source: "owner_photo", sourceKey: `sms:${input.logId}` });
-  if ("duplicate" in logged) return { reply: `Got it - ${vehicle.name} is already logged.`, intent: MEDIA_INTENT, result: { duplicate: true } };
-  if ("error" in logged) return { reply: `${logged.error} ${ask[0].toUpperCase()}${ask.slice(1)}.`, intent: MEDIA_INTENT, result: { logged: false } };
-  if ("ask" in logged) return { reply: logged.ask, intent: MEDIA_INTENT, result: { logged: false, reason: "check", km } };
+  if ("duplicate" in logged) return { reply: `${who}Got it - ${vehicle.name} is already logged.`, intent: MEDIA_INTENT, result: { duplicate: true } };
+  if ("error" in logged) return { reply: `${who}${logged.error} ${ask[0].toUpperCase()}${ask.slice(1)}.`, intent: MEDIA_INTENT, result: { logged: false } };
+  if ("ask" in logged) return { reply: `${who}${logged.ask}`, intent: MEDIA_INTENT, result: { logged: false, reason: "check", km } };
   return {
-    reply: `${vehicle.name}: ${fmtNum(km)} km logged${fromPhoto ? " (read off the photo - tell me if it's wrong)" : ""}.`,
+    reply: `${who}${vehicle.name}: ${fmtNum(km)} km logged${fromPhoto ? " (read off the photo - tell me if it's wrong)" : ""}.`,
     intent: MEDIA_INTENT,
     result: { logged: true, vehicleId: vehicle.id, km, fromPhoto },
   };

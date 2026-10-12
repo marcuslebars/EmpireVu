@@ -18,7 +18,8 @@
  */
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { sendOwnerSms } from "@/server/services/owner-channel/common";
-import { localParts } from "./dates";
+import { addDays, daysBetween, localDateOf, localParts } from "./dates";
+import { zonedInstant } from "@/server/services/booking-windows";
 import type { Db, EquipmentRow, ReminderSubject, RentalRow, ServiceItemRow, VehicleRow } from "./db-types";
 import { dateStage, equipmentDue, equipmentLine, lowerFirst, plateLine, projectedKm, rentalLine, rentalStage, safetyLine, serviceDue, serviceLine } from "./due";
 import { loadServiceItems } from "./records";
@@ -42,6 +43,8 @@ export interface Candidate {
   /** Lower first. */
   rank: number;
   hint?: string;
+  /** A rental due back before 09:00 tomorrow: its afternoon line may go out even after the day's texts. */
+  urgent?: boolean;
 }
 
 export interface FleetSnapshot {
@@ -63,7 +66,10 @@ export function collectCandidates(snapshot: FleetSnapshot, nowMs: number, timeZo
     const back = quote(`${r.item.trim().toLowerCase()} returned`);
     if (stage.stage === "overdue") out.push({ subjectType: "rental", subjectId: r.id, key: `overdue:${today}`, line: rentalLine(r, stage, timeZone), slot: "morning", rank: 0, hint: `Text me ${back} when it's back.` });
     else if (stage.stage === "day") out.push({ subjectType: "rental", subjectId: r.id, key: `day:${r.due_back_at}`, line: rentalLine(r, stage, timeZone), slot: "any", rank: 1, hint: `Text me ${back} when it's back.` });
-    else out.push({ subjectType: "rental", subjectId: r.id, key: `before:${r.due_back_at}`, line: rentalLine(r, stage, timeZone), slot: "afternoon", rank: 2 });
+    else {
+      const early = localParts(Date.parse(r.due_back_at as string), timeZone).hour < SEND_START_HOUR;
+      out.push({ subjectType: "rental", subjectId: r.id, key: `before:${r.due_back_at}`, line: rentalLine(r, stage, timeZone), slot: "afternoon", rank: 2, urgent: early });
+    }
   }
   const itemsBy = new Map<string, ServiceItemRow[]>();
   for (const i of snapshot.items) if (i.active) itemsBy.set(i.vehicle_id, [...(itemsBy.get(i.vehicle_id) ?? []), i]);
@@ -92,12 +98,15 @@ export function collectCandidates(snapshot: FleetSnapshot, nowMs: number, timeZo
         hint: `Text me ${quote(`${lowerFirst(item.label)} done on ${v.name.toLowerCase()} at`)} and the km when it's done.`,
       });
     }
-    // Km-based schedules need readings: ask when the last one is over 30 days old (every 30 days).
-    if (items.some((i) => i.every_km && i.last_done_km != null)) {
+    // Km-based schedules need readings: ask when the last one is over 30 days old, or when a km
+    // schedule has nothing to count from (no reading yet) — once per 30 days.
+    const kmItems = items.filter((i) => i.every_km);
+    if (kmItems.length) {
       const p = projectedKm(v, nowMs);
       const anchorMs = v.odometer_at ? Date.parse(v.odometer_at) : Date.parse(v.created_at);
       const daysOld = Math.floor((nowMs - anchorMs) / 86_400_000);
-      if (p.stale && daysOld >= 30) {
+      const noStart = kmItems.some((i) => i.last_done_km == null);
+      if ((p.stale && daysOld >= 30) || (noStart && !v.odometer_at)) {
         const example = `${v.name.toLowerCase()} at ${(p.km != null ? Math.round(p.km / 100) * 100 : 84_200).toLocaleString("en-CA")}`;
         out.push({ subjectType: "vehicle", subjectId: v.id, key: `odo:${v.odometer_at?.slice(0, 10) ?? "none"}:${Math.floor(daysOld / 30)}`, line: `${v.name}: what's the odometer at? Text me ${quote(example)}`, slot: "morning", rank: 40 });
       }
@@ -134,6 +143,26 @@ async function claim(admin: AdminClient, company: FleetCompany, subjectType: Rem
   return (data as { id: string }).id;
 }
 
+/** "subject_type:subject_id:reminder_key" of the claims already taken for these subjects. */
+async function claimedKeys(admin: AdminClient, company: FleetCompany, subjectIds: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  const ids = [...new Set(subjectIds)];
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await (admin as Db)
+      .from("fleet_reminders")
+      .select("subject_type, subject_id, reminder_key")
+      .eq("company_id", company.companyId)
+      .in("subject_id", ids.slice(i, i + 200))
+      .limit(5000);
+    if (error) throw error;
+    for (const r of (data ?? []) as Array<{ subject_type: string; subject_id: string; reminder_key: string }>) out.add(`${r.subject_type}:${r.subject_id}:${r.reminder_key}`);
+  }
+  return out;
+}
+
+/** Claims older than 90 days are history: every stage key is far behind them (a still-unserviced item may be reminded again). */
+export const CLAIM_KEEP_DAYS = 90;
+
 async function release(admin: AdminClient, ids: string[]): Promise<void> {
   if (ids.length) await (admin as Db).from("fleet_reminders").delete().in("id", ids);
 }
@@ -144,18 +173,31 @@ export async function remindCompany(admin: AdminClient, company: FleetCompany, s
   const local = localParts(nowMs, company.timeZone);
   if (local.hour < SEND_START_HOUR || local.hour >= SEND_END_HOUR) return 0;
   const afternoon = local.hour >= AFTERNOON_HOUR;
-  const candidates = collectCandidates(snapshot, nowMs, company.timeZone).filter((c) => c.slot !== "afternoon" || afternoon);
-  if (candidates.length === 0) return 0;
+  const all = collectCandidates(snapshot, nowMs, company.timeZone).filter((c) => c.slot !== "afternoon" || afternoon);
+  if (all.length === 0) return 0;
 
-  let slotId = await claim(admin, company, "company", company.companyId, `daily:${local.date}:morning`, local.date);
-  let use = candidates;
-  if (!slotId) {
-    if (!afternoon) return 0;
+  // Read what's already claimed first, so a pass with nothing new writes nothing.
+  const taken = await claimedKeys(admin, company, [company.companyId, ...all.map((c) => c.subjectId)]);
+  const candidates = all.filter((c) => !taken.has(`${c.subjectType}:${c.subjectId}:${c.key}`));
+  if (candidates.length === 0) return 0;
+  const morningUsed = taken.has(`company:${company.companyId}:daily:${local.date}:morning`);
+  const afternoonUsed = taken.has(`company:${company.companyId}:daily:${local.date}:afternoon`);
+  let slotKey: string;
+  let use: Candidate[];
+  if (!morningUsed) {
+    slotKey = `daily:${local.date}:morning`;
+    use = candidates;
+  } else if (afternoon && !afternoonUsed && candidates.some((c) => c.slot !== "morning")) {
+    slotKey = `daily:${local.date}:afternoon`;
     use = candidates.filter((c) => c.slot !== "morning");
-    if (use.length === 0) return 0;
-    slotId = await claim(admin, company, "company", company.companyId, `daily:${local.date}:afternoon`, local.date);
-    if (!slotId) return 0;
+  } else {
+    // Both of the day's texts are gone: only a rental due back before 9 tomorrow may still go.
+    use = candidates.filter((c) => c.urgent);
+    slotKey = `daily:${local.date}:early:${local.hour}`;
   }
+  if (use.length === 0) return 0;
+  const slotId = await claim(admin, company, "company", company.companyId, slotKey, local.date);
+  if (!slotId) return 0;
   const claimed: Candidate[] = [];
   const ids: string[] = [slotId];
   try {
@@ -196,6 +238,8 @@ async function paged<T>(admin: AdminClient, table: string, build: (q: Db) => Db)
 }
 
 export async function sweepFleetReminders(admin: AdminClient, nowMs: number): Promise<{ texted: number }> {
+  const { error: pruneErr } = await (admin as Db).from("fleet_reminders").delete().lt("local_date", addDays(new Date(nowMs).toISOString().slice(0, 10), -CLAIM_KEEP_DAYS));
+  if (pruneErr) console.error("[fleet] claim prune failed:", (pruneErr as { message?: string }).message);
   const vehicles = await paged<VehicleRow>(admin, "vehicles", (q) => q.eq("active", true));
   const equipment = await paged<EquipmentRow>(admin, "equipment", (q) => q.in("status", ["available", "out", "in_shop"]));
   // Open rentals due back within 3 days (or already overdue).
@@ -216,4 +260,38 @@ export async function sweepFleetReminders(admin: AdminClient, nowMs: number): Pr
     }
   }
   return { texted };
+}
+
+/**
+ * What add_rental can honestly promise (PURE): which of the rental's reminders will still go out,
+ * given the day's texts already sent. Mirrors remindCompany's slots.
+ */
+export function rentalReminderWords(dueMs: number, nowMs: number, timeZone: string, used: { morning: boolean; afternoon: boolean }): string {
+  if (dueMs <= nowMs) return "It's already past due - I'll remind you each morning until it's back.";
+  const today = localDateOf(nowMs, timeZone);
+  const dueDay = localDateOf(dueMs, timeZone);
+  const early = localParts(dueMs, timeZone).hour < SEND_START_HOUR;
+  const parts: string[] = [];
+  const prevDay = addDays(dueDay, -1);
+  if (daysBetween(today, prevDay) > 0) parts.push("the afternoon before");
+  else if (prevDay === today && nowMs < zonedInstant(today, `${SEND_END_HOUR}:00`, timeZone).getTime() && (early || !used.afternoon || !used.morning)) parts.push("this afternoon");
+  const morningOf = zonedInstant(dueDay, `0${SEND_START_HOUR}:00`, timeZone).getTime();
+  if (dueMs > morningOf) {
+    if (dueDay !== today) parts.push(parts.length ? "that morning" : "the morning it's due");
+    else {
+      const hour = localParts(nowMs, timeZone).hour;
+      const inWindow = hour < SEND_END_HOUR;
+      if (inWindow && !used.morning) parts.push(hour < SEND_START_HOUR ? "this morning" : "shortly");
+      else if (inWindow && !used.afternoon && dueMs > zonedInstant(today, `${AFTERNOON_HOUR}:00`, timeZone).getTime()) parts.push("this afternoon");
+    }
+  }
+  const late = " If it's late I'll remind you each morning until it's back.";
+  return parts.length ? `I'll remind you ${parts.join(" and ")}.${late}` : `It's due back too soon for a reminder from me.${late}`;
+}
+
+/** Which of today's texts are already used (for rentalReminderWords). */
+export async function usedSlots(admin: AdminClient, company: FleetCompany, nowMs: number): Promise<{ morning: boolean; afternoon: boolean }> {
+  const today = localDateOf(nowMs, company.timeZone);
+  const taken = await claimedKeys(admin, company, [company.companyId]);
+  return { morning: taken.has(`company:${company.companyId}:daily:${today}:morning`), afternoon: taken.has(`company:${company.companyId}:daily:${today}:afternoon`) };
 }

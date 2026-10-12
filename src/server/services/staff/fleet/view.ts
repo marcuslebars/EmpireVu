@@ -24,6 +24,7 @@ import {
   saveRental,
   saveServiceItem,
   saveVehicle,
+  vehicleDescription,
   vehicleInsurance,
   type EquipmentInput,
   type ServiceItemInput,
@@ -76,7 +77,10 @@ export interface FleetView {
     tone: Tone | null;
   }>;
   rentals: Array<{ id: string; item: string; vendor: string | null; vendorPhone: string | null; dueBackAt: string | null; rateCentsPerDay: number | null; returnedAt: string | null; words: string; tone: Tone | null }>;
-  vehicleInsurance: Array<{ issuer: string | null; expiresOn: string | null; status: string }>;
+  /** Compliance's vehicle insurance: owners/admins only (Compliance documents are admin-read). Null for members. */
+  vehicleInsurance: Array<{ issuer: string | null; expiresOn: string | null; status: string }> | null;
+  /** Retired vehicles (Settings shows them collapsed, with "Bring back"). */
+  retiredVehicles: Array<{ id: string; name: string; description: string }>;
   crew: Array<{ profileId: string; name: string }>;
   attention: string[];
 }
@@ -102,18 +106,20 @@ async function recentReturned(admin: AdminClient, scope: Scope, nowMs: number): 
   return (data ?? []) as RentalRow[];
 }
 
-export async function getFleetView(admin: AdminClient, scope: Scope, nowMs = Date.now()): Promise<FleetView | null> {
+export async function getFleetView(admin: AdminClient, scope: Scope, opts: { manager: boolean }, nowMs = Date.now()): Promise<FleetView | null> {
   const company = await loadFleetCompany(admin, scope);
   if (!company) return null;
   const today = localDateOf(nowMs, company.timeZone);
-  const [vehicles, equipment, open, returned, crew, insurance] = await Promise.all([
-    loadVehicles(admin, company),
+  const [allVehicles, equipment, open, returned, crew, insurance] = await Promise.all([
+    loadVehicles(admin, company, { activeOnly: false }),
     loadEquipment(admin, company),
     loadOpenRentals(admin, company),
     recentReturned(admin, company, nowMs),
     loadCrew(admin, company.organizationId),
-    vehicleInsurance(admin, company),
+    opts.manager ? vehicleInsurance(admin, company) : Promise.resolve(null),
   ]);
+  const retired = allVehicles.filter((v) => !v.active);
+  const vehicles = allVehicles.filter((v) => v.active);
   const items = await loadServiceItems(admin, company, vehicles.map((v) => v.id));
   const crewName = new Map(crew.map((c) => [c.profileId, c.name]));
   return {
@@ -185,6 +191,7 @@ export async function getFleetView(admin: AdminClient, scope: Scope, nowMs = Dat
       };
     }),
     vehicleInsurance: insurance,
+    retiredVehicles: retired.map((v) => ({ id: v.id, name: v.name, description: vehicleDescription(v) })),
     crew: crew.map((c) => ({ profileId: c.profileId, name: c.name })),
     attention: collectCandidates({ vehicles, items, equipment, rentals: open }, nowMs, company.timeZone).map((c) => c.line).slice(0, 8),
   };
@@ -193,7 +200,7 @@ export async function getFleetView(admin: AdminClient, scope: Scope, nowMs = Dat
 export async function updateFleetSettings(admin: AdminClient, scope: Scope, patch: FleetSettingsPatch): Promise<FleetView | null> {
   const written = await updateAiSettings(admin, scope, (current) => mergeFleetSettings(current, patch));
   if (!written) return null;
-  return getFleetView(admin, scope);
+  return getFleetView(admin, scope, { manager: true });
 }
 
 export type FleetAction =
@@ -218,16 +225,17 @@ function localToMs(raw: string | null | undefined, company: FleetCompany): numbe
 export async function runFleetAction(admin: AdminClient, scope: Scope, body: FleetAction, nowMs = Date.now()): Promise<{ error: string } | { ok: true } | null> {
   const company = await loadFleetCompany(admin, scope);
   if (!company) return null;
+  if (!company.settings.enabled) return { error: "Fleet & equipment is off for this business. Turn it on first." };
   switch (body.action) {
     case "save_vehicle": {
       const saved = await saveVehicle(admin, company, body.vehicle, nowMs, "settings");
-      if ("error" in saved) return saved;
+      if ("error" in saved) return { error: saved.retiredId ? `${saved.error} (Retired vehicles, below: Bring back.)` : saved.error };
       return saved.odometerNote ? { error: saved.odometerNote } : { ok: true };
     }
     case "save_service_item": {
       const vehicle = (await loadVehicles(admin, company)).find((v) => v.id === body.vehicleId);
       if (!vehicle) return { error: "Vehicle not found." };
-      const saved = await saveServiceItem(admin, company, vehicle, body.item);
+      const saved = await saveServiceItem(admin, company, vehicle, body.item, nowMs);
       return "error" in saved ? saved : { ok: true };
     }
     case "service_done": {
