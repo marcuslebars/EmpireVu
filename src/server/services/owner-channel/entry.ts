@@ -1,11 +1,11 @@
 import type { Json, Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import type { AdminClient, InboundOwnerSms } from "@/server/services/front-desk/contracts";
-import { ANYWAY_NOTE_KINDS, PRICE_NOTE_KINDS } from "@/server/services/front-desk/approval-text";
+import { ANYWAY_NOTE_KINDS, PRICE_NOTE_KINDS, TEXT_NOTE_KINDS } from "@/server/services/front-desk/approval-text";
 import { SHORT_CODE_REUSE_MS } from "@/server/services/front-desk/approvals";
 import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
 import { runOwnerCommandAgent } from "./agent";
-import { decideApproval, isExpired, listLine, looksLikeApprovalAttempt, parseApprovalReply, type ParsedApprovalReply } from "./approvals";
+import { decideApproval, isExpired, listLine, looksLikeApprovalAttempt, parseApprovalReply, parseTextNoteReply, type ParsedApprovalReply } from "./approvals";
 import { consumeLimit, findOwnerCompanies, sameOwnerPhone, sendOwnerSms, type OwnerCompany } from "./common";
 import { CONFIRM_CODE_RE, confirmationMatches, MAX_CONFIRM_ATTEMPTS, OWNER_COMMAND_KIND } from "./owner-commands";
 import { ownerMediaHandlersFor } from "@/server/services/staff/registry";
@@ -208,7 +208,7 @@ async function handleApproval(
 
   // A note is a price (or "anyway" for payroll); on a kind that can't take it, ask rather than drop it.
   const anyway = parsed.note === "anyway";
-  if (parsed.note && target.status === "pending" && !(anyway ? ANYWAY_NOTE_KINDS : PRICE_NOTE_KINDS).has(target.kind)) {
+  if (parsed.note && target.status === "pending" && !(anyway ? ANYWAY_NOTE_KINDS : PRICE_NOTE_KINDS).has(target.kind) && !TEXT_NOTE_KINDS.has(target.kind)) {
     const code = target.short_code ?? "?";
     return {
       intent: "approval_note_not_allowed",
@@ -235,6 +235,17 @@ async function handleApproval(
 async function anywayApplies(admin: AdminClient, phone: string, scope: OwnerCompany[], code: number | null, nowMs: number): Promise<boolean> {
   const asked = await approvalsAskedOf(admin, scope.map((c) => c.companyId), phone, nowMs);
   return asked.some((p) => p.status === "pending" && !isExpired(p, nowMs) && ANYWAY_NOTE_KINDS.has(p.kind) && (code == null || p.short_code === code));
+}
+
+/**
+ * Does "Y 12 <words>" go to a TEXT_NOTE_KINDS approval (materials_order) asked of this phone? With a
+ * code: that code's pending row is one. Without: it's the only thing waiting on this phone.
+ */
+async function textNoteApplies(admin: AdminClient, phone: string, scope: OwnerCompany[], code: number | null, nowMs: number): Promise<boolean> {
+  const asked = await approvalsAskedOf(admin, scope.map((c) => c.companyId), phone, nowMs);
+  const live = asked.filter((p) => p.status === "pending" && !isExpired(p, nowMs) && p.kind !== OWNER_COMMAND_KIND);
+  if (code != null) return live.some((p) => p.short_code === code && TEXT_NOTE_KINDS.has(p.kind));
+  return live.length === 1 && TEXT_NOTE_KINDS.has(live[0].kind);
 }
 
 /**
@@ -398,6 +409,12 @@ async function route(admin: AdminClient, sms: InboundOwnerSms, owned: OwnerCompa
   // "Y anyway" / "Y 12 anyway" only means something for a pending payroll_period asked of this
   // phone (the Recruiter); otherwise the text goes down exactly the path it always did.
   if (parsed?.note === "anyway" && !(await anywayApplies(admin, sms.from, hint ? [hint] : owned, parsed.code, nowMs))) parsed = null;
+  // "Y 12 delivery" / "Y 12 no nails" only means something for a pending materials_order asked of
+  // this phone (Purchasing); otherwise the text goes down exactly the path it always did.
+  if (!parsed) {
+    const withWords = parseTextNoteReply(body);
+    if (withWords && (await textNoteApplies(admin, sms.from, hint ? [hint] : owned, withWords.code, nowMs))) parsed = withWords;
+  }
   if (parsed) return handleApproval(admin, sms, parsed, owned, hint, body, nowMs);
   if (looksLikeApprovalAttempt(body)) {
     const ask = await askDidYouMean(admin, sms, owned, hint, nowMs);

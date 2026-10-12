@@ -989,3 +989,142 @@ Types: `staff/recruiter/db-types.ts` until merged into `database.types.ts`.
 ## Compliance
 
 ## Purchasing
+
+Orders the materials for booked jobs. A quoted job gets a materials list from the price list's recipes (or an AI estimate), the owner OKs it by text, and the supplier gets an email. The owner is reminded to pick it up, and the crew see the list on the job sheet. Code: `src/server/services/staff/purchasing/`. Migration: `20261013130000_staff_purchasing.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Purchasing** (`src/components/settings/staff/PurchasingSettingsSection.tsx`).
+
+### What the owner sees
+
+- **A job is booked from a quote, 2+ days out.** Within 10 minutes, from the platform number:
+
+  > #12 Materials for Jones - Roof replacement Thu Oct 15 (PO-1): 22 bundles shingles, 3 rolls underlay, 1 box nails (~$1,162). Y emails Home Depot Pro (Barrie) for pickup Wed Oct 14. Reply Y 12 to order it, Y 12 delivery for delivery, Y 12 no nails to leave nails out, N 12 to skip.
+
+  When the list came from the AI, the total reads "(~$1,162, AI estimate - check it)".
+- **`Y 12`** → Home Depot Pro gets an email from "Northshore Roofing" (reply-to the owner's email) with PO-1, the list, the pickup day and the account number. The owner gets back: `Emailed PO-1 to Home Depot Pro (Barrie) for pickup Wed Oct 14. Their reply goes to dana@northshore.ca. Text "PO-1 ready" when it's ready.`
+- **`Y 12 delivery no nails`** → the same email, but "Please deliver this order by Wednesday, October 14", with the job site address and no nails. The reply says what changed: `… for delivery by Wed Oct 14 (delivery; no nails) …`. **`Y 12 25 bundles shingles`** changes an amount.
+- **A note it can't read** (`Y 12 make it friday`, `Y 12 from Rona`, `Y 12 $700`): nothing is sent. The PO gets a fresh question, asked inline: `Nothing was sent: I'm not sure what "make it friday" means. I can do "delivery" / "pickup", leave items out ("no nails") or change an amount ("25 bundles shingles"). #13 Materials for … Reply Y 13 to order it, …`
+- **No supplier email** (or no supplier at all): Y texts the owner the list to call in: `Call in PO-1 to Home Depot Pro (Barrie) (705-555-1234) for pickup Wed Oct 14 (Jones - Roof replacement). Account 12345. 22 bundles shingles, 3 rolls underlay, 1 box nails. Text "PO-1 ready" when it's ready.` The same text is used when the email fails, or when no owner email is on file for the reply-to.
+- **The afternoon before the job** (15:00–20:00 local), if it isn't picked up or delivered: `Tomorrow: Jones - Roof replacement (8:00 a.m.). Materials PO-1 from Home Depot Pro (Barrie) aren't picked up yet. Text "PO-1 picked up" once you have them.`
+- **The 07:00 briefing** (Office manager, via `briefingItems`): `Pick up materials at Home Depot Pro (Barrie) for Jones (PO-1)` the day before, `… - job today` on the day.
+- **The crew** see a read-only **Materials ordered** block on the job sheet: PO, supplier, items, pickup/delivery day and status. It shows no prices and no drafts.
+- **House orgs (A1 etc.)** get none of this unless the owner switches it on in Settings.
+
+### Approval kinds
+
+| Kind | Created by | Y | N / expiry |
+| --- | --- | --- | --- |
+| `materials_order` | the draft sweep (notified through `notifyOwnerOfApproval`, so quiet hours apply), or owner tool `order_materials` (asked inline). TTL 48 h, ending 6 h before the job (at least 2 h). | Re-checks the job is still pending/confirmed and the PO is still the draft for this approval (conditional `draft → approved`), applies the note, recomputes needed-by, then emails the supplier (`sent`, `sent_via 'email'`) or texts the call-in list (`approved`, `sent_via 'owner_call_in'`). | `cancelled` (`owner_said_no` / `expired`). N: `OK - nothing ordered for Jones - Roof replacement (Thu Oct 15).` Expiry: `No answer on #12, so nothing was ordered for … Text "order materials for Jones" to start again.` |
+
+**Words after Y.** `parseApprovalReply` is unchanged. A new `parseTextNoteReply` (owner-channel/approvals.ts) reads "Y [code] <words>". `owner-channel/entry.ts` treats it as a decision only when a `TEXT_NOTE_KINDS` approval (`materials_order`, in `approval-text.ts`) waits on this phone: with a code, that code's pending row must be one; without a code, it must be the only thing waiting. Otherwise the text takes exactly the old path ("did you mean", or a command). Questions and thank-yous ("ok thanks") never count. A price note on a `materials_order` goes to the executor, which asks again. `format.ts parseOrderNote` understands:
+- pickup / delivery ("delivery", "deliver it", "I'll pick it up");
+- leaving items out ("no nails", "without the underlay", "skip drip edge");
+- amounts ("25 bundles shingles", "shingles 30").
+
+Items match on every meaningful word (plurals and unit words ignored). Anything else, an item that isn't on the list, or a note that would leave nothing → nothing is sent, and the owner is asked again under a fresh code (the PO is re-pointed to it).
+
+**Idempotent.** The `draft → approved` claim is conditional on the approval id, so a re-run sends nothing ("already handled"). If the PO no longer points at the approval, the reply is "#12 isn't linked to a materials order any more, so nothing was sent."
+
+### How the list is built (`lines.ts`, `ai.ts`, `orders.ts`)
+
+1. **What was sold.** The quote's price-list services come from `input_snapshot.services`. Optional lines count only if the customer chose them (`approved_line_items`, else `line_items.selected`). Units per line:
+   - per-measure items: the measure (squares, sq ft, feet);
+   - per-unit items: the quantity;
+   - flat items: 1.
+2. **Recipes first.** `material_recipes` × units, rounded **up** to whole units (21.6 bundles → 22), merged by label + unit.
+3. **AI fallback** (setting on). Services with no recipe, and hand-priced lines, go to Claude (`AI_MODEL_PURCHASING`) with the job title/description and the trade (industry pack). The quote and job text are fenced as `<job note="data …">` with angle brackets stripped. It returns JSON: at most 12 lines, links and markup stripped, quantities rounded up, a rough unit cost. It's marked `source: "ai"` and "AI estimate - check it" in the owner's text. No model or a bad answer → no AI lines. An empty answer means the job needs no materials.
+4. **Supplier.** The one the recipe lines name most, else the preferred supplier, else the only one. Its name is snapshotted on the PO.
+5. **Needed by** the local day before the job (never before today). Pickup/delivery comes from the setting.
+
+### Owner tools
+
+| Tool | Does |
+| --- | --- |
+| `materials_status` | Open orders (or one job / PO): status, job, supplier, pickup/delivery, needed-by, items, estimated vs **actual** (receipts on the job before tax: `expenses.amount_cents - tax_cents`, the figure job costing uses), the difference, and what the estimate came from. |
+| `mark_materials` | `confirmed` / `ready` / `picked_up` / `delivered` / `cancel` by PO number or job name (conditional update). A draft has to be answered first. Cancelling an emailed PO reminds the owner to call the supplier (we don't email a cancellation). |
+| `order_materials` | Draft for an upcoming job now (next 60 days, any lead time) → `materials_order` asked inline. Refused when the job already has an open PO. |
+| `add_supplier` | Add or update by name + branch: email, phone (→ E.164), account number, preferred (exclusive), notes. |
+| `set_recipe` | Replace a price-list item's recipe (`qty_per_unit`, unit, optional unit cost in dollars). An empty list clears it. |
+
+The prompt note tells the owner agent the Y/N forms, that it can't approve an order itself, to relay `tell_owner_exactly` word for word, and never to invent prices. No SMS-agent tools.
+
+### Costing
+
+Purchasing **never writes `job_materials` or `expenses`**. The PO keeps its own estimate (`est_total_cents`, lines). Real costs arrive as receipts (expenses on the booking; the tax clerk may tag a PO-<n>), and `jobProfit` already counts those. So nothing is counted twice (tested: both tables stay empty through draft, Y and tracking). `materials_status` shows estimated vs actual side by side.
+
+### Settings
+
+`companies.ai_settings.purchasing`, read only by `staff/purchasing/settings.ts readPurchasingSettings`:
+
+```
+purchasing = {
+  enabled,                         // CrankLeads on, house orgs off
+  lead_days: 2,                    // 1-14: only jobs at least this far out are drafted (and at most 14 days out)
+  max_per_day: 3,                  // 1-20: materials_order questions per company per local day (the sweep's)
+  default_fulfilment: "pickup",    // or "delivery"
+  ai_estimate: true,               // no recipe → AI estimate
+  any_on                           // written by mergePurchasingSettings: the sweeps' filter for house orgs
+}
+```
+
+Route: `GET | PATCH | POST /api/organizations/:org/companies/:company/ai-settings/purchasing`.
+- **GET** (members): the settings, recent orders and the price list with recipes. Suppliers (account numbers) and the reply-to email are returned to owners/admins only.
+- **PATCH** (owners/admins): `{ enabled?, leadDays?, maxPerDay?, defaultFulfilment?, aiEstimate? }`, strict, merged into `ai_settings.purchasing` only via `updateAiSettings`.
+- **POST** (owners/admins): `{ action: "save_supplier", supplier }`, `{ action: "remove_supplier", supplierId }` (soft: past POs keep the name), `{ action: "save_recipe", catalogItemId, lines }`.
+
+UI: the switch, lead days, orders per day, pickup/delivery, the AI estimate, suppliers (add / edit / remove, main supplier), a recipe editor (pick a service, edit its lines) and recent orders.
+
+`purchasingActiveFor` = enabled and the company active. The registry uses it to offer the owner tools and the prompt note only there.
+
+Job sheet: `GET /api/organizations/:org/jobs/:bookingId/materials-orders` (`crewRoute`, any member, the caller's own RLS client) → `src/components/jobs/JobMaterialsOrders.tsx`, one line added to `JobSheetView.tsx`.
+
+### Schema (`20261013130000_staff_purchasing.sql`)
+
+- `suppliers`: name, branch, email, phone (E.164 check), account number, preferred (one per company: partial unique index), notes, active. **Owners/admins read** (`is_organization_admin`).
+- `material_recipes`: per `service_catalog_item_id`: label, `qty_per_unit` (numeric > 0), unit, `supplier_id`, `est_unit_cost_cents`, sort order. Members read.
+- `purchase_orders` has these columns:
+  - status `draft | approved | sent | confirmed | ready | picked_up | delivered | cancelled`;
+  - `po_seq` / `po_number` (`PO-<n>`, unique per company, allocated max + 1 with a retry on conflict);
+  - `booking_id`, `supplier_id`, `supplier_name`, `needed_by`, `fulfilment`;
+  - `lines` jsonb `[{label, qty, unit, estUnitCostCents, source}]`, `est_total_cents`, `basis` `recipe | ai | mixed`;
+  - `source` `auto | owner`, `approval_id`;
+  - `sent_at`, `sent_via`, `sent_to`, `send_error`, `reminder_sent_at`, `status_changed_at`, `cancel_reason`.
+
+  Members read it (the job sheet).
+- `purchase_order_drafts`: the draft sweep's claim, unique `booking_id`, outcome `working | asked | no_materials | failed`, attempts. Service role only.
+- All four: RLS on, composite FK to `companies (id, organization_id)`, no client writes. The rollback supersedes pending `materials_order` approvals, then drops the tables. SQL checks: `scripts/sql-tests/zz_purchasing.test.sql`. Local types: `staff/purchasing/db-types.ts`.
+
+### Env
+
+- `AI_MODEL_PURCHASING` (optional, default `claude-sonnet-5-5`) and `ANTHROPIC_API_KEY`. Without the key, only recipes are used and the Settings note says so.
+- `RESEND_API_KEY` + `OUTBOUND_FROM_EMAIL` for supplier emails (already set). Without them, Y falls back to the call-in text.
+- `TWILIO_FROM_NUMBER` (the platform number) for owner texts.
+
+### Sweeps
+
+The companies are loaded at most once per 30 s per worker (`loadPurchasingCompanies`): every CrankLeads company with the feature on, plus house-org companies with `any_on`. Active ones only, filtered at the query.
+- **`purchasing:draft`** (10 min). Confirmed bookings with a `quote_id`, starting from now + `lead_days` to now + 14 days, at most 25 jobs per company per pass. Jobs that already have a non-cancelled PO are skipped. The claim (`purchase_order_drafts`) is inserted before any work. A failure is retried after 30 min, up to 3 tries. "No materials" is remembered, so the model is asked once per job.
+- **`purchasing:reminders`** (10 min). 15:00–20:00 local. POs `approved | sent | confirmed | ready` whose job (pending/confirmed) is tomorrow, claimed by `reminder_sent_at` (released if the text fails).
+
+### Tests
+
+- `src/test/staff-purchasing.test.ts` (fake DB, real services; Twilio, Resend and the model faked):
+  - settings and house orgs;
+  - units, optional lines, recipe rounding and merging;
+  - the owner text and reply line, note parsing, the supplier email (no prices, no customer name) and the call-in text;
+  - needed-by and expiry, the AI estimate (fencing, cleaning);
+  - the sweep: the exact owner text, once across workers, the daily cap, the AI fallback, no-materials once, AI off, retry, A1 untouched;
+  - **`materials_order` end to end through `decideApproval`**: Y + idempotent re-run, delivery + no nails, an unclear note re-asked under a fresh code, N, expiry, no supplier email, an email failure, a cancelled job;
+  - reminders, every owner tool, the briefing items, registry wiring, and the view (suppliers for managers only);
+  - `job_materials` / `expenses` never written.
+- `src/test/purchasing-owner-sms.test.ts`: "Y 4 delivery no nails" through `handleOwnerInboundSms`; "Y delivery" only when it's the one thing waiting; an unreadable note; old paths unchanged for other kinds and house orgs.
+- `src/test/purchasing-route.test.ts`: the settings route (member vs owner, strict PATCH, suppliers and recipes) and the job-sheet route (no drafts, no prices).
+- `src/test/purchasing-settings-section.test.tsx`: the Settings section and the job sheet block.
+
+### Not yet
+
+- One PO per job, from one supplier. Recipe lines naming different suppliers aren't split into separate orders; the supplier named most wins.
+- No price-list item can be marked "no materials", so a service with no recipe asks the AI (once per job) when the estimate is on.
+- Receipts are matched to the job by booking only. "Actual" is every receipt on the job, not just this PO's, and receipts tagged `PO-<n>` by the tax clerk aren't read yet.
+- Supplier replies go to the owner's inbox. Nothing reads them, so "confirmed" / "ready" are marked by the owner.
+- Cancelling a sent PO doesn't email the supplier.
+- Saving a recipe deletes then inserts its lines (not one transaction).
+- A job moved after its PO was approved keeps its needed-by date; the reminder follows the job's new day.

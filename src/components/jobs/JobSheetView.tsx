@@ -40,6 +40,7 @@ import { JobPhotos } from "./JobPhotos";
 import { VisitLinkRow } from "./VisitLinkRow";
 import { JobExpenses } from "@/components/expenses/JobExpenses";
 import { JobMaterials, JobProfitCard, JobTime } from "./JobTimeAndCost";
+import { JobMaterialsOrders } from "./JobMaterialsOrders";
 
 export function StageBadge({ stage }: { stage: JobSheet["stage"] }) {
   const tone: Record<JobSheet["stage"], string> = {
@@ -268,6 +269,7 @@ export function JobSheetView({ orgId, job }: { orgId: string; job: JobSheet }) {
       <Section>
         <div className="space-y-5">
           <JobTime orgId={orgId} bookingId={job.id} timeZone={job.timeZone} closed={closed} />
+          <JobMaterialsOrders orgId={orgId} bookingId={job.id} />
           <JobMaterials orgId={orgId} bookingId={job.id} readOnly={job.stage === "cancelled"} />
           <JobExpenses orgId={orgId} job={{ id: job.id, title: job.title }} manager={canSeeCosts} readOnly={job.stage === "cancelled"} />
         </div>
