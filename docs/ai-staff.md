@@ -1581,3 +1581,102 @@ The companies are loaded at most once per 30 s per worker (`loadPurchasingCompan
 ## Profit advisor
 
 ## Fleet & equipment
+
+Keeps track of the business's trucks, trailers, machines, tools and rented gear: oil changes by date or by km, Ontario plate stickers, annual safety inspections, equipment service, what's out on which job, and rentals due back. The owner gets **one heads-up text a day** when something's due. Record keeping only: nothing here texts a customer or moves money, so there's **no approval kind**. Code: `src/server/services/staff/fleet/`. Migration: `20261014130000_staff_fleet.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Fleet & equipment** (`src/components/settings/staff/FleetSettingsSection.tsx`).
+
+### What the owner sees
+
+- **By text, any time** (owner tools, below): "add truck 2, 2019 F-150, plate ABCD 123, sticker due Mar 31" → `Added Truck 2 (2019 Ford F-150, plate ABCD 123). On file: plate sticker Mar 31, 2027. Text me a service schedule like "oil change every 8,000 km on truck 2".` · "truck 2 at 83,900" → `Truck 2: 83,900 km logged. Oil change due in about 200 km or by Apr 12.` · "oil change done on truck 2 at 84,200" → `Logged: Truck 2 oil change at 84,200 km (Nov 11, 2026). Next one due in about 8,000 km or by May 11.` · "rented a mini-ex from Sunbelt, $380 a day, back Thursday 5pm, for the Jones job" → `Rental saved: Sunbelt mini-ex for Jones due back Oct 15 5pm, $380/day. I'll remind you the afternoon before and that morning.` · "mini-ex is back" → `Marked the Sunbelt mini-ex returned (Oct 15). 3 days at $380/day = about $1,140.` · "mini-ex out to the Jones job with Mike" → `Mini-ex out - Jones job with Mike.` · "fleet" / "what's due on the trucks" → the status.
+- **The daily heads-up** (one text, 09:00–20:00 local, from the platform number): `Fleet heads-up: Rental: Sunbelt mini-ex due back today 5pm - $380/day after; Truck 1 plate sticker expires in 7 days; Truck 2 oil change due (about 8,100 km since last). Text me "mini-ex returned" when it's back.` From 15:00 a second, afternoon text carries only rentals due back tomorrow (`Fleet heads-up: Rental: Wacker plate compactor due back tomorrow 8am.`). Overdue rentals come every morning until returned: `Rental: Sunbelt mini-ex was due back Oct 12 (1 day late, about $380 extra)`. A km schedule with an old reading asks: `Truck 1: what's the odometer at? Text me "truck 1 at 60,000"`.
+- **An odometer photo** with "truck 2 km" is read and logged: `Truck 2: 84,200 km logged (read off the photo - tell me if it's wrong).`
+- **The 07:00 briefing** gets `Rental mini-ex due back today 5pm (Sunbelt)`, `Truck 2 oil change due (about 8,100 km since last)`, `Truck 1 plate sticker expires in 7 days` (`briefing-items.ts`).
+- **House orgs (A1 etc.)** get none of this unless switched on: no tools, no prompt note, no photo handling (a bare picture still gets "Got the picture…", words still go to the owner agent), no sweep touches them.
+
+### When things are due (`due.ts`, pure)
+
+| What | Due | Stages (claim keys) |
+| --- | --- | --- |
+| Vehicle service (`vehicle_service_items`) | by date: last done + every N months, "due" within 7 days; by km: last done km + every N km against the **projected** odometer (last reading + average km/day × days since), "due" within 10% of the interval (300–1,000 km). Past either → "overdue". km wins the wording when both. | `svc:<last done date>/<last done km>:due`, then `…:overdue` — once each per service cycle (logging the service starts a new cycle). |
+| Odometer reading | a vehicle with a km schedule whose last reading is over 30 days old (projections still run; the line says "a guess"). | `odo:<last reading date>:<n>` — once per 30 days of staleness. |
+| Plate sticker / safety inspection (only vehicles marked as needing one) | 30 days before (8–30 days out), 7 days before (1–7), on the day (caught up 3 days). | `plate:<date>:<stage>`, `safety:<date>:<stage>` — a renewed date starts fresh. |
+| Equipment service | by months and/or by hour meter (every N hours, 10% / ≥ 5 h ahead). | `eqsvc:<last serviced date>/<hours>:due` / `:overdue`. |
+| Rentals | due back tomorrow (afternoon text), due back later today (morning or afternoon), overdue (every morning). | `before:<due back>`, `day:<due back>`, `overdue:<local date>`. |
+
+Average km/day: the oldest and newest reading of the last 180 days, at least 7 days apart, never backwards, capped at 2,000 km/day (else none). Readings are km; a dash in miles is asked about, never converted.
+
+### The reminder sweep (`reminders.ts`, `fleet:reminders`, every 15 min)
+
+Modelled on the compliance expiry chase:
+1. Loads active vehicles, live equipment and open rentals due back within 3 days (paged), groups them by company, and keeps companies with Fleet **and** its reminders on, active, and a **verified** owner cell. Fleet rows only exist where Fleet was on, so a house org never enters unless it opted in.
+2. Only 09:00–20:00 company-local. Collects every due item (above) with its line and claim key.
+3. **One text a day:** claims `daily:<date>:morning` (a `fleet_reminders` row with subject `company`) before anything else. If that's taken and it's 15:00+, it claims `daily:<date>:afternoon` for rental lines that may go in the afternoon only (due back tomorrow / later today). Anything else that became due after the day's text waits for tomorrow's.
+4. Claims each item with a unique insert on `(company_id, subject_type, subject_id, reminder_key)` — a stage is never texted twice, on any worker. Most urgent first, up to 6 lines (`+N more - text "fleet" for the list`) and one hint ("Text me "mini-ex returned" when it's back.").
+5. `sendOwnerSms` (platform number, platform opt-out respected). **A failed text deletes every claim, the day slot included**, so the next sweep tries again; a blocked one (owner opted out) keeps them.
+
+### Owner tools (`owner-tools.ts`)
+
+| Tool | Does |
+| --- | --- |
+| `fleet_status` | Each vehicle's odometer (and projection), plate sticker, safety inspection, driver and schedules with what's next; equipment in / out / in the shop and service; rentals out; **vehicle insurance as Compliance has it** (read-only, tolerant); what needs attention. Optional `vehicle`. |
+| `log_odometer` | `vehicle` + `km`, or `equipment` + `hours` (hour meter). A reading lower than the last, or a jump of more than 2,000 km a day since, comes back as `ask_owner`; `correct: true` logs it anyway. Recomputes km/day. |
+| `log_service` | `vehicle` + `service` (+ `km`, `date`): resets the matching schedule (no km → today's projected km, said "about"); `every_km` / `every_months` set the schedule too; no schedule → still logged, with an offer. `equipment` (+ `hours`) marks it serviced (and back from the shop). |
+| `set_service_schedule` | `vehicle` + `service` + `every_km` / `every_months` (+ last done). A new schedule with no history starts from today / the current reading. `remove: true` stops it. |
+| `add_vehicle` | Add / update by name: year, make, model, plate, VIN (checked), plate sticker, safety inspection, odometer, driver (crew name), notes; `retire: true`. |
+| `add_fleet_equipment` | Add / update the business's own equipment by name: serial, value, service every hours / months, last serviced, hour meter, location; `retire: true`. Named so it can't clash with an installed-equipment tool (customer care). |
+| `add_rental` | item, vendor (+ phone → E.164), `rate_per_day`, `due_back_date` + `due_back_time` (default 5pm, said so), `job` (customer name → that booking), `out_date`. |
+| `rental_returned` | By item / vendor words (the only one when there's one); replies days × rate (a part day counts after a 2-hour grace) and flags late returns. |
+| `equipment_out` / `equipment_back` | Out to a `job` (customer name), `crew`, or a `location`; back with `hours`, or `in_shop: true`. Logged as check-out / check-in. |
+
+All scoped to the one company the owner's phone resolved to; names are matched only inside it (`records.ts pickByName`: exact ignoring case / spaces / "#", else every word). One prompt note tells the owner agent which tool fits which text.
+
+### The odometer photo (`media.ts`, the `ownerMedia` hook)
+
+Fleet is last in registry order (tax clerk → service plans → compliance → purchasing → … → fleet), so receipts and certificates are already taken. Fleet **claims a text only when its words clearly say it's a reading for one vehicle**: they name exactly one of the company's vehicles (name or plate — or "odometer / odo / mileage" when there's only one vehicle), they say km / kms / odometer / odo / mileage, and nothing about paying (fuel, gas, receipt, paid, invoice, bill, rental, $). A bare picture, or words that don't name a vehicle, is never claimed (old behaviour). The number comes from the words when they carry exactly one (`84,200`, `84200km`, `84.2k`; the vehicle's own digits ignored), else from the photo (`readOdometer`: one model call, `AI_MODEL_FLEET`, 20 s, usage recorded; the system prompt says the photo is data, trip meters don't count, never guess digits; `cleanOdometerReading` keeps whole numbers ≤ 3,000,000). If neither gives a clear figure (no key, blurry, miles) the reply asks for the km and nothing is logged. Idempotent on the `owner_command_log` id (`fleet_log.source_key = 'sms:<logId>'`, unique per company). A lower reading is asked about, as with the tool.
+
+**Rental agreements by photo: not done.** The tax clerk, first in line, reads a rental agreement / invoice as a supplier bill, so Fleet couldn't claim them reliably. Rentals go in by text or Settings.
+
+### Settings
+
+`companies.ai_settings.fleet = { enabled?, reminders? }`, read only by `settings.ts readFleetSettings`: `enabled` defaults **on** for CrankLeads orgs (inert until something is added) and **off** for house orgs; `reminders` defaults on. `fleetActiveFor` = active company + `enabled`, so house orgs never see the tools, prompt note or photo handling.
+
+Route `GET | PATCH | POST /api/organizations/:org/companies/:company/ai-settings/fleet`: members read; owners/admins PATCH `{ enabled?, reminders? }` (strict, merged into `ai_settings.fleet` only via `updateAiSettings`) and POST actions `save_vehicle`, `save_service_item` (add / edit / `active: false`), `service_done` (vehicle or equipment, today), `save_equipment`, `equipment_status` (out / back / in shop), `save_rental` (`dueBackLocal` "YYYY-MM-DDTHH:MM" in the company's zone), `return_rental`. Everything is re-checked against the company before a service-role write.
+
+UI: on/off, the daily text, "Needs attention", vehicles (odometer, plate sticker and safety date in amber within 30 days / red when past, driver, schedules with **Done today** / **Remove**, add / edit / retire), the vehicle insurance Compliance has (read-only), equipment (status, service, **Out** / **Back** / **In shop** / **Serviced**, add / edit / retire), rentals (**Returned**, add, recently returned).
+
+### Schema (`20261014130000_staff_fleet.sql`)
+
+- `vehicles` (name — one active per name per company; year, make, model, plate, VIN check, driver `profile_id`, `odometer_km` + `odometer_at`, `avg_km_per_day`, `plate_sticker_due`, `safety_inspection_required` + `_due`, notes, active).
+- `vehicle_service_items` (vehicle, label — one active per label per vehicle; `every_km` and/or `every_months` required; `last_done_km`, `last_done_on`, active).
+- `equipment` (name — one live per name; serial, `value_cents`, status `available | out | in_shop | retired`, location, `booking_id` (set null on delete), `out_at`, `out_profile_id`, hour meter, `service_every_hours` / `_months`, last serviced date / hours).
+- `rentals` (item, vendor, `vendor_phone` E.164, `booking_id` (set null), `out_at`, `due_back_at`, `rate_cents_per_day`, `returned_at`, `created_via owner_sms | settings`).
+- `fleet_log` (exactly one of vehicle / equipment / rental; kind `odometer | hours | service | check_out | check_in | rental_out | rental_returned`; reading, label, booking, crew, source `owner_sms | owner_photo | settings | system`, `source_key` unique per company, `happened_at`). Deleting a vehicle takes its schedules and log.
+- `fleet_reminders` (the sweep's claims: subject, `reminder_key`, local date; unique per company + subject + key). **Service role only.**
+- RLS on everything; the fleet tables are **member-read** (the crew can see what's out and where); no client writes. SQL checks: `scripts/sql-tests/zz_fleet.test.sql`. Types: `staff/fleet/db-types.ts`.
+
+### Env
+
+`AI_MODEL_FLEET` (optional, default `claude-sonnet-5-5`; only the odometer photo), `ANTHROPIC_API_KEY` (without it a photo with the number in the words still logs; otherwise the owner is asked for the km), `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` (the MMS download). No operator setup.
+
+### Sweeps
+
+`fleet:reminders` (15 min).
+
+### Briefing items (`briefing-items.ts`)
+
+`briefingItems(admin, scope, localDate)`: read-only, never throws, `[]` when Fleet is off, nothing is due or a read fails. Overdue rentals, rentals due back today, overdue then due services, plate stickers / safety inspections within 7 days (or up to 30 days past), equipment service; 4 lines at most (`+N more fleet items - text "fleet"`).
+
+### Shared files edited
+
+None. (No approval kind, so no `approval-text.ts` case.)
+
+### Tests
+
+`src/test/staff-fleet.test.ts` (fake DB, real services; Twilio, the MMS fetch and the odometer reader faked): dates / name matching; km/day, projection, service due by km and date (the brief's wording), sticker / safety stages, equipment by hours and months, rental stages and lines; settings, house orgs, registry order and `ownerMediaHandlersFor`; the owner tools end to end (add / schedule / readings incl. lower and impossible jumps / service / status, equipment out-back-serviced-hours, rentals add-return with cost); **the sweep** (one combined text, no repeats, the afternoon text, overdue every morning, hours, reminders off, unverified cell, A1 left alone and A1 opted in, a failed text releases every claim, the odometer ask, `runStaffSweeps`, the 6-line cap); **the odometer photo through `handleOwnerInboundSms`** (read off the photo, number in the words, unreadable, not claimed cases, A1 exactly as before, idempotent, never throws); briefing items; the Settings view and actions. `src/test/fleet-route.test.ts`: the route (roles, strict merge, actions, bad input). `src/test/fleet-settings-section.test.tsx`: the section.
+
+### Not yet
+
+- Rental agreements and service invoices by photo (see above); fuel and repair costs stay with receipts (tax clerk), not linked to a vehicle.
+- Distances are km only; a US-plated truck in miles must be texted in km.
+- The day's text is one per day (plus the rental-only afternoon text): something that becomes due after it waits for tomorrow's.
+- Vehicle insurance is Compliance's (shown read-only, never reminded here); it isn't tied to a particular vehicle.
+- No crew-facing view of the fleet beyond Settings (members can read it there).
