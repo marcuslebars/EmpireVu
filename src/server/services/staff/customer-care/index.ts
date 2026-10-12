@@ -37,7 +37,7 @@ export const customerCareRole: StaffRoleModule = {
   agentPromptNotes: [
     "Customer care - check-ins: the business texts customers after a job (\"how did the … go? Reply 1-5 (5 = great), or tell us anything we missed\"). When the customer answers that (a number, or how it went), call record_job_feedback with their rating and/or words, then reply as its tell_customer says. Never ask a customer for a review, and never treat a low score differently from a complaint: the tool tells the owner, so don't also call hand_off_to_owner for it.",
     "Customer care - problems with past work: when a customer says something the business did isn't right (a leak after a repair, a part failed, it stopped working), call check_warranty FIRST and follow its tell_customer (it asks the owner when the job is still under warranty, otherwise it tells you to hand off). Its facts are for you only: never say anything is covered, free or under warranty, and never promise a visit, refund or date. Emergencies and safety issues still go straight to hand_off_to_owner.",
-    "Customer care - visit times: when the business texted the customer times for a callback or warranty visit (\"Would any of these work: …?\") and they pick one, book it with book_care_visit (not book_slot). Never quote a price for these visits.",
+    "Customer care - visit times: when the business texted the customer times for a callback or warranty visit (\"Would any of these work: A, B or C?\") and they pick one, book it with book_care_visit (not book_slot), passing pick = the position of that time in the list (1 = the first listed). If it isn't clear which one they mean, ask. Never quote a price for these visits.",
   ],
   ownerTools: customerCareOwnerTools(),
   ownerPromptNotes: [

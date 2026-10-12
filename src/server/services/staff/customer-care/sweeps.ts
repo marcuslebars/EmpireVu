@@ -9,11 +9,12 @@
  */
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { sendCaseAlert } from "./cases";
-import { dueCheckins, planCompany, recentCompletions, sendCheckin } from "./checkins";
+import { dueCheckins, planCompany, recentBookingEvents, recentCompletions, sendCheckin } from "./checkins";
 import type { CareCaseRow, Db } from "./db-types";
 import { dueMessages, failStuck, sendClaimed, skipMessage } from "./outbox";
 import { loadCareCompanies, type CareCompany } from "./settings";
 import { inCustomerWindow } from "./time";
+import { reopenCancelledVisits, tidyOffers } from "./visits";
 
 let cache: { atMs: number; companies: CareCompany[] } | null = null;
 
@@ -49,6 +50,19 @@ export async function sweepJobs(admin: AdminClient, nowMs: number): Promise<numb
     } catch (err) {
       console.error("[customer-care] planning failed for", companyId, err instanceof Error ? err.message : err);
     }
+  }
+  // Cancelled callback / warranty visits: their case goes back to open (and the owner is told).
+  const cancelled = await recentBookingEvents(admin, companies, nowMs, "booking.cancelled");
+  const cancelledBy = new Map<string, string[]>();
+  for (const e of cancelled) {
+    const company = e.company_id ? byCompany.get(e.company_id) : undefined;
+    if (!company || company.organizationId !== e.organization_id || !e.entity_id) continue;
+    cancelledBy.set(company.companyId, [...(cancelledBy.get(company.companyId) ?? []), e.entity_id]);
+  }
+  for (const [companyId, bookingIds] of cancelledBy) {
+    await reopenCancelledVisits(admin, byCompany.get(companyId) as CareCompany, [...new Set(bookingIds)], nowMs).catch((err: unknown) =>
+      console.error("[customer-care] reopening cancelled visits failed for", companyId, err instanceof Error ? err.message : err),
+    );
   }
   return planned;
 }
@@ -116,7 +130,10 @@ export async function sweepOutbox(admin: AdminClient, nowMs: number): Promise<vo
     }
   }
 
-  // 3. Rows a crashed worker left mid-send: failed, never re-sent.
+  // 3. Visit offers: unanswered for 14 days → the owner; a crashed booking claim → offered again.
+  await tidyOffers(admin, companies, nowMs);
+
+  // 4. Rows a crashed worker left mid-send: failed, never re-sent.
   await failStuck(admin, nowMs, ids);
   const stale = new Date(nowMs - 10 * 60_000).toISOString();
   for (let i = 0; i < ids.length; i += 200) {

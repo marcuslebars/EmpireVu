@@ -4,6 +4,7 @@
 -- Callback / warranty visits stay on the calendar as ordinary bookings; once care_case_bookings is
 -- gone, invoices/auto.ts would treat them like any other job (check them by hand first).
 update public.owner_approvals set status = 'superseded' where kind in ('care_followup', 'warranty_claim') and status = 'pending';
+drop table if exists public.care_checkin_claims;
 drop table if exists public.care_messages;
 drop table if exists public.care_case_bookings;
 drop table if exists public.care_cases;

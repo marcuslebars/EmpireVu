@@ -16,6 +16,7 @@
  */
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { insertApproval } from "@/server/services/front-desk/approvals";
+import { findOwnerCompanies } from "@/server/services/owner-channel/common";
 import { notifyOwnerOfApproval } from "@/server/services/owner-channel/notify";
 import type { CareCaseRow, CareContact, Db, InstalledEquipmentRow, JobWarrantyRow } from "./db-types";
 import { textOwner } from "./owner";
@@ -55,7 +56,7 @@ export interface ComplaintInput {
   nowMs: number;
 }
 
-export type ComplaintResult = { caseRow: CareCaseRow; created: boolean };
+export type ComplaintResult = { caseRow: CareCaseRow; created: boolean; approvals: Array<{ id: string; shortCode: number | null }> };
 
 /**
  * Open the complaint case for a check-in answer (once per check-in: a second unhappy text is added
@@ -71,7 +72,7 @@ export async function openComplaint(admin: AdminClient, input: ComplaintInput): 
     if (input.comment) {
       await db.from("care_cases").update({ notes: appendNote(row.notes, `Customer added: ${input.comment.slice(0, 300)}`) }).eq("id", row.id).eq("organization_id", scope.organizationId);
     }
-    return { caseRow: row, created: false };
+    return { caseRow: row, created: false, approvals: [] };
   };
   const { data: prior } = await db.from("care_cases").select("*").eq("organization_id", scope.organizationId).eq("checkin_id", input.checkinId).limit(1);
   const priorRow = ((prior ?? []) as CareCaseRow[])[0];
@@ -115,6 +116,7 @@ export async function openComplaint(admin: AdminClient, input: ComplaintInput): 
     ownerFirst: input.ownerFirst,
   };
   const approvalIds: string[] = [];
+  const asked: Array<{ id: string; shortCode: number | null }> = [];
   let body: string | null = null;
   try {
     // Inserted "notified" to nobody: only the case's own text (with both codes) asks the owner.
@@ -148,12 +150,14 @@ export async function openComplaint(admin: AdminClient, input: ComplaintInput): 
       notifiedTo: null,
     });
     approvalIds.push(call.id);
+    asked.push({ id: visit.id, shortCode: visit.short_code }, { id: call.id, shortCode: call.short_code });
     await db.from("owner_approvals").update({ payload: { ...base, option: "visit", siblingId: call.id } }).eq("id", visit.id).eq("organization_id", scope.organizationId);
     body = careFollowupOwnerText(alert, visit.short_code, call.short_code, input.ownerFirst);
   } catch (err) {
     console.error("[customer-care] could not create the follow-up approvals:", err instanceof Error ? err.message : err);
     if (approvalIds.length) await db.from("owner_approvals").update({ status: "superseded" }).in("id", approvalIds).eq("status", "pending");
     approvalIds.length = 0;
+    asked.length = 0;
   }
   // No approvals (a failure) → a plain heads-up so the owner still hears about it.
   const alertBody = body ?? `${alert} Text them back, or text me "care status".`;
@@ -165,7 +169,7 @@ export async function openComplaint(admin: AdminClient, input: ComplaintInput): 
     .select("*");
   const fresh = ((updated ?? []) as CareCaseRow[])[0] ?? { ...caseRow, approval_ids: approvalIds, owner_alert_body: alertBody, owner_alert_status: "pending" as const };
   await sendCaseAlert(admin, company, fresh, input.nowMs);
-  return { caseRow: fresh, created: true };
+  return { caseRow: fresh, created: true, approvals: asked };
 }
 
 /**
@@ -187,7 +191,15 @@ export async function sendCaseAlert(admin: AdminClient, company: CareCompany, ca
   }
   const { data: claimed } = await db.from("care_cases").update({ owner_alert_status: "sending" }).eq("id", caseRow.id).eq("organization_id", company.organizationId).eq("owner_alert_status", "pending").select("id");
   if (((claimed ?? []) as unknown[]).length === 0) return "held";
-  const outcome = await textOwner(admin, company, caseRow.owner_alert_body, nowMs);
+  // An owner with several businesses sees which one it's about.
+  const owned = company.ownerPhone ? await findOwnerCompanies(admin, company.ownerPhone).catch(() => []) : [];
+  const body = owned.length > 1 ? `${company.name}: ${caseRow.owner_alert_body}` : caseRow.owner_alert_body;
+  const outcome = await textOwner(admin, company, body, nowMs);
+  if (outcome === "blocked") {
+    // The owner texted STOP to the platform number: stop retrying (the app's Approvals card still works).
+    await db.from("care_cases").update({ owner_alert_status: "none" }).eq("id", caseRow.id).eq("owner_alert_status", "sending");
+    return "dropped";
+  }
   if (outcome !== "sent") {
     await db.from("care_cases").update({ owner_alert_status: "pending" }).eq("id", caseRow.id).eq("owner_alert_status", "sending");
     return "held";
@@ -227,7 +239,7 @@ export async function openWarrantyClaim(admin: AdminClient, input: WarrantyClaim
     .eq("company_id", scope.companyId)
     .eq("contact_id", input.contact.id)
     .eq("kind", "warranty")
-    .in("status", ["open", "scheduled"])
+    .eq("status", "open")
     .limit(1);
   if (((open ?? []) as unknown[]).length > 0) return { ok: false, reason: "already_open" };
   const name = customerName(input.contact);
