@@ -145,6 +145,23 @@ export async function jobCandidates(admin: AdminClient, scope: { organizationId:
   }));
 }
 
+/** The booking a Purchasing order (purchase_orders.po_number, e.g. "PO-12") was for. Tolerant: no table → null. */
+export async function bookingForPo(admin: AdminClient, scope: { organizationId: string; companyId: string }, po: string): Promise<string | null> {
+  try {
+    const { data, error } = await (admin as Db)
+      .from("purchase_orders")
+      .select("booking_id")
+      .eq("organization_id", scope.organizationId)
+      .eq("company_id", scope.companyId)
+      .eq("po_number", po.toUpperCase())
+      .maybeSingle();
+    if (error || !data) return null;
+    return (data as { booking_id: string | null }).booking_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** "Jones roof (Oct 14)". */
 export function jobPhrase(job: JobCandidate, timeZone: string): string {
   return `${jobLabel(job)} (${dayLabel(localDate(new Date(job.scheduledFor), timeZone))})`;
@@ -267,6 +284,11 @@ async function fileReceipt(
     match = matchJob(meaning.jobWords, await jobs(), spentOn);
     if (match.kind === "one") job = match.job;
     else if (match.kind === "ambiguous") notes.push(`Which job: ${match.jobs.map((j) => jobPhrase(j, company.timeZone)).join(" or ")}? Text "fix job" and the name.`);
+  }
+  // "PO-12" with no job named: the job that Purchasing ordered PO-12 for.
+  if (!job && match.kind !== "ambiguous" && meaning.po) {
+    const poBooking = await bookingForPo(admin, scope, meaning.po);
+    if (poBooking) job = (await jobs()).find((j) => j.bookingId === poBooking) ?? null;
   }
   const category: ExpenseCategory = meaning.category ?? scan.category ?? "other";
   const tax = scan.taxCents ?? 0;

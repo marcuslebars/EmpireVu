@@ -35,6 +35,8 @@ import { officeManagerRole } from "@/server/services/staff/office-manager";
 import { runMorningBriefings } from "@/server/services/staff/office-manager/briefing";
 import { clock, composeBriefing, gsmPlain, MAX_BRIEFING_SEPTETS, sentence, septets, waitingLine, type BriefingInput } from "@/server/services/staff/office-manager/compose";
 import { isNewLead, sinceWindow, type BriefingDeps } from "@/server/services/staff/office-manager/gather";
+import { MAX_STAFF_ITEMS, staffBriefingItems } from "@/server/services/staff/office-manager/staff-items";
+import { bookingForPo } from "@/server/services/staff/tax-clerk/receipts";
 import {
   briefingDue,
   briefingTakesMoneyAlert,
@@ -833,5 +835,57 @@ describe("ai-settings/office-manager route", () => {
     expect((await PATCH(patch({ enabled: false, sendTo: "+1" }), params)).status).toBe(400);
     expect((await PATCH(patch({ time: "05:00" }), params)).status).toBe(400);
     expect((await PATCH(patch({ days: [] }), params)).status).toBe(400);
+  });
+});
+
+// ── Phase 4 wiring: other AI staff in the briefing; receipts tagged with a PO ──────────────────
+
+describe("heads-ups from other AI staff", () => {
+  it("are their own lines after the money, and a briefing with only heads-ups isn't 'all quiet'", () => {
+    const out = composeBriefing(input({ staff: ["Liability insurance expires in 7 days", "Pick up materials at Home Depot Pro (Barrie) for Jones (PO-1)"] }));
+    expect(out.quiet).toBe(false);
+    const lines = out.text.split("\n");
+    expect(lines).toContain("Liability insurance expires in 7 days.");
+    expect(lines).toContain("Pick up materials at Home Depot Pro (Barrie) for Jones (PO-1).");
+    expect(lines.at(-1)).toBe('Reply "today" for details.');
+  });
+
+  it("are trimmed (last first) before the briefing goes over 4 segments", () => {
+    const long = Array.from({ length: 4 }, (_, i) => `Heads-up number ${i + 1}: ${"x".repeat(120)}`);
+    const out = composeBriefing(input({ jobs: { count: 2, firstStartIso: "2026-10-13T12:00:00Z", members: [{ first: "Mike", count: 2 }], unassigned: 0 }, staff: long }));
+    expect(septets(out.text)).toBeLessThanOrEqual(MAX_BRIEFING_SEPTETS);
+    expect(out.text).toContain("Heads-up number 1");
+    expect(out.text).not.toContain("Heads-up number 4");
+  });
+
+  it("one role failing (or returning junk) leaves the others; at most MAX_STAFF_ITEMS, in role order", async () => {
+    const db = createFakeDb({});
+    const items = await staffBriefingItems(db.client, { organizationId: "o", companyId: "c", timeZone: "America/Toronto" }, "2026-10-13", [
+      { name: "a", items: () => Promise.reject(new Error("boom")) },
+      { name: "b", items: () => Promise.resolve(["first", "  ", "second"]) },
+      { name: "c", items: () => Promise.resolve(null as unknown as string[]) },
+      { name: "d", items: () => Promise.resolve(["third", "fourth", "fifth"]) },
+    ]);
+    expect(items).toEqual(["first", "second", "third", "fourth"].slice(0, MAX_STAFF_ITEMS));
+  });
+
+  it("house orgs: the real roles add nothing (all four are off there)", async () => {
+    const db = createFakeDb({
+      organizations: [{ id: "a1", platform_brand: "empirevu" }],
+      companies: [{ id: "a1co", organization_id: "a1", name: "A1 Marine Care", timezone: "America/Toronto", ai_settings: {}, stage: "active", tax_registration_number: "123456789RT0001" }],
+    });
+    expect(await staffBriefingItems(db.client, { organizationId: "a1", companyId: "a1co", timeZone: "America/Toronto" }, "2026-10-13")).toEqual([]);
+  });
+});
+
+describe("a receipt tagged with a PO", () => {
+  it("finds the job Purchasing ordered it for; unknown PO or no table gives null", async () => {
+    const db = createFakeDb({ purchase_orders: [{ id: "po1", organization_id: "o", company_id: "c", po_number: "PO-12", booking_id: "b-jones" }] });
+    expect(await bookingForPo(db.client, { organizationId: "o", companyId: "c" }, "po-12")).toBe("b-jones");
+    expect(await bookingForPo(db.client, { organizationId: "o", companyId: "c" }, "PO-13")).toBeNull();
+    expect(await bookingForPo(db.client, { organizationId: "o", companyId: "other" }, "PO-12")).toBeNull();
+    const empty = createFakeDb({});
+    empty.failNext("purchase_orders", "select", { message: "relation does not exist" });
+    expect(await bookingForPo(empty.client, { organizationId: "o", companyId: "c" }, "PO-12")).toBeNull();
   });
 });

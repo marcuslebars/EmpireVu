@@ -476,12 +476,13 @@ Each part is read on its own. A part with nothing to say is left out. A failed r
 | Weather | Only when the Dispatcher's weather check is on for the company (`dispatch.weather.enabled`, and `WEATHER_PROVIDER` isn't `off`) and its location is already stored (the Dispatcher geocodes; the briefing never does). `getCompanyForecast` (the shared hourly cache) + `assessWindow` with the owner's limits: today's and tomorrow's daytime (07:00–19:00 local; today from now) and each weather-sensitive open job's own window. Nothing is fetched otherwise. |
 | Money | Collected since the last briefing day (succeeded invoice payments + quote deposits), and the overdue total and count (`ar.ts` `loadOpenInvoicesWithNames` + `agingSummary`). Imported balances still on hold (`invoices.import_hold`, read tolerantly) are left out of the overdue total. |
 | Money alert | The Bookkeeper's 8am items not told yet (see below), one line per kind, exactly as the alert words them. |
+| Heads-ups | Other AI staff (`staff-items.ts` → each role's `briefing-items.ts`), most urgent first, at most 4: Compliance (expiring / expired certificates, certificates waiting to be filed), Purchasing (materials to pick up), Service plans (unpaid renewals, lapses today), Receipts & HST (HST due within 10 days, receipt pictures needing a total). Each role decides whether it's on for the company; a role whose read fails is just left out. A briefing with only heads-ups isn't the quiet one-liner. |
 | Waiting on you | `listPendingApprovals` (codes assigned first, as `waiting_on_me` does), minus expired ones and owner-command confirmations: up to 3 one-liners, then "+N more". |
 | Yesterday | New leads (contacts created, not imported ones (`consent_source 'import'`) or job applicants (`consent_source 'job_application'` or `metadata.kind 'applicant'`)), quotes sent / approved, customers the AI texted with (`message_log.sent_by 'sms_agent'`, one per contact) and calls it answered (inbound, not voicemail, 5 s or more — the weekly report's rule). |
 
 "Yesterday" is everything since the previous briefing day, local midnight to midnight: Monday after a Saturday briefing says "Since Saturday" and covers Saturday and Sunday (49 hours across the November DST change).
 
-**Length.** At most 4 SMS segments: 612 GSM-7 characters including the "CrankLeads: " prefix (extension characters count double). The text is flattened to plain ASCII (accents, curly quotes, dashes, emoji), so it is never sent as UCS-2. When it's too long, in order: approval one-liners are shortened, then cut to one, the Yesterday line goes, the crew breakdown goes, tomorrow's weather goes, the approvals become a count, and last the folded money lines are dropped from the end. Money lines that didn't fit are not marked reported, so they come the next morning.
+**Length.** At most 4 SMS segments: 612 GSM-7 characters including the "CrankLeads: " prefix (extension characters count double). The text is flattened to plain ASCII (accents, curly quotes, dashes, emoji), so it is never sent as UCS-2. When it's too long, in order: approval one-liners are shortened, then cut to one, the Yesterday line goes, heads-ups are cut to two, the crew breakdown goes, tomorrow's weather goes, the approvals become a count, heads-ups are cut to one and then none, and last the folded money lines are dropped from the end. Money lines that didn't fit are not marked reported, so they come the next morning.
 
 ### Once a day (`briefing.ts`)
 
@@ -1020,7 +1021,7 @@ The Tax Clerk does the office's receipt and HST paperwork. The owner texts a pho
    - **No `ANTHROPIC_API_KEY`**: a bare picture passes. A picture whose words sound like a receipt ("receipt", "bill", "paid", a PO, a category or card word) is kept to finish.
    - **The model call failed**: kept to finish (better than losing a receipt).
 5. **Words** (`words.ts`, pure, conservative):
-   - **PO**: "PO-12" / "po 12" / "P.O. #12" → `PO-12`, stored in `receipt_texts.po_reference`. **The Purchasing role matches on it**: `select expense_id from receipt_texts where company_id = … and po_reference = 'PO-12'`.
+   - **PO**: "PO-12" / "po 12" / "P.O. #12" → `PO-12`, stored in `receipt_texts.po_reference`. With no job named, the receipt is filed on the job Purchasing ordered that PO for (`purchase_orders.po_number`, read tolerantly), so it shows as that job's actual materials cost.
    - **Paid with**: "personal card", "my visa", "paid it myself" → `personal`; "company card" → `business`; both or neither → the default `business`.
    - **Category**: one clear word (fuel/gas, materials/supplies/lumber, tools, rental, lunch/coffee, truck/tires, sub, office, ads, parking/hotel, …) overrides the reader; two different ones → the reader's.
    - **Job**: bookings 45 days back to 31 days ahead (not cancelled), matched by the customer's first or last name, with title words breaking ties. One customer with several jobs → the one closest to the receipt date. Two customers tied → no job, ask. A title word alone counts only when exactly one job has it.
@@ -1186,7 +1187,6 @@ Types: `staff/tax-clerk/db-types.ts` until merged into `database.types.ts`.
 - webp / gif receipts are filed without a stored copy (the bucket takes jpeg/pdf). There's no HEIC (Twilio sends iPhone photos as JPEG).
 - One receipt per picture (a photo of several receipts is read as one). At most 3 pictures per text.
 - `fix_receipt` edits only the last texted receipt; older ones are changed in the app (Expenses).
-- The briefing items aren't wired into the Office manager's briefing yet. The Purchasing role's PO match isn't wired yet either (it reads `receipt_texts.po_reference`).
 
 ## Service plans
 
@@ -1312,7 +1312,7 @@ Keeps the business's paperwork current: liability insurance, WSIB clearances and
 - **A sub's clearance runs out:** `#12 Mike's Electric's WSIB clearance expires Fri. Y texts Mike a link to upload a new clearance + insurance. They'd get: "Hi Mike, it's Northshore Roofing. Your WSIB clearance on file with us expires Fri. Please upload a new WSIB clearance and your liability insurance here: [upload link] (the link works for 14 days). Thanks!" Reply Y 12 to text them the link, N 12 to skip.` Mike uploads a photo; Dana gets `Mike's Electric sent a new WSIB clearance (expires Jan 9, 2027).`
 - **A customer asks** "can you send me your insurance certificate?": the assistant says it's checking, and Dana gets `#13 Dana Jones (705-555-0123) asked for your liability insurance certificate (Intact, expires Mar 31, 2027). Y texts Dana a link to it (expires in 7 days): "Hi Dana, it's Northshore Roofing. Here's our liability insurance certificate (valid to Mar 31, 2027): [link] The link works for 7 days." Their text: "…" Reply Y 13 to send it, N 13 to skip.`
 - **By text any time:** "what's expiring?" / "which subs are missing a clearance?" (`compliance_status`), "ask Mike's Electric for a new clearance" (`ask_sub_for_docs`), "add Lakeside Drywall, Sam, 705-555-0177" (`add_subcontractor`), "turn off the insurance link I sent Jones" (`stop_sharing`).
-- **The 07:00 briefing** gets "Liability insurance expires in 7 days", "Mike's Electric WSIB clearance expired", "1 certificate waiting - text me whose it is" (`briefing-items.ts`; the integration wires it in).
+- **The 07:00 briefing** gets "Liability insurance expires in 7 days", "Mike's Electric WSIB clearance expired", "1 certificate waiting - text me whose it is" (`briefing-items.ts`, shown under the briefing's heads-ups).
 - **House orgs (A1 etc.)** get none of this unless switched on: no reader runs on their photos (a bare picture still gets "Got the picture…", words still go to the owner agent), no tools, no prompt notes, no sweeps touch them.
 
 ### Texted certificates (`intake.ts`, the `ownerMedia` hook)
@@ -1545,7 +1545,7 @@ The companies are loaded at most once per 30 s per worker (`loadPurchasingCompan
 
 - One PO per job, from one supplier. Recipe lines naming different suppliers aren't split into separate orders; the supplier named most wins.
 - No price-list item can be marked "no materials", so a service with no recipe asks the AI (once per job) when the estimate is on.
-- Receipts are matched to the job by booking only. "Actual" is every receipt on the job, not just this PO's, and receipts tagged `PO-<n>` by the tax clerk aren't read yet.
+- "Actual" is every receipt on the job, not just this PO's. A receipt texted with only "PO-12" is filed by the tax clerk on PO-12's job (`tax-clerk/receipts.ts` `bookingForPo`), so it counts here.
 - Supplier replies go to the owner's inbox. Nothing reads them, so "confirmed" / "ready" are marked by the owner.
 - Cancelling a sent PO doesn't email the supplier.
 - Saving a recipe deletes then inserts its lines (not one transaction).

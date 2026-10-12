@@ -309,6 +309,14 @@ describe("receipts by text (through the owner channel)", () => {
     vi.useRealTimers();
   });
 
+  it("a receipt that only names a Purchasing PO is filed on that PO's job", async () => {
+    db.tables.purchase_orders = [{ id: "po-1", organization_id: ORG, company_id: CO, po_number: "PO-12", booking_id: SMITH_FENCE }];
+    await text("PO-12", [mediaUrl("depot")]);
+    expect(rows("expenses")[0]).toMatchObject({ booking_id: SMITH_FENCE });
+    expect(rows("receipt_texts")[0]).toMatchObject({ status: "filed", po_reference: "PO-12" });
+    expect(replies().at(-1)).toContain("Smith Fence");
+  });
+
   it("E2E: a receipt with words is filed as an expense on the job and the owner gets one reply", async () => {
     await text("Jones job, personal card PO-12", [mediaUrl("depot")]);
     expect(rows("expenses")).toHaveLength(1);
@@ -341,11 +349,14 @@ describe("receipts by text (through the owner channel)", () => {
     expect(rows("receipt_texts")[0].status).toBe("not_receipt");
   });
 
-  it("words naming a compliance document pass before anything is read", async () => {
+  it("words naming a compliance document pass before anything is read (the Compliance role, next in line, takes it)", async () => {
     await text("insurance certificate renewal", [mediaUrl("depot")]);
     expect(reads).toHaveLength(0);
     expect(rows("receipt_texts")).toHaveLength(0);
-    expect(runOwnerCommandAgent).toHaveBeenCalledTimes(1);
+    expect(rows("expenses")).toHaveLength(0);
+    const intent = String(rows("owner_command_log").at(-1)?.intent ?? "");
+    expect(intent).not.toBe("media:tax_clerk");
+    expect(intent === "command" || intent.startsWith("media:compliance") || intent.startsWith("compliance")).toBe(true);
   });
 
   it("house org (A1): exactly as before - no reading, no rows, the old reply", async () => {
