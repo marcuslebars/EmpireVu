@@ -173,6 +173,8 @@ create table if not exists public.fleet_reminders (
 );
 
 create index if not exists fleet_reminders_company_idx on public.fleet_reminders (company_id, local_date);
+-- The sweep prunes claims older than 90 days by local_date.
+create index if not exists fleet_reminders_local_date_idx on public.fleet_reminders (local_date);
 
 -- ── RLS + grants: members read the fleet, nobody writes; the claims are service role only ──
 alter table public.vehicles enable row level security;

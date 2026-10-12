@@ -36,6 +36,7 @@ const vehicleSchema = z
     odometerKm: z.number().int().min(0).max(3_000_000).nullable().optional(),
     notes: z.string().max(500).nullable().optional(),
     active: z.boolean().optional(),
+    reactivate: z.boolean().optional(),
   })
   .strict();
 
@@ -100,22 +101,24 @@ const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("return_rental"), rentalId: uuid }).strict(),
 ]);
 
-async function guard(context: RouteContext, manage: boolean): Promise<{ organizationId: string; companyId: string }> {
+async function guard(context: RouteContext, manage: boolean): Promise<{ scope: { organizationId: string; companyId: string }; manager: boolean }> {
   const supabase = createSupabaseServerClient();
   const organization = await requireOrganizationContext(supabase, context.params.organizationId);
   const role = organization.membership.role;
-  if (manage && role !== "owner" && role !== "admin") throw new AuthorizationError("Only owners and admins can change fleet & equipment.");
+  const manager = role === "owner" || role === "admin";
+  if (manage && !manager) throw new AuthorizationError("Only owners and admins can change fleet & equipment.");
   const ctx: TenantServiceContext = { actorProfileId: organization.user.id, organizationId: organization.organizationId, supabase };
   // The company must be this org's (checked on the caller's own RLS client) before any service-role call.
   await assertCompanyInOrganization(ctx, context.params.companyId);
-  return { organizationId: organization.organizationId, companyId: context.params.companyId };
+  return { scope: { organizationId: organization.organizationId, companyId: context.params.companyId }, manager };
 }
 
 /** Settings → AI front desk → Fleet & equipment. Members read. */
 export async function GET(_request: Request, context: RouteContext): Promise<NextResponse> {
   return handleRoute(async () => {
-    const scope = await guard(context, false);
-    const data = await getFleetView(createSupabaseAdminClient(), scope);
+    const { scope, manager } = await guard(context, false);
+    // Compliance's vehicle insurance is owner/admin-read: members don't get it.
+    const data = await getFleetView(createSupabaseAdminClient(), scope, { manager });
     if (!data) throw new UserFacingError("Company not found.", { status: 404 });
     return NextResponse.json({ data });
   });
@@ -124,7 +127,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Nex
 /** Owner/admin: merge ONLY ai_settings.fleet. */
 export async function PATCH(request: Request, context: RouteContext): Promise<NextResponse> {
   return handleRoute(async () => {
-    const scope = await guard(context, true);
+    const { scope } = await guard(context, true);
     const patch = await parseJsonBody(request, patchSchema);
     const data = await updateFleetSettings(createSupabaseAdminClient(), scope, patch);
     if (!data) throw new UserFacingError("Company not found.", { status: 404 });
@@ -135,13 +138,13 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
 /** Owner/admin: vehicles, service schedules, equipment, rentals. */
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   return handleRoute(async () => {
-    const scope = await guard(context, true);
+    const { scope } = await guard(context, true);
     const body = (await parseJsonBody(request, actionSchema)) as FleetAction;
     const admin = createSupabaseAdminClient();
     const result = await runFleetAction(admin, scope, body);
     if (!result) throw new UserFacingError("Company not found.", { status: 404 });
     if ("error" in result) throw new UserFacingError(result.error, { status: 400 });
-    const data = await getFleetView(admin, scope);
+    const data = await getFleetView(admin, scope, { manager: true });
     if (!data) throw new UserFacingError("Company not found.", { status: 404 });
     return NextResponse.json({ data });
   });

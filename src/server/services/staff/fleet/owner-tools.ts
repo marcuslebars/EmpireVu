@@ -20,7 +20,8 @@ import type { RoleOwnerTool } from "@/server/services/staff/types";
 import { zonedInstant } from "@/server/services/booking-windows";
 import { addDays, fmtNum, isValidDateString, localDateOf, money, parseClock, prettyDate, shortDate, timeLabel } from "./dates";
 import { num, type VehicleRow } from "./db-types";
-import { equipmentDue, equipmentLine, nextDueWords, rentalDays, rentalName, serviceDue } from "./due";
+import { equipmentDue, equipmentLine, nextDueWords, projectedKm, rentalDays, rentalName, serviceDue } from "./due";
+import { rentalReminderWords, usedSlots } from "./reminders";
 import {
   equipmentBack,
   equipmentOut,
@@ -81,6 +82,7 @@ const date = (v: unknown): string | null | "bad" => (v === undefined || v === nu
 async function companyFor(state: ToolRunState): Promise<FleetCompany | { error: string }> {
   const company = await loadFleetCompany(state.admin, state.scope);
   if (!company) return { error: "Business not found." };
+  if (!company.active) return { error: "This business is paused or archived." };
   if (!company.settings.enabled) return { error: OFF };
   return company;
 }
@@ -133,8 +135,9 @@ async function odometerTool(state: ToolRunState, input: Input, company: FleetCom
     if (hours == null) return { error: "How many hours? Pass `hours`." };
     const found = await equipmentFor(state, company, eqRef);
     if (!found.eq) return found.out;
-    const saved = await logEquipmentHours(state.admin, company, found.eq, hours, state.nowMs, "owner_sms");
+    const saved = await logEquipmentHours(state.admin, company, found.eq, hours, state.nowMs, "owner_sms", { correct: input.correct === true });
     if ("error" in saved) return saved;
+    if ("ask" in saved) return { ok: false, ask_owner: saved.ask };
     const due = equipmentDue(saved, localDateOf(state.nowMs, company.timeZone));
     return { ok: true, tell_owner: `${found.eq.name}: ${fmtNum(hours)} hours logged.${due.state === "due" || due.state === "overdue" ? ` ${equipmentLine(found.eq.name, due)}.` : ""}` };
   }
@@ -203,24 +206,28 @@ async function scheduleTool(state: ToolRunState, input: Input, company: FleetCom
   const everyMonths = input.every_months === undefined ? undefined : int(input.every_months);
   const lastKm = input.last_done_km === undefined ? undefined : int(input.last_done_km);
   const isNew = !hits[0];
-  const saved = await saveServiceItem(state.admin, company, v, {
-    id: hits[0]?.id,
-    label: hits[0] ? undefined : label,
-    everyKm,
-    everyMonths,
-    lastDoneKm: lastKm,
-    lastDoneOn: lastOn ?? undefined,
-  });
+  // A brand-new schedule with no history starts counting now (saveServiceItem: the PROJECTED km and today).
+  const saved = await saveServiceItem(
+    state.admin,
+    company,
+    v,
+    { id: hits[0]?.id, label: hits[0] ? undefined : label, everyKm, everyMonths, lastDoneKm: lastKm, lastDoneOn: lastOn ?? undefined },
+    state.nowMs,
+  );
   if ("error" in saved) return saved;
-  let item = saved.item;
-  // A brand-new schedule with no history starts counting from today's reading / today.
-  if (isNew && item.last_done_on == null && item.last_done_km == null) {
-    const start = await saveServiceItem(state.admin, company, v, { id: item.id, lastDoneOn: item.every_months ? localDateOf(state.nowMs, company.timeZone) : undefined, lastDoneKm: item.every_km ? v.odometer_km : undefined });
-    if (!("error" in start)) item = start.item;
-  }
+  const item = saved.item;
   const every = [item.every_km ? `${fmtNum(item.every_km)} km` : null, item.every_months ? `${item.every_months} months` : null].filter(Boolean).join(" or ");
-  const from = item.last_done_on || item.last_done_km != null ? ` Last done: ${[item.last_done_km != null ? `${fmtNum(item.last_done_km)} km` : null, item.last_done_on ? prettyDate(item.last_done_on) : null].filter(Boolean).join(", ")}.` : "";
-  const noKm = item.every_km && item.last_done_km == null ? ` Text me the km it was last done at (or the odometer now) so I can count km.` : "";
+  const projected = projectedKm(v, state.nowMs);
+  const guessed = isNew && lastKm == null && item.every_km != null && item.last_done_km != null && projected.km != null && projected.km !== v.odometer_km;
+  const from = item.last_done_on || item.last_done_km != null ? ` Counting from: ${[item.last_done_km != null ? `${guessed ? "about " : ""}${fmtNum(item.last_done_km)} km` : null, item.last_done_on ? prettyDate(item.last_done_on) : null].filter(Boolean).join(", ")}.` : "";
+  const example = `"${v.name.toLowerCase()} at ${fmtNum(projected.km != null ? Math.round(projected.km / 100) * 100 : 84_200)}"`;
+  const noKm = !item.every_km
+    ? ""
+    : item.last_done_km == null
+      ? ` What's the odometer at now? Text me ${example} so I can count km.`
+      : isNew && lastKm == null && projected.stale
+        ? ` Your last reading is over 30 days old - what's the odometer at now? Text me ${example}.`
+        : "";
   return { ok: true, tell_owner: `${v.name} ${item.label.toLowerCase()}: every ${every}.${from}${noKm}` };
 }
 
@@ -254,11 +261,15 @@ async function vehicleTool(state: ToolRunState, input: Input, company: FleetComp
       profileId,
       notes: input.notes === undefined ? undefined : str(input.notes, 500),
       active: input.retire === true ? false : undefined,
+      reactivate: input.reactivate === true,
     },
     state.nowMs,
     "owner_sms",
   );
-  if ("error" in saved) return saved;
+  if ("error" in saved) {
+    if (saved.retiredId) return { ok: false, ask_owner: `${saved.error} Want me to bring it back?`, if_yes: "call add_vehicle again with the same name and reactivate: true" };
+    return { error: saved.error };
+  }
   const v = saved.vehicle;
   if (!v.active) return { ok: true, tell_owner: `${v.name} retired - no more reminders for it.` };
   const desc = vehicleDescription(v);
@@ -326,7 +337,9 @@ async function rentalTool(state: ToolRunState, input: Input, company: FleetCompa
   if ("error" in saved) return saved;
   const r = saved.rental;
   const due = r.due_back_at ? ` due back ${shortDate(localDateOf(Date.parse(r.due_back_at), company.timeZone))} ${timeLabel(Date.parse(r.due_back_at), company.timeZone)}${clock ? "" : " (I guessed 5pm - tell me if it's different)"}` : "";
-  const remind = r.due_back_at ? " I'll remind you the afternoon before and that morning." : ' No due-back date, so no reminders - tell me when it\'s due back.';
+  const remind = r.due_back_at
+    ? ` ${company.settings.reminders && company.ownerPhone ? rentalReminderWords(Date.parse(r.due_back_at), state.nowMs, company.timeZone, await usedSlots(state.admin, company, state.nowMs)) : "Fleet reminder texts are off, so no reminders."}`
+    : " No due-back date, so no reminders - tell me when it's due back.";
   return { ok: true, tell_owner: `Rental saved: ${rentalName(r)}${job ? ` for ${job.label}` : ""}${due}${r.rate_cents_per_day ? `, ${money(r.rate_cents_per_day)}/day` : ""}.${remind}` };
 }
 
@@ -448,6 +461,7 @@ export function fleetOwnerTools(): RoleOwnerTool[] {
             driver: { type: "string" },
             notes: { type: "string" },
             retire: { type: "boolean" },
+            reactivate: { type: "boolean", description: "Bring back a retired vehicle of this name (keeps its history)." },
           },
           required: ["name"],
         },

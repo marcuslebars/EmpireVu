@@ -250,6 +250,8 @@ export interface VehicleInput {
   odometerKm?: number | null;
   notes?: string | null;
   active?: boolean;
+  /** Re-adding a retired vehicle's name brings that one back (else it's refused with retiredId). */
+  reactivate?: boolean;
 }
 
 function dateOrError(value: string | null | undefined, label: string): Result<string | null | undefined> {
@@ -260,7 +262,13 @@ function dateOrError(value: string | null | undefined, label: string): Result<st
 
 const isErr = (v: unknown): v is { error: string } => Boolean(v && typeof v === "object" && "error" in (v as object));
 
-export async function saveVehicle(admin: AdminClient, scope: Scope, input: VehicleInput, nowMs: number, source: FleetLogSource): Promise<Result<{ vehicle: VehicleRow; created: boolean; odometerNote: string | null }>> {
+export async function saveVehicle(
+  admin: AdminClient,
+  scope: Scope,
+  input: VehicleInput,
+  nowMs: number,
+  source: FleetLogSource,
+): Promise<{ vehicle: VehicleRow; created: boolean; odometerNote: string | null } | { error: string; retiredId?: string }> {
   const db = admin as Db;
   const fields: Record<string, unknown> = {};
   if (input.name !== undefined) {
@@ -309,8 +317,18 @@ export async function saveVehicle(admin: AdminClient, scope: Scope, input: Vehic
     existing = data as VehicleRow;
   } else {
     if (!fields.name) return { error: "Give the vehicle a name, like Truck 2." };
-    const same = (await loadVehicles(admin, scope)).filter((v) => norm(v.name) === norm(fields.name as string));
+    const all = await loadVehicles(admin, scope, { activeOnly: false });
+    const same = all.filter((v) => v.active && norm(v.name) === norm(fields.name as string));
     existing = same[0] ?? null;
+    if (!existing) {
+      // A retired vehicle of that name: bring it back (keeps its history) rather than start a twin.
+      const retired = all.filter((v) => !v.active && norm(v.name) === norm(fields.name as string)).sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+      if (retired && !input.reactivate) return { error: `${retired.name} is retired. Bring it back to keep its history, or use another name.`, retiredId: retired.id };
+      if (retired) {
+        existing = retired;
+        fields.active = true;
+      }
+    }
     // "truck 2" for an existing "Truck 2" is the same vehicle, not a rename.
     if (existing) delete fields.name;
   }
@@ -407,9 +425,23 @@ export async function logOdometer(
   const readings = ((logs ?? []) as Array<{ reading: unknown; happened_at: string }>).map((l) => ({ km: num(l.reading) ?? NaN, atMs: Date.parse(l.happened_at) }));
   const avg = avgKmPerDay(readings, nowMs);
   const fields: Record<string, unknown> = { odometer_km: km, odometer_at: at };
-  if (avg != null || readings.length >= 2) fields.avg_km_per_day = avg;
+  // Never wipe a good average with "not enough history"; only a correction below every earlier
+  // reading (the history no longer adds up) clears it.
+  const others = readings.filter((r) => Number.isFinite(r.km) && r.atMs < Date.parse(at));
+  if (avg != null) fields.avg_km_per_day = avg;
+  else if (opts.correct && others.length > 0 && others.every((r) => km < r.km)) fields.avg_km_per_day = null;
   const { data, error: upErr } = await db.from("vehicles").update(fields).eq("id", vehicle.id).eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).select("*");
   if (upErr) throw upErr;
+  // A km schedule set up before there was any reading starts counting from this one.
+  await db
+    .from("vehicle_service_items")
+    .update({ last_done_km: km })
+    .eq("organization_id", scope.organizationId)
+    .eq("company_id", scope.companyId)
+    .eq("vehicle_id", vehicle.id)
+    .eq("active", true)
+    .is("last_done_km", null)
+    .not("every_km", "is", null);
   return { vehicle: ((data ?? []) as VehicleRow[])[0] ?? { ...vehicle, ...fields }, km };
 }
 
@@ -430,7 +462,7 @@ export function matchServiceItem(items: ServiceItemRow[], label: string): Servic
   return pickByName(items, label, (i) => [i.label]);
 }
 
-export async function saveServiceItem(admin: AdminClient, scope: Scope, vehicle: VehicleRow, input: ServiceItemInput): Promise<Result<{ item: ServiceItemRow; created: boolean }>> {
+export async function saveServiceItem(admin: AdminClient, scope: Scope, vehicle: VehicleRow, input: ServiceItemInput, nowMs?: number): Promise<Result<{ item: ServiceItemRow; created: boolean }>> {
   const db = admin as Db;
   const fields: Record<string, unknown> = {};
   if (input.label !== undefined) {
@@ -472,6 +504,10 @@ export async function saveServiceItem(admin: AdminClient, scope: Scope, vehicle:
     if (error) return error.code === "23505" ? { error: `${vehicle.name} already has a ${fields.label as string}.` } : Promise.reject(error);
     return { item: ((data ?? []) as ServiceItemRow[])[0] ?? ({ ...existing, ...fields } as ServiceItemRow), created: false };
   }
+  // A new schedule with no history starts counting now: from the projected odometer (a stale or
+  // missing reading is asked for by the sweep) and from today.
+  if (merged.every_km != null && fields.last_done_km == null) fields.last_done_km = projectedKm(vehicle, nowMs ?? Date.now()).km;
+  if (merged.every_months != null && fields.last_done_on == null && nowMs != null) fields.last_done_on = localDateOf(nowMs, scope.timeZone);
   const { data, error } = await db
     .from("vehicle_service_items")
     .insert({ organization_id: scope.organizationId, company_id: scope.companyId, vehicle_id: vehicle.id, active: true, ...fields })
@@ -525,7 +561,7 @@ export async function logVehicleService(admin: AdminClient, scope: Scope, vehicl
   let item: ServiceItemRow | null = hits[0] ?? null;
   const schedule = done.everyKm !== undefined || done.everyMonths !== undefined ? { everyKm: done.everyKm ?? undefined, everyMonths: done.everyMonths ?? undefined } : {};
   if (item || done.everyKm != null || done.everyMonths != null) {
-    const saved = await saveServiceItem(admin, scope, current, { id: item?.id, label: item ? undefined : label, ...schedule, lastDoneOn: date, lastDoneKm: km });
+    const saved = await saveServiceItem(admin, scope, current, { id: item?.id, label: item ? undefined : label, ...schedule, lastDoneOn: date, lastDoneKm: km }, nowMs);
     if ("error" in saved) return saved;
     item = saved.item;
   }
@@ -660,8 +696,10 @@ export async function equipmentBack(admin: AdminClient, scope: Scope, eq: Equipm
 }
 
 /** An hour-meter reading ("mini-ex at 412 hours"). */
-export async function logEquipmentHours(admin: AdminClient, scope: Scope, eq: EquipmentRow, hours: number, nowMs: number, source: FleetLogSource): Promise<Result<EquipmentRow>> {
+export async function logEquipmentHours(admin: AdminClient, scope: Scope, eq: EquipmentRow, hours: number, nowMs: number, source: FleetLogSource, opts: { correct?: boolean } = {}): Promise<Result<EquipmentRow> | { ask: string }> {
   if (!hoursOk(hours)) return { error: "The hours look off." };
+  const last = num(eq.hours);
+  if (!opts.correct && last != null && hours < last) return { ask: `${eq.name}'s hour meter was at ${fmtNum(last)} - ${fmtNum(hours)} is lower. Is that right? Say "correct it" and I'll fix it.` };
   const db = admin as Db;
   const { data, error } = await db.from("equipment").update({ hours }).eq("id", eq.id).eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).select("*");
   if (error) throw error;
@@ -748,7 +786,15 @@ export async function saveRental(admin: AdminClient, scope: Scope, input: Rental
     fields.rate_cents_per_day = input.rateCentsPerDay;
   }
   if (input.notes !== undefined) fields.notes = cleanText(input.notes, 500);
-  if (fields.out_at && fields.due_back_at && Date.parse(fields.due_back_at as string) < Date.parse(fields.out_at as string)) return { error: "It can't be due back before it went out." };
+  let current: RentalRow | null = null;
+  if (input.id) {
+    const { data } = await db.from("rentals").select("*").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("id", input.id).maybeSingle();
+    if (!data) return { error: "Rental not found." };
+    current = data as RentalRow;
+  }
+  const outAt = (fields.out_at !== undefined ? fields.out_at : current ? current.out_at : new Date(nowMs).toISOString()) as string | null;
+  const dueAt = (fields.due_back_at !== undefined ? fields.due_back_at : current?.due_back_at ?? null) as string | null;
+  if (outAt && dueAt && Date.parse(dueAt) <= Date.parse(outAt)) return { error: "The due-back time has to be after it went out." };
 
   if (input.id) {
     const { data, error } = await db.from("rentals").update(fields).eq("id", input.id).eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).select("*");
