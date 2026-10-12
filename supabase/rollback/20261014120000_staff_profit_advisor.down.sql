@@ -3,5 +3,6 @@
 -- price_change approvals are withdrawn so a late "Y" can't land on a missing row. Prices already
 -- raised stay as they are on the price list (they're the owner's approved prices).
 update public.owner_approvals set status = 'superseded' where kind = 'price_change' and status = 'pending';
+drop table if exists public.price_watch;
 drop table if exists public.profit_advisor_runs;
 drop table if exists public.price_changes;

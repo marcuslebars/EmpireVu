@@ -14,7 +14,7 @@ declare
   t text;
   r text;
   p text;
-  all_tables text[] := array['price_changes','profit_advisor_runs'];
+  all_tables text[] := array['price_changes','profit_advisor_runs','price_watch'];
 begin
   raise notice '== profit advisor: RLS on, no client writes';
   foreach t in array all_tables loop
@@ -32,8 +32,8 @@ begin
       raise exception 'FAIL anon can read %', t;
     end if;
   end loop;
-  if has_table_privilege('authenticated', 'public.profit_advisor_runs', 'SELECT') then
-    raise exception 'FAIL authenticated can read profit_advisor_runs';
+  if has_table_privilege('authenticated', 'public.profit_advisor_runs', 'SELECT') or has_table_privilege('authenticated', 'public.price_watch', 'SELECT') then
+    raise exception 'FAIL authenticated can read profit_advisor_runs / price_watch';
   end if;
   if not exists (select 1 from pg_policies where tablename = 'price_changes' and cmd = 'SELECT' and qual like '%is_organization_admin%') then
     raise exception 'FAIL price_changes is not admin-read only';
@@ -84,7 +84,10 @@ insert into public.price_changes (id, organization_id, company_id, service_catal
   ('c5000000-0000-4000-8000-000000000001', 'c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'c4000000-0000-4000-8000-000000000001', 'Gutter cleaning', 'proposed', 18900, 21500, 14, '{"jobs":18,"marginPct":12}'),
   ('c5000000-0000-4000-8000-000000000002', 'c2000000-0000-4000-8000-000000000002', 'c3000000-0000-4000-8000-000000000002', 'c4000000-0000-4000-8000-000000000003', 'Gutter cleaning', 'applied', 15000, 17000, 13, '{}');
 insert into public.profit_advisor_runs (organization_id, company_id, kind, run_key, status) values
-  ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'weekly', '2026-10-16', 'sent');
+  ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'weekly', '2026-W42', 'sent');
+delete from public.price_watch where organization_id in ('c2000000-0000-4000-8000-000000000001', 'c2000000-0000-4000-8000-000000000002');
+insert into public.price_watch (organization_id, company_id, service_catalog_item_id, rate_cents) values
+  ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'c4000000-0000-4000-8000-000000000001', 18900);
 
 -- A member: no price history (margins come from pay rates), no runs.
 set role authenticated;
@@ -101,6 +104,12 @@ begin
     raise exception 'FAIL member read profit_advisor_runs';
   exception when insufficient_privilege then
     raise notice 'ok   denied: member read profit_advisor_runs';
+  end;
+  begin
+    perform count(*) from public.price_watch;
+    raise exception 'FAIL member read price_watch';
+  exception when insufficient_privilege then
+    raise notice 'ok   denied: member read price_watch';
   end;
 end $$;
 
@@ -160,13 +169,13 @@ begin
   insert into public.price_changes (organization_id, company_id, service_catalog_item_id, item_label, old_rate_cents, new_rate_cents, pct) values ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'c4000000-0000-4000-8000-000000000002', 'Roof vent', 9000, 10000, 11);
   raise notice 'ok   +15%% allowed; declined rows don''t block';
   begin
-    insert into public.profit_advisor_runs (organization_id, company_id, kind, run_key) values ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'weekly', '2026-10-16');
-    raise exception 'FAIL two weekly runs for one day';
+    insert into public.profit_advisor_runs (organization_id, company_id, kind, run_key) values ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'weekly', '2026-W42');
+    raise exception 'FAIL two weekly runs for one week';
   exception when unique_violation then
-    raise notice 'ok   one weekly run per company per day';
+    raise notice 'ok   one weekly run per company per ISO week';
   end;
   begin
-    insert into public.profit_advisor_runs (organization_id, company_id, kind, run_key) values ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000002', 'weekly', '2026-10-16');
+    insert into public.profit_advisor_runs (organization_id, company_id, kind, run_key) values ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000002', 'weekly', '2026-W42');
     raise exception 'FAIL a run for another org''s company';
   exception when foreign_key_violation then
     raise notice 'ok   runs are pinned to (company, organization)';
@@ -177,4 +186,10 @@ begin
     raise exception 'FAIL price change not kept when its item was deleted';
   end if;
   raise notice 'ok   a deleted item keeps its price history';
+  begin
+    insert into public.price_watch (organization_id, company_id, service_catalog_item_id, rate_cents) values ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'c4000000-0000-4000-8000-000000000001', 19900);
+    raise exception 'FAIL two watch rows for one item';
+  exception when unique_violation then
+    raise notice 'ok   one price_watch row per item';
+  end;
 end $$;

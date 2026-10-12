@@ -18,7 +18,8 @@ import { categoryLabel } from "@/server/services/expenses/rules";
 import { jobProfit } from "@/server/services/time/service";
 import type { Db } from "./db-types";
 import { forecastFor } from "./forecast-data";
-import { addDays, clip, DISCLAIMER, dollars, hours, jobName, localDay, localMidnightIso, mondayOf, pct, shortDate, shortMoney, wholeDollars } from "./format";
+import { addDays, clip, dayLabel, DISCLAIMER, dollars, hours, jobName, localDay, localMidnightIso, mondayOf, pct, shortDate, shortMoney, wholeDollars } from "./format";
+import { lastWeeklyWindow } from "./sweeps";
 import { loadJobProfits, serviceCtx } from "./jobs";
 import { priceText } from "./pricing";
 import { effectLine, runPricingCheck } from "./pricing-check";
@@ -37,6 +38,7 @@ async function companyFor(state: ToolRunState): Promise<ProfitCompany | { error:
   const company = await loadProfitCompany(state.admin, state.scope.organizationId, state.scope.companyId);
   if (!company) return { error: "Business not found." };
   if (!company.settings.enabled) return { error: OFF };
+  if (!company.active) return { error: "This business is paused or archived, so the profit advisor isn't running for it." };
   return company;
 }
 
@@ -51,14 +53,21 @@ function guard(run: (state: ToolRunState, input: Input) => Promise<Record<string
   };
 }
 
-export type ProfitPeriod = "this_week" | "last_week" | "this_month" | "last_month" | "last_30_days";
-const PERIODS: ProfitPeriod[] = ["this_week", "last_week", "this_month", "last_month", "last_30_days"];
+export type ProfitPeriod = "week" | "this_week" | "last_week" | "this_month" | "last_month" | "last_30_days";
+const PERIODS: ProfitPeriod[] = ["week", "this_week", "last_week", "this_month", "last_month", "last_30_days"];
 
 /** The local window for a period name. PURE. */
-export function periodWindow(period: ProfitPeriod, today: string, timeZone: string, nowMs: number): { fromIso: string; toIso: string; label: string } {
+export function periodWindow(period: ProfitPeriod, today: string, timeZone: string, nowMs: number, weekly: { day: number; time: string } = { day: 5, time: "15:00" }): { fromIso: string; toIso: string; label: string } {
   const now = new Date(nowMs).toISOString();
   const month = `${today.slice(0, 8)}01`;
   switch (period) {
+    case "week": {
+      // Exactly the window of the weekly money text ("Text 'profit' for more").
+      const w = lastWeeklyWindow(nowMs, weekly, timeZone);
+      return { fromIso: w.fromIso, toIso: w.toIso, label: `the 7 days to ${dayLabel(w.sendDate)} ${hourLabel(weekly.time)} (the weekly money text)` };
+    }
+    case "this_week":
+      return { fromIso: localMidnightIso(mondayOf(today), timeZone), toIso: now, label: "this week so far" };
     case "last_week": {
       const mon = addDays(mondayOf(today), -7);
       return { fromIso: localMidnightIso(mon, timeZone), toIso: localMidnightIso(mondayOf(today), timeZone), label: `last week (${shortDate(mon)} - ${shortDate(addDays(mon, 6))})` };
@@ -72,16 +81,21 @@ export function periodWindow(period: ProfitPeriod, today: string, timeZone: stri
     case "last_30_days":
       return { fromIso: localMidnightIso(addDays(today, -29), timeZone), toIso: now, label: "the last 30 days" };
     default:
-      return { fromIso: localMidnightIso(mondayOf(today), timeZone), toIso: now, label: "this week so far" };
+      return periodWindow("week", today, timeZone, nowMs, weekly);
   }
+}
+
+function hourLabel(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  return `${((h + 11) % 12) + 1}${m ? `:${String(m).padStart(2, "0")}` : ""}${h < 12 ? "am" : "pm"}`;
 }
 
 async function profitTool(state: ToolRunState, input: Input): Promise<Record<string, unknown>> {
   const company = await companyFor(state);
   if ("error" in company) return company;
-  const period = PERIODS.includes(input.period as ProfitPeriod) ? (input.period as ProfitPeriod) : "this_week";
+  const period = PERIODS.includes(input.period as ProfitPeriod) ? (input.period as ProfitPeriod) : "week";
   const today = localDay(state.nowMs, company.timeZone);
-  const w = periodWindow(period, today, company.timeZone, state.nowMs);
+  const w = periodWindow(period, today, company.timeZone, state.nowMs, company.settings.weekly);
   const jobs = await loadJobProfits(state.admin, company, w.fromIso, w.toIso, state.nowMs);
   const s = summarizeJobs(jobs.rows, jobs.missingRateNames);
   const byId = new Map(jobs.rows.map((r) => [r.bookingId, r]));
@@ -105,6 +119,8 @@ async function profitTool(state: ToolRunState, input: Input): Promise<Record<str
     best: s.top.map(money),
     worst: s.bottom.filter((b) => !s.top.slice(0, 1).some((t) => t.bookingId === b.bookingId)).map(money),
     crew_without_pay_rate: s.missingRateNames.map((n) => clip(n, 40)),
+    free_visits: s.careVisits ? `${s.careVisits} callback/warranty visits, cost ${wholeDollars(s.careCostCents)} (not counted as jobs or against the original job)` : undefined,
+    plan_visits: s.planVisits || undefined,
     caveats: caveats(s),
     partial: jobs.truncated || undefined,
     how: "Profit = what was billed (invoice, else the approved quote) minus crew hours x pay rates, materials logged on the job and receipts on the job (before tax).",
@@ -227,6 +243,7 @@ async function pricingTool(state: ToolRunState): Promise<Record<string, unknown>
     items: rows.map((i) => ({
       item: clip(i.label, 50),
       price: i.rateCents > 0 ? priceText(i.rateCents, i) : "no price",
+      counted_since: i.priceSince ? `the price change on ${shortDate(localDay(Date.parse(i.priceSince), company.timeZone))}` : "6 months ago",
       jobs: i.jobs,
       margin: i.margin != null ? pct(i.margin) : null,
       quotes_decided: i.quotes,
@@ -234,7 +251,7 @@ async function pricingTool(state: ToolRunState): Promise<Record<string, unknown>
       looks_underpriced: i.underpriced || undefined,
       would_ask: i.proposal ? `raise to ${priceText(i.proposal.newRateCents, i.proposal)} (+${i.proposal.pct}%)` : undefined,
       not_asked_because:
-        i.held === "recent_change" ? "changed or turned down in the last 90 days" : i.held === "pending" ? "a question is already waiting" : i.held === "not_simple" ? "tiered/banded price - change it by hand" : i.held === "no_room" ? "raise would be too small" : undefined,
+        i.held === "inactive" ? "switched off on the price list" : i.held === "recent_change" ? "changed or turned down in the last 90 days" : i.held === "pending" ? "a question is already waiting" : i.held === "not_simple" ? "tiered/banded price - change it by hand" : i.held === "no_room" ? "raise would be too small" : undefined,
     })),
     waiting_on_you: report.pending.map((p) => `${clip(p.label, 40)} ${dollars(p.oldRateCents)} to ${dollars(p.newRateCents)}`),
     past_changes: report.changes.map((c) => effectLine(c, state.nowMs)),
@@ -250,7 +267,7 @@ export function profitAdvisorOwnerTools(): RoleOwnerTool[] {
       tool: {
         name: "profit",
         description:
-          "How the money went on finished jobs: jobs done, billed, profit and margin, the best and worst jobs (and why), and what's missing (crew without a pay rate, jobs with no price). period: this_week (default), last_week, this_month, last_month, last_30_days. Use for 'profit', 'how did we do this week', 'what made money'.",
+          "How the money went on finished jobs: jobs done, billed, profit and margin, the best and worst jobs (and why), and what's missing (crew without a pay rate, jobs with no price). period: week (default — exactly the 7 days the weekly money text covered), this_week (Monday to now), last_week, this_month, last_month, last_30_days. Use for 'profit', 'how did we do this week', 'what made money'.",
         input_schema: { type: "object", properties: { period: { type: "string", enum: PERIODS } } },
       },
       run: guard(profitTool),

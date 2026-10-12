@@ -8,7 +8,7 @@ import { updateAiSettings } from "@/server/services/front-desk/ai-settings-write
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db, ProfitRunRow } from "./db-types";
 import { forecastFor } from "./forecast-data";
-import { DISCLAIMER } from "./format";
+import { DISCLAIMER, localDay } from "./format";
 import { runPricingCheck, type PricingReport } from "./pricing-check";
 import { loadProfitCompany, mergeProfitAdvisorSettings, type ProfitAdvisorPatch, type ProfitAdvisorSettings } from "./settings";
 import { forecastLine } from "./texts";
@@ -59,9 +59,9 @@ export async function getProfitAdvisorView(admin: AdminClient, scope: Scope, opt
   };
   if (!opts.manager || !company.settings.enabled) return base;
   const db = admin as Db;
-  const { data: runs } = await db.from("profit_advisor_runs").select("*").eq("organization_id", company.organizationId).eq("company_id", company.companyId).eq("kind", "weekly").order("run_key", { ascending: false }).limit(1);
+  const { data: runs } = await db.from("profit_advisor_runs").select("*").eq("organization_id", company.organizationId).eq("company_id", company.companyId).eq("kind", "weekly").order("created_at", { ascending: false }).limit(1);
   const last = ((runs ?? []) as ProfitRunRow[])[0];
-  if (last) base.lastWeekly = { date: last.run_key, status: last.status, body: last.body };
+  if (last) base.lastWeekly = { date: localDay(Date.parse(last.updated_at || last.created_at), company.timeZone), status: last.status, body: last.body };
   const forecast = await forecastFor(admin, company, nowMs);
   if (forecast) {
     const year = Number(forecast.today.slice(0, 4));
