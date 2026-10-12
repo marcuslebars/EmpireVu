@@ -137,6 +137,39 @@ export function datesToGenerate(rule: RecurrenceRule, today: string, horizonDays
 }
 
 /**
+ * A series' explicit visit dates (service plans: recurring_jobs.visit_dates, sorted, deduped),
+ * or null for an ordinary rule-based series — every series that existed before, A1's included.
+ */
+export function explicitVisitDates(series: unknown): string[] | null {
+  const raw = (series as { visit_dates?: unknown } | null)?.visit_dates;
+  if (!Array.isArray(raw)) return null;
+  return [...new Set(raw.filter((d): d is string => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort();
+}
+
+/** Explicit dates to have visits for, as of `today` — the same horizon as the rule. */
+export function explicitDatesToGenerate(visitDates: string[], today: string, horizonDays = HORIZON_DAYS): { dates: string[]; through: string } {
+  let to = addDaysYmd(today, horizonDays);
+  let dates = visitDates.filter((d) => d >= today && d <= to).slice(0, MAX_PER_PASS);
+  if (dates.length === 0) {
+    // Always have the next visit on the calendar (a plan's next visit may be months away).
+    const next = visitDates.find((d) => d >= today);
+    if (next) {
+      to = next;
+      dates = [next];
+    }
+  }
+  return { dates, through: to };
+}
+
+/** "Plan visits: May 4, Oct 5, 2027" for a series with explicit dates. */
+function describeVisitDates(dates: string[]): string {
+  if (dates.length === 0) return "Service plan (no visits scheduled)";
+  const label = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-CA", { month: "short", day: "numeric", timeZone: "UTC" });
+  const shown = dates.slice(0, 6).map(label).join(", ");
+  return `Service plan visits: ${shown}${dates.length > 6 ? ` +${dates.length - 6} more` : ""}, ${dates[Math.min(dates.length, 6) - 1].slice(0, 4)}`;
+}
+
+/**
  * Create the missing visits for a series. Safe to call any number of times.
  * Returns the ids of the bookings it created.
  */
@@ -144,7 +177,8 @@ export async function generateVisits(ctx: TenantServiceContext, series: Series, 
   if (series.status !== "active") return [];
   const tz = await companyZone(ctx, series.company_id);
   const today = localDate(now, tz);
-  const { dates, through } = datesToGenerate(ruleOf(series), today);
+  const explicit = explicitVisitDates(series);
+  const { dates, through } = explicit ? explicitDatesToGenerate(explicit, today) : datesToGenerate(ruleOf(series), today);
 
   let created: Array<{ id: string; occurrence_date: string | null }> = [];
   if (dates.length) {
@@ -273,11 +307,18 @@ async function assertInputs(ctx: TenantServiceContext, input: RecurringJobInput)
   }
 }
 
-export async function createRecurringJob(ctx: TenantServiceContext, input: RecurringJobInput, now: Date = new Date()): Promise<{ series: Series; visitsCreated: number }> {
+export async function createRecurringJob(
+  ctx: TenantServiceContext,
+  input: RecurringJobInput,
+  now: Date = new Date(),
+  // Service plans (staff/service-plans) lay a series on explicit dates; nobody else passes this.
+  extra: { visitDates?: string[] } = {},
+): Promise<{ series: Series; visitsCreated: number }> {
   await assertInputs(ctx, input);
+  const row = { ...toRow(input), organization_id: ctx.organizationId, created_by: ctx.actorProfileId, status: "active" as const };
   const { data, error } = await ctx.supabase
     .from("recurring_jobs")
-    .insert({ ...toRow(input), organization_id: ctx.organizationId, created_by: ctx.actorProfileId, status: "active" })
+    .insert((extra.visitDates ? { ...row, visit_dates: extra.visitDates } : row) as typeof row)
     .select("*")
     .single();
   if (error) throw error;
@@ -422,7 +463,7 @@ async function hydrate(ctx: TenantServiceContext, rows: Series[], now: Date): Pr
       lineItems: lines,
       priceCents: priceOf(lines),
       status: r.status,
-      ruleText: describeRule(ruleOf(r)),
+      ruleText: explicitVisitDates(r) ? describeVisitDates(explicitVisitDates(r) ?? []) : describeRule(ruleOf(r)),
       nextVisitAt: agg.next,
       upcomingCount: agg.upcoming,
       completedCount: agg.done,

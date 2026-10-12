@@ -986,6 +986,116 @@ Types: `staff/recruiter/db-types.ts` until merged into `database.types.ts`.
 
 ## Service plans
 
+Sells and runs maintenance agreements ("Spring + Fall Lawn Care, $420/yr"): customers sign up on the company site, their visits book themselves, the owner OKs renewals by text, and an unpaid plan lapses on its own. Code: `src/server/services/staff/service-plans/`. Migration: `20261013110000_staff_service_plans.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Service plans** (`src/components/settings/staff/ServicePlansSettingsSection.tsx`).
+
+**Off until the owner creates a plan** (`servicePlansActiveFor` = CrankLeads org, switched on, company active, at least one active plan). **House orgs (A1 …) are always off**, whatever is stored: no section, no tools, no prompt notes, no pages, no sweeps work.
+
+### What the owner and customers see
+
+- **The plans page** `/<slug>/plans` (pages host) or `/s/<slug>/plans`: each active plan with its price ("$420/yr + HST"), "Visits: the first Tuesday of May, Oct, mornings", what every visit includes, and **Sign up** → `/plans/<id>`: name, cell, email, service address and a consent box ("Yes, Northshore Lawn may text me about my service plan (visit reminders and renewals) at the number above. Message and data rates may apply. Reply STOP to opt out. Consent is not a condition of purchase.").
+- **Annual plan, the business takes cards online** (Stripe Connect, charges enabled): the button says "Continue to payment ($420 + HST)" and goes straight to Stripe Checkout for the first year's invoice. Paid → the plan starts, the customer gets "Hi Dana, you're signed up for Spring + Fall Lawn Care with Northshore Lawn. Your spring visit is booked for Tue May 4, morning - we'll text you before each one. Questions? Just reply." and the owner (08:00–21:00) "New plan: Dana Jones signed up for Spring + Fall Lawn Care and paid $474.60 online. First visit Tue May 4 is on the calendar."
+- **Per-visit plan, or no online payments**: the page says "Northshore Lawn will confirm it by text shortly" and the owner gets `#12 New plan sign-up: Dana Jones (705-555-0123), Spring + Fall Lawn Care $420/yr (May + Oct). Y starts the plan, books the visits (first: Tue May 4), sends their first-year invoice and texts them to confirm. Reply Y 12 to start it, N 12 to skip.` (no "sends their first-year invoice" for per-visit plans).
+- **By text:** "put Bob Smith on the lawn plan" (`enroll_customer` → the same question inline: "#13 Sign Bob Smith (705-555-0456) up for …"), "how are my plans doing?" (`plans_summary`).
+- **A customer asks about regular service** ("can you come every spring?"): the texting assistant uses `offer_service_plan` and sends the plans link.
+- **~10 days before each plan visit**: "Hi Dana, it's Northshore Lawn. Your spring visit is booked for Tue May 4, morning. Reply to change." (replies go to the SMS agent as usual).
+- **Monday morning, plans ending in the next 30 days**: `#14 3 plans renew in the next 30 days ($1,260): Dana Jones Nov 1 $420/yr; Bob Smith Nov 8 $420/yr; Sam Lee Nov 9 $420/yr. Y texts each customer their renewal link (pay now to keep their spring visit). Reply Y 14 to text them, N 14 to skip.` Y → each customer: "Hi Dana, it's Northshore Lawn. Your Spring + Fall Lawn Care plan renews Nov 1 ($420 + HST for the next year). Pay here to keep your spring visit: …/plans/renew/<token>". Per-visit plans: "… renews Nov 1 ($95 + HST a visit). Tap here to keep your spring visit: …". Paid / kept → "Thanks Dana - your Spring + Fall Lawn Care plan with Northshore Lawn is renewed through Oct 31, 2027. Next visit: Tue May 4, morning."
+- **Not paid 14 days after the term ended**: the plan lapses and the owner gets "Dana Jones's Spring + Fall Lawn Care plan lapsed: the renewal wasn't paid by Nov 14, 2026. I took 1 upcoming visit off the calendar."
+- **The 07:00 briefing** (`briefing-items.ts`, wired in at integration): "2 plan renewals unpaid (due Fri)", "1 plan lapses today if unpaid".
+
+### Plans, agreements and the series
+
+- **Plan templates** (`service_plans`, `plans.ts`): name, description, price (before HST), billing `annual` (one invoice per 12-month term, paid up front) or `per_visit` (each visit invoiced like any recurring visit), visit months, the Nth (1–4) weekday of each visit month, start time, visit length, what's included (≤ 10 lines), on sale or not. Names, descriptions and included lines can't carry links or angle brackets (they're shown to customers as typed). An edit applies to new sign-ups and renewals; running agreements keep what they signed up for.
+- **Agreements** (`service_agreements`, `agreements.ts`): one customer, one plan, one term. Status `pending_owner → (pending_payment →) active → renewal_due → renewed / lapsed`, or `cancelled`. The plan's name, billing, price and months are locked at sign-up. A term is 12 months from the day it starts (`term_start .. term_end`). One open agreement per customer per plan (a partial unique index plus a check before the insert), so a double-tapped sign-up makes one.
+- **Visit dates** (`schedule.ts`): one visit per plan month per term, on the Nth weekday, no sooner than 3 days after sign-up; a month already passed this term waits for next year (signing up in October for a May + Oct plan → May 4 and Oct 5 next year).
+- **The series**: starting an agreement creates ONE `recurring_jobs` series for it with `createRecurringJob` (title = the plan, the customer, the service address, the visit length; per-visit plans carry the visit price as the series line, annual plans none). Its visits come from **`recurring_jobs.visit_dates`**, a new nullable column: `recurring/service.ts` `generateVisits` books an explicit date list when it's set, and the old weekly / monthly / yearly rule when it isn't — every existing series (A1's included) has NULL and is untouched (tested). The daily recurring sweep keeps booking 60 days ahead (always at least the next visit), crew, checklists, reminders and the job sheet work as for any recurring job.
+- **Never another series:** the role only touches a series through its own agreement's `recurring_job_id`, filtered by organization AND company. Ending a plan (`status 'ended'`) removes only upcoming visits nobody touched (`clearUntouchedFutureVisits`: kept are visits moved by hand, started, on the way, done, cancelled or in the past).
+- **Prepaid visits aren't billed twice**: `invoices/auto.ts` (job done → invoice) skips a visit whose series belongs to an annual agreement (`prepaid.ts`, one service-role yes/no read; any error → false, so invoicing for everyone else is unchanged).
+
+### Money (`billing.ts`)
+
+- An annual term is an ordinary invoice from the invoices service (`createInvoice` + `sendInvoice` with no email, so HST, numbering, the `/i/{token}` page, receipts and the accounting sync all apply): "Spring + Fall Lawn Care - service plan, 12 months", due today (sign-up) or on the last day of the term (renewal).
+- The customer pays through the existing invoice Checkout (`createInvoiceCheckout`, card): a **direct charge on the company's own Stripe Connect account**, one time. Nothing is charged off-session. If Checkout can't start, they land on the invoice page (e-Transfer etc.).
+- Sign-up and renewal invoices waiting on the customer have **reminders paused** (no Bookkeeper texts or reminder emails to someone who just didn't finish). A sign-up never paid is cancelled after 3 days and its invoice voided; an unpaid renewal invoice is voided when the plan lapses. The owner-OK'd first-year invoice (no online payments) is a normal invoice (due in 14 days, reminders on).
+- **Activation:** the Stripe Connect webhook (`checkout.session.completed`, and `async_payment_succeeded` for a bank debit) calls `onPlanInvoicePayment` right after the invoice handler records the payment; the `service-plans:payments` sweep is the backstop and also catches an e-Transfer the owner recorded. Both are idempotent (conditional status updates).
+
+### Approval kinds (`approval-kinds.ts`, `approvals.ts`)
+
+| Kind | Asked by | Owner sees | Y | N / expiry |
+| --- | --- | --- | --- | --- |
+| `plan_signup` (48 h) | the public sign-up (per-visit, or no online payments; notified, quiet hours respected), owner tool `enroll_customer` (inline) | `New plan sign-up: Dana Jones (705-555-0123), Spring + Fall Lawn Care $420/yr (May + Oct). Y starts the plan, books the visits (first: Tue May 4), sends their first-year invoice and texts them to confirm.` / `Sign Bob Smith (…) up for …` | claims the agreement (`decision_claimed_at`), annual → the first-year invoice, then active + series + the confirmation text (with the invoice link): "Started Dana Jones on Spring + Fall Lawn Care: 2 visits booked, first Tue May 4. Texted them to confirm." | `cancelled`; a customer who signed up themselves gets "Hi Dana, thanks for signing up for Spring + Fall Lawn Care. Northshore Lawn will be in touch with you directly about it." (the owner's note is never passed on). Expiry also texts the owner "No answer on #12 …" |
+| `plan_renewals` (6 days) | the Monday batch, once per company per week (claimed in `service_plan_runs`) | `3 plans renew in the next 30 days ($1,260): … Y texts each customer their renewal link (pay now to keep their spring visit).` (lines that don't fit fold into "+N more"; the dollar total counts annual plans) | each agreement claimed (`renewal_texted_at`, conditional on the approval id) → `renewal_due`, a renewal token, the price offered (the plan's current price; the locked one if the plan is off sale), the next term's visits added to the series, the customer's link texted. "Texted 3 customers their renewal links ($1,260)." (after 20:00: "They go out at 9am.") | N: `renewal_declined_at`, not asked again (they lapse unless the customer pays). Expiry: released, asked again next Monday |
+
+A note ("Y 12 but $80", "Y 14 except Smith") is never acted on: nothing is done and the same question comes back under a fresh code ("Nothing done yet - #12 starts the plan exactly as shown (change the plan's price in Settings). Reply Y 13 to start it, N 13 to skip."). `front-desk/approval-text.ts` `replyInstruction`: `plan_signup` → "Reply Y 12 to start it, N 12 to skip.", `plan_renewals` → "Reply Y 12 to text them, N 12 to skip."
+
+### Renewals and lapses (`sweeps.ts`)
+
+- **Renewal page** `/<slug>/plans/renew/<token>` (32 hex per agreement, the credential; one neutral 404 for every miss; rate-limited per IP and token). Annual: "Pay $420 + HST and renew" → the renewal invoice (issued once; a second tap reuses it) → Checkout (or its invoice page) → paid → **renewed**: the old row `renewed`, a new `active` row for the next term (`source 'renewal'`, `previous_agreement_id`, same series, the renewal invoice in `invoice_ids`), the series extended, the "renewed" text. Per visit: "Keep my plan for another year" → renewed right away. No website live → annual plans get the renewal invoice's own pay link in the text instead; per-visit plans can't be texted a link (the owner is told which).
+- The next term's visits go on the series as soon as the renewal link goes out, so "pay now to keep your spring visit" is literal.
+- A term that ended unrenewed → `renewal_due`. **14 days after the term ended**, unpaid → **lapsed** (09:00–20:00 local): the series is ended, its visit dates trimmed to the term, untouched later visits removed, the renewal invoice voided (only if nothing was paid on it), the owner texted.
+- **Cancel** (Settings, owners/admins): cancelled, the series ended, untouched upcoming visits off the calendar, an unpaid pending invoice voided. Nothing is refunded automatically.
+
+### Visit heads-up
+
+One text per plan visit when it's 9–10.5 days away, 09:00–20:00 local, from the business number (`service_plan_messages` unique on the booking id). **No double reminders:** the existing "Booking reminders" automation (`booking.upcoming`) texts 24 h and 2 h before — that's the day-before reminder, not this "it's coming up" notice, so both go. If the company has its own active `booking.upcoming` automation that texts **72 hours or more** ahead, that already covers it and the heads-up is skipped (`reminderCoversHeadsUp`). Generated visits never fire `booking.created`, so no "you're booked" texts pile up either.
+
+### Customer texts (`messages.ts`)
+
+Every text is a `service_plan_messages` row (unique company + kind + dedupe key) claimed `queued → sending` before `deliverMessage`, from the company's own number only (no number → skipped), `message_log.sent_by = 'service_plans'`. 09:00–20:00 local; otherwise it waits (`not_before` = the next 09:00) for the `service-plans:queue` sweep, which re-checks it first (the plan is still due / active, the visit hasn't moved or been cancelled, under 3 days old). **CASL:** a plan customer has a purchase relationship — `consentContact` carries `last_purchase_at` = when the plan started, so consent is checked and an opt-out always wins; the STOP footer is automatic.
+
+### SMS agent tool `offer_service_plan` (`agent-tool.ts`)
+
+The active plans (name, "$420/yr + HST", paid yearly or per visit, months, what's included) and the plans page link, added to the reply; the prices are vouched for the reply guard. No site → "tell them about the plan and hand off". Prompt note: only the plans and prices the tool returned; never sign anyone up, promise visit dates or a discount; an existing plan, renewal or bill → `hand_off_to_owner`.
+
+### Owner tools (`owner-tools.ts`)
+
+| Tool | Does |
+| --- | --- |
+| `plans_summary` | The sign-up page link; each plan (price, months, on sale, customers); active customers, plan revenue a year (annual plans), per-visit customers; renewing in 30 days (link sent or not); unpaid renewals; lapsed in 90 days; sign-ups waiting (on the owner's OK / on payment). Names are quoted as data. |
+| `enroll_customer` | `customer` (name or phone, matched in this company only) + `plan` (name words; asks which when several match) → a `plan_signup` approval asked inline; returns `tell_owner_exactly`. Already on it / already waiting / no cell on file → says so. |
+
+Owner prompt note: relay `tell_owner_exactly` word for word; plans are created in Settings; renewals are asked about every Monday.
+
+### Settings
+
+`companies.ai_settings.service_plans = { enabled?, heads_up?: { enabled }, renewals?: { enabled } }`, read only by `settings.ts readServicePlansSettings`: `enabled` defaults **on** for CrankLeads orgs and is **always off** for house orgs; the other two default on.
+
+Route `GET | PATCH | POST /api/organizations/:org/companies/:company/ai-settings/service-plans`: members read (plans, counts, the sign-up link, whether cards are taken online — not the customer list); owners/admins PATCH `{ enabled?, headsUp?: { enabled }, renewals?: { enabled } }` (strict, merges only `service_plans` via `updateAiSettings`) and POST `{ action: "create_plan", plan }`, `{ action: "update_plan", planId, plan }` or `{ action: "cancel_agreement", agreementId }`. House orgs: `available: false`, every write 403.
+
+UI: the switch, the counts, the sign-up page link, a note when card payments aren't set up, the plans with a simple editor (name, price, per year / per visit, month buttons, which weekday of the month, time, length, what's included, on sale), the two switches, and the customers with **Cancel** (asks first). Renders nothing for house orgs.
+
+### Schema (`20261013110000_staff_service_plans.sql`)
+
+- `service_plans` (members read), `service_agreements` and `service_plan_messages` (owners/admins read; `service_agreements.renewal_token` isn't readable by any client role — column grants), `service_plan_runs` (service role only). No client writes anywhere; composite FKs to `companies (id, organization_id)`; `updated_at` triggers.
+- `service_agreements_one_open_idx`: one open (`pending_owner | pending_payment | active | renewal_due`) agreement per plan + contact.
+- `recurring_jobs.visit_dates date[]` (nullable, no default). `recurring_jobs` keeps its existing member grants (it was never on the column allowlist).
+- Re-runnable; rollback drops the four tables and the column (end the plan series first if the code is reverted too — the statement is in the rollback). SQL checks: `scripts/sql-tests/zz_service_plans.test.sql`.
+
+Types: `staff/service-plans/db-types.ts` until merged into `database.types.ts`.
+
+### Env
+
+None of its own, and no model calls (every text is built in code). Uses the existing Stripe Connect setup (`STRIPE_SECRET_KEY`, `STRIPE_CONNECT_WEBHOOK_SECRET`), Twilio, `PAGES_BASE_URL`, optional `TURNSTILE_SECRET_KEY` / `TURNSTILE_SITE_KEY` (the sign-up form).
+
+### Sweeps
+
+`service-plans:payments` (5 min), `service-plans:renewals` (30 min; the batch Monday 09:00–17:00 local, lapses 09:00–20:00), `service-plans:heads-up` (30 min), `service-plans:queue` (2 min). They scan agreements only (which exist only for CrankLeads companies with a plan), so house orgs cost nothing; a company no longer CrankLeads, paused / archived or switched off is skipped.
+
+### Shared files edited
+
+`recurring/service.ts` (explicit `visit_dates` in `generateVisits`, `createRecurringJob`'s optional `{ visitDates }`, the list's rule text), `invoices/auto.ts` (the prepaid skip), `dfy/site-host.ts` (the plans rewrites), `api/webhooks/stripe/connect/route.ts` (the `onPlanInvoicePayment` dispatch), `front-desk/approval-text.ts` (two reply lines), `src/test/helpers/fake-supabase.ts` (array upsert, delete returns rows).
+
+### Tests
+
+`src/test/staff-service-plans.test.ts` (fake DB, real services; Twilio, Resend and the billing seam faked): schedule maths, every text, settings + gating (house org never on, no plan → off), the registry; the generator (A1's rule-based series unchanged, explicit dates); the public pages, form checks and pages-host rewrites; **`plan_signup` end to end through `decideApproval`** (Y starts, the series and its visit, the text from the business number, idempotent; N; expiry; a note re-asks); annual paid online (Checkout, payments sweep + webhook hook, owner told, prepaid visit check, abandoned after 3 days), no online payments (first-year invoice); `enroll_customer` → Y and `plans_summary`; **`plan_renewals` end to end through `decideApproval`** (per-visit kept on the page, annual paid → renewed + next term, N, expiry, night → queued until 9am); lapse (untouched visits only, A1 untouched); heads-up (once, quiet hours, the ≥72 h automation rule, switched off); `offer_service_plan`; briefing items; Settings actions; the real invoices-service term invoice. `src/test/service-plans-route.test.ts`: the settings route (member vs owner, strict PATCH, validation, house org 403) and the public routes (list, plan page, honeypot, sign-up, renewal 404).
+
+### Not yet
+
+- No end-customer subscriptions or saved-card renewals: each term is paid on a page the customer opens (by design — no off-session charges).
+- A visit the crew completes for a lapsed annual plan isn't auto-invoiced (its series is still a plan series); the owner bills it by hand.
+- Moving a plan's months or weekday doesn't re-lay running agreements; it applies from their next renewal.
+- The renewal batch is weekly (Monday); a plan ending in under a week when the feature is switched on mid-week waits for Monday.
+- Never run against live Stripe: check the first real sign-up (Checkout on the connected account, the webhook starting the plan).
+
 ## Compliance
 
 ## Purchasing

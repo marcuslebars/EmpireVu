@@ -141,6 +141,11 @@ export function replyInstruction(kind: ApprovalKind, code: number | null, payloa
       return `Reply Y${c} to post it, N${c} to skip.`;
     case "interview_invite":
       return `Reply Y${c} to text them, N${c} to skip.`;
+    // Service plans (docs/ai-staff.md → "Service plans").
+    case "plan_signup":
+      return `Reply Y${c} to start it, N${c} to skip.`;
+    case "plan_renewals":
+      return `Reply Y${c} to text them, N${c} to skip.`;
     default:
       return `Reply Y${c} to approve, N${c} to skip.`;
   }

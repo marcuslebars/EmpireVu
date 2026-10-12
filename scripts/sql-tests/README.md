@@ -12,6 +12,7 @@ They run against a **throwaway local Postgres**. Never point them at a real Supa
 | `zz_front_desk_hardening.test.sql` | 20261009160000: `owner_phone_e164` is not writable through any session (owner/admin/member/anon), `owner_phone_verified_at` neither; the un-verify trigger; `owner_phone_verifications` is service-role only; the new `notified_to` / `recovery_*` columns aren't client-writable |
 | `zz_done_for_you.test.sql` | The done-for-you tables: `setup_intakes` / `company_sites` / `dfy_progress` / `operator_actions` are not client-writable (incl. new columns), the no-login token columns (`setup_intakes.token`, `dfy_progress.forward_token`) are not readable by any client role, anon can't read `company_sites`, the composite (company, org) FKs, and the `updated_at` triggers |
 | `zz_recruiter.test.sql` | 20261012130000 (hiring & payroll): the new tables aren't client-writable, applicants are admin-read only, and the `time_entries` payroll lock (no edit / delete / backdated insert in a locked period for a member; stopping a running clock and the service role still work) |
+| `zz_service_plans.test.sql` | 20261013110000 (service plans): the new tables aren't client-writable, agreements and texts are admin-read only, the renewal token isn't readable by any client role, one open agreement per customer per plan, `recurring_jobs.visit_dates` defaults to NULL |
 | `postgrest-smoke.mjs` | Sends the same requests a browser would (supabase-js through PostgREST) to a local PostgREST, with signed JWTs |
 
 ## Run

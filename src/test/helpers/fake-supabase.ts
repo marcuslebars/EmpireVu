@@ -5,7 +5,8 @@
  * constraints (→ error code 23505), and records every query's filters so tests can assert
  * tenancy (every read filtered by organization_id + company_id). Also: JSON-path filter
  * columns (`payload->data->object->>customer`), upsert `ignoreDuplicates` (upsert returns the
- * written row), and `failNext(table, op)` to inject one error.
+ * written row; an array upserts each row), delete returns the removed rows, and `failNext(table,
+ * op)` to inject one error.
  */
 
 type Row = Record<string, unknown>;
@@ -125,15 +126,21 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
           return { data: inserted, error: null };
         }
         case "upsert": {
-          const row = payload as Row;
-          const existing = rowsOf(table).find((r) => upsertConflict.every((col) => r[col] === row[col]));
-          if (existing) {
-            if (!upsertIgnoreDuplicates) Object.assign(existing, row);
-            return { data: [{ ...existing }], error: null };
+          // An array upserts each row (ignoreDuplicates → only the rows actually written come back).
+          const list = Array.isArray(payload) ? payload : [payload as Row];
+          const out: Row[] = [];
+          for (const row of list) {
+            const existing = rowsOf(table).find((r) => upsertConflict.every((col) => r[col] === row[col]));
+            if (existing) {
+              if (!upsertIgnoreDuplicates) Object.assign(existing, row);
+              if (!Array.isArray(payload) || !upsertIgnoreDuplicates) out.push({ ...existing });
+              continue;
+            }
+            const created = { id: `id-${++idCounter}`, ...row };
+            rowsOf(table).push(created);
+            out.push({ ...created });
           }
-          const created = { id: `id-${++idCounter}`, ...row };
-          rowsOf(table).push(created);
-          return { data: [{ ...created }], error: null };
+          return { data: out, error: null };
         }
         case "update": {
           const hit = matches();
@@ -143,7 +150,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, unique: Record<st
         case "delete": {
           const hit = new Set(matches());
           tables[table] = rowsOf(table).filter((row) => !hit.has(row));
-          return { data: null, error: null };
+          return { data: [...hit].map((r) => ({ ...r })), error: null };
         }
         default: {
           const hit = matches();

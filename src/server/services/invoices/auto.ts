@@ -13,6 +13,7 @@
  *
  * Best-effort by design: completing the job must never fail because invoicing did.
  */
+import { isPrepaidPlanVisit } from "@/server/services/staff/service-plans/prepaid";
 import { createTask } from "@/server/services/tasks";
 import type { TenantServiceContext } from "@/server/services/shared";
 import type { Tables } from "@/server/db/database.types";
@@ -40,7 +41,7 @@ export type AutoInvoiceOutcome =
 
 export async function autoInvoiceCompletedBooking(
   ctx: TenantServiceContext,
-  booking: Pick<Tables<"bookings">, "id" | "company_id" | "contact_id" | "title">,
+  booking: Pick<Tables<"bookings">, "id" | "company_id" | "contact_id" | "title"> & { recurring_job_id?: string | null },
 ): Promise<AutoInvoiceOutcome> {
   try {
     if (!booking.company_id) return { action: "skipped", reason: "booking has no company" };
@@ -48,6 +49,10 @@ export async function autoInvoiceCompletedBooking(
     const company = await loadCompanyForInvoice(ctx.supabase, ctx.organizationId, booking.company_id);
     const mode = parseInvoiceSettings(company?.invoice_settings ?? null).autoInvoiceOnComplete;
     if (mode === "off") return { action: "skipped", reason: "auto-invoicing is off" };
+    // A visit of an annual service plan was paid for up front (docs/ai-staff.md → "Service plans").
+    if (await isPrepaidPlanVisit(ctx.organizationId, booking.recurring_job_id)) {
+      return { action: "skipped", reason: "covered by a prepaid service plan" };
+    }
 
     let invoice;
     try {
