@@ -131,12 +131,12 @@ async function loadInvoices(db: Db, s: Scope, today: string): Promise<{ open: Op
 }
 
 /** Booking / quote ids that already have an invoice (it's counted as an invoice, not twice). */
-async function invoiced(db: Db, s: Scope, column: "quote_id" | "booking_id", ids: string[]): Promise<Set<string>> {
+async function invoiced(db: Db, s: Scope, column: "quote_id" | "booking_id", ids: string[], ignore: Set<string> = new Set()): Promise<Set<string>> {
   const out = new Set<string>();
   for (const part of chunks(ids)) {
-    const { data, error } = await db.from("invoices").select(`${column}, status`).eq("organization_id", s.organizationId).eq("company_id", s.companyId).in(column, part);
+    const { data, error } = await db.from("invoices").select(`id, ${column}, status`).eq("organization_id", s.organizationId).eq("company_id", s.companyId).in(column, part);
     if (error) throw error;
-    for (const r of (data ?? []) as Array<Record<string, unknown>>) if (r.status !== "void" && r.status !== "draft" && str(r[column])) out.add(String(r[column]));
+    for (const r of (data ?? []) as Array<Record<string, unknown>>) if (r.status !== "void" && r.status !== "draft" && str(r[column]) && !ignore.has(String(r.id))) out.add(String(r[column]));
   }
   return out;
 }
@@ -190,7 +190,7 @@ async function loadJobs(db: Db, s: Scope, today: string, end: string, quoteIds: 
   const rows = await readAll<Record<string, unknown>>((from, to) =>
     db
       .from("bookings")
-      .select("id, title, contact_id, scheduled_for, status, quote_id, recurring_job_id, service_item_id, price_cents, source_call_id")
+      .select("id, title, contact_id, scheduled_for, status, quote_id, recurring_job_id, service_item_id, price_cents, source_call_id, deposit_cents, deposit_paid_at, deposit_invoice_id")
       .eq("organization_id", s.organizationId)
       .eq("company_id", s.companyId)
       .in("status", ["pending", "confirmed"])
@@ -200,7 +200,10 @@ async function loadJobs(db: Db, s: Scope, today: string, end: string, quoteIds: 
       .range(from, to),
   );
   let list = rows.filter((b) => !isImportedPastJob({ source_call_id: str(b.source_call_id) }) && !(str(b.quote_id) && quoteIds.has(String(b.quote_id))));
-  const done = await invoiced(db, s, "booking_id", list.map((b) => String(b.id)));
+  // An online-booking deposit is its own invoice (no booking_id), counted with the open invoices
+  // when unpaid and already received when paid — so it's never an invoice "for the job" here.
+  const depositInvoices = new Set(list.map((b) => str(b.deposit_invoice_id)).filter((x): x is string => !!x));
+  const done = await invoiced(db, s, "booking_id", list.map((b) => String(b.id)), depositInvoices);
   list = list.filter((b) => !done.has(String(b.id)));
   // Warranty / callback visits (Customer care) aren't billed — tolerant: no table → none.
   try {
@@ -237,11 +240,13 @@ async function loadJobs(db: Db, s: Scope, today: string, end: string, quoteIds: 
     else if (series && seriesPrice.has(series)) preTax = seriesPrice.get(series) ?? 0; // 0 = a prepaid plan visit
     else if (str(b.service_item_id) && itemPrice.has(String(b.service_item_id))) preTax = itemPrice.get(String(b.service_item_id)) ?? null;
     const who = lastName(names.get(String(b.contact_id)));
+    // A deposit with its own invoice (paid, or open and counted there) isn't money still to come.
+    const deposit = str(b.deposit_invoice_id) ? num(b.deposit_cents) : 0;
     return {
       id: String(b.id),
       label: clip([who, str(b.title) ?? "job"].filter(Boolean).join(" "), 40),
       date: localDay(Date.parse(String(b.scheduled_for)), s.timeZone),
-      expectedCents: preTax == null ? null : Math.round(preTax * HST_FACTOR),
+      expectedCents: preTax == null ? null : Math.max(0, Math.round(preTax * HST_FACTOR) - deposit),
     };
   });
 }
@@ -333,7 +338,10 @@ async function loadLabour(db: Db, s: Scope, nowMs: number, single: boolean): Pro
 }
 
 /** HST returns whose payment falls in the window (the Tax Clerk's worksheet). Registrants only. */
-async function loadHst(admin: AdminClient, s: Scope, today: string, end: string): Promise<HstInput[]> {
+/** A running HST period is only scaled up once it has this many days in it. */
+const MIN_HST_DAYS = 7;
+
+async function loadHst(admin: AdminClient, s: Scope, today: string, end: string, notes: string[]): Promise<HstInput[]> {
   const company = await loadTaxClerkCompany(admin, s.organizationId, s.companyId);
   if (!company || !company.settings.hst.registrant) return [];
   const settings = { frequency: company.settings.hst.frequency, fiscalYearEndMonth: company.settings.hst.fiscalYearEndMonth, filer: company.settings.hst.filer };
@@ -346,13 +354,20 @@ async function loadHst(admin: AdminClient, s: Scope, today: string, end: string)
   }
   const out: HstInput[] = [];
   for (const p of periods) {
-    const w = await worksheetFor(admin, { organizationId: s.organizationId, companyId: s.companyId, settings: { hst: settings } }, p);
-    let cents = w.netCents;
+    let cents: number;
     if (p.end >= today) {
-      // Not over yet: scale what's in so far to the whole period.
+      // Not over yet: scale what's in so far (today included) to the whole period — once there's
+      // about a week of it; earlier than that, one invoice would swing the guess wildly.
       const length = daysBetween(p.start, p.end) + 1;
-      const elapsed = Math.max(1, daysBetween(p.start, today));
+      const elapsed = daysBetween(p.start, today) + 1;
+      if (elapsed < MIN_HST_DAYS) {
+        notes.push(`${p.label} HST not included yet - too early in the period to tell.`);
+        continue;
+      }
+      const w = await worksheetFor(admin, { organizationId: s.organizationId, companyId: s.companyId, settings: { hst: settings } }, p);
       cents = Math.round((w.netCents * length) / elapsed);
+    } else {
+      cents = (await worksheetFor(admin, { organizationId: s.organizationId, companyId: s.companyId, settings: { hst: settings } }, p)).netCents;
     }
     if (cents > 0) out.push({ label: `${p.label} HST${p.end >= today ? " (so far, scaled)" : ""}`, dueDate: p.paymentDueDate, cents });
   }
@@ -378,7 +393,8 @@ async function loadRentals(db: Db, s: Scope, today: string, timeZone: string): P
   const day = (v: unknown) => (str(v) ? (/^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : localDay(Date.parse(String(v)), timeZone)) : null);
   const out: RentalInput[] = [];
   for (const r of (data ?? []) as Array<Record<string, unknown>>) {
-    const daily = num(r.rate_per_day_cents) || num(r.daily_rate_cents) || num(r.day_rate_cents) || num(r.rate_cents);
+    // Fleet's column is rate_cents_per_day (20261014130000); the others are tolerated.
+    const daily = num(r.rate_cents_per_day) || num(r.rate_per_day_cents) || num(r.daily_rate_cents) || num(r.rate_cents);
     if (!(daily > 0)) continue;
     const from = day(r.out_at) ?? today;
     const to = day(r.due_back_at) ?? addDays(today, 7);
@@ -406,7 +422,7 @@ export async function loadForecastInputs(admin: AdminClient, company: Scope, now
     tolerant("Plan renewals", [] as RenewalInput[], () => loadRenewals(db, company, today, end)),
     tolerant("Expenses", [] as ExpenseInput[], () => loadExpenses(db, company, today, single)),
     tolerant("Payroll", [] as LabourInput[], () => loadLabour(db, company, nowMs, single)),
-    tolerant("HST", [] as HstInput[], () => loadHst(admin, company, today, end)),
+    tolerant("HST", [] as HstInput[], () => loadHst(admin, company, today, end, notes)),
     tolerant("Purchase orders", [] as PoInput[], () => loadPos(db, company)),
     // Fleet may not exist on this server: no note when the table simply isn't there.
     loadRentals(db, company, today, company.timeZone).then((value) => ({ value }), () => ({ value: [] as RentalInput[] })),

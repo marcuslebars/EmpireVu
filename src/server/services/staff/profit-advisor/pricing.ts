@@ -13,6 +13,11 @@
  * revision), those approved ÷ those decided. A quote still open (sent in the last 30 days and not
  * approved, expired or cancelled) isn't decided yet, so it's left out.
  *
+ * Only numbers at the CURRENT price count (pricing-check.ts): jobs whose quote was sent, and
+ * quotes sent (or approved), after the item's last price change — an approved price_change
+ * (applied_at) or a change by hand that the price watch noticed. So a raise never stacks on
+ * margins from the old price, and 90 days after a raise there must be 5 new jobs first.
+ *
  * Flag: ≥ 5 finished jobs AND ≥ 5 decided quotes, margin at least 10 points under the company
  * average, AND a win rate of 70%+ (customers say yes easily → the price has room).
  *
@@ -20,7 +25,7 @@
  * ((1 − item margin) ÷ (1 − average margin)), capped at +15%, rounded DOWN to a tidy price
  * ($5 steps from $100, $1 from $20, 25¢ from $5), never below +3% (not worth asking) and never a
  * cut. Only simple per-item prices (flat / per unit / per measure) are proposed; tiered and banded
- * prices aren't touched. At most one change per item per 90 days (a "no" counts).
+ * prices aren't touched; nor are items switched off on the price list. At most one change per item per 90 days (a "no" counts).
  */
 import { dollars, pct } from "./format";
 
@@ -165,7 +170,7 @@ export interface Proposal {
 
 /** The raise for an underpriced item (capped +15%, tidy, never a cut), or null. PURE. */
 export function proposeRaise(item: CatalogForPricing, s: ItemStats, companyMargin: number): Proposal | null {
-  if (!SIMPLE_PRICING_TYPES.has(item.pricingType) || !(item.rateCents > 0) || s.margin == null || companyMargin >= 1) return null;
+  if (!item.active || !SIMPLE_PRICING_TYPES.has(item.pricingType) || !(item.rateCents > 0) || s.margin == null || companyMargin >= 1) return null;
   const needed = (1 - s.margin) / (1 - companyMargin) - 1;
   const raise = Math.min(MAX_RAISE, needed);
   if (!(raise >= MIN_RAISE)) return null;

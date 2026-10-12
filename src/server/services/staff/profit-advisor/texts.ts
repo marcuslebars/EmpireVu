@@ -33,6 +33,7 @@ export function caveats(s: JobsSummary): string[] {
   if (n > 0) out.push(`${n} crew ${n === 1 ? "has" : "have"} no pay rate - profit is a guess.`);
   if (s.unpriced > 0) out.push(`${s.unpriced} job${s.unpriced === 1 ? " has" : "s have"} no price yet.`);
   if (s.noCosts > 0 && n === 0) out.push(`${s.noCosts} job${s.noCosts === 1 ? " has" : "s have"} no hours or receipts logged.`);
+  if (s.careVisits > 0) out.push(`${s.careVisits} free callback/warranty visit${s.careVisits === 1 ? "" : "s"}${s.careCostCents > 0 ? ` cost about ${wholeDollars(s.careCostCents)}` : ""}.`);
   return out;
 }
 

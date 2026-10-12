@@ -37,6 +37,11 @@ export interface JobsSummary {
   /** Priced jobs with no cost at all logged (no hours, materials or receipts). */
   noCosts: number;
   missingRateNames: string[];
+  /** Free callback / warranty visits (Customer care): how many, and what they cost. */
+  careVisits: number;
+  careCostCents: number;
+  /** Visits already paid for by an annual service plan (not counted as jobs). */
+  planVisits: number;
 }
 
 function line(r: JobProfitRow): JobLine {
@@ -52,7 +57,15 @@ export function watchReason(r: Pick<JobProfitRow, "labourMinutes" | "labourCents
   return stuff >= r.labourCents ? `materials ${dollars(Math.round(stuff / 100) * 100)}` : `labour ${dollars(Math.round(r.labourCents / 100) * 100)}`;
 }
 
-export function summarizeJobs(rows: JobProfitRow[], missingRateNames: string[] = []): JobsSummary {
+/**
+ * Free visits (callbacks / warranty work, prepaid plan visits) aren't "jobs done" and never
+ * "no price yet". A callback's cost is NOT charged back to the original job (that job is often
+ * from an earlier week or month, so it would rewrite old numbers); it's reported on its own
+ * ("1 free callback visit cost about $340"). Plan visits were paid for up front.
+ */
+export function summarizeJobs(all: JobProfitRow[], missingRateNames: string[] = []): JobsSummary {
+  const careRows = all.filter((r) => r.freeVisit === "care");
+  const rows = all.filter((r) => !r.freeVisit);
   const priced = rows.filter((r) => r.revenueCents > 0);
   const billed = priced.reduce((s, r) => s + r.revenueCents, 0);
   const cost = priced.reduce((s, r) => s + r.costCents, 0);
@@ -73,5 +86,8 @@ export function summarizeJobs(rows: JobProfitRow[], missingRateNames: string[] =
     unpriced: rows.length - priced.length,
     noCosts: priced.filter((r) => r.costCents <= 0).length,
     missingRateNames,
+    careVisits: careRows.length,
+    careCostCents: careRows.reduce((sum, r) => sum + r.costCents, 0),
+    planVisits: all.filter((r) => r.freeVisit === "plan").length,
   };
 }

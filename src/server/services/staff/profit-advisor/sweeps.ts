@@ -7,9 +7,11 @@
  *   profit_advisor:pricing  every 30 min. The first Tuesday of the month (caught up through Friday),
  *                           09:00–17:00 local: the pricing check, and up to 2 price_change questions.
  *
- * Each run is claimed first in profit_advisor_runs (unique company + kind + key: the local date /
- * the month), so overlapping workers do it once. A failed weekly text is retried after 30 minutes,
- * up to 3 tries, inside the same window.
+ * Each run is claimed first in profit_advisor_runs (unique company + kind + key: the ISO week — so
+ * moving the day mid-week can't send a second text — / the month), so overlapping workers do it
+ * once. A failed run, or one stuck at `claimed` by a dead worker, is retried after 30 minutes, up
+ * to 3 tries, inside the same window. The pricing sweep also finishes price changes stuck in
+ * `applying` for 10+ minutes (price-change.ts recoverStuckChanges).
  */
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { findOwnerCompanies, sendOwnerSms } from "@/server/services/owner-channel/common";
@@ -18,7 +20,7 @@ import type { Db, ProfitRunRow, RunKind } from "./db-types";
 import { forecastFor } from "./forecast-data";
 import { addDays, daysBetween, firstTuesdayOf, localDay, localHHMM, weekdayOfDate } from "./format";
 import { loadJobProfits } from "./jobs";
-import { askPriceChange, defaultPriceChangeDeps, type PriceChangeDeps } from "./price-change";
+import { askPriceChange, defaultPriceChangeDeps, recoverStuckChanges, type PriceChangeDeps } from "./price-change";
 import { MAX_ASKS_PER_RUN } from "./pricing";
 import { runPricingCheck } from "./pricing-check";
 import type { ProfitCompany } from "./settings";
@@ -46,7 +48,7 @@ async function businessPrefix(admin: AdminClient, company: ProfitCompany): Promi
 
 const errText = (err: unknown) => (err instanceof Error ? err.message : String((err as { message?: unknown })?.message ?? err)).slice(0, 300);
 
-/** Claim one run (insert; a failed one is re-claimed after 30 min, up to 3 tries). Null → someone else has it. */
+/** Claim one run (insert; a failed or stuck one is re-claimed after 30 min, up to 3 tries). Null → someone else has it. */
 export async function claimRun(admin: AdminClient, company: Pick<ProfitCompany, "organizationId" | "companyId">, kind: RunKind, runKey: string, nowMs: number): Promise<ProfitRunRow | null> {
   const db = admin as Db;
   const at = new Date(nowMs).toISOString();
@@ -58,13 +60,15 @@ export async function claimRun(admin: AdminClient, company: Pick<ProfitCompany, 
   if ((error as { code?: string }).code !== "23505") throw error;
   const { data: existing } = await db.from("profit_advisor_runs").select("*").eq("company_id", company.companyId).eq("kind", kind).eq("run_key", runKey).maybeSingle();
   const row = existing as ProfitRunRow | null;
-  if (!row || row.status !== "failed" || row.attempts >= MAX_ATTEMPTS || nowMs - Date.parse(row.updated_at) < RETRY_AFTER_MS) return null;
+  // A failed run, or one stuck at `claimed` (the worker died mid-run), is taken again after 30 min.
+  if (!row || (row.status !== "failed" && row.status !== "claimed") || row.attempts >= MAX_ATTEMPTS || nowMs - Date.parse(row.updated_at) < RETRY_AFTER_MS) return null;
   const { data: again } = await db
     .from("profit_advisor_runs")
     .update({ status: "claimed", attempts: row.attempts + 1, updated_at: at })
     .eq("id", row.id)
-    .eq("status", "failed")
+    .eq("status", row.status)
     .eq("attempts", row.attempts)
+    .eq("updated_at", row.updated_at)
     .select("*");
   return ((again ?? []) as ProfitRunRow[])[0] ?? null;
 }
@@ -72,6 +76,30 @@ export async function claimRun(admin: AdminClient, company: Pick<ProfitCompany, 
 async function finishRun(admin: AdminClient, id: string, nowMs: number, patch: Partial<Pick<ProfitRunRow, "status" | "body" | "detail" | "last_error">>): Promise<void> {
   const { error } = await (admin as Db).from("profit_advisor_runs").update({ ...patch, updated_at: new Date(nowMs).toISOString() }).eq("id", id);
   if (error) console.error("[profit-advisor] run update failed", id, error.message);
+}
+
+/** ISO week of a YYYY-MM-DD ("2026-W42"): one weekly text per week, whatever day it's set to. PURE. */
+export function isoWeekKey(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  const dow = (t.getUTCDay() + 6) % 7; // Monday = 0
+  t.setUTCDate(t.getUTCDate() - dow + 3); // the week's Thursday decides the year
+  const year = t.getUTCFullYear();
+  const dayOfYear = Math.round((t.getTime() - Date.UTC(year, 0, 1)) / 86_400_000);
+  const week = Math.floor(dayOfYear / 7) + 1;
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
+
+/**
+ * The window the latest weekly text covered (or would cover): the most recent send moment at or
+ * before now (the owner's day + time), and the 7 days before it. The `profit` tool answers for the
+ * same window by default, so "Text 'profit' for more" means the same week. PURE.
+ */
+export function lastWeeklyWindow(nowMs: number, weekly: { day: number; time: string }, timeZone: string): { fromIso: string; toIso: string; sendDate: string } {
+  const today = localDay(nowMs, timeZone);
+  let date = addDays(today, -((weekdayOfDate(today) - weekly.day + 7) % 7));
+  if (date === today && localHHMM(nowMs, timeZone) < weekly.time) date = addDays(date, -7);
+  return { ...weekWindow(date, weekly.time, timeZone), sendDate: date };
 }
 
 /** The weekly window: [same local time a week ago, this week's send time). */
@@ -88,7 +116,7 @@ export async function runCompanyWeekly(admin: AdminClient, company: ProfitCompan
   const today = localDay(nowMs, company.timeZone);
   const hhmm = localHHMM(nowMs, company.timeZone);
   if (weekdayOfDate(today) !== s.weekly.day || hhmm < s.weekly.time || hhmm >= "20:00") return "not_now";
-  const run = await claimRun(admin, company, "weekly", today, nowMs);
+  const run = await claimRun(admin, company, "weekly", isoWeekKey(today), nowMs);
   if (!run) return "claimed_elsewhere";
   try {
     const { fromIso, toIso } = weekWindow(today, s.weekly.time, company.timeZone);
@@ -132,13 +160,16 @@ export type PricingOutcome = { outcome: "off" | "not_now" | "claimed_elsewhere" 
 /** One company's monthly pricing check (+ up to 2 price_change questions). */
 export async function runCompanyPricing(admin: AdminClient, company: ProfitCompany, nowMs: number, deps: SweepDeps = defaultSweepDeps): Promise<PricingOutcome> {
   const s = company.settings;
-  if (!company.active || !s.enabled || !s.pricingCheck.enabled) return { outcome: "off", asked: 0 };
+  if (!company.active || !s.enabled) return { outcome: "off", asked: 0 };
+  // A Y whose worker died mid-write: finished (after re-checking the price) whatever the day.
+  await recoverStuckChanges(admin, company, nowMs).catch((err: unknown) => console.error("[profit-advisor] stuck price changes", company.companyId, errText(err)));
+  if (!s.pricingCheck.enabled) return { outcome: "off", asked: 0 };
   const today = localDay(nowMs, company.timeZone);
   if (!pricingDue(today, localHHMM(nowMs, company.timeZone))) return { outcome: "not_now", asked: 0 };
   const run = await claimRun(admin, company, "pricing", today.slice(0, 7), nowMs);
   if (!run) return { outcome: "claimed_elsewhere", asked: 0 };
   try {
-    const report = await runPricingCheck(admin, company, nowMs);
+    const report = await runPricingCheck(admin, company, nowMs, { record: true });
     const margin = report.companyMargin ?? 0;
     const candidates = report.items
       .filter((i) => i.proposal)

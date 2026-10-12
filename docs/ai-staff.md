@@ -1895,22 +1895,23 @@ The app's own job costing, untouched: `time/service.ts profitReport` (revenue = 
 
 - **Best** = the most profit. **Watch** = the job that lost money, else the one under 15% margin. **Why** (`watchReason`): labour 1h+ over the booked time (booked length × crew on it) → "labour 9h over"; else the bigger of materials+receipts or labour ("materials $640").
 - Jobs with no price (no invoice, quote or series price) are left out of billed / profit and counted ("2 jobs have no price yet").
-- **The week** is the 7 days before this week's send time (`weekWindow`: same local time a week ago → this send time), so weeks never overlap or leave a gap.
+- **Free visits aren't jobs.** Customer care callback / warranty visits (`care_case_bookings`, the same rule as `customer-care/care-visit.ts isCareVisitBooking`, read in one tolerant batch) and visits already paid for by an annual service plan (`service-plans/prepaid.ts isPrepaidPlanVisit`) are never counted as jobs done or "no price yet". **Our call:** a callback's cost is *not* charged back to the original job — that job is often from an earlier week or month, so it would quietly rewrite numbers the owner already saw — it's reported on its own instead ("1 free callback/warranty visit cost about $80."; `profit` lists the count and cost). Plan visits were paid up front and are only counted in `profit` (`plan_visits`).
+- **The week** is the 7 days before this week's send time (`weekWindow`: same local time a week ago → this send time), so weeks never overlap or leave a gap. `profit`'s default period (`week`) is exactly that window for the latest send (`lastWeeklyWindow`), so "Text 'profit' for more" answers for the same 7 days ("the 7 days to Fri Oct 16 3pm (the weekly money text)"); `this_week` is Monday to now.
 
 ### Pricing check (`pricing.ts` — pure; `pricing-check.ts` — the data)
 
-Over the last **180 days**:
+Over the last **180 days**, but for each item **only at its current price**: jobs whose quote was sent (or approved) after the item's last price change, and quotes sent / approved after it. The last change is the later of its last applied `price_change` (`applied_at`) and a change by hand noticed by the **price watch** (`price_watch`: the rate and minimum the monthly check last saw; a different rate or minimum now → "changed now"; the monthly sweep records it, the read-only tool and Settings only compare). So a raise never stacks on old-price margins, and after the 90-day hold there must again be 5+ jobs and 5+ decided quotes at the new price.
 - **Margin per price-list item.** A job booked from a quote is split across the quote's lines the customer took (`approved_line_items`, else `line_items`, unselected optional lines out) **in proportion to each line's amount**: a $900 roof line + a $100 vent line → 90% / 10% of that job's revenue and profit. Hand-priced (custom) lines take their share but belong to no item. A job with no quote counts wholly for its `bookings.service_item_id`. Item margin = its share of profit ÷ its share of revenue; "jobs" = every job it was on. The company average = all priced jobs' profit ÷ revenue.
-- **Win rate per item**: quotes sent in the window that had it (not replaced by a revision): approved ÷ decided. A quote sent in the last 30 days that isn't approved, expired or cancelled isn't decided yet and is left out.
+- **Win rate per item**: quotes sent (or approved without ever being "sent") in the window that had it (not replaced by a revision): approved ÷ decided. A quote sent in the last 30 days that isn't approved, expired or cancelled isn't decided yet and is left out.
 - **Flag**: ≥ 5 finished jobs AND ≥ 5 decided quotes, margin ≥ 10 points under the company average, win rate ≥ 70%.
-- **Proposal**: the raise that would bring the item to the average at the same cost ((1 − item margin) ÷ (1 − average)), **capped at +15%**, rounded **down** to a tidy price ($5 steps from $100, $1 from $20, 25¢ from $5); under +3% isn't asked; **never a cut**. A minimum charge moves with it (whole dollars, same cap). Only simple prices (flat, per unit, per measure, per unit declining) — tiered and banded prices are shown, never changed. **At most one change per item per 90 days**: an applied or declined change holds the item for 90 days; an open question holds it until answered. At most **2** questions per monthly check (the thinnest margins first).
+- **Proposal**: the raise that would bring the item to the average at the same cost ((1 − item margin) ÷ (1 − average)), **capped at +15%**, rounded **down** to a tidy price ($5 steps from $100, $1 from $20, 25¢ from $5); under +3% isn't asked; **never a cut**. A minimum charge moves with it (whole dollars, same cap). Only simple prices (flat, per unit, per measure, per unit declining) — tiered and banded prices are shown, never changed — and never an item switched off on the price list (`held: inactive`). **At most one change per item per 90 days**: an applied or declined change holds the item for 90 days; an open question holds it until answered. At most **2** questions per monthly check (the thinnest margins first).
 - **The effect** of past changes: jobs and quotes since `applied_at` vs the numbers the owner saw (`price_changes.basis`), in `pricing_check` and Settings ("Gutter cleaning: raised 30 days ago - 4 jobs since at 31% margin (was 12%), winning 85% of quotes (was 92%)").
 
 ### Approval kind `price_change` (`price-change.ts`)
 
 | Kind | Created by | Y | N / expiry |
 | --- | --- | --- | --- |
-| `price_change` (7 days) | the monthly check (`profit_advisor:pricing`), notified through `notifyOwnerOfApproval` (quiet hours and the owner-text budget respected) | claims the `price_changes` row `proposed → applying` (conditional on the approval id), re-checks the cap (> old, ≤ +15%), then writes the price list — the service-role twin of `quotes/catalog-items.ts updateCatalogItemPrices` (rate, minimum, a priced item is active) — **conditional on the price still being the one the owner saw**. → `applied` + `applied_at`. Price changed by hand since → `stale`, nothing written ("Nothing changed - Gutter cleaning is $199 now, not $189 (it was changed since I asked)."). Item gone → `stale`. | N: `declined` (held for 90 days). Expiry: `expired`, nothing changed (may be asked again next month). |
+| `price_change` (7 days) | the monthly check (`profit_advisor:pricing`), notified through `notifyOwnerOfApproval` (quiet hours and the owner-text budget respected) | claims the `price_changes` row `proposed → applying` (conditional on the approval id), re-checks the cap (> old, ≤ +15%, minimum never down or over +15%, a simple price type), then writes the price list — the service-role twin of `quotes/catalog-items.ts updateCatalogItemPrices` (rate, and minimum when it moves; **`active` is never written**, so a switched-off item is never switched back on) — **conditional on the rate, the minimum (when it moves), the pricing type and `active = true` all still being what the owner saw**. → `applied` + `applied_at`, and the price watch records the new price. Anything changed since → `stale`, nothing written ("Nothing changed - Gutter cleaning is $199 now, not $189 (it was changed since I asked).", "… is switched off on your price list.", "… was edited since I asked (its minimum or how it's priced)."). Item gone → `stale`. A row stuck in `applying` for 10+ minutes (a dead worker) is finished by the pricing sweep after re-checking the current price: already the new price → recorded `applied` (no second write); still the old one → the conditional write; else `stale`. | N: `declined` (held for 90 days). Expiry: `expired`, nothing changed (may be asked again next month). |
 
 - The question is inserted "notified to nobody", linked to its `price_changes` row, then opened and texted, so the approvals sweep can never text a question that isn't linked. One open question per item (partial unique index); a failed link withdraws the question (`superseded`).
 - **Notes**: the kind isn't in `PRICE_NOTE_KINDS`, so "Y 12 $199" by text is refused by the owner channel ("doesn't take a price") and nothing changes. A note arriving any other way changes nothing and is asked again inline under a fresh code ("Nothing changed yet - #12 only raises Gutter cleaning to exactly $215 (+14%). For another price, change it in your price list. #13 Reply Y 13 to raise it, N 13 to leave it.").
@@ -1926,7 +1927,7 @@ There's no bank balance in the app, so the forecast is **relative**: it starts a
 | --- | --- | --- |
 | Open invoices (sent / viewed / partially paid, balance > 0) | due date + that customer's usual lateness (median days paid after the due date over the last 12 months; else the company's; else 7 days). Already later than usual → in a week. 90+ days overdue → half | 2 weeks later; later than usual → in a month; 90+ days overdue → nothing |
 | Approved quotes with no invoice yet (approved in the last year) | an unpaid deposit within a week; the balance after the booked job (+ the company's usual days from invoice to paid, else 14; no booking → in 30 days) | half the deposit in 3 weeks; 75% of the balance 2 weeks later |
-| Booked jobs (pending / confirmed, next 90 days, no quote counted above, no invoice, not imported, not a Customer care warranty/callback visit — tolerant read of `care_case_bookings`) | price (booking `price_cents`, else the series price, else a flat price-list price) + 13% HST, 90%, after the job | 70%, 2 weeks later |
+| Booked jobs (pending / confirmed, next 90 days, no quote counted above, no invoice, not imported, not a Customer care warranty/callback visit — tolerant read of `care_case_bookings`) | price (booking `price_cents`, else the series price, else a flat price-list price) + 13% HST, **minus an online-booking deposit that has its own invoice** (`deposit_invoice_id`: unpaid, it's counted with the open invoices; paid, it's already in), 90%, after the job | 70%, 2 weeks later |
 | | no price → half the average invoice of the last 90 days | nothing |
 | Recurring visits past the generated horizon (`recurring_jobs` active; the series' own `visit_dates`, else its rule via `occurrencesBetween`, after `generated_through`) | like booked jobs | like booked jobs |
 | Annual service-plan renewals ending in the window (`service_agreements` active / renewal due, not declined) | 70% on the term end | nothing |
@@ -1935,9 +1936,9 @@ There's no bank balance in the app, so the forecast is **relative**: it starts a
 | --- | --- | --- |
 | Overhead: the last 90 days of `expenses` (this company's, plus company-less ones in a one-company org; amounts as paid, HST included) as a daily rate | single expenses over **$2,500** are one-offs and left out (noted) | +10% |
 | Payroll: the last 28 days of closed `time_entries` × `member_pay_rates` as a daily rate | crew without a rate at the average known rate (noted) | +10% |
-| HST: returns whose payment is due in the window (the Tax Clerk's `hst.ts` periods + `worksheetFor`; registrants only; a period still running is scaled to its full length) | net tax | same |
+| HST: returns whose payment is due in the window (the Tax Clerk's `hst.ts` periods + `worksheetFor`; registrants only; a period still running is scaled to its full length by the days so far, today included — only once it has 7+ days, else it's left out with a note) | net tax | same |
 | Open purchase orders (approved / sent / confirmed / ready) | only what's beyond the usual materials spend already in the overhead rate up to the last needed-by day | each in full on its needed-by day |
-| Fleet rentals still out (tolerant read of `rentals`, if the table exists: rate per day until due back, paid on return) | same | same |
+| Fleet rentals still out (tolerant read of `rentals`: `rate_cents_per_day` until due back, paid on return) | same | same |
 
 **Tight** = the likely running total drops below −cushion (setting, default $0: more going out than coming in) **by at least $1,000 and at least a week of normal spending**. A smaller dip is just the days between paying bills and the next payment landing, which any running business covers from the bank — flagging it every week would teach the owner to ignore the warning. The day reported is the lowest point, and "short" is how far below −cushion it is then. `tight30` drives the weekly text and the briefing; `tight90` and the low case show in `cash_forecast` and Settings.
 
@@ -1947,12 +1948,12 @@ There's no bank balance in the app, so the forecast is **relative**: it starts a
 
 | Tool | Does |
 | --- | --- |
-| `profit` | `period`: `this_week` (default) / `last_week` / `this_month` / `last_month` / `last_30_days`. Jobs done, billed, costs, profit, margin, the top and bottom 3 (with why), crew without a pay rate, caveats, how profit is worked out, the disclaimer. |
+| `profit` | `period`: `week` (default — the weekly text's 7 days) / `this_week` / `last_week` / `this_month` / `last_month` / `last_30_days`. Jobs done, billed, costs, profit, margin, the top and bottom 3 (with why), crew without a pay rate, free callback visits (count + cost), plan visits, caveats, how profit is worked out, the disclaimer. |
 | `job_profit` | `job` (customer name / job words), jobs of the last 6 months. Billed (and from what), labour hours and cost vs booked, materials, receipts, profit, margin, why, crew without a rate. Several matches → "which one" (or `most_recent: true`). |
 | `cash_forecast` | The one-line summary, 30/60/90 likely + cautious, tight in 30 / 90 days / if things go slow, the biggest money coming in, what's going out (overhead by category, payroll, lumps), notes, how it works, the disclaimer. |
-| `pricing_check` | Per item: price, jobs, margin, decided quotes, win rate, looks underpriced, what the monthly check would ask, why not asked (changed in 90 days, question waiting, tiered price, too small). Questions waiting, past changes and their effect. Says it changed nothing. |
+| `pricing_check` | Per item: price, counted since (the last price change, else 6 months), jobs, margin, decided quotes, win rate, looks underpriced, what the monthly check would ask, why not asked (switched off, changed in 90 days, question waiting, tiered price, too small). Questions waiting, past changes and their effect. Says it changed nothing. |
 
-Prompt note: when to use each, keep it short, say figures are estimates, the forecast starts at $0 (no bank balance), and prices only change by the owner's Y on a `price_change` question.
+Every tool refuses for a paused / archived business. Prompt note: when to use each, keep it short, say figures are estimates, the forecast starts at $0 (no bank balance), and prices only change by the owner's Y on a `price_change` question.
 
 ### Briefing items (`briefing-items.ts`)
 
@@ -1981,8 +1982,9 @@ UI: the switch, the weekly text (day + time), the monthly price check, the cushi
 ### Schema (`20261014120000_staff_profit_advisor.sql`)
 
 - `price_changes`: item (`service_catalog_item_id`, **set null** on delete — the history stays), label / pricing type / unit snapshot, status `proposed | applying | applied | declined | expired | stale | failed`, old / new rate and minimum, `pct`, `basis` (jobs, margin %, company margin %, quotes, win %, window), `run_key` (`YYYY-MM`), `approval_id` (unique), `decided_at`, `applied_at`, `result`. Checks: a raise only, ≤ +15% (rate and minimum). One open question per item (partial unique index on `service_catalog_item_id` where `proposed | applying`). **Owners/admins read** (`is_organization_admin`).
-- `profit_advisor_runs`: the sweeps' claims, unique `(company_id, kind, run_key)` (`weekly` + local date, `pricing` + month), status `claimed | sent | skipped | failed`, attempts, body, detail, last error. **Service role only.**
-- Both: RLS on, composite FK to `companies (id, organization_id)`, `updated_at` triggers, no client writes. Re-runnable. The rollback withdraws pending `price_change` questions and drops both tables (raised prices stay — they're the owner's approved prices). SQL checks: `scripts/sql-tests/zz_profit_advisor.test.sql`. Local types: `staff/profit-advisor/db-types.ts`.
+- `profit_advisor_runs`: the sweeps' claims, unique `(company_id, kind, run_key)` (`weekly` + ISO week `2026-W42` — moving the day mid-week can't send twice —, `pricing` + month), status `claimed | sent | skipped | failed`, attempts, body, detail, last error. **Service role only.**
+- `price_watch`: one row per price-list item (unique, cascade with the item): the rate and minimum last seen, `changed_at` (when it last changed; null = unchanged since first seen), `seen_at`. **Service role only.**
+- All three: RLS on, composite FK to `companies (id, organization_id)`, `updated_at` triggers, no client writes. Re-runnable. The rollback withdraws pending `price_change` questions and drops the three tables (raised prices stay — they're the owner's approved prices). SQL checks: `scripts/sql-tests/zz_profit_advisor.test.sql`. Local types: `staff/profit-advisor/db-types.ts`.
 
 ### Env
 
@@ -1991,8 +1993,8 @@ None of its own, and **no model calls** (no `AI_MODEL_PROFIT_ADVISOR`): money is
 ### Sweeps
 
 The companies are loaded at most once per 30 s per worker (`loadProfitCompanies`): every CrankLeads company with the advisor on, plus house-org companies with `any_on`; active ones only, filtered at the query.
-- **`profit_advisor:weekly`** (10 min): on the owner's day from their time until 20:00 local, with a verified owner cell. Claimed in `profit_advisor_runs` (`weekly`, local date) before anything is read. Fewer than 2 jobs and cash fine → `skipped`. A failed text → `failed`, re-claimed after 30 min (3 tries in all, conditional on the attempt count) inside the window; a platform STOP → `skipped`.
-- **`profit_advisor:pricing`** (30 min): the first Tuesday of the month, caught up through Friday, 09:00–17:00 local. Claimed per month (`pricing`, `YYYY-MM`); a failed check is retried after 30 min (3 tries). Up to 2 `price_change` questions.
+- **`profit_advisor:weekly`** (10 min): on the owner's day from their time until 20:00 local, with a verified owner cell. Claimed in `profit_advisor_runs` (`weekly`, ISO week) before anything is read. Fewer than 2 jobs (free visits don't count) and cash fine → `skipped`. A failed text → `failed`, and a run stuck at `claimed` (a dead worker) — both re-claimed after 30 min (3 tries in all, conditional on status, attempts and `updated_at`) inside the window; a platform STOP → `skipped`.
+- **`profit_advisor:pricing`** (30 min): every pass first finishes price changes stuck in `applying` 10+ minutes (any day). Then the first Tuesday of the month, caught up through Friday, 09:00–17:00 local: claimed per month (`pricing`, `YYYY-MM`; failed or stuck → retried after 30 min, 3 tries), the check (which records the price watch), up to 2 `price_change` questions.
 
 ### Shared files edited
 
@@ -2008,7 +2010,8 @@ The companies are loaded at most once per 30 s per worker (`loadProfitCompanies`
 - the weekly sweep: the real week's job costing (imported and A1 jobs left out), once across workers, day / time / 20:00, quiet week skipped, tight week sent anyway, retry after a failed send, off / no cell;
 - the pricing check (read-only report), **`price_change` end to end through `decideApproval`** (the exact owner text, Y raises once + recorded + idempotent, the next check shows the effect and holds the item; N held 90 days; expiry; stale price; a note re-asks under a fresh code), **through `handleOwnerInboundSms`** ("Y 1 $199" changes nothing, "Y 1" raises it), A1 never checked;
 - the forecast inputs from every source, a failed source as a note, a missing `rentals` table;
-- owner tools, briefing items, the Settings view (member vs owner).
+- owner tools, briefing items, the Settings view (member vs owner);
+- the review fixes: a switched-off item is never proposed or switched back on; a hand-changed minimum or price type isn't overwritten; a hand raise and day 91 after an approved raise (counted only at the current price); approved quotes never "sent"; stuck `applying` / `claimed` rows; one text per ISO week; free callback and plan visits; online-booking deposits; Fleet's `rate_cents_per_day`; HST scaling (today included, not before 7 days); `profit` = the weekly text's window; paused businesses.
 
 `src/test/profit-advisor-route.test.ts` (member vs owner, strict PATCH, another org's company), `src/test/profit-advisor-settings-section.test.tsx` (the section).
 
@@ -2018,7 +2021,8 @@ The companies are loaded at most once per 30 s per worker (`loadProfitCompanies`
 - Overhead and payroll are spread evenly per day (not on actual pay days or bill dates).
 - The pricing check only raises simple prices; tiered / banded items are reported, not changed. A job's labour isn't split by line beyond the line amounts.
 - Owner-chosen prices ("Y 12 $199") aren't taken — the owner changes the price list directly.
-- Warranty / callback visits are excluded from the forecast only when the Customer care tables exist; their cost still counts in job profit if they're on a costed job.
+- Warranty / callback visits are recognised only through the Customer care tables; their cost is reported on its own, not charged back to the original job.
+- A change by hand is noticed at the next monthly check (so it's dated then, not when it was made); the first check after this ships only starts the watch.
 
 ## Fleet & equipment
 

@@ -7,9 +7,14 @@
 --                           check shows the effect, and how "once per item per 90 days" is kept.
 --                           One open question per item (partial unique index). Margins come from
 --                           pay rates, so owners/admins read; nobody else.
--- 2. profit_advisor_runs    the sweeps' claims: one weekly text per company per local day, one
+-- 2. profit_advisor_runs    the sweeps' claims: one weekly text per company per ISO week, one
 --                           pricing check per company per month (unique company + kind + key).
 --                           Service role only.
+-- 3. price_watch            the price (and minimum) each price-list item had when the monthly check
+--                           last looked, and when it last changed. A price the owner changed by
+--                           hand shows up as a different rate → "changed now", so margins and win
+--                           rates are only counted at the CURRENT price (raises never stack on
+--                           old-price numbers). Service role only.
 --
 -- The cash forecast and job profit are computed on the fly from existing tables (nothing stored).
 -- Settings live in companies.ai_settings.profit_advisor (no column needed). Prices change only
@@ -64,7 +69,7 @@ create table if not exists public.profit_advisor_runs (
   organization_id uuid not null references public.organizations(id) on delete cascade,
   company_id uuid not null,
   kind text not null check (kind in ('weekly', 'pricing')),
-  -- weekly: the local date; pricing: 'YYYY-MM'
+  -- weekly: the ISO week ('2026-W42'); pricing: 'YYYY-MM'
   run_key text not null check (length(run_key) between 7 and 10),
   status text not null default 'claimed' check (status in ('claimed', 'sent', 'skipped', 'failed')),
   attempts integer not null default 1 check (attempts >= 1),
@@ -79,19 +84,39 @@ create table if not exists public.profit_advisor_runs (
 
 create index if not exists profit_advisor_runs_company_idx on public.profit_advisor_runs (organization_id, company_id, kind, run_key desc);
 
--- ── RLS + grants: owners/admins read price changes; runs are service role only; nobody writes ──
+-- ── 3. price_watch (the last price seen per item) ─────────────────────────────────────────
+create table if not exists public.price_watch (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  company_id uuid not null,
+  service_catalog_item_id uuid not null references public.service_catalog_items(id) on delete cascade,
+  rate_cents integer not null check (rate_cents >= 0),
+  minimum_cents integer not null default 0 check (minimum_cents >= 0),
+  -- When the price last changed (null: unchanged since we first saw it).
+  changed_at timestamptz,
+  seen_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (service_catalog_item_id),
+  foreign key (company_id, organization_id) references public.companies (id, organization_id) on delete cascade
+);
+
+create index if not exists price_watch_company_idx on public.price_watch (organization_id, company_id);
+
+-- ── RLS + grants: owners/admins read price changes; runs and the watch are service role only ──
 alter table public.price_changes enable row level security;
 alter table public.profit_advisor_runs enable row level security;
+alter table public.price_watch enable row level security;
 
 drop policy if exists "price_changes_select" on public.price_changes;
 create policy "price_changes_select" on public.price_changes
   for select using (public.is_organization_admin(organization_id));
 
-revoke insert, update, delete on public.price_changes, public.profit_advisor_runs from anon, authenticated;
-revoke select on public.price_changes, public.profit_advisor_runs from anon;
-revoke select on public.profit_advisor_runs from authenticated;
+revoke insert, update, delete on public.price_changes, public.profit_advisor_runs, public.price_watch from anon, authenticated;
+revoke select on public.price_changes, public.profit_advisor_runs, public.price_watch from anon;
+revoke select on public.profit_advisor_runs, public.price_watch from authenticated;
 grant select on public.price_changes to authenticated;
-grant all on public.price_changes, public.profit_advisor_runs to service_role;
+grant all on public.price_changes, public.profit_advisor_runs, public.price_watch to service_role;
 
 drop trigger if exists price_changes_set_updated_at on public.price_changes;
 create trigger price_changes_set_updated_at before update on public.price_changes
@@ -99,6 +124,10 @@ create trigger price_changes_set_updated_at before update on public.price_change
 drop trigger if exists profit_advisor_runs_set_updated_at on public.profit_advisor_runs;
 create trigger profit_advisor_runs_set_updated_at before update on public.profit_advisor_runs
   for each row execute procedure public.touch_updated_at();
+drop trigger if exists price_watch_set_updated_at on public.price_watch;
+create trigger price_watch_set_updated_at before update on public.price_watch
+  for each row execute procedure public.touch_updated_at();
 
 comment on table public.price_changes is 'Profit advisor: price raises the monthly pricing check asked about (and what the owner decided). Owners/admins read; service role writes. Only a raise, at most +15%.';
-comment on table public.profit_advisor_runs is 'Profit advisor: the weekly money text and monthly pricing check claims (one per company per day / month). Service role only.';
+comment on table public.profit_advisor_runs is 'Profit advisor: the weekly money text and monthly pricing check claims (one per company per ISO week / month). Service role only.';
+comment on table public.price_watch is 'Profit advisor: the price each price-list item had when last checked, and when it last changed (so margins are counted at the current price). Service role only.';
