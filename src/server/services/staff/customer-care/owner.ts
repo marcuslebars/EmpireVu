@@ -7,7 +7,7 @@ import { OWNER_ALERTS_SUMMARY, ownerAlertGate, sendOwnerSms } from "@/server/ser
 import type { CareCompany } from "./settings";
 import { inOwnerWindow } from "./time";
 
-export type OwnerTextOutcome = "sent" | "held" | "no_phone" | "failed";
+export type OwnerTextOutcome = "sent" | "held" | "no_phone" | "failed" | "blocked";
 
 export async function textOwner(admin: AdminClient, company: CareCompany, body: string, nowMs: number, options: { anyTime?: boolean } = {}): Promise<OwnerTextOutcome> {
   try {
@@ -21,8 +21,8 @@ export async function textOwner(admin: AdminClient, company: CareCompany, body: 
       return "held";
     }
     const sent = await sendOwnerSms(admin, { to: company.ownerPhone, body, organizationId: company.organizationId, companyId: company.companyId, platformBrand: company.platformBrand });
-    // "blocked": the owner opted out of platform texts — hold it (the app's Approvals card still works).
-    return sent.status === "sent" ? "sent" : sent.status === "blocked" ? "held" : "failed";
+    // "blocked": the owner opted out of platform texts (STOP) — retrying won't help; the app still works.
+    return sent.status === "sent" ? "sent" : sent.status === "blocked" ? "blocked" : "failed";
   } catch (err) {
     console.error("[customer-care] owner text failed:", err instanceof Error ? err.message : err);
     return "failed";

@@ -32,35 +32,46 @@ const DAY = 86_400_000;
 export const LOOKBACK_MS = 3 * DAY;
 /** A check-in this late (a long outage) isn't sent at all. */
 export const STALE_MS = 36 * 3_600_000;
-export const MAX_PUSHES = 3;
+/** A check-in moves at most once for a review request; if it still clashes, it goes anyway. */
+export const MAX_PUSHES = 1;
 const REVIEW_GAP_MS = 24 * 3_600_000;
 
 type Scope = { organizationId: string; companyId: string };
 
-interface CompletionEvent {
+export interface CompletionEvent {
   organization_id: string;
   company_id: string | null;
   entity_id: string | null;
   occurred_at: string;
 }
 
-/** Recent job completions of these companies (newest first). */
-export async function recentCompletions(admin: AdminClient, companies: CareCompany[], nowMs: number): Promise<CompletionEvent[]> {
+/** Recent booking events of one type for these companies (newest first), paged past PostgREST's 1,000-row cap. */
+export async function recentBookingEvents(admin: AdminClient, companies: CareCompany[], nowMs: number, eventType: string): Promise<CompletionEvent[]> {
   const orgIds = [...new Set(companies.map((c) => c.organizationId))];
   const out: CompletionEvent[] = [];
+  const PAGE = 1000;
   for (let i = 0; i < orgIds.length; i += 150) {
-    const { data, error } = await (admin as Db)
-      .from("activity_events")
-      .select("organization_id, company_id, entity_id, occurred_at")
-      .in("organization_id", orgIds.slice(i, i + 150))
-      .eq("event_type", "booking.completed")
-      .gte("occurred_at", new Date(nowMs - LOOKBACK_MS).toISOString())
-      .order("occurred_at", { ascending: false })
-      .limit(1000);
-    if (error) throw error;
-    out.push(...((data ?? []) as CompletionEvent[]));
+    for (let from = 0; from < 20 * PAGE; from += PAGE) {
+      const { data, error } = await (admin as Db)
+        .from("activity_events")
+        .select("organization_id, company_id, entity_id, occurred_at")
+        .in("organization_id", orgIds.slice(i, i + 150))
+        .eq("event_type", eventType)
+        .gte("occurred_at", new Date(nowMs - LOOKBACK_MS).toISOString())
+        .order("occurred_at", { ascending: false })
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      const rows = (data ?? []) as CompletionEvent[];
+      out.push(...rows);
+      if (rows.length < PAGE) break;
+    }
   }
   return out;
+}
+
+/** Recent job completions of these companies (newest first). */
+export async function recentCompletions(admin: AdminClient, companies: CareCompany[], nowMs: number): Promise<CompletionEvent[]> {
+  return recentBookingEvents(admin, companies, nowMs, "booking.completed");
 }
 
 /** The job's value before HST: its own price, else its quote's subtotal; null when unknown. */
@@ -73,18 +84,13 @@ export async function jobValueCents(admin: AdminClient, scope: Scope, booking: C
   return typeof q.subtotal_cents === "number" ? q.subtotal_cents : null;
 }
 
-/**
- * Does a review request clash with a check-in at `atMs`? Same local day, or due in the 24 h after
- * it. (A review that went out the day before doesn't hold the check-in up.) PURE.
- */
-export function reviewClashes(reviewMs: number, atMs: number, timeZone: string): boolean {
-  if (!Number.isFinite(reviewMs)) return false;
-  if (localDate(new Date(reviewMs), timeZone) === localDate(new Date(atMs), timeZone)) return true;
-  return reviewMs > atMs && reviewMs - atMs < REVIEW_GAP_MS;
+/** Does a review request clash with a check-in at `atMs`? Within 24 h of it, either way. PURE. */
+export function reviewClashes(reviewMs: number, atMs: number): boolean {
+  return Number.isFinite(reviewMs) && Math.abs(reviewMs - atMs) < REVIEW_GAP_MS;
 }
 
 /** A review request for this customer (scheduled, sending or sent) that clashes with a check-in at `atMs`? */
-export async function reviewNear(admin: AdminClient, scope: Scope, contactId: string, atMs: number, timeZone: string): Promise<boolean> {
+export async function reviewNear(admin: AdminClient, scope: Scope, contactId: string, atMs: number): Promise<boolean> {
   const { data, error } = await (admin as Db)
     .from("review_requests")
     .select("id, status, scheduled_for, sent_at")
@@ -95,7 +101,7 @@ export async function reviewNear(admin: AdminClient, scope: Scope, contactId: st
     .gte("scheduled_for", new Date(atMs - 3 * DAY).toISOString())
     .limit(20);
   if (error) return false; // tolerant: no table / no access → no clash known
-  return ((data ?? []) as Array<{ scheduled_for: string; sent_at: string | null }>).some((r) => reviewClashes(Date.parse(r.sent_at ?? r.scheduled_for), atMs, timeZone));
+  return ((data ?? []) as Array<{ scheduled_for: string; sent_at: string | null }>).some((r) => reviewClashes(Date.parse(r.sent_at ?? r.scheduled_for), atMs));
 }
 
 /** The planned send time: `delayDays` after the job's local day, at the setting's time. PURE. */
@@ -119,12 +125,27 @@ async function insertCheckin(admin: AdminClient, company: CareCompany, booking: 
   return true;
 }
 
-/** Is this booking a callback / warranty visit? (Those get no check-in and no new warranty.) */
-async function careVisitIds(admin: AdminClient, scope: Scope, bookingIds: string[]): Promise<Set<string>> {
-  if (bookingIds.length === 0) return new Set();
-  const { data, error } = await (admin as Db).from("care_case_bookings").select("booking_id").eq("organization_id", scope.organizationId).in("booking_id", bookingIds);
+/** Callback / warranty visits among these bookings → their case (they get no check-in and no new warranty). */
+async function careVisitCases(admin: AdminClient, scope: Scope, bookingIds: string[]): Promise<Map<string, string>> {
+  if (bookingIds.length === 0) return new Map();
+  const { data, error } = await (admin as Db).from("care_case_bookings").select("booking_id, case_id").eq("organization_id", scope.organizationId).in("booking_id", bookingIds);
   if (error) throw error;
-  return new Set(((data ?? []) as Array<{ booking_id: string }>).map((r) => r.booking_id));
+  return new Map(((data ?? []) as Array<{ booking_id: string; case_id: string }>).map((r) => [r.booking_id, r.case_id]));
+}
+
+/** A callback / warranty visit was done: its case is resolved (once). */
+async function resolveVisitedCase(admin: AdminClient, scope: Scope, caseId: string, nowMs: number): Promise<void> {
+  const db = admin as Db;
+  const { data } = await db.from("care_cases").select("id, notes").eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).eq("id", caseId).eq("status", "scheduled").maybeSingle();
+  const row = data as { id: string; notes: string | null } | null;
+  if (!row) return;
+  const note = "Visit done - resolved.";
+  await db
+    .from("care_cases")
+    .update({ status: "resolved", resolved_at: new Date(nowMs).toISOString(), notes: row.notes ? `${row.notes}\n${note}`.slice(-2000) : note })
+    .eq("id", caseId)
+    .eq("organization_id", scope.organizationId)
+    .eq("status", "scheduled");
 }
 
 /** Plan one company's new completions: a check-in row (scheduled or skipped) + the job warranty. */
@@ -141,13 +162,19 @@ export async function planCompany(admin: AdminClient, company: CareCompany, even
     const [{ data: bookings, error: e1 }, { data: done, error: e2 }, visits] = await Promise.all([
       db.from("bookings").select(BOOKING_COLUMNS).eq("organization_id", scope.organizationId).eq("company_id", scope.companyId).in("id", part),
       db.from("care_checkins").select("booking_id").eq("organization_id", scope.organizationId).in("booking_id", part),
-      careVisitIds(admin, scope, part),
+      careVisitCases(admin, scope, part),
     ]);
     if (e1) throw e1;
     if (e2) throw e2;
     const seen = new Set(((done ?? []) as Array<{ booking_id: string }>).map((r) => r.booking_id));
     for (const booking of (bookings ?? []) as CareBooking[]) {
-      if (seen.has(booking.id) || visits.has(booking.id) || booking.status !== "completed") continue;
+      if (booking.status !== "completed") continue;
+      const visitCase = visits.get(booking.id);
+      if (visitCase) {
+        await resolveVisitedCase(admin, scope, visitCase, nowMs).catch((err: unknown) => console.error("[customer-care] resolving the case failed", visitCase, err instanceof Error ? err.message : err));
+        continue;
+      }
+      if (seen.has(booking.id)) continue;
       try {
         if (await planOne(admin, company, booking, completedAt.get(booking.id) ?? booking.completed_at ?? booking.scheduled_for, nowMs)) planned++;
       } catch (err) {
@@ -187,7 +214,7 @@ async function planOne(admin: AdminClient, company: CareCompany, booking: CareBo
     sendAt = nextCustomerOpening(nowMs, company.timeZone);
   }
   let pushes = 0;
-  while (pushes < MAX_PUSHES && contact.id && (await reviewNear(admin, scope, contact.id, sendAt, company.timeZone))) {
+  while (pushes < MAX_PUSHES && contact.id && (await reviewNear(admin, scope, contact.id, sendAt))) {
     // The next local day at the setting's time (DST-safe), never earlier than the next opening.
     sendAt = Math.max(zonedInstant(addDays(localDate(new Date(sendAt), company.timeZone), 1), company.settings.checkins.time, company.timeZone).getTime(), nextCustomerOpening(sendAt + 12 * 3_600_000, company.timeZone));
     pushes++;
@@ -236,7 +263,7 @@ async function openCaseFor(admin: AdminClient, scope: Scope, contactId: string):
     .eq("organization_id", scope.organizationId)
     .eq("company_id", scope.companyId)
     .eq("contact_id", contactId)
-    .in("status", ["open", "scheduled"])
+    .eq("status", "open")
     .limit(1);
   if (error) throw error;
   return ((data ?? []) as unknown[]).length > 0;
@@ -273,14 +300,25 @@ export async function sendCheckin(admin: AdminClient, company: CareCompany, row:
     if (await textedRecently(admin, scope, contact.id, nowMs)) return await skip("the customer texted in the last 24 hours");
     if (await checkinSentRecently(admin, scope, contact.id, nowMs)) return await skip("already checked in with them this week");
     if (await openCaseFor(admin, scope, contact.id)) return await skip("they already have an open care case");
-    if (await reviewNear(admin, scope, contact.id, nowMs, company.timeZone)) {
-      if ((row.pushes ?? 0) >= MAX_PUSHES) return await skip("a review request kept landing the same day");
+    if ((row.pushes ?? 0) < MAX_PUSHES && (await reviewNear(admin, scope, contact.id, nowMs))) {
       const next = zonedInstant(addDays(localDate(new Date(nowMs), company.timeZone), 1), company.settings.checkins.time, company.timeZone).getTime();
       await db.from("care_checkins").update({ status: "scheduled", send_at: new Date(next).toISOString(), pushes: (row.pushes ?? 0) + 1 }).eq("id", row.id).eq("status", "sending");
       return "moved";
     }
     const ctx = tenant(admin, scope.organizationId);
     if (!(await careDeps().smsFrom(ctx, scope.companyId))) return await skip("no business texting number");
+    // One check-in per customer per local day, whatever the number of jobs or workers.
+    const { error: claimError } = await db.from("care_checkin_claims").insert({
+      organization_id: scope.organizationId,
+      company_id: scope.companyId,
+      contact_id: contact.id,
+      local_date: localDate(new Date(nowMs), company.timeZone),
+      checkin_id: row.id,
+    });
+    if (claimError) {
+      if ((claimError as { code?: string }).code === "23505") return await skip("already checked in with them today");
+      throw claimError;
+    }
     const body = checkinText(company.name, firstNameOf(contact), row.job_label);
     const result = await careDeps().deliver({
       context: ctx,

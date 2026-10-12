@@ -91,8 +91,8 @@ const recordJobFeedback: AgentTool<{ rating?: number; comment?: string; unhappy?
       conversationId: state.conversation.id,
       nowMs: t,
     });
-    for (const id of result.created ? (result.caseRow.approval_ids ?? []) : []) {
-      state.effects.approvals.push({ id, shortCode: 0, kind: CARE_FOLLOWUP_KIND });
+    for (const a of result.approvals) {
+      if (a.shortCode != null) state.effects.approvals.push({ id: a.id, shortCode: a.shortCode, kind: CARE_FOLLOWUP_KIND });
     }
     if (result.created && result.caseRow.approval_ids?.length) state.effects.collected.approval_ids = result.caseRow.approval_ids;
     return {
@@ -109,13 +109,12 @@ const recordJobFeedback: AgentTool<{ rating?: number; comment?: string; unhappy?
 function pickCandidate(problem: string, jobs: JobWarrantyRow[], equipment: InstalledEquipmentRow[], today: string): { job: JobWarrantyRow | null; equipment: InstalledEquipmentRow | null } {
   const activeJobs = jobs.filter((j) => j.ends_on >= today);
   const activeEquipment = equipment.filter((e) => e.manufacturer_warranty_ends && e.manufacturer_warranty_ends >= today);
+  // Only a job or equipment the customer's words plausibly name — never an unrelated job (then the
+  // normal hand-off applies).
   const job = activeJobs.find((j) => mentions(problem, j.job_label));
   if (job) return { job, equipment: null };
   const eq = activeEquipment.find((e) => mentions(problem, `${e.make ?? ""} ${e.model ?? ""}`));
   if (eq) return { job: null, equipment: eq };
-  // Nothing named: the most recent job still under warranty (the likeliest one), else nothing.
-  if (activeJobs.length) return { job: activeJobs[0], equipment: null };
-  if (activeEquipment.length === 1) return { job: null, equipment: activeEquipment[0] };
   return { job: null, equipment: null };
 }
 
@@ -150,6 +149,17 @@ const checkWarranty: AgentTool<{ problem: string; job_hint?: string }> = {
       })),
       facts_note: "For you only. Don't quote warranty terms or dates to the customer, and never say it's covered or free.",
     };
+    // Already asked about this customer (an open claim)? Don't ask twice, whatever the words.
+    const { data: open } = await (state.admin as Db)
+      .from("care_cases")
+      .select("id")
+      .eq("organization_id", scope.organizationId)
+      .eq("company_id", scope.companyId)
+      .eq("contact_id", state.contact.id)
+      .eq("kind", "warranty")
+      .eq("status", "open")
+      .limit(1);
+    if (((open ?? []) as unknown[]).length) return { ok: true, ...facts, already_asked: true, tell_customer: `Say ${owner} already has this and will be in touch. Don't promise anything.` };
     const words = [input.problem, input.job_hint].filter(Boolean).join(" ");
     const pick = pickCandidate(words, jobs, equipment, today);
     if (!pick.job && !pick.equipment) {
@@ -157,7 +167,8 @@ const checkWarranty: AgentTool<{ problem: string; job_hint?: string }> = {
         ok: true,
         ...facts,
         under_warranty: false,
-        tell_customer: `Nothing on file is still under warranty for this. Don't say whether it's covered. Say sorry for the trouble and that ${owner} will follow up, then use hand_off_to_owner (reason: "problem with past work: ${input.problem.replace(/"/g, "'").slice(0, 120)}").`,
+        no_matching_job: true,
+        tell_customer: `No job on file under warranty matches this. Don't say whether it's covered. Say sorry for the trouble and that ${owner} will follow up, then use hand_off_to_owner (reason: "problem with past work: ${input.problem.replace(/"/g, "'").slice(0, 120)}").`,
       };
     }
     const fact = pick.job
@@ -179,7 +190,7 @@ const checkWarranty: AgentTool<{ problem: string; job_hint?: string }> = {
       if (result.reason === "already_open") return { ok: true, ...facts, already_asked: true, tell_customer: `Say ${owner} already has this and will be in touch. Don't promise anything.` };
       return { ok: false, error: `Couldn't pass it on. Say ${owner} will follow up, and use hand_off_to_owner.` };
     }
-    state.effects.approvals.push({ id: result.approvalId, shortCode: result.shortCode ?? 0, kind: WARRANTY_CLAIM_KIND });
+    if (result.shortCode != null) state.effects.approvals.push({ id: result.approvalId, shortCode: result.shortCode, kind: WARRANTY_CLAIM_KIND });
     state.effects.collected.approval_ids = [result.approvalId];
     return {
       ok: true,
@@ -192,39 +203,59 @@ const checkWarranty: AgentTool<{ problem: string; job_hint?: string }> = {
 
 // ── book_care_visit ───────────────────────────────────────────────────────────────────
 
-const bookCareVisitTool: AgentTool<{ date?: string; window?: string; starts_at?: string }> = {
+const listOffered = (slots: Array<{ label: string }>) => slots.map((a, i) => ({ pick: i + 1, time: a.label }));
+
+const bookCareVisitTool: AgentTool<{ pick?: number; date?: string; window?: string; starts_at?: string }> = {
   name: "book_care_visit",
   description:
-    "The customer is picking one of the times the business texted them for a callback or warranty visit (\"Would any of these work: …?\"). Books that time. Use this instead of book_slot for those visits. Pass the date (YYYY-MM-DD) + window, or starts_at, of the time they chose.",
+    "The customer is picking one of the times the business texted them for a callback or warranty visit (\"Would any of these work: A, B or C?\"). Books that time. Use this instead of book_slot for those visits. Pass pick = the position of the time they chose in that list (1 = the first one listed). If you can't tell which one they mean, ask them.",
   inputSchema: {
     type: "object",
     properties: {
-      date: { type: "string", description: "YYYY-MM-DD (local)." },
-      window: { type: "string", description: "Booking window key (e.g. morning / afternoon), when the business books by window." },
-      starts_at: { type: "string", description: "ISO start time, for hourly bookings." },
+      pick: { type: "integer", minimum: 1, maximum: 10, description: "Position of the chosen time in the list that was texted (1 = first). Preferred." },
+      date: { type: "string", description: "YYYY-MM-DD (local), with window, for businesses that book by morning / afternoon." },
+      window: { type: "string", description: "Booking window key (e.g. morning / afternoon)." },
+      starts_at: { type: "string", description: "Exact start time, only if a tool gave it to you." },
     },
     additionalProperties: false,
   },
-  parse: z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), window: z.string().max(32).optional(), starts_at: z.string().max(40).optional() }),
+  parse: z.object({ pick: z.number().int().min(1).max(10).optional(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), window: z.string().max(32).optional(), starts_at: z.string().max(40).optional() }),
   async run(state, input) {
     const company = await workingCompany(state);
     if (!company) return { ok: false, error: "No visit offer here. Use check_availability / book_slot, or hand off." };
-    if (!input.date && !input.starts_at) return { ok: false, error: "Pass the date + window (or starts_at) of the time they picked." };
-    const result = await bookCareVisit(state.admin, company, state.facts, state.contact as unknown as CareContact, { date: input.date ?? null, window: input.window ?? null, startsAt: input.starts_at ?? null }, nowMs(state));
+    if (input.pick == null && !input.date && !input.starts_at) return { ok: false, error: "Pass pick: the position of the time they chose in the list that was texted." };
+    const result = await bookCareVisit(
+      state.admin,
+      company,
+      state.facts,
+      state.contact as unknown as CareContact,
+      { pick: input.pick ?? null, date: input.date ?? null, window: input.window ?? null, startsAt: input.starts_at ?? null },
+      nowMs(state),
+    );
     if ("bookingId" in result) {
       state.effects.bookings.push({ id: result.bookingId, label: result.label });
       state.effects.collected.booking_ids = [result.bookingId];
       return { ok: true, booked: result.label, already_booked: result.duplicate, tell_customer: `Tell them the visit is booked for ${result.label} and ${ownerName(state)} will see them then. Don't mention a price.` };
     }
     const failed = result as Extract<typeof result, { ok: false }>;
+    if (failed.reason === "which_one") {
+      return {
+        ok: false,
+        reason: "which_one",
+        offered: listOffered(failed.alternatives ?? []),
+        hint: "These are the times that were offered, in order. Call book_care_visit again with the pick of the one they chose; if it isn't clear, ask them which one.",
+      };
+    }
     if (failed.reason === "not_open") {
       const alternatives = failed.alternatives ?? [];
       state.effects.offeredSlots.push(...alternatives.map((a) => ({ date: a.date, window: a.window, startsAt: a.startsAt, label: a.label })));
       return {
         ok: false,
         reason: "not_open",
-        alternatives: alternatives.map((a) => ({ label: a.label, date: a.date, window: a.window, starts_at: a.startsAt })),
-        hint: alternatives.length ? "That time just went. Offer these instead, then book the one they pick with book_care_visit." : `Nothing open soon. Say ${ownerName(state)} will call to set a time, and use hand_off_to_owner.`,
+        alternatives: listOffered(alternatives),
+        hint: alternatives.length
+          ? "That time just went. Offer these instead (in this order), then book the one they pick with book_care_visit and its pick number."
+          : `Nothing open soon. Say ${ownerName(state)} will call to set a time, and use hand_off_to_owner.`,
       };
     }
     if (failed.reason === "no_offer") return { ok: false, error: "There's no visit offer waiting for this customer. For a normal booking use check_availability / book_slot." };

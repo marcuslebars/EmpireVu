@@ -3,7 +3,7 @@
 --   • the customer-text outbox is service-role only;
 --   • check-ins and cases (customers' complaints) are owner/admin-read only; a member reads their
 --     org's warranties, equipment and visit links, never another org's;
---   • one check-in per job, one case per check-in answer, one open warranty claim per customer,
+--   • one check-in per job, one case per check-in answer, one open warranty claim per customer (while open),
 --     one case link per booking; a deleted booking keeps its case (booking_id set null).
 \set ON_ERROR_STOP on
 set client_min_messages = notice;
@@ -14,7 +14,7 @@ declare
   t text;
   r text;
   p text;
-  all_tables text[] := array['warranty_terms','job_warranties','installed_equipment','care_checkins','care_cases','care_case_bookings','care_messages'];
+  all_tables text[] := array['warranty_terms','job_warranties','installed_equipment','care_checkins','care_cases','care_case_bookings','care_messages','care_checkin_claims'];
 begin
   raise notice '== customer care: RLS on, no client writes';
   foreach t in array all_tables loop
@@ -32,7 +32,7 @@ begin
       raise exception 'FAIL anon can read %', t;
     end if;
   end loop;
-  if has_table_privilege('authenticated', 'public.care_messages', 'SELECT') then
+  if has_table_privilege('authenticated', 'public.care_messages', 'SELECT') or has_table_privilege('authenticated', 'public.care_checkin_claims', 'SELECT') then
     raise exception 'FAIL authenticated can read the outbox';
   end if;
   if not exists (select 1 from pg_policies where tablename = 'care_cases' and cmd = 'SELECT' and qual like '%is_organization_admin%') then
@@ -41,7 +41,7 @@ begin
   if not exists (select 1 from pg_policies where tablename = 'care_checkins' and cmd = 'SELECT' and qual like '%is_organization_admin%') then
     raise exception 'FAIL care_checkins is not admin-read only';
   end if;
-  raise notice 'ok   % tables: RLS on, no client insert/update/delete, anon reads nothing, outbox service-role only', array_length(all_tables, 1);
+  raise notice 'ok   % tables: RLS on, no client insert/update/delete, anon reads nothing, outbox and send claims service-role only', array_length(all_tables, 1);
 end $$;
 
 -- ── Fixture: two orgs; a member and an admin in the first ─────────────────────────────
@@ -150,11 +150,14 @@ begin
   end;
   insert into public.care_cases (organization_id, company_id, contact_id, kind, status, opened_via) values ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'c4000000-0000-4000-8000-000000000001', 'warranty', 'open', 'sms_agent');
   begin
-    insert into public.care_cases (organization_id, company_id, contact_id, kind, status, opened_via) values ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'c4000000-0000-4000-8000-000000000001', 'warranty', 'scheduled', 'sms_agent');
+    insert into public.care_cases (organization_id, company_id, contact_id, kind, status, opened_via) values ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'c4000000-0000-4000-8000-000000000001', 'warranty', 'open', 'sms_agent');
     raise exception 'FAIL two open warranty claims for one customer';
   exception when unique_violation then
     raise notice 'ok   one open warranty claim per customer';
   end;
+  update public.care_cases set status = 'scheduled' where kind = 'warranty' and company_id = 'c3000000-0000-4000-8000-000000000001';
+  insert into public.care_cases (organization_id, company_id, contact_id, kind, status, opened_via) values ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'c4000000-0000-4000-8000-000000000001', 'warranty', 'open', 'sms_agent');
+  raise notice 'ok   a claim with its visit booked doesn''t block a new one';
   update public.care_cases set status = 'resolved' where kind = 'warranty' and company_id = 'c3000000-0000-4000-8000-000000000001';
   insert into public.care_cases (organization_id, company_id, contact_id, kind, status, opened_via) values ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'c4000000-0000-4000-8000-000000000001', 'warranty', 'open', 'sms_agent');
   raise notice 'ok   a resolved claim doesn''t block a new one';

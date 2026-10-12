@@ -840,8 +840,9 @@ describe("conversation state + relay", () => {
     expect(await isSmsAgentHandling(db.client, { companyId: CO, contactId: CONTACT, providerRef: row.provider_ref as string })).toBe(true);
     // A later text while the owner has it: relayed as usual.
     const next = inbound("Hello?? Anyone there?");
-    expect(await isSmsAgentHandling(db.client, { companyId: CO, contactId: CONTACT, providerRef: next.row.provider_ref as string })).toBe(false);
-    expect(await isSmsAgentHandling(db.client, { companyId: CO, contactId: CONTACT })).toBe(false);
+    // (Judged at the test's own clock: the takeover lasts 72 h from it, not from the real date.)
+    expect(await isSmsAgentHandling(db.client, { companyId: CO, contactId: CONTACT, providerRef: next.row.provider_ref as string }, new Date(clock))).toBe(false);
+    expect(await isSmsAgentHandling(db.client, { companyId: CO, contactId: CONTACT }, new Date(clock))).toBe(false);
   });
 
   it("not handling when the AI isn't configured", async () => {

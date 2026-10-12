@@ -105,6 +105,7 @@ function seed(): FakeDb {
       care_cases: [],
       care_case_bookings: [],
       care_messages: [],
+      care_checkin_claims: [],
       job_warranties: [],
       warranty_terms: [],
       installed_equipment: [],
@@ -120,6 +121,7 @@ function seed(): FakeDb {
       job_warranties: [["booking_id"]],
       care_case_bookings: [["booking_id"]],
       care_messages: [["company_id", "kind", "dedupe_key"]],
+      care_checkin_claims: [["company_id", "contact_id", "local_date"]],
       warranty_terms: [["company_id", "service_catalog_item_id"]],
     },
   );
@@ -242,7 +244,7 @@ describe("settings and words", () => {
   it("reply lines for both kinds", () => {
     expect(replyInstruction("care_followup", 12, { option: "visit" })).toBe("Reply Y 12 for the visit, N 12 to leave it.");
     expect(replyInstruction("care_followup", 13, { option: "call" })).toBe("Reply Y 13 for the call, N 13 to leave it.");
-    expect(replyInstruction("warranty_claim", 4, {})).toBe("Reply Y 4 to book it, N 4 and I'll tell them you'll call.");
+    expect(replyInstruction("warranty_claim", 4, {})).toBe("Reply Y 4 or N 4.");
   });
 });
 
@@ -544,7 +546,7 @@ describe("check_warranty and warranty_claim", () => {
     expect(String(result.tell_customer)).toContain("Don't say it's covered");
     expect((result.past_jobs as unknown[])[0]).toMatchObject({ job: "roof replacement", still_under_warranty: true });
     expect(ownerTexts()).toEqual([
-      'CrankLeads: #1 Dana Jones says "the roof leaks" (job May 4, 2026; 12-month workmanship warranty to May 4, 2027). Y books a no-charge warranty visit (I\'ll text them times), N and I\'ll tell them you\'ll call. Reply Y 1 to book it, N 1 and I\'ll tell them you\'ll call.',
+      'CrankLeads: #1 Dana Jones says "the roof leaks" (job May 4, 2026; 12-month workmanship warranty to May 4, 2027). Y books a no-charge warranty visit (I\'ll text them times), N and I\'ll tell them you\'ll call. Reply Y 1 or N 1.',
     ]);
     expect(rows("care_cases")[0]).toMatchObject({ kind: "warranty", opened_via: "sms_agent", warranty_id: "jw1" });
     // One open claim per customer.
@@ -667,5 +669,164 @@ describe("hours", () => {
     const c = { timeZone: TZ, settings: readCustomerCareSettings({ customer_care: { checkins: { time: "09:30", delay_days: 2 } } }, { crankleads: true }) };
     expect(new Date(plannedSendAt(Date.parse("2026-10-13T03:30:00Z"), c)).toISOString()).toBe("2026-10-14T13:30:00.000Z");
     expect(HOUR).toBe(3_600_000);
+  });
+});
+
+// ── Review fixes ────────────────────────────────────────────────────────────────────
+
+describe("review fixes", () => {
+  const HOURLY = { ...FACTS, bookingMode: "hourly", bookingPolicy: null, onlineBooking: { slotMinutes: 60 } } as unknown as BusinessFacts;
+  const hourlyTurn = () => ({ ...turn("2pm works"), facts: HOURLY }) as unknown as TurnState;
+
+  async function hourlyOffer() {
+    slots = [
+      { date: "2026-10-14", window: null, startsAt: "2026-10-14T13:00:00.000Z", label: "Wed Oct 14, 9:00 a.m." },
+      { date: "2026-10-14", window: null, startsAt: "2026-10-14T18:00:00.000Z", label: "Wed Oct 14, 2:00 p.m." },
+    ];
+    setVisitDeps({
+      loadFacts: async () => HOURLY,
+      availability: async (_a, _f, input) => ({ ok: true, mode: "hourly", slots: slots.filter((s) => !input.preferredDate || s.date >= (input.preferredDate as string)).slice(0, input.limit ?? 3) }),
+    });
+    await unhappy();
+    await ownerSays("Y 1");
+  }
+
+  it("hourly: the customer picks 2pm (the 2nd time listed) → books 14:00, not the first time that day", async () => {
+    await hourlyOffer();
+    const { result } = await runTool(hourlyTurn(), "book_care_visit", { pick: 2 });
+    expect(result).toMatchObject({ ok: true, booked: "Wed Oct 14, 2:00 p.m." });
+    expect(rows("bookings").find((b) => b.source === "customer_care")).toMatchObject({ scheduled_for: "2026-10-14T18:00:00.000Z", window_key: null, duration_minutes: 60 });
+  });
+
+  it("hourly: a bare date with two times that day asks which one; a local starts_at is read in the company's zone", async () => {
+    await hourlyOffer();
+    const { result } = await runTool(hourlyTurn(), "book_care_visit", { date: "2026-10-14" });
+    expect(result).toMatchObject({ ok: false, reason: "which_one", offered: [{ pick: 1, time: "Wed Oct 14, 9:00 a.m." }, { pick: 2, time: "Wed Oct 14, 2:00 p.m." }] });
+    expect(rows("bookings").filter((b) => b.source === "customer_care")).toHaveLength(0);
+    const { result: ok } = await runTool(hourlyTurn(), "book_care_visit", { starts_at: "2026-10-14T14:00" });
+    expect(ok).toMatchObject({ ok: true, booked: "Wed Oct 14, 2:00 p.m." });
+    expect(rows("bookings").find((b) => b.source === "customer_care")?.scheduled_for).toBe("2026-10-14T18:00:00.000Z");
+  });
+
+  it("a done visit resolves its case; a cancelled visit reopens it and tells the owner; a booked claim doesn't block a new one", async () => {
+    warranty();
+    await runTool(turn(), "check_warranty", { problem: "the roof leaks" });
+    await ownerSays("Y 1");
+    await runTool(turn(), "book_care_visit", { pick: 1 });
+    const visit = rows("bookings").find((b) => b.source === "customer_care")!;
+    expect(rows("care_cases")[0].status).toBe("scheduled");
+    // While booked, a new problem can be claimed.
+    rows("job_warranties").push({ id: "jw2", organization_id: ORG, company_id: CO, contact_id: DANA, booking_id: "b-gutter", job_label: "gutter install", starts_on: "2026-08-01", ends_on: "2027-08-01", months: 12, source: "default" });
+    const { result } = await runTool(turn(), "check_warranty", { problem: "the gutter is loose" });
+    expect(result).toMatchObject({ owner_asked: true });
+
+    // Cancelled → open again, owner told once.
+    visit.status = "cancelled";
+    rows("activity_events").push({ id: "ev3", organization_id: ORG, company_id: CO, entity_id: visit.id, event_type: "booking.cancelled", occurred_at: new Date(NOW).toISOString() });
+    sendSms.mockClear();
+    await sweepJobs(db.client, NOW);
+    await sweepJobs(db.client, NOW + 60_000);
+    expect(rows("care_cases")[0]).toMatchObject({ status: "open", visit_stage: "owner_calls" });
+    expect(ownerTexts()).toEqual([expect.stringContaining("Dana Jones's warranty visit (Wed, Oct 14, 9:00 a.m.) was cancelled, so their case is open again.")]);
+
+    // Re-booked and done → resolved.
+    rows("care_cases")[0].status = "scheduled";
+    visit.status = "completed";
+    rows("activity_events").push({ id: "ev4", organization_id: ORG, company_id: CO, entity_id: visit.id, event_type: "booking.completed", occurred_at: new Date(NOW).toISOString() });
+    await sweepJobs(db.client, NOW + 120_000);
+    expect(rows("care_cases")[0]).toMatchObject({ status: "resolved" });
+    expect(rows("care_checkins").filter((c) => c.booking_id === visit.id)).toHaveLength(0);
+  });
+
+  it("review within 24 h either way moves the check-in once; still clashing → it goes anyway", async () => {
+    rows("review_requests").push(
+      { id: "rr1", organization_id: ORG, company_id: CO, contact_id: DANA, status: "scheduled", scheduled_for: "2026-10-13T08:00:00Z", sent_at: null },
+      { id: "rr2", organization_id: ORG, company_id: CO, contact_id: DANA, status: "scheduled", scheduled_for: "2026-10-14T20:00:00Z", sent_at: null },
+    );
+    await sweepJobs(db.client, NOW);
+    expect(rows("care_checkins")[0]).toMatchObject({ send_at: "2026-10-14T14:00:00.000Z", pushes: 1 });
+    const due = Date.parse("2026-10-14T14:00:00Z");
+    vi.setSystemTime(due);
+    expect(await sweepCheckins(db.client, due)).toBe(1);
+  });
+
+  it("one check-in per customer per day, even for two jobs", async () => {
+    const second = booking("b0000000-0000-4000-8000-000000000003", { title: "Gutter install — Dana Jones" });
+    rows("bookings").push(second);
+    rows("activity_events").push({ id: "ev5", organization_id: ORG, company_id: CO, entity_id: second.id, event_type: "booking.completed", occurred_at: "2026-10-12T13:30:00Z" });
+    await sweepJobs(db.client, NOW);
+    expect(rows("care_checkins").filter((c) => c.status === "scheduled")).toHaveLength(2);
+    // Simulate a worker that already sent the first one's claim but not its row.
+    const due = Date.parse("2026-10-13T14:00:00Z");
+    vi.setSystemTime(due);
+    rows("care_checkin_claims").push({ id: "cl", organization_id: ORG, company_id: CO, contact_id: DANA, local_date: "2026-10-13" });
+    await sweepCheckins(db.client, due);
+    expect(smsTo(DANA_PHONE)).toHaveLength(0);
+    expect(rows("care_checkins").map((c) => c.reason)).toEqual(["already checked in with them today", "already checked in with them today"]);
+  });
+
+  it("an offer unanswered for 14 days goes to the owner; a stuck booking claim is released", async () => {
+    await unhappy();
+    await ownerSays("Y 1");
+    rows("care_cases")[0].visit_stage = "booking";
+    rows("care_cases")[0].updated_at = new Date(NOW - 20 * 60_000).toISOString();
+    resetCareCompanyCache();
+    await sweepOutbox(db.client, NOW);
+    expect(rows("care_cases")[0].visit_stage).toBe("offered");
+    const later = NOW + 15 * DAY;
+    vi.setSystemTime(later);
+    const { result } = await runTool(turn(), "book_care_visit", { pick: 1 });
+    expect(result).toMatchObject({ ok: false });
+    sendSms.mockClear();
+    resetCareCompanyCache();
+    await sweepOutbox(db.client, later);
+    expect(rows("care_cases")[0].visit_stage).toBe("owner_calls");
+    expect(ownerTexts()).toEqual([expect.stringContaining("Dana Jones never picked a time for the callback visit")]);
+  });
+
+  it("check_warranty never falls back to an unrelated job", async () => {
+    warranty();
+    const { result } = await runTool(turn(), "check_warranty", { problem: "the deck boards are lifting" });
+    expect(result).toMatchObject({ no_matching_job: true, under_warranty: false });
+    expect(rows("owner_approvals")).toHaveLength(0);
+  });
+
+  it("chooseTerm: an item without an override counts with the default", () => {
+    expect(chooseTerm({ months: 24, terms: null }, [{ months: 12, terms_text: "x" }], 2)).toEqual({ months: 24, terms: null, source: "default" });
+    expect(chooseTerm({ months: 24, terms: null }, [{ months: 12, terms_text: "x" }], 1)).toEqual({ months: 12, terms: "x", source: "item" });
+  });
+
+  it("the role switched off after asking: Y texts nobody, the owner is told", async () => {
+    warranty();
+    await runTool(turn(), "check_warranty", { problem: "the roof leaks" });
+    rows("companies")[0].ai_settings = { customer_care: { enabled: false } };
+    sendSms.mockClear();
+    await ownerSays("Y 1");
+    expect(smsTo(DANA_PHONE)).toHaveLength(0);
+    expect(ownerTexts()[0]).toContain("Customer care is off for Northshore Roofing now, so I didn't text Dana Jones.");
+  });
+
+  it("the owner is handling Dana's texts: Y doesn't offer times, the owner is told to call", async () => {
+    warranty();
+    await runTool(turn(), "check_warranty", { problem: "the roof leaks" });
+    rows("sms_conversations").push({ id: "conv-1", organization_id: ORG, company_id: CO, contact_id: DANA, state: "owner", owner_takeover_at: new Date(NOW - HOUR).toISOString(), collected: {} });
+    sendSms.mockClear();
+    await ownerSays("Y 1");
+    expect(smsTo(DANA_PHONE)).toHaveLength(0);
+    expect(ownerTexts()[0]).toContain("You're handling Dana Jones's texts right now, so I didn't text them times.");
+  });
+
+  it("the alert: STOPped owner → no retries; several businesses → the name first", async () => {
+    rows("platform_sms_opt_outs").push({ phone_e164: OWNER, opted_out_at: "2026-10-01T00:00:00Z", opted_in_at: null });
+    sentCheckin();
+    await runTool(turn(), "record_job_feedback", { rating: 2 });
+    expect(rows("care_cases")[0].owner_alert_status).toBe("none");
+
+    db = seed();
+    resetCareCompanyCache();
+    rows("companies")[1].owner_phone_e164 = OWNER;
+    sentCheckin();
+    await runTool(turn(), "record_job_feedback", { rating: 2, comment: "leaking" });
+    expect(ownerTexts()[0]).toMatch(/^CrankLeads: Northshore Roofing: Dana Jones rated/);
   });
 });

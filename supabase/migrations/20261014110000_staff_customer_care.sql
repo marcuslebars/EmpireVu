@@ -17,6 +17,8 @@
 --                          booking_id). invoices/auto.ts never auto-invoices these. Members read.
 -- 7. care_messages         the customer-text outbox (visit offers, "Mike will call you", …), unique
 --                          per (company, kind, dedupe key). Service role only.
+-- 8. care_checkin_claims   one check-in per customer per local day (claimed before the send, so two
+--                          workers / two jobs can't both text them). Service role only.
 --
 -- No column is added to bookings. Settings live in companies.ai_settings.customer_care.
 -- Additive only and re-runnable. All writes go through the server (service role); nothing here
@@ -149,8 +151,10 @@ create table if not exists public.care_cases (
 
 -- One case per check-in answer; one open warranty claim per customer.
 create unique index if not exists care_cases_checkin_idx on public.care_cases (checkin_id) where checkin_id is not null;
-create unique index if not exists care_cases_one_open_warranty_idx on public.care_cases (company_id, contact_id)
-  where kind = 'warranty' and status in ('open', 'scheduled') and contact_id is not null;
+-- (Only while open: a claim whose visit is booked doesn't block the next one.)
+drop index if exists public.care_cases_one_open_warranty_idx;
+create unique index care_cases_one_open_warranty_idx on public.care_cases (company_id, contact_id)
+  where kind = 'warranty' and status = 'open' and contact_id is not null;
 create index if not exists care_cases_company_status_idx on public.care_cases (organization_id, company_id, status, created_at desc);
 create index if not exists care_cases_alert_idx on public.care_cases (owner_alert_status) where owner_alert_status = 'pending';
 
@@ -192,6 +196,19 @@ create table if not exists public.care_messages (
 
 create index if not exists care_messages_due_idx on public.care_messages (status, not_before) where status = 'queued';
 
+-- ── 8. care_checkin_claims (one check-in per customer per local day, across workers) ──────
+create table if not exists public.care_checkin_claims (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  company_id uuid not null,
+  contact_id uuid not null references public.contacts(id) on delete cascade,
+  local_date date not null,
+  checkin_id uuid references public.care_checkins(id) on delete set null,
+  created_at timestamptz not null default now(),
+  unique (company_id, contact_id, local_date),
+  foreign key (company_id, organization_id) references public.companies (id, organization_id) on delete cascade
+);
+
 -- ── RLS + grants ─────────────────────────────────────────────────────────────────────
 -- Members read terms, warranties, equipment and visit links; owners/admins read check-ins and
 -- cases (customers' complaints); the outbox is service role only. Nobody writes from a client.
@@ -202,6 +219,7 @@ alter table public.care_checkins enable row level security;
 alter table public.care_cases enable row level security;
 alter table public.care_case_bookings enable row level security;
 alter table public.care_messages enable row level security;
+alter table public.care_checkin_claims enable row level security;
 
 drop policy if exists "warranty_terms_select" on public.warranty_terms;
 create policy "warranty_terms_select" on public.warranty_terms
@@ -227,11 +245,11 @@ drop policy if exists "care_cases_select" on public.care_cases;
 create policy "care_cases_select" on public.care_cases
   for select using (public.is_organization_admin(organization_id));
 
-revoke insert, update, delete on public.warranty_terms, public.job_warranties, public.installed_equipment, public.care_checkins, public.care_cases, public.care_case_bookings, public.care_messages from anon, authenticated;
-revoke select on public.warranty_terms, public.job_warranties, public.installed_equipment, public.care_checkins, public.care_cases, public.care_case_bookings, public.care_messages from anon;
-revoke select on public.care_messages from authenticated;
+revoke insert, update, delete on public.warranty_terms, public.job_warranties, public.installed_equipment, public.care_checkins, public.care_cases, public.care_case_bookings, public.care_messages, public.care_checkin_claims from anon, authenticated;
+revoke select on public.warranty_terms, public.job_warranties, public.installed_equipment, public.care_checkins, public.care_cases, public.care_case_bookings, public.care_messages, public.care_checkin_claims from anon;
+revoke select on public.care_messages, public.care_checkin_claims from authenticated;
 grant select on public.warranty_terms, public.job_warranties, public.installed_equipment, public.care_checkins, public.care_cases, public.care_case_bookings to authenticated;
-grant all on public.warranty_terms, public.job_warranties, public.installed_equipment, public.care_checkins, public.care_cases, public.care_case_bookings, public.care_messages to service_role;
+grant all on public.warranty_terms, public.job_warranties, public.installed_equipment, public.care_checkins, public.care_cases, public.care_case_bookings, public.care_messages, public.care_checkin_claims to service_role;
 
 drop trigger if exists warranty_terms_set_updated_at on public.warranty_terms;
 create trigger warranty_terms_set_updated_at before update on public.warranty_terms
@@ -255,4 +273,5 @@ comment on table public.installed_equipment is 'Customer care: equipment install
 comment on table public.care_checkins is 'Customer care: the one post-job check-in text per job, and the answer. Never gates review requests. Owners/admins read; service role writes.';
 comment on table public.care_cases is 'Customer care: complaints, callbacks and warranty claims. Owners/admins read; service role writes.';
 comment on table public.care_case_bookings is 'Customer care: callback / warranty visits linked to their case. Never auto-invoiced. Members read; service role writes.';
+comment on table public.care_checkin_claims is 'Customer care: one check-in per customer per local day (the send claim). Service role only.';
 comment on table public.care_messages is 'Customer care: customer-text outbox (09:00-20:00 local). Service role only.';

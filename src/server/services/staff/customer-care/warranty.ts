@@ -45,11 +45,15 @@ export interface WarrantyTermChoice {
   source: "default" | "item";
 }
 
-/** The job's workmanship warranty: the longest override among its items, else the company default. PURE. */
-export function chooseTerm(defaults: { months: number; terms: string | null }, overrides: Array<Pick<WarrantyTermRow, "months" | "terms_text">>): WarrantyTermChoice {
-  if (overrides.length === 0) return { months: defaults.months, terms: defaults.terms, source: "default" };
-  const best = overrides.slice().sort((a, b) => b.months - a.months)[0];
-  return { months: best.months, terms: best.terms_text ?? defaults.terms, source: "item" };
+/**
+ * The job's workmanship warranty: the longest of its items' terms, where an item without an
+ * override has the company default (a job with no price-list item at all gets the default). PURE.
+ */
+export function chooseTerm(defaults: { months: number; terms: string | null }, overrides: Array<Pick<WarrantyTermRow, "months" | "terms_text">>, itemCount = overrides.length): WarrantyTermChoice {
+  const candidates: WarrantyTermChoice[] = overrides.map((o) => ({ months: o.months, terms: o.terms_text ?? defaults.terms, source: "item" as const }));
+  if (itemCount === 0 || overrides.length < itemCount) candidates.push({ months: defaults.months, terms: defaults.terms, source: "default" });
+  // Longest wins; on a tie the item's own terms.
+  return candidates.sort((a, b) => b.months - a.months || (a.source === "item" ? -1 : 1))[0];
 }
 
 export async function loadTerms(admin: AdminClient, scope: Scope, catalogItemIds?: string[]): Promise<WarrantyTermRow[]> {
@@ -74,7 +78,7 @@ export async function ensureJobWarranty(admin: AdminClient, company: CareCompany
   if (e0) throw e0;
   if (existing) return existing as JobWarrantyRow;
   const items = await catalogItemsOfJob(admin, scope, booking);
-  const term = chooseTerm(company.settings.warranty, await loadTerms(admin, scope, items));
+  const term = chooseTerm(company.settings.warranty, await loadTerms(admin, scope, items), items.length);
   if (term.months <= 0) return null;
   const doneMs = Date.parse(booking.completed_at ?? booking.scheduled_for);
   const startsOn = localDate(new Date(Number.isFinite(doneMs) ? doneMs : Date.now()), company.timeZone);

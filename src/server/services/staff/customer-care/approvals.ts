@@ -21,7 +21,7 @@ import type { CareCaseRow, Db } from "./db-types";
 import { loadCase } from "./cases";
 import { loadContact, queueAndSend } from "./outbox";
 import { textOwner } from "./owner";
-import { loadCareCompany, type CareCompany } from "./settings";
+import { careWorks, loadCareCompany, type CareCompany } from "./settings";
 import { customerName, firstNameOf, ownerCallText, willCallText } from "./texts";
 import { nextOpeningLabel } from "./time";
 import { offerVisit } from "./visits";
@@ -30,6 +30,13 @@ type Followup = "visit" | "call" | "none" | "expired";
 
 function str(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** Customer care was switched off (or the texting assistant) after the owner was asked: nothing goes to the customer. */
+function roleOff(company: CareCompany, approval: OwnerApprovalRow, decision: ApprovalDecision): ExecuteResult | null {
+  if (careWorks(company)) return null;
+  const name = str(approval.payload.customerName) ?? "the customer";
+  return { ok: !decision.approved, message: `Customer care is off for ${company.name} now, so I didn't text ${name}. Give them a call if they need one.` };
 }
 
 async function claimCase(admin: AdminClient, caseRow: CareCaseRow, followup: Followup, nowMs: number): Promise<boolean> {
@@ -93,6 +100,8 @@ export async function executeCareFollowup(admin: AdminClient, approval: OwnerApp
   const ctx = await context(admin, approval);
   if ("error" in ctx) return ctx.error;
   const { company, caseRow } = ctx;
+  const off = roleOff(company, approval, decision);
+  if (off) return off;
   const option = approval.payload.option === "call" ? "call" : "visit";
   const followup: Followup = decision.approved ? option : decision.decidedVia === "expiry" ? "expired" : "none";
   const name = str(approval.payload.customerName) ?? "the customer";
@@ -122,6 +131,8 @@ export async function executeWarrantyClaim(admin: AdminClient, approval: OwnerAp
   const ctx = await context(admin, approval);
   if ("error" in ctx) return ctx.error;
   const { company, caseRow } = ctx;
+  const off = roleOff(company, approval, decision);
+  if (off) return off;
   const followup: Followup = decision.approved ? "visit" : decision.decidedVia === "expiry" ? "expired" : "none";
   const name = str(approval.payload.customerName) ?? "the customer";
   if (!(await claimCase(admin, caseRow, followup, nowMs))) {
