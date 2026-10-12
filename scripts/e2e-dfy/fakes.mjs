@@ -40,6 +40,39 @@ async function readBody(req) {
 let seq = 0;
 const sid = (prefix) => `${prefix}${Date.now().toString(16)}${(++seq).toString(16).padStart(6, "0")}`.padEnd(34, "0").slice(0, 34);
 
+// ── Phase 4 test documents ───────────────────────────────────────────────────
+// A tiny JPEG (SOI + COM segment + EOI) or PDF carrying `E2EDOC{json}E2EDOC`: what the picture
+// "shows". The fake receipt / compliance readers decode the base64 block they're sent and answer
+// only from that spec, so a reply that names the vendor proves the bytes reached the model.
+const mediaDocs = new Map(); // ME… id → { contentType, bytes, spec }
+export function docBytes(spec, contentType) {
+  const marker = `E2EDOC${JSON.stringify(spec)}E2EDOC`;
+  if (contentType === "application/pdf") return Buffer.from(`%PDF-1.4\n% ${marker}\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n`, "latin1");
+  const text = Buffer.from(marker, "latin1");
+  const len = Buffer.alloc(2);
+  len.writeUInt16BE(text.length + 2);
+  return Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xfe]), len, text, Buffer.from([0xff, 0xd9])]);
+}
+function specFromBlocks(messages) {
+  for (const m of messages ?? []) {
+    for (const b of Array.isArray(m.content) ? m.content : []) {
+      if ((b.type === "image" || b.type === "document") && b.source?.data) {
+        const raw = Buffer.from(b.source.data, "base64").toString("latin1");
+        const hit = raw.match(/E2EDOC(\{.*?\})E2EDOC/);
+        if (hit) {
+          try {
+            return { spec: JSON.parse(hit[1]), mediaType: b.source.media_type };
+          } catch {
+            return { spec: null, mediaType: b.source.media_type };
+          }
+        }
+        return { spec: null, mediaType: b.source.media_type };
+      }
+    }
+  }
+  return { spec: null, mediaType: null };
+}
+
 // ── Twilio ───────────────────────────────────────────────────────────────────
 const incoming = new Map(); // sid → number
 let numberSeq = 0;
@@ -84,8 +117,16 @@ function twilio(req, res, path, body) {
   // MMS media (Phase 1 front desk): GET …/Messages/MM…/Media/ME… → a small PNG (Basic auth required).
   if (/\/Messages\/MM[0-9a-zA-Z]+\/Media\/ME[0-9a-zA-Z]+$/.test(p) && req.method === "GET") {
     const auth = String(req.headers.authorization || "");
-    capture({ kind: "twilio_media", path: p, basicAuth: auth.startsWith("Basic ") });
+    const mediaId = p.match(/\/Media\/(ME[0-9a-zA-Z]+)$/)[1];
+    capture({ kind: "twilio_media", path: p, basicAuth: auth.startsWith("Basic "), mediaId });
     if (!auth.startsWith("Basic ")) return json(res, 401, { code: 20003, message: "auth required" });
+    // Phase 4: a registered test document (POST /__media) — a JPEG or PDF carrying a spec the fake
+    // readers answer from; anything else is the logo PNG as before.
+    const doc = mediaDocs.get(mediaId);
+    if (doc) {
+      res.writeHead(200, { "content-type": doc.contentType, "content-length": String(doc.bytes.length) });
+      return res.end(doc.bytes);
+    }
     res.writeHead(200, { "content-type": "image/png" });
     return res.end(LOGO);
   }
@@ -372,6 +413,13 @@ function smsAgent(request) {
     const r = did("request_payment_plan").result ?? {};
     return anthropicText(m, r.ok ? `Let me check with ${owner ?? "the owner"} about the plan and get right back to you.` : `Let me pass that to ${owner ?? "the owner"}.`);
   }
+  // Phase 4: Compliance — "can you send me proof of insurance?" → share_compliance_doc.
+  if (tools.includes("share_compliance_doc") && /proof of insurance|insurance certificate|certificate of insurance|\bCOI\b/i.test(newText)) {
+    if (!did("share_compliance_doc")) return toolUse(m, [{ name: "share_compliance_doc", input: { document: "liability_insurance" } }]);
+    const r = did("share_compliance_doc").result ?? {};
+    if (r.approval_requested || r.already_asked) return anthropicText(m, `Sure - I'm checking with ${owner ?? "the owner"} and will text you the insurance certificate shortly.`);
+    return anthropicText(m, `${owner ?? "The owner"} will get that to you directly.`);
+  }
   // Phase 2: the Marketer — a reply to a win-back text is a new enquiry.
   if (/book (me|us) in|sounds good/i.test(newText)) {
     return anthropicText(m, "Great - what day works best for you? We'll get you on the schedule.");
@@ -472,6 +520,14 @@ function ownerAgent(request) {
     }
     return anthropicText(m, `Sent to ${c.name}. The assistant will stay out of that conversation.`);
   }
+  // Phase 4 (phase4.ts): Purchasing's materials_status — relays each order's estimate vs actual.
+  const ms = body.match(/materials status(?:\s+(PO-\d+))?/i);
+  if (ms && tools.includes("materials_status")) {
+    if (!did("materials_status")) return toolUse(m, [{ name: "materials_status", input: ms[1] ? { po: ms[1].toUpperCase() } : {} }]);
+    const r = did("materials_status").result ?? {};
+    const orders = r.orders ?? [];
+    return anthropicText(m, orders.length ? orders.map((o) => `${o.po ?? o.po_number ?? "PO"} ${o.job ?? ""}: ${o.status ?? ""}, estimated ${o.estimated}, actual ${o.actual}`).join("; ") : String(r.error ?? r.note ?? "No open materials orders."));
+  }
   // Phase 3 (phase3.ts): the Office manager, the Recruiter and Keep your number.
   if (/^\s*today\s*$/i.test(body) && tools.includes("briefing_now")) {
     if (!did("briefing_now")) return toolUse(m, [{ name: "briefing_now", input: { detail: true } }]);
@@ -547,6 +603,24 @@ function anthropic(req, res, path, body) {
     capture({ kind: "anthropic", purpose: "marketer_google_post" });
     return json(res, 200, anthropicText(request.model, "Winter is close: book your seasonal driveway plowing now and we'll have you on the route before the first snow. Call or message us to get set up."));
   }
+  // ── Phase 4 readers (phase4.ts): receipts (tax clerk) and compliance documents ──
+  if (/^You read one purchase receipt or supplier invoice/.test(system)) {
+    const { spec, mediaType } = specFromBlocks(request.messages);
+    const isReceipt = spec && (spec.type === "receipt" || spec.type === "supplier_invoice");
+    const out = isReceipt
+      ? { vendor: spec.vendor ?? null, date: spec.date ?? null, totalCents: spec.totalCents ?? null, taxCents: spec.taxCents ?? null, category: spec.category ?? null, description: spec.description ?? null, documentKind: spec.type }
+      : { vendor: null, date: null, totalCents: null, taxCents: null, category: null, description: null, documentKind: "not_receipt" };
+    capture({ kind: "anthropic", purpose: "receipt_reader", mediaType, spec: spec?.label ?? null, documentKind: out.documentKind, withKind: /documentKind/.test(system), model: request.model });
+    return json(res, 200, anthropicText(request.model, JSON.stringify(out)));
+  }
+  if (/^You read ONE document for a small Ontario trades business/.test(system)) {
+    const { spec, mediaType } = specFromBlocks(request.messages);
+    const out = spec && spec.type === "cert"
+      ? { is_compliance_document: true, kind: spec.kind, title: spec.title ?? null, issuer: spec.issuer ?? null, number: spec.number ?? null, holder_name: spec.holder ?? null, issued_on: spec.issued ?? null, expires_on: spec.expires ?? null }
+      : { is_compliance_document: false, kind: null, title: null, issuer: null, number: null, holder_name: null, issued_on: null, expires_on: null };
+    capture({ kind: "anthropic", purpose: "compliance_reader", mediaType, spec: spec?.label ?? null, isDoc: out.is_compliance_document, model: request.model });
+    return json(res, 200, anthropicText(request.model, JSON.stringify(out)));
+  }
   // ── Phase 3 Recruiter (phase3.ts) ──
   if (/^You write a short, plain job post for/.test(system)) {
     const owner = between(user, 'note="data">', "</owner_request>").trim();
@@ -585,8 +659,11 @@ function resend(req, res, path, body) {
   const m = JSON.parse(body || "{}");
   const id = sid("em_");
   // Phase 3: attachments (the payroll CSV) are captured with their decoded text.
-  const attachments = (m.attachments ?? []).map((a) => ({ filename: a.filename, content: typeof a.content === "string" ? Buffer.from(a.content, "base64").toString("utf8").slice(0, 4000) : Array.isArray(a.content?.data) ? Buffer.from(a.content.data).toString("utf8").slice(0, 4000) : null }));
-  capture({ kind: "email", to: Array.isArray(m.to) ? m.to.join(",") : m.to, from: m.from, subject: m.subject, body: m.text ?? "", html: m.html ?? null, id, attachments });
+  const attachments = (m.attachments ?? []).map((a) => {
+    const buf = typeof a.content === "string" ? Buffer.from(a.content, "base64") : Array.isArray(a.content?.data) ? Buffer.from(a.content.data) : Array.isArray(a.content) ? Buffer.from(a.content) : null;
+    return { filename: a.filename, content: buf ? buf.toString("utf8").slice(0, 4000) : null, bytes: buf ? buf.length : 0, contentType: a.content_type ?? a.contentType ?? null };
+  });
+  capture({ kind: "email", to: Array.isArray(m.to) ? m.to.join(",") : m.to, from: m.from, subject: m.subject, body: m.text ?? "", html: m.html ?? null, id, attachments, replyTo: m.reply_to ?? m.replyTo ?? null });
   return json(res, 200, { id });
 }
 
@@ -687,6 +764,58 @@ function environmentCanada(req, res, path) {
   return json(res, 404, { error: true, reason: "fake environment canada: no route" });
 }
 
+// ── Stripe (Phase 4: the Connect invoice Checkout for service plans) ─────────
+// intercept.cjs redirects the SDK's https requests to api.stripe.com here when E2E_FAKE_STRIPE=1.
+// Customers + Checkout Sessions on a connected account (Stripe-Account header); every session is
+// captured with its metadata so the driver can build the signed checkout.session.completed.
+const stripeSessions = new Map();
+function stripeForm(body) {
+  // a[b][c]=v → nested object (enough for metadata / line_items).
+  const out = {};
+  for (const [k, v] of new URLSearchParams(body)) {
+    const keys = k.replace(/\]/g, "").split("[");
+    let o = out;
+    keys.forEach((key, i) => {
+      if (i === keys.length - 1) o[key] = v;
+      else o = o[key] ??= {};
+    });
+  }
+  return out;
+}
+function stripe(req, res, path, body) {
+  const url = new URL(path, "http://x");
+  const p = url.pathname;
+  const account = req.headers["stripe-account"] || null;
+  const form = stripeForm(body);
+  if (p === "/v1/customers" && req.method === "POST") {
+    const c = { id: sid("cus_"), object: "customer", email: form.email ?? null, name: form.name ?? null, metadata: form.metadata ?? {} };
+    capture({ kind: "stripe", op: "customer.create", account, id: c.id });
+    return json(res, 200, c);
+  }
+  if (p === "/v1/checkout/sessions" && req.method === "POST") {
+    const amount = Number(form.line_items?.["0"]?.price_data?.unit_amount ?? 0);
+    const id = sid("cs_test_");
+    const s = { id, object: "checkout.session", status: "open", payment_status: "unpaid", mode: form.mode ?? "payment", url: `https://checkout.stripe.test/c/pay/${id}`, amount_total: amount, currency: form.line_items?.["0"]?.price_data?.currency ?? "cad", customer: form.customer ?? null, metadata: form.metadata ?? {}, client_reference_id: form.client_reference_id ?? null, success_url: form.success_url ?? null, cancel_url: form.cancel_url ?? null, payment_intent: null, payment_method_types: ["card"], account };
+    stripeSessions.set(id, s);
+    capture({ kind: "stripe", op: "checkout.create", account, id, amount, metadata: s.metadata, successUrl: s.success_url, idempotencyKey: req.headers["idempotency-key"] ?? null });
+    return json(res, 200, s);
+  }
+  const get = p.match(/^\/v1\/checkout\/sessions\/(cs_[A-Za-z0-9_]+)$/);
+  if (get && req.method === "GET") {
+    const s = stripeSessions.get(get[1]);
+    return s ? json(res, 200, s) : json(res, 404, { error: { type: "invalid_request_error", message: "No such checkout.session" } });
+  }
+  const exp = p.match(/^\/v1\/checkout\/sessions\/(cs_[A-Za-z0-9_]+)\/expire$/);
+  if (exp && req.method === "POST") {
+    const s = stripeSessions.get(exp[1]);
+    if (!s) return json(res, 404, { error: { type: "invalid_request_error", message: "No such checkout.session" } });
+    s.status = "expired";
+    return json(res, 200, s);
+  }
+  capture({ kind: "unhandled", host: "api.stripe.com", method: req.method, path: p });
+  return json(res, 404, { error: { type: "invalid_request_error", message: `fake stripe: no route for ${req.method} ${p}` } });
+}
+
 const retellRegistered = [];
 
 function retell(req, res, path, body) {
@@ -716,6 +845,14 @@ createServer(async (req, res) => {
       return json(res, 200, control);
     }
     if (url === "/__retell/registered") return json(res, 200, retellRegistered);
+    // Phase 4: register a test document served as Twilio MMS media (ME… id).
+    if (url === "/__media" && req.method === "POST") {
+      const m = JSON.parse(body || "{}");
+      const bytes = docBytes(m.spec ?? {}, m.contentType);
+      mediaDocs.set(m.id, { contentType: m.contentType, bytes, spec: m.spec });
+      return json(res, 201, { id: m.id, bytes: bytes.length });
+    }
+    if (url === "/__stripe/sessions") return json(res, 200, [...stripeSessions.values()]);
     // Phase 3 (phase3.ts): a number "arrives" in the Twilio account (a completed port-in), and the
     // account's numbers as Twilio sees them (webhooks, FriendlyName).
     if (url === "/__twilio/incoming" && req.method === "POST") {
@@ -734,6 +871,8 @@ createServer(async (req, res) => {
         return places(req, res, path, body);
       case "api.resend.com":
         return resend(req, res, path, body);
+      case "api.stripe.com":
+        return stripe(req, res, path, body);
       case "api.retellai.com":
         return retell(req, res, path, body);
       case "api.open-meteo.com":

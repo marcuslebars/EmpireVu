@@ -48,6 +48,30 @@ if (realFetch && !realFetch.__e2ePatched) {
   globalThis.fetch = patched;
 }
 
+// Phase 4 (phase4.sh sets E2E_FAKE_STRIPE=1): the Stripe SDK talks to api.stripe.com through
+// node:https (not fetch), so redirect those requests to the fakes server over plain http. The SDK
+// writes its body once the socket says "secureConnect"; a plain socket only says "connect", so
+// that event is re-emitted for it.
+if (process.env.E2E_FAKE_STRIPE === "1") {
+  const http = require("node:http");
+  const https = require("node:https");
+  const realHttpsRequest = https.request;
+  if (!realHttpsRequest.__e2ePatched) {
+    const patchedRequest = function e2eHttpsRequest(options, ...rest) {
+      const host = typeof options === "object" && options && !(options instanceof URL) ? options.host || options.hostname : null;
+      if (host !== "api.stripe.com") return realHttpsRequest.call(this, options, ...rest);
+      const { agent: _agent, ciphers: _ciphers, port: _port, host: _host, hostname: _hostname, protocol: _protocol, ...restOpts } = options;
+      const req = http.request({ ...restOpts, host: "127.0.0.1", port: Number(process.env.E2E_FAKES_PORT || "55436"), path: `/api.stripe.com${options.path || "/"}`, headers: { ...(options.headers || {}), "x-e2e-host": "api.stripe.com" } }, ...rest);
+      req.on("socket", (socket) => {
+        if (socket.connecting) socket.once("connect", () => socket.emit("secureConnect"));
+      });
+      return req;
+    };
+    patchedRequest.__e2ePatched = true;
+    https.request = patchedRequest;
+  }
+}
+
 function fakeLookup(original) {
   return function lookup(hostname, options, callback) {
     if (typeof options === "function") {
