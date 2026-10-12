@@ -181,3 +181,47 @@ stack after. `phase4-results.json` goes to `$E2E_PHASE4_OUT` (default `$E2E_ROOT
   U5 a "PO-n" receipt → actual in `materials_status` · P5 visit heads-up · C6/C7 7-day and expiry
   texts · P6 lapse (only untouched future visits removed) · P7 a prepaid plan visit isn't invoiced
   again · Z the house org saw none of it; its series and invoicing unchanged.
+
+## Phase 5 email inbox, customer care, profit advisor, fleet (`phase5.sh` / `phase5.ts`)
+
+`scripts/e2e-dfy/phase5.sh` starts a fresh stack on its own ports and data dirs (568xx,
+`E2E_ROOT=/var/tmp/e2e-p5`, `/var/tmp/e2epg-p5`, `/var/tmp/e2esock-p5`, `/var/tmp/e2e-faketime-p5`;
+each can be overridden) with `INBOUND_EMAIL_DOMAIN=in.crankleads.test` and a `RESEND_WEBHOOK_SECRET`
+(`whsec_…`, the one fakes.mjs signs with), and drives docs/ai-staff.md's Email inbox, Customer care
+& warranty, Profit advisor and Fleet & equipment, plus the Office manager's heads-ups. Re-runnable
+(every run starts from a fresh database); `E2E_STOP=1` stops the stack after.
+`phase5-results.json` goes to `$E2E_PHASE5_OUT` (default `$E2E_ROOT/phase5-out`).
+
+- Clock: the Monday D0 whose Tuesday D1 is the first Tuesday of its month (the monthly price
+  check), then D0 09:15 → 16:45, D1 08:15 / 09:05 / 10:05 / 12:00 / 16:50, D2 10:05 / 10:40,
+  D3 08:30, D4 10:05 / 15:05 / 16:30, D5 07:01 / 10:05.
+- Seeding: a Close purchase + switch-on + live, crew (Mike, Ana) with pay rates, six months of
+  costed jobs (time entries, receipts on the job, invoices) and eight gutter-cleaning quotes (7 won)
+  so the $189 gutter cleaning is underpriced, this week's three jobs (Jones +$1,260, Smith −$90 with
+  9 h of labour over, Ng), three customers for Customer care, a supplier (Settings → Purchasing); a
+  second CrankLeads company (Bayview) for inbox tenancy; an A1-style house org with review requests
+  and job-done invoicing.
+- Fakes added: Resend Inbound — `POST /__resend/inbound` registers a received email (+ attachment
+  bytes), served at `GET /emails/receiving/{id}` and `…/attachments/{aid}` (a `download_url` on
+  `inbound-cdn.resend.app`, which intercept.cjs routes here); `POST /__resend/deliver {id, url,
+  badSignature?, staleSeconds?}` sends the Svix-signed `email.received` webhook to the app;
+  outbound emails are captured with their `headers`. Anthropic: the email classifier and drafter
+  (a gullible drafter that obeys "ignore all previous instructions" so the guards are what's
+  tested), the odometer reader; the SMS agent's `record_job_feedback` / `check_warranty` /
+  `book_care_visit` (`POST /__control {carePick}` = the slot the customer picked); the owner
+  agent's `email_setup`, `cash_forecast`, `add_vehicle`, `set_service_schedule`, `add_rental`,
+  `rental_returned`.
+- Steps: E1 "set up my email" → the address + steps · E2 Gmail confirmation → the code (not stored)
+  · E3 a new customer's email (PDF / inline / .exe) → contact, inbound `message_log` (in
+  `ui_inbox_v`), files kept, `email_reply` → Y → the reply with Reply-To = inbox, In-Reply-To /
+  References, "Re: …" · E4 retry no-op · E5 bad / stale signature 400 · E6 tenancy (Bayview's inbox,
+  an unknown address) · E7 newsletter / supplier / bill → one 16:00 digest · C0 jobs done: check-ins
+  planned (Pat's moved a day by her review request), warranties · F1/F2 fleet by text → one
+  combined 09:05 heads-up (rental today, oil change by the km projection, plate sticker 7 days) ·
+  P1 price check → Y → $189 → $215 once, a second Y "already" · C1 Kim "5" → thanks only · F3 rental
+  returned + cost, odometer photo logged, fuel receipt photo → the tax clerk · P2 cash forecast ·
+  H1 A1 photos · C2 Pat's review request unchanged · C3/C4 Pat "2 - still leaking" → one text with
+  two codes → Y visit → times → pick → "Callback: …" booked · C5 Kim's warranty claim → Y → no-charge
+  visit · C6 Lee's job auto-invoiced, "1" left waiting · W1 the Friday text word for word · C7 care
+  visits done: no invoice, no check-in · E8 prompt injection → holding reply · O1 Saturday briefing:
+  care / fleet / email / profit heads-ups, one each, ≤ 612 septets · Z the house org saw none of it.

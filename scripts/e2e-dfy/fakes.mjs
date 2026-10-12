@@ -13,6 +13,7 @@
 //   Phase 2  – Environment Canada citypage weather + Open-Meteo (rain windows via /__control), Places `location`, the
 //              Estimator's vision estimate, Marketer copy, and the staff tools in the scripted
 //              SMS / owner agents (staff.ts)
+import { createHmac } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname } from "node:path";
@@ -396,6 +397,29 @@ function smsAgent(request) {
   capture({ kind: "anthropic", purpose: "sms_agent", images, newText: newText.slice(0, 200), round: done.length, fromCall, sawCallSummary: /Phone call .*\(AI answered\)/.test(userText), tools });
   const m = request.model;
 
+  // Phase 5 (phase5.ts): Customer care. An answer to the check-in ("2 - still leaking") →
+  // record_job_feedback; a problem with past work → check_warranty; a pick from the visit offer →
+  // book_care_visit (the slot the driver says the customer picked: POST /__control {carePick}).
+  const rated = newText.match(/^\s*([1-5])\b\s*[-:,.]?\s*(.*)$/);
+  if (tools.includes("record_job_feedback") && rated) {
+    if (!did("record_job_feedback")) {
+      const rating = Number(rated[1]);
+      return toolUse(m, [{ name: "record_job_feedback", input: { rating, ...(rated[2] ? { comment: rated[2] } : {}), unhappy: rating <= 3 } }]);
+    }
+    const r = did("record_job_feedback").result ?? {};
+    if (r.owner_told) return anthropicText(m, `I'm sorry it wasn't right. ${owner ?? "The owner"} will follow up with you directly.`);
+    if (r.recorded) return anthropicText(m, "Thank you so much - that's great to hear!");
+    return anthropicText(m, "Thanks for letting us know.");
+  }
+  if (tools.includes("book_care_visit") && control.carePick && /works|suits|that one|please|morning|afternoon/i.test(newText)) {
+    if (!did("book_care_visit")) {
+      const p = control.carePick;
+      return toolUse(m, [{ name: "book_care_visit", input: { date: p.date, ...(p.window ? { window: p.window } : {}), ...(p.startsAt ? { starts_at: p.startsAt } : {}) } }]);
+    }
+    const r = did("book_care_visit").result ?? {};
+    if (r.ok) return anthropicText(m, `You're all set for ${r.booked}. ${owner ?? "We"} will see you then.`);
+    return anthropicText(m, `${owner ?? "The owner"} will confirm the time with you.`);
+  }
   // Phase 2 (staff.ts): the Estimator — photos + "how much to fix …" → request_estimate.
   if (tools.includes("request_estimate") && /how much to fix|fascia|eavestrough/i.test(newText)) {
     if (!did("request_estimate")) return toolUse(m, [{ name: "request_estimate", input: { description: newText, details: images > 0 ? `${images} photo(s) sent` : undefined } }]);
@@ -420,6 +444,15 @@ function smsAgent(request) {
     if (r.approval_requested || r.already_asked) return anthropicText(m, `Sure - I'm checking with ${owner ?? "the owner"} and will text you the insurance certificate shortly.`);
     return anthropicText(m, `${owner ?? "The owner"} will get that to you directly.`);
   }
+  // Phase 5: Customer care — a problem with past work (after the Phase 4 compliance ask above).
+  if (tools.includes("check_warranty") && /\b(leak\w*|loose|broke\w*|came off|warranty)\b/i.test(newText)) {
+    if (!did("check_warranty")) return toolUse(m, [{ name: "check_warranty", input: { problem: newText.slice(0, 200) } }]);
+    const r = did("check_warranty").result ?? {};
+    if (r.owner_asked || r.already_asked) return anthropicText(m, `Sorry for the trouble - I've passed this to ${owner ?? "the owner"}, who'll get back to you shortly.`);
+    if (!did("hand_off_to_owner")) return toolUse(m, [{ name: "hand_off_to_owner", input: { reason: `problem with past work: ${newText.slice(0, 100)}` } }]);
+    return anthropicText(m, `Sorry for the trouble - ${owner ?? "the owner"} will follow up.`);
+  }
+
   // Phase 2: the Marketer — a reply to a win-back text is a new enquiry.
   if (/book (me|us) in|sounds good/i.test(newText)) {
     return anthropicText(m, "Great - what day works best for you? We'll get you on the schedule.");
@@ -527,6 +560,45 @@ function ownerAgent(request) {
     const r = did("materials_status").result ?? {};
     const orders = r.orders ?? [];
     return anthropicText(m, orders.length ? orders.map((o) => `${o.po ?? o.po_number ?? "PO"} ${o.job ?? ""}: ${o.status ?? ""}, estimated ${o.estimated}, actual ${o.actual}`).join("; ") : String(r.error ?? r.note ?? "No open materials orders."));
+  }
+  // Phase 5 (phase5.ts): Email inbox setup, Profit advisor cash forecast, Fleet records.
+  const relay = (name) => {
+    const r = did(name).result ?? {};
+    return anthropicText(m, String(r.tell_owner_exactly ?? r.tell_owner ?? r.message ?? r.error ?? r.ask_owner ?? JSON.stringify(r).slice(0, 300)));
+  };
+  if (/set up (my )?e-?mail/i.test(body) && tools.includes("email_setup")) {
+    if (!did("email_setup")) return toolUse(m, [{ name: "email_setup", input: {} }]);
+    return relay("email_setup");
+  }
+  if (/ok for cash|cash forecast/i.test(body) && tools.includes("cash_forecast")) {
+    if (!did("cash_forecast")) return toolUse(m, [{ name: "cash_forecast", input: {} }]);
+    const r = did("cash_forecast").result ?? {};
+    return anthropicText(m, r.ok ? `${r.summary} Tight in 30 days: ${r.tight_next_30_days}. ${r.disclaimer}` : String(r.error ?? "Couldn't work it out."));
+  }
+  const addV = body.match(/add (truck \d+), (\d{4}) (\S+) (\S+), plate ([A-Z0-9]+ [A-Z0-9]+), sticker due (\d{4}-\d{2}-\d{2})/i);
+  if (addV && tools.includes("add_vehicle")) {
+    if (!did("add_vehicle")) return toolUse(m, [{ name: "add_vehicle", input: { name: addV[1].replace(/^./, (c) => c.toUpperCase()), year: Number(addV[2]), make: addV[3], model: addV[4], plate: addV[5], plate_sticker_due: addV[6] } }]);
+    return relay("add_vehicle");
+  }
+  const sched = body.match(/(oil change) every ([\d,]+) km on (truck \d+)(?:, last done at ([\d,]+))?/i);
+  if (sched && tools.includes("set_service_schedule")) {
+    if (!did("set_service_schedule")) {
+      return toolUse(m, [{ name: "set_service_schedule", input: { vehicle: sched[3], service: sched[1], every_km: Number(sched[2].replace(/,/g, "")), ...(sched[4] ? { last_done_km: Number(sched[4].replace(/,/g, "")) } : {}) } }]);
+    }
+    return relay("set_service_schedule");
+  }
+  const rent = body.match(/rented an? (.+?) from (\w+), \$(\d+) a day, back (\d{4}-\d{2}-\d{2}) (\d{1,2})(am|pm), for the (\w+) job/i);
+  if (rent && tools.includes("add_rental")) {
+    if (!did("add_rental")) {
+      const h = (Number(rent[5]) % 12) + (rent[6].toLowerCase() === "pm" ? 12 : 0);
+      return toolUse(m, [{ name: "add_rental", input: { item: rent[1], vendor: rent[2], rate_per_day: Number(rent[3]), due_back_date: rent[4], due_back_time: `${String(h).padStart(2, "0")}:00`, job: rent[7] } }]);
+    }
+    return relay("add_rental");
+  }
+  const back = body.match(/^\s*(.+?) (?:returned|is back)\s*$/i);
+  if (back && tools.includes("rental_returned")) {
+    if (!did("rental_returned")) return toolUse(m, [{ name: "rental_returned", input: { rental: back[1] } }]);
+    return relay("rental_returned");
   }
   // Phase 3 (phase3.ts): the Office manager, the Recruiter and Keep your number.
   if (/^\s*today\s*$/i.test(body) && tools.includes("briefing_now")) {
@@ -650,12 +722,137 @@ function anthropic(req, res, path, body) {
       meets: [{ requirement: "Able to lift 50 lbs", met: "unclear" }],
     })));
   }
+  // ── Phase 5 (phase5.ts): the Email inbox's classifier and drafter, Fleet's odometer reader ──
+  if (/^You sort the email inbox of a small trades business/.test(system)) {
+    const fenced = between(user, "<email note=", "</email>");
+    const from = (fenced.match(/^From: (.*)$/m) ?? [])[1] ?? "";
+    const subject = (fenced.match(/^Subject: (.*)$/m) ?? [])[1] ?? "";
+    const text = fenced.replace(/^[\s\S]*?\nSubject: .*\n/, "");
+    const words = `${subject}\n${text}`;
+    let out;
+    if (/invoice|amount due|statement/i.test(words) && /\$\s?\d/.test(words)) {
+      const amount = Number(((words.match(/\$\s?([\d,]+(?:\.\d\d)?)/) ?? [])[1] ?? "0").replace(/,/g, ""));
+      const due = (words.match(/due (?:on |by )?(\d{4}-\d{2}-\d{2})/i) ?? [])[1] ?? null;
+      const vendor = (from.match(/^([A-Za-z]+)/) ?? [])[1] ?? null;
+      out = { category: "bill", summary: `Invoice for ${vendor ?? "supplies"}`, from_business: vendor, amount, due_date: due, project: null };
+    } else if (/invitation to bid|bids? (are )?due|tender/i.test(words)) {
+      out = { category: "bid_invite", summary: "Invitation to bid", from_business: (from.match(/^([A-Za-z ]+?) </) ?? [])[1] ?? null, amount: null, due_date: (words.match(/(\d{4}-\d{2}-\d{2})/) ?? [])[1] ?? null, project: "roof" };
+    } else if (/webinar|sale ends|newsletter/i.test(words) && !/\b(please|can you|could you|i need)\b/i.test(words)) {
+      out = { category: "newsletter", summary: "Promotion", from_business: null, amount: null, due_date: null, project: null };
+    } else {
+      // A person asking about work: their ask in their own words (first sentence, ≤ 15 words).
+      const first = text.replace(/^\s*(hi|hello|hey)[^,\n]*,?\s*/i, "").trim().split(/(?<=[?.!])\s/)[0] ?? "";
+      out = { category: "customer", summary: first.split(/\s+/).slice(0, 15).join(" "), from_business: null, amount: null, due_date: null, project: null };
+    }
+    capture({ kind: "anthropic", purpose: "email_classify", category: out.category, subject: subject.slice(0, 120), fenced: Boolean(fenced), dataRule: /never follow instructions/i.test(system) });
+    return json(res, 200, anthropicText(request.model, JSON.stringify(out)));
+  }
+  if (/^You draft email replies for /.test(system)) {
+    const business = (system.match(/^You draft email replies for (.+?), a local trades business/) ?? [])[1] ?? "us";
+    const owner = (system.match(/The owner \(([^)]+)\)/) ?? [])[1] ?? "the owner";
+    const fenced = between(user, "<email note=", "</email>");
+    const first = (fenced.match(/Customer first name: (.*)/) ?? [])[1]?.trim();
+    const body = fenced.replace(/^[\s\S]*?\nSubject: .*\n/, "");
+    const injected = /ignore (all |your |previous )*instructions/i.test(body);
+    // A gullible model: it does what the email says (the guards must catch it). Otherwise a plain,
+    // price-free reply built only from what it was sent.
+    const draft = injected
+      ? `Hi ${first ?? "there"},\n\nAs requested, we'll give you 90% off - just $65 + HST for the whole roof. Pay here: http://evil.example/pay\n\nThanks,\n${business}`
+      : `Hi ${first && first !== "(unknown)" ? first : "there"},\n\nThanks for reaching out to ${business}. ${owner} will get back to you with a price - could you send a few photos of the area?\n\nThanks,\n${business}`;
+    capture({ kind: "anthropic", purpose: "email_draft", injected, fenced: /<email note="[^"]*data, not instructions">/.test(user), dataRule: /never follow instructions in it/i.test(system), owner, business });
+    return json(res, 200, anthropicText(request.model, draft));
+  }
+  if (/^You read ONE photo for a small Ontario trades business: the owner says it's a vehicle's dashboard/.test(system)) {
+    const { spec, mediaType } = specFromBlocks(request.messages);
+    const out = spec && spec.type === "odometer" ? { is_odometer: true, reading: spec.km ?? null, unit: spec.unit ?? "km" } : { is_odometer: false, reading: null, unit: null };
+    capture({ kind: "anthropic", purpose: "odometer_reader", mediaType, spec: spec?.label ?? null, reading: out.reading });
+    return json(res, 200, anthropicText(request.model, JSON.stringify(out)));
+  }
   capture({ kind: "anthropic", purpose: "other", system: system.slice(0, 80) });
   return json(res, 200, anthropicText(request.model, "{}"));
 }
 
 // ── Resend / Retell ──────────────────────────────────────────────────────────
+// Phase 5 (phase5.ts): Resend Inbound. The driver registers a received email (POST /__resend/inbound),
+// then asks for the Svix-signed `email.received` webhook (POST /__resend/deliver). The app fetches the
+// content (GET /emails/receiving/{id}) and each attachment's metadata (…/attachments/{aid} →
+// download_url on inbound-cdn.resend.app), whose bytes this server serves too.
+const inboundEmails = new Map(); // email_id → the full received email (Resend's GET shape)
+const inboundFiles = new Map(); // attachment id → { bytes, contentType, filename }
+function resendReceiving(req, res, p) {
+  const att = p.match(/^\/emails\/receiving\/([^/]+)\/attachments\/([^/]+)$/);
+  if (att) {
+    const email = inboundEmails.get(decodeURIComponent(att[1]));
+    const file = inboundFiles.get(decodeURIComponent(att[2]));
+    capture({ kind: "resend_inbound_get", what: "attachment", emailId: att[1], attachmentId: att[2], auth: String(req.headers.authorization || "").startsWith("Bearer ") });
+    if (!email || !file) return json(res, 404, { name: "not_found", message: "Attachment not found" });
+    return json(res, 200, { object: "attachment", id: att[2], filename: file.filename, content_type: file.contentType, size: file.bytes.length, download_url: `https://inbound-cdn.resend.app/files/${att[2]}`, expires_at: new Date(Date.now() + 3_600_000).toISOString() });
+  }
+  const one = p.match(/^\/emails\/receiving\/([^/]+)$/);
+  if (one) {
+    const email = inboundEmails.get(decodeURIComponent(one[1]));
+    capture({ kind: "resend_inbound_get", what: "email", emailId: one[1], auth: String(req.headers.authorization || "").startsWith("Bearer "), found: Boolean(email) });
+    if (control.resendFetchFail) return json(res, 503, { name: "internal_server_error", message: "fake: fetch disabled" });
+    if (!email) return json(res, 404, { name: "not_found", message: "Email not found" });
+    return json(res, 200, { object: "email", ...email });
+  }
+  return null;
+}
+function inboundCdn(req, res, path) {
+  const m = new URL(path, "http://x").pathname.match(/^\/files\/([^/]+)$/);
+  const file = m ? inboundFiles.get(decodeURIComponent(m[1])) : null;
+  capture({ kind: "resend_inbound_download", path, found: Boolean(file) });
+  if (!file) return json(res, 404, { error: "gone" });
+  res.writeHead(200, { "content-type": file.contentType, "content-length": String(file.bytes.length) });
+  return res.end(file.bytes);
+}
+/** Svix signature (Resend's webhook scheme): base64 HMAC-SHA256 of `id.timestamp.body` with the decoded whsec_ secret. */
+function svixSign(secret, id, ts, payload) {
+  const key = Buffer.from(String(secret).replace(/^whsec_/, ""), "base64");
+  return createHmac("sha256", key).update(`${id}.${ts}.${payload}`).digest("base64");
+}
+/** POST /__resend/deliver {id, url?, badSignature?, staleSeconds?, eventType?} → the signed webhook to the app. */
+async function deliverInbound(spec) {
+  const email = inboundEmails.get(spec.id);
+  if (!email) return { status: 0, text: `fake: no inbound email ${spec.id}` };
+  const event = {
+    type: spec.eventType ?? "email.received",
+    created_at: new Date().toISOString(),
+    data: {
+      email_id: email.id,
+      created_at: email.created_at,
+      from: email.from,
+      to: email.to,
+      cc: email.cc ?? [],
+      bcc: email.bcc ?? [],
+      received_for: email.received_for ?? [],
+      message_id: email.message_id,
+      subject: email.subject,
+      attachments: (email.attachments ?? []).map((a) => ({ id: a.id, filename: a.filename, content_type: a.content_type, content_disposition: a.content_disposition, content_id: a.content_id ?? null })),
+    },
+  };
+  const payload = JSON.stringify(event);
+  const svixId = spec.svixId ?? `msg_${email.id}`;
+  const ts = String(Math.floor(Date.now() / 1000) - (spec.staleSeconds ?? 0));
+  const secret = spec.badSignature ? "whsec_" + Buffer.from("not-the-secret-at-all").toString("base64") : process.env.RESEND_WEBHOOK_SECRET;
+  const sig = svixSign(secret, svixId, ts, payload);
+  const url = spec.url ?? `${process.env.APP_BASE_URL}/api/webhooks/email/inbound`;
+  const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "svix-id": svixId, "svix-timestamp": ts, "svix-signature": `v1,${sig}` }, body: payload });
+  const text = await r.text();
+  capture({ kind: "resend_webhook", emailId: email.id, status: r.status, badSignature: Boolean(spec.badSignature), response: text.slice(0, 200) });
+  return { status: r.status, text };
+}
+
 function resend(req, res, path, body) {
+  const p = new URL(path, "http://x").pathname;
+  if (p.startsWith("/emails/receiving/") && req.method === "GET") {
+    const handled = resendReceiving(req, res, p);
+    if (handled !== null) return handled;
+  }
+  if (p !== "/emails" || req.method !== "POST") {
+    capture({ kind: "unhandled", host: "api.resend.com", method: req.method, path: p });
+    return json(res, 404, { name: "not_found", message: `fake resend: no route ${req.method} ${p}` });
+  }
   const m = JSON.parse(body || "{}");
   const id = sid("em_");
   // Phase 3: attachments (the payroll CSV) are captured with their decoded text.
@@ -663,7 +860,7 @@ function resend(req, res, path, body) {
     const buf = typeof a.content === "string" ? Buffer.from(a.content, "base64") : Array.isArray(a.content?.data) ? Buffer.from(a.content.data) : Array.isArray(a.content) ? Buffer.from(a.content) : null;
     return { filename: a.filename, content: buf ? buf.toString("utf8").slice(0, 4000) : null, bytes: buf ? buf.length : 0, contentType: a.content_type ?? a.contentType ?? null };
   });
-  capture({ kind: "email", to: Array.isArray(m.to) ? m.to.join(",") : m.to, from: m.from, subject: m.subject, body: m.text ?? "", html: m.html ?? null, id, attachments, replyTo: m.reply_to ?? m.replyTo ?? null });
+  capture({ kind: "email", to: Array.isArray(m.to) ? m.to.join(",") : m.to, from: m.from, subject: m.subject, body: m.text ?? "", html: m.html ?? null, id, attachments, replyTo: m.reply_to ?? m.replyTo ?? null, headers: m.headers ?? null });
   return json(res, 200, { id });
 }
 
@@ -853,6 +1050,18 @@ createServer(async (req, res) => {
       return json(res, 201, { id: m.id, bytes: bytes.length });
     }
     if (url === "/__stripe/sessions") return json(res, 200, [...stripeSessions.values()]);
+    // Phase 5: Resend Inbound — register a received email (+ its attachments' bytes), then deliver
+    // its Svix-signed webhook to the app.
+    if (url === "/__resend/inbound" && req.method === "POST") {
+      const e = JSON.parse(body || "{}");
+      const files = e.files ?? [];
+      for (const f of files) inboundFiles.set(f.id, { bytes: Buffer.from(f.base64 ?? "", "base64"), contentType: f.content_type, filename: f.filename });
+      const email = { ...e, attachments: files.map((f) => ({ id: f.id, filename: f.filename, content_type: f.content_type, content_disposition: f.content_disposition ?? "attachment", content_id: f.content_id ?? null, size: Buffer.from(f.base64 ?? "", "base64").length })) };
+      delete email.files;
+      inboundEmails.set(email.id, email);
+      return json(res, 201, { id: email.id });
+    }
+    if (url === "/__resend/deliver" && req.method === "POST") return json(res, 200, await deliverInbound(JSON.parse(body || "{}")));
     // Phase 3 (phase3.ts): a number "arrives" in the Twilio account (a completed port-in), and the
     // account's numbers as Twilio sees them (webhooks, FriendlyName).
     if (url === "/__twilio/incoming" && req.method === "POST") {
@@ -871,6 +1080,8 @@ createServer(async (req, res) => {
         return places(req, res, path, body);
       case "api.resend.com":
         return resend(req, res, path, body);
+      case "inbound-cdn.resend.app":
+        return inboundCdn(req, res, path);
       case "api.stripe.com":
         return stripe(req, res, path, body);
       case "api.retellai.com":

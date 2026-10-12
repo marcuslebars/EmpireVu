@@ -13,6 +13,7 @@ const HOSTS = new Set([
   "api.twilio.com",
   "api.retellai.com",
   "api.resend.com",
+  "inbound-cdn.resend.app", // Phase 5: Resend Inbound attachment download_url host
   "places.googleapis.com",
   "api.anthropic.com",
   "api.open-meteo.com",
