@@ -167,6 +167,9 @@ export function replyInstruction(kind: ApprovalKind, code: number | null, payloa
       const item = typeof payload.exampleItem === "string" && /^[a-z]{3,14}$/.test(payload.exampleItem) ? payload.exampleItem : null;
       return `Reply Y${c} to order it, Y${c} ${other} for ${other}${item ? `, Y${c} no ${item} to leave ${item} out` : ""}, N${c} to skip.`;
     }
+    // Email inbox (docs/ai-staff.md → "Email inbox").
+    case "email_reply":
+      return `Reply Y${c} to send it, N${c} to skip.`;
     default:
       return `Reply Y${c} to approve, N${c} to skip.`;
   }
