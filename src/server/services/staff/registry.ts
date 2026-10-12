@@ -12,14 +12,18 @@ import { importerRole } from "@/server/services/staff/importer";
 import { officeManagerRole } from "@/server/services/staff/office-manager";
 import { portingRole } from "@/server/services/staff/porting";
 import { recruiterRole } from "@/server/services/staff/recruiter";
-import type { RoleApprovalExecutor, RoleOwnerTool, StaffRoleModule } from "@/server/services/staff/types";
+import { taxClerkRole } from "@/server/services/staff/tax-clerk";
+import { servicePlansRole } from "@/server/services/staff/service-plans";
+import { complianceRole } from "@/server/services/staff/compliance";
+import { purchasingRole } from "@/server/services/staff/purchasing";
+import type { OwnerMediaHandler, RoleApprovalExecutor, RoleOwnerTool, StaffRoleModule } from "@/server/services/staff/types";
 import type { AgentTool } from "@/server/services/sms-agent/tools";
 
 /** Kinds the front desk itself owns — a role may not claim them. */
 export const CORE_APPROVAL_KINDS = new Set(["send_quote", "custom_price", "book_job", "send_reply", "callback", "owner_command"]);
 
 export function staffRoles(): StaffRoleModule[] {
-  return [estimatorRole, bookkeeperRole, dispatcherRole, marketerRole, officeManagerRole, importerRole, portingRole, recruiterRole];
+  return [estimatorRole, bookkeeperRole, dispatcherRole, marketerRole, officeManagerRole, importerRole, portingRole, recruiterRole, taxClerkRole, servicePlansRole, complianceRole, purchasingRole];
 }
 
 /** The roles switched on for one company (a failing activeFor counts as off). */
@@ -35,6 +39,16 @@ export async function activeRolesFor(admin: AdminClient, scope: { organizationId
     }),
   );
   return staffRoles().filter((_, i) => checks[i]);
+}
+
+/**
+ * ownerMedia handlers of the roles active for one company, in staffRoles() order. Roles without a
+ * handler are skipped before their activeFor runs, so a company with none costs no queries.
+ */
+export async function ownerMediaHandlersFor(admin: AdminClient, scope: { organizationId: string; companyId: string }): Promise<Array<{ role: string; handler: OwnerMediaHandler }>> {
+  if (!staffRoles().some((r) => r.ownerMedia)) return [];
+  const active = await activeRolesFor(admin, scope);
+  return active.flatMap((r) => (r.ownerMedia ? [{ role: r.role, handler: r.ownerMedia }] : []));
 }
 
 export function roleApprovalExecutor(kind: string): RoleApprovalExecutor | null {

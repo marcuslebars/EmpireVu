@@ -7,7 +7,8 @@ CrankLeads replaces everyone in the office except the owner. The AI front desk (
   - the customer SMS agent (extra tools + prompt notes),
   - the owner-by-text agent (extra tools + prompt notes),
   - the approval runner (`owner-channel/approvals.ts` → the role's executor for its own kinds; the result is recorded on the row),
-  - the scheduler (`runStaffSweeps`, each sweep throttled and isolated).
+  - the scheduler (`runStaffSweeps`, each sweep throttled and isolated),
+  - photos/PDFs the owner texts in (`ownerMedia`): `owner-channel/entry.ts` asks the handlers of the roles active for that business (`ownerMediaHandlersFor`) in registry order, after approval replies and confirm codes, only when the business is clear. The first non-null reply wins; a handler that throws is skipped. With no handler (house orgs) a bare picture still gets "Got the picture…" and a picture with words still goes to the owner agent as text.
 - **Settings** — Settings → AI front desk, one section per role (`src/components/settings/staff/*`), each role its own `companies.ai_settings.<section>` key.
 
 Roles: Estimator, Bookkeeper, Dispatcher, Marketer — each section below is written by that role's builder.
@@ -980,3 +981,11 @@ Types: `staff/recruiter/db-types.ts` until merged into `database.types.ts`.
 - No "We're hiring" link on the generated home page yet; the jobs page is linked from the paste copy and Settings.
 - No resume upload (the form asks for experience as text). Applicant contacts keep the default contact stage and aren't deleted when a job closes.
 - The SMS agent recognises an existing customer who applied only from the conversation itself (prompt note). Applicant-only contacts are handled deterministically (AI paused).
+
+## Receipts & HST
+
+## Service plans
+
+## Compliance
+
+## Purchasing

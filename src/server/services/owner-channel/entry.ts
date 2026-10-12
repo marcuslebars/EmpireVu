@@ -8,6 +8,7 @@ import { runOwnerCommandAgent } from "./agent";
 import { decideApproval, isExpired, listLine, looksLikeApprovalAttempt, parseApprovalReply, type ParsedApprovalReply } from "./approvals";
 import { consumeLimit, findOwnerCompanies, sameOwnerPhone, sendOwnerSms, type OwnerCompany } from "./common";
 import { CONFIRM_CODE_RE, confirmationMatches, MAX_CONFIRM_ATTEMPTS, OWNER_COMMAND_KIND } from "./owner-commands";
+import { ownerMediaHandlersFor } from "@/server/services/staff/registry";
 
 /** Texts per phone per hour we'll act on at all, and model-backed commands per hour. */
 const OWNER_SMS_PER_HOUR = 60;
@@ -346,6 +347,31 @@ export async function handleOwnerInboundSms(admin: AdminClient, sms: InboundOwne
   return { handled: true };
 }
 
+async function runOwnerMediaHandlers(admin: AdminClient, sms: InboundOwnerSms, company: OwnerCompany, body: string, logId: string, nowMs: number): Promise<Outcome | null> {
+  let handlers: Awaited<ReturnType<typeof ownerMediaHandlersFor>>;
+  try {
+    handlers = await ownerMediaHandlersFor(admin, { organizationId: company.organizationId, companyId: company.companyId });
+  } catch {
+    return null;
+  }
+  for (const { role, handler } of handlers) {
+    try {
+      const res = await handler.run(admin, {
+        scope: { organizationId: company.organizationId, companyId: company.companyId, companyName: company.name, timeZone: company.timeZone },
+        ownerPhone: sms.from,
+        body,
+        media: sms.media,
+        logId,
+        nowMs,
+      });
+      if (res) return { intent: res.intent ?? `media:${role}`, reply: res.reply, company, result: res.result };
+    } catch (err) {
+      console.error(`[owner-channel] ${role} media handler failed:`, err instanceof Error ? err.message : err);
+    }
+  }
+  return null;
+}
+
 async function route(admin: AdminClient, sms: InboundOwnerSms, owned: OwnerCompany[], logId: string, last10: string, nowMs: number): Promise<Outcome> {
   let body = sms.body.trim();
   let hint: OwnerCompany | null = sms.companyId ? owned.find((c) => c.companyId === sms.companyId) ?? null : null;
@@ -362,10 +388,6 @@ async function route(admin: AdminClient, sms: InboundOwnerSms, owned: OwnerCompa
     }
   }
 
-  if (!body && sms.media.length > 0) {
-    return { intent: "media_only", reply: "Got the picture — I can't do anything with photos here yet. Text me what you need.", company: hint };
-  }
-
   const codeMatch = CONFIRM_CODE_RE.exec(body);
   if (codeMatch) {
     const confirmed = await handleConfirmationCode(admin, sms, codeMatch[1], owned, nowMs);
@@ -380,6 +402,24 @@ async function route(admin: AdminClient, sms: InboundOwnerSms, owned: OwnerCompa
   if (looksLikeApprovalAttempt(body)) {
     const ask = await askDidYouMean(admin, sms, owned, hint, nowMs);
     if (ask) return ask;
+  }
+
+  if (sms.media.length > 0) {
+    // Photos/PDFs for AI staff (staff/types.ts ownerMedia), after approvals and codes so a "Y 12"
+    // with a photo stays an approval. Only when the business is clear; with no handler (house
+    // orgs) this is exactly the old path.
+    let mediaCompany = hint ?? (owned.length === 1 ? owned[0] : null);
+    if (!mediaCompany) {
+      const recent = await recentCompanyId(admin, sms.from, logId, nowMs);
+      mediaCompany = owned.find((c) => c.companyId === recent) ?? null;
+    }
+    if (mediaCompany) {
+      const handled = await runOwnerMediaHandlers(admin, sms, mediaCompany, body, logId, nowMs);
+      if (handled) return handled;
+    }
+    if (!body) {
+      return { intent: "media_only", reply: "Got the picture — I can't do anything with photos here yet. Text me what you need.", company: hint };
+    }
   }
 
   // A command: pick the business, then let the agent work.
