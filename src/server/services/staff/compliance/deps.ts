@@ -8,7 +8,7 @@ import { defaultComplianceReader, type ComplianceReader } from "./reader";
 import { supabaseComplianceStorage, type ComplianceStorage } from "./storage";
 
 export interface ComplianceDeps {
-  fetchMedia(media: InboundMedia[]): Promise<FetchedDoc | null>;
+  fetchMedia(media: InboundMedia[]): Promise<FetchedDoc[]>;
   read: ComplianceReader;
   storage(admin: AdminClient): ComplianceStorage;
 }

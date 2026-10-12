@@ -116,3 +116,18 @@ export const defaultComplianceReader: ComplianceReader = async (input) => {
     return null;
   }
 };
+
+/**
+ * Several pages of one document (front + back) read one by one → one reading: a compliance
+ * document if any page says so; each field from the first page that has it. Null when no page
+ * could be read. PURE.
+ */
+export function mergeReadings(readings: Array<ComplianceReading | null>): ComplianceReading | null {
+  const read = readings.filter((r): r is ComplianceReading => Boolean(r));
+  if (read.length === 0) return null;
+  const yes = read.filter((r) => r.isComplianceDocument);
+  if (yes.length === 0) return read[0];
+  const pick = <K extends keyof ComplianceReading>(key: K): ComplianceReading[K] => (yes.find((r) => r[key] !== null && r[key] !== undefined)?.[key] ?? null) as ComplianceReading[K];
+  const specific = yes.find((r) => r.kind && r.kind !== "other")?.kind ?? yes[0].kind;
+  return { isComplianceDocument: true, kind: specific, title: pick("title"), issuer: pick("issuer"), number: pick("number"), holderName: pick("holderName"), issuedOn: pick("issuedOn"), expiresOn: pick("expiresOn") };
+}

@@ -70,7 +70,8 @@ export function supabaseComplianceStorage(admin: AdminClient): ComplianceStorage
   const bucket = () => (admin as any).storage.from(COMPLIANCE_BUCKET);
   return {
     async upload(path, bytes, contentType) {
-      const { error } = await bucket().upload(path, bytes, { contentType, upsert: true });
+      // Never overwrite: every path is fresh, and a filed file must not be replaceable.
+      const { error } = await bucket().upload(path, bytes, { contentType, upsert: false });
       if (error) throw error;
     },
     async download(path) {
@@ -79,7 +80,8 @@ export function supabaseComplianceStorage(admin: AdminClient): ComplianceStorage
       return new Uint8Array(await (data as Blob).arrayBuffer());
     },
     async createUploadUrl(path) {
-      const { data, error } = await bucket().createSignedUploadUrl(path, { upsert: true });
+      // upsert: false — a still-valid token can't overwrite a file that's already been filed.
+      const { data, error } = await bucket().createSignedUploadUrl(path, { upsert: false });
       if (error || !data) throw error ?? new Error("Could not create an upload URL.");
       return { path, token: data.token as string };
     },

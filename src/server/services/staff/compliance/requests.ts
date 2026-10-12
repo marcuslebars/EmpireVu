@@ -22,10 +22,10 @@ import { ValidationError } from "@/server/organizations/context";
 import { createComplianceApproval, pendingApproval, REQUEST_SUB_DOCS_KIND, UPLOAD_LINK_TTL_MS } from "./approvals";
 import type { ComplianceDocumentRow, ComplianceKind, Db, SubcontractorRow, UploadRequestRow } from "./db-types";
 import { complianceDeps } from "./deps";
-import { fileDocument, loadDocument, logEvent } from "./documents";
+import { fileDocument, findBySourceKey, loadDocument, logEvent, trackUpload } from "./documents";
 import { firstName, forSub, subLabel } from "./holders";
 import { capitalize, daysBetween, isComplianceKind, kindLabel, namesMatch, prettyDate, SUB_CORE_KINDS, statusFor, whenText } from "./kinds";
-import { phoneOptedOut, sendEmailTo, sendText } from "./outbound";
+import { companySmsNumber, phoneOptedOut, sendEmailTo, sendText } from "./outbound";
 import { loadComplianceCompany, type ComplianceCompany } from "./settings";
 import { DOC_TYPES, isCompanyDocPath, subUploadPathFor } from "./storage";
 import { inSendWindow, localDate, nextWindowLabel, nextWindowStart } from "./time";
@@ -90,9 +90,27 @@ export function subRequestText(input: { businessName: string; sub: Pick<Subcontr
   return `Hi ${hi}, it's ${input.businessName}.${why} Please upload ${asked} here: ${input.link} (the link works for 14 days). Thanks!`;
 }
 
+/** Why texting this sub won't work (null = it will). */
+async function smsProblem(admin: AdminClient, company: ComplianceCompany, sub: SubcontractorRow): Promise<string | null> {
+  if (!sub.phone_e164) return `I don't have a cell for ${subLabel(sub)}`;
+  if (!(await companySmsNumber(admin, company))) return "your business has no texting number of its own yet";
+  if (await phoneOptedOut(admin, company, sub.phone_e164)) return `${subLabel(sub)} has opted out of texts from you`;
+  return null;
+}
+
+/** Text when we can (from the company's own number), else email; else an owner-facing reason. */
+export async function pickChannel(admin: AdminClient, company: ComplianceCompany, sub: SubcontractorRow): Promise<{ channel: "sms" | "email" | null; problem: string | null }> {
+  const sms = await smsProblem(admin, company, sub);
+  if (!sms) return { channel: "sms", problem: null };
+  if (sub.email) return { channel: "email", problem: null };
+  return { channel: null, problem: `${sms[0].toUpperCase()}${sms.slice(1)} and there's no email for ${subLabel(sub)}, so I can't send them a link. Add their email (or cell) in Settings > AI front desk > Compliance.` };
+}
+
 export interface ProposeResult {
   ok: boolean;
-  reason?: "sub_not_found" | "inactive" | "no_contact" | "already_asked" | "link_open";
+  reason?: "sub_not_found" | "inactive" | "no_contact" | "no_channel" | "already_asked" | "link_open";
+  /** Owner-facing why, for no_channel. */
+  message?: string;
   approvalId?: string;
   shortCode?: number | null;
   summary?: string;
@@ -133,7 +151,9 @@ export async function proposeSubDocsRequest(
     .limit(200);
   if (error) throw error;
   const kinds = kindsToRequest(trigger?.kind ?? null, (docs ?? []) as ComplianceDocumentRow[], today);
-  const channel: "sms" | "email" = sub.phone_e164 && !(await phoneOptedOut(admin, company, sub.phone_e164)) ? "sms" : sub.email ? "email" : "sms";
+  const picked = await pickChannel(admin, company, sub);
+  if (!picked.channel) return { ok: false, reason: "no_channel", message: picked.problem ?? undefined };
+  const channel = picked.channel;
   const name = subLabel(sub);
   const who = firstName(sub.name) || name;
   const text = subRequestText({ businessName: company.name, sub, kinds, trigger, today, link: LINK_PLACEHOLDER });
@@ -183,9 +203,14 @@ export async function executeRequestSubDocs(admin: AdminClient, approval: OwnerA
     const kinds = (Array.isArray(payload.kinds) ? payload.kinds : []).filter(isComplianceKind);
     const trigger = typeof payload.documentId === "string" ? await loadDocument(admin, scope, payload.documentId) : null;
     const token = newLinkToken();
-    const optedOut = sub.phone_e164 ? await phoneOptedOut(admin, scope, sub.phone_e164) : true;
-    const channel: "sms" | "email" = sub.phone_e164 && !optedOut ? "sms" : sub.email ? "email" : "sms";
-    if (channel === "sms" && optedOut) return { ok: false, message: `${name} has opted out of texts from you and there's no email on file, so nothing was sent.` };
+    // The channel the owner approved is locked: if it no longer works, say so — never switch.
+    const channel: "sms" | "email" = payload.channel === "email" ? "email" : "sms";
+    if (channel === "sms") {
+      const problem = await smsProblem(admin, company, sub);
+      if (problem) return { ok: false, message: `Nothing sent: I was going to text ${name}, but ${problem}. Text me "ask ${name} for documents" to try again.` };
+    } else if (!sub.email) {
+      return { ok: false, message: `Nothing sent: I was going to email ${name}, but there's no email for them any more. Text me "ask ${name} for documents" to try again.` };
+    }
     const finalKinds = kinds.length ? kinds : [...SUB_CORE_KINDS];
     const body = subRequestText({ businessName: company.name, sub, kinds: finalKinds, trigger, today, link: uploadLinkFor(company.platformBrand, token) });
     const inWindow = inSendWindow(nowMs, company.timeZone);
@@ -315,6 +340,7 @@ export async function createSubUploadUrl(admin: AdminClient, token: string, cont
   if (found.row.uploads >= MAX_UPLOADS_PER_LINK) throw new ValidationError("That's the most this link takes. Reply to the text if you need to send more.");
   const path = subUploadPathFor(found.company.organizationId, found.company.companyId, found.row.id, contentType);
   if (!path) throw new ValidationError("Upload a photo (JPG, PNG, HEIC) or a PDF.");
+  await trackUpload(admin, found.company, path, nowMs);
   const upload = await complianceDeps().storage(admin).createUploadUrl(path);
   return { ...upload, bucket: "compliance-docs" };
 }
@@ -342,6 +368,14 @@ export async function submitSubUpload(
   const storage = deps.storage(admin);
   if (!(await storage.exists(input.path))) throw new ValidationError("The file didn't finish uploading - try again.");
 
+  // The same file sent twice (a double tap, a retry): answer the same way, no second slot.
+  const sourceKey = `upload:${input.path}`;
+  const again = await findBySourceKey(admin, company.companyId, sourceKey);
+  if (again) {
+    const read = again.status !== "pending";
+    return { result: { label: capitalize(kindLabel(again.kind, again.title)), expiresOn: again.expires_on, read }, view: await getUploadPageView(admin, token, nowMs) };
+  }
+
   // Claim an upload slot (conditional on the count we read).
   const { data: slot, error: slotErr } = await (admin as Db)
     .from("compliance_upload_requests")
@@ -356,13 +390,19 @@ export async function submitSubUpload(
   const bytes = await storage.download(input.path);
   const reading = bytes ? await deps.read({ bytes, contentType, today, scope: company }) : null;
   const hinted = isComplianceKind(input.kind) && (row.kinds.includes(input.kind) || input.kind === "other") ? input.kind : null;
-  const kind: ComplianceKind = reading?.isComplianceDocument && reading.kind && reading.kind !== "other" ? reading.kind : hinted ?? reading?.kind ?? row.kinds[0] ?? "other";
+  // Only a reading that says "this is a compliance document" is filed under the sub. Anything else
+  // (a selfie, a blank page, no model) waits as `pending` with the sub noted: it replaces nothing,
+  // the chase keeps running on what's on file, and the owner is asked to look.
+  const verified = Boolean(reading?.isComplianceDocument);
+  const kind: ComplianceKind = verified && reading?.kind && reading.kind !== "other" ? reading.kind : hinted ?? row.kinds[0] ?? "other";
   const filed = await fileDocument(admin, {
     organizationId: company.organizationId,
     companyId: company.companyId,
     kind,
     title: reading?.title ?? null,
-    holder: forSub(sub),
+    holder: verified ? forSub(sub) : null,
+    pendingSubId: verified ? null : sub.id,
+    coverStagesAtSave: false,
     holderName: reading?.holderName ?? null,
     issuer: reading?.issuer ?? null,
     number: reading?.number ?? null,
@@ -372,7 +412,7 @@ export async function submitSubUpload(
     fileContentType: contentType,
     uploadedVia: "sub_link",
     uploadedBy: `sub:${sub.id}`,
-    sourceKey: `upload:${input.path}`,
+    sourceKey,
     uploadRequestId: row.id,
     aiRead: reading ? { ...reading } : null,
     today,
@@ -391,17 +431,26 @@ export async function submitSubUpload(
   });
   if (!filed.duplicate) await notifyOwnerOfSubUpload(admin, company, filed.doc, sub, nowMs);
   return {
-    result: { label: capitalize(kindLabel(kind, filed.doc.title)), expiresOn: filed.doc.expires_on, read: Boolean(reading?.isComplianceDocument) },
+    result: { label: capitalize(kindLabel(kind, filed.doc.title)), expiresOn: filed.doc.expires_on, read: verified },
     view: await getUploadPageView(admin, token, nowMs),
   };
 }
 
-/** "Mike's Electric sent a new WSIB clearance (expires Jan 9)." PURE. */
-export function subUploadOwnerLine(doc: Pick<ComplianceDocumentRow, "kind" | "title" | "expires_on" | "holder_name" | "ai_read">, sub: Pick<SubcontractorRow, "name" | "business_name">, today: string): string {
+/**
+ * "Mike's Electric sent a new WSIB clearance (expires Jan 9)." `keptExpiresOn` is set (a date, or
+ * "" for none) when it did NOT replace the live one on file (not shown to be newer). PURE.
+ */
+export function subUploadOwnerLine(
+  doc: Pick<ComplianceDocumentRow, "kind" | "title" | "expires_on" | "holder_name" | "status">,
+  sub: Pick<SubcontractorRow, "name" | "business_name">,
+  today: string,
+  keptExpiresOn?: string | null,
+): string {
   const name = subLabel(sub);
   const label = kindLabel(doc.kind, doc.title);
-  const read = Boolean(doc.ai_read && (doc.ai_read as { isComplianceDocument?: boolean }).isComplianceDocument);
-  if (!read) return `${name} sent a document for their ${label}, but I couldn't read it. Have a look in Settings > AI front desk > Compliance.`;
+  if (doc.status === "pending") {
+    return `${name} sent a file for their ${label}, but I couldn't read it as a certificate, so I haven't filed it and what's on file stays as is. Have a look in Settings > AI front desk > Compliance, or text me "it's ${name}'s ${label}, expires" and the date to file it.`;
+  }
   let line = `${name} sent a new ${label}`;
   if (doc.expires_on) {
     const status = statusFor(doc.expires_on, today);
@@ -410,10 +459,30 @@ export function subUploadOwnerLine(doc: Pick<ComplianceDocumentRow, "kind" | "ti
     line += " (no expiry date on it)";
   }
   line += ".";
+  if (keptExpiresOn !== undefined && keptExpiresOn !== null) {
+    line += ` It isn't newer than the one on file${keptExpiresOn ? ` (expires ${prettyDate(keptExpiresOn, today)})` : ""}, so that one stays current.`;
+  }
   if (doc.holder_name && !namesMatch(doc.holder_name, sub.business_name) && !namesMatch(doc.holder_name, sub.name)) {
     line += ` The name on it is "${doc.holder_name}" - check it's theirs.`;
   }
   return line;
+}
+
+/** The live one of the same kind this sub upload didn't replace, if any ("" = it has no date). */
+async function keptFor(admin: AdminClient, doc: ComplianceDocumentRow): Promise<string | null | undefined> {
+  if (doc.status === "pending" || !doc.subcontractor_id) return undefined;
+  const { data } = await (admin as Db).from("compliance_documents").select("id").eq("company_id", doc.company_id).eq("replaced_by", doc.id).limit(1);
+  if (((data ?? []) as unknown[]).length) return undefined;
+  const { data: live } = await (admin as Db)
+    .from("compliance_documents")
+    .select("id, expires_on, title")
+    .eq("company_id", doc.company_id)
+    .eq("subcontractor_id", doc.subcontractor_id)
+    .eq("kind", doc.kind)
+    .in("status", ["current", "expiring"])
+    .limit(20);
+  const other = ((live ?? []) as Array<{ id: string; expires_on: string | null }>).filter((d) => d.id !== doc.id)[0];
+  return other ? other.expires_on ?? "" : undefined;
 }
 
 /** Tell the owner now (08:00–21:00 local), else leave owner_notified_at null for the outbox sweep. */
@@ -424,7 +493,7 @@ export async function notifyOwnerOfSubUpload(admin: AdminClient, company: Compli
   if (((claimed ?? []) as unknown[]).length === 0) return false;
   const sent = await sendOwnerSms(admin, {
     to: company.ownerPhone,
-    body: subUploadOwnerLine(doc, sub, localDate(nowMs, company.timeZone)),
+    body: subUploadOwnerLine(doc, sub, localDate(nowMs, company.timeZone), await keptFor(admin, doc)),
     organizationId: company.organizationId,
     companyId: company.companyId,
     platformBrand: company.platformBrand,

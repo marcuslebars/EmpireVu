@@ -9,6 +9,7 @@
  *                      A sub's document at 7 days / on the day becomes a `request_sub_docs`
  *                      approval instead (when the sub has a cell or email and isn't already asked).
  *                      Only 09:00–20:00 local, verified owner cell, reminders on.
+ *   compliance:orphans (1 h)   deletes uploaded files no document filed within 24 h.
  *   compliance:outbox  (2 min) sends queued sub links and shared links inside 09:00–20:00 local,
  *                      tells the owner about sub uploads that came in overnight (08:00–21:00), and
  *                      fails a send stuck in `sending` (never re-sent: one missed beats a double).
@@ -25,6 +26,7 @@ import { loadSub, notifyOwnerOfSubUpload, proposeSubDocsRequest, sendUploadReque
 import { sendShare } from "./shares";
 import { loadComplianceCompanies, type ComplianceCompany } from "./settings";
 import { inSendWindow, localParts } from "./time";
+import { complianceDeps } from "./deps";
 
 const STAGE_COLUMN: Record<ReminderStage, "reminded_30_at" | "reminded_7_at" | "reminded_0_at"> = { 30: "reminded_30_at", 7: "reminded_7_at", 0: "reminded_0_at" };
 const PAGE = 1000;
@@ -216,4 +218,53 @@ export async function sweepOutbox(admin: AdminClient, nowMs: number): Promise<vo
       console.error("[compliance] sub upload notice failed", doc.id, err instanceof Error ? err.message : err);
     }
   }
+}
+
+// ── Orphan files ─────────────────────────────────────────────────────────────────────
+
+const ORPHAN_AFTER_MS = 24 * 3_600_000;
+
+/**
+ * compliance:orphans (hourly): a path we uploaded to or handed out an upload URL for that no
+ * document filed within 24 h (an abandoned sub upload, a crash between upload and filing) →
+ * the object is deleted and forgotten. A path a document does reference is just forgotten.
+ */
+export async function sweepOrphanUploads(admin: AdminClient, nowMs: number, deps = complianceDeps()): Promise<number> {
+  const db = admin as Db;
+  const { data, error } = await db
+    .from("compliance_uploads")
+    .select("path, organization_id, company_id, created_at")
+    .lt("created_at", new Date(nowMs - ORPHAN_AFTER_MS).toISOString())
+    .order("created_at", { ascending: true })
+    .limit(200);
+  if (error) throw error;
+  const rows = (data ?? []) as Array<{ path: string; organization_id: string; company_id: string; created_at: string }>;
+  if (rows.length === 0) return 0;
+  const byCompany = new Map<string, typeof rows>();
+  for (const r of rows) byCompany.set(r.company_id, [...(byCompany.get(r.company_id) ?? []), r]);
+  let removed = 0;
+  for (const [companyId, list] of byCompany) {
+    try {
+      const oldest = list[0].created_at;
+      const { data: docs, error: docErr } = await db
+        .from("compliance_documents")
+        .select("file_path, extra_file_paths")
+        .eq("company_id", companyId)
+        .gte("created_at", new Date(Date.parse(oldest) - 3_600_000).toISOString())
+        .limit(5000);
+      if (docErr) throw docErr;
+      const used = new Set<string>();
+      for (const d of (docs ?? []) as Array<{ file_path: string | null; extra_file_paths: string[] | null }>) {
+        if (d.file_path) used.add(d.file_path);
+        for (const p of d.extra_file_paths ?? []) used.add(p);
+      }
+      const orphans = list.filter((r) => !used.has(r.path)).map((r) => r.path);
+      if (orphans.length) await deps.storage(admin).remove(orphans);
+      removed += orphans.length;
+      await db.from("compliance_uploads").delete().eq("company_id", companyId).in("path", list.map((r) => r.path));
+    } catch (err) {
+      console.error("[compliance] orphan cleanup failed for", companyId, err instanceof Error ? err.message : err);
+    }
+  }
+  return removed;
 }

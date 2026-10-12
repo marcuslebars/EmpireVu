@@ -20,11 +20,12 @@ import { complianceOwnerTools } from "./owner-tools";
 import { executeRequestSubDocs } from "./requests";
 import { complianceActiveFor } from "./settings";
 import { executeShareDoc } from "./shares";
-import { sweepExpiry, sweepOutbox } from "./sweeps";
+import { sweepExpiry, sweepOrphanUploads, sweepOutbox } from "./sweeps";
 
 export const COMPLIANCE_SWEEPS: StaffSweep[] = [
   { name: "compliance:expiry", intervalMs: 15 * 60_000, run: async (admin, nowMs) => void (await sweepExpiry(admin, nowMs)) },
   { name: "compliance:outbox", intervalMs: 2 * 60_000, run: (admin, nowMs) => sweepOutbox(admin, nowMs) },
+  { name: "compliance:orphans", intervalMs: 60 * 60_000, run: async (admin, nowMs) => void (await sweepOrphanUploads(admin, nowMs)) },
 ];
 
 export const complianceRole: StaffRoleModule = {

@@ -22,6 +22,8 @@ export interface NewDocument {
   expiresOn?: string | null;
   filePath?: string | null;
   fileContentType?: string | null;
+  /** More pages of the same document (front + back), same bucket. */
+  extraFilePaths?: string[];
   notes?: string | null;
   uploadedVia: UploadedVia;
   uploadedBy?: string | null;
@@ -29,6 +31,10 @@ export interface NewDocument {
   uploadRequestId?: string | null;
   aiRead?: Record<string, unknown> | null;
   intakeReply?: string | null;
+  /** Mark the reminder stages the save already told the owner about (false: a sub's upload). */
+  coverStagesAtSave?: boolean;
+  /** Pending with this sub as the likely holder (an unreadable sub upload, waiting for the owner). */
+  pendingSubId?: string | null;
   today: string;
   nowMs: number;
 }
@@ -39,6 +45,8 @@ export interface FiledDocument {
   replaced: ComplianceDocumentRow[];
   /** True when this intake (source key) was already filed — nothing new was written. */
   duplicate: boolean;
+  /** Live older documents of the same kind + holder this one did NOT replace (not shown to be newer). */
+  kept: ComplianceDocumentRow[];
 }
 
 const STAGE_COLUMN = { 30: "reminded_30_at", 7: "reminded_7_at", 0: "reminded_0_at" } as const;
@@ -78,7 +86,7 @@ export async function fileDocument(admin: AdminClient, input: NewDocument): Prom
   const db = admin as Db;
   if (input.sourceKey) {
     const existing = await findBySourceKey(admin, input.companyId, input.sourceKey);
-    if (existing) return { doc: existing, replaced: [], duplicate: true };
+    if (existing) return { doc: existing, replaced: [], duplicate: true, kept: [] };
   }
   const nowIso = new Date(input.nowMs).toISOString();
   const row: Record<string, unknown> = {
@@ -88,7 +96,7 @@ export async function fileDocument(admin: AdminClient, input: NewDocument): Prom
     title: input.title ?? null,
     holder_type: input.holder?.type ?? null,
     profile_id: input.holder?.profileId ?? null,
-    subcontractor_id: input.holder?.subcontractorId ?? null,
+    subcontractor_id: input.holder?.subcontractorId ?? input.pendingSubId ?? null,
     holder_name: input.holderName ?? null,
     issuer: input.issuer ?? null,
     number: input.number ?? null,
@@ -96,6 +104,7 @@ export async function fileDocument(admin: AdminClient, input: NewDocument): Prom
     expires_on: input.expiresOn ?? null,
     file_path: input.filePath ?? null,
     file_content_type: input.fileContentType ?? null,
+    extra_file_paths: input.extraFilePaths ?? [],
     notes: input.notes ?? null,
     uploaded_via: input.uploadedVia,
     uploaded_by: input.uploadedBy ?? null,
@@ -107,22 +116,32 @@ export async function fileDocument(admin: AdminClient, input: NewDocument): Prom
     created_at: nowIso,
     updated_at: nowIso,
   };
-  for (const stage of stagesCoveredAtSave(input.expiresOn ?? null, input.today)) row[STAGE_COLUMN[stage]] = nowIso;
+  if (input.coverStagesAtSave !== false) for (const stage of stagesCoveredAtSave(input.expiresOn ?? null, input.today)) row[STAGE_COLUMN[stage]] = nowIso;
   const { data, error } = await db.from("compliance_documents").insert(row).select("*").single();
   if (error) {
     if ((error as { code?: string }).code === "23505" && input.sourceKey) {
       const raced = await findBySourceKey(admin, input.companyId, input.sourceKey);
-      if (raced) return { doc: raced, replaced: [], duplicate: true };
+      if (raced) return { doc: raced, replaced: [], duplicate: true, kept: [] };
     }
     throw error;
   }
   const doc = data as ComplianceDocumentRow;
-  const replaced = doc.holder_type ? await replaceOlder(admin, doc) : [];
-  return { doc, replaced, duplicate: false };
+  await untrackUploads(admin, input.companyId, [input.filePath, ...(input.extraFilePaths ?? [])]);
+  const { replaced, kept } = doc.holder_type ? await replaceOlderWithKept(admin, doc) : { replaced: [], kept: [] };
+  return { doc, replaced, duplicate: false, kept };
 }
 
-/** Same kind (and title, for licences / certifications), same holder, not newer → `replaced`. */
+/**
+ * Same kind (and title, for licences / certifications), same holder → `replaced`, but ONLY when the
+ * new one is shown to be newer: it has an expiry date that is later than the old one's (or the old
+ * one has none). A new document with no readable date, an older-dated copy or the same copy again
+ * never knocks out a live one — so the chase keeps running on it.
+ */
 export async function replaceOlder(admin: AdminClient, doc: ComplianceDocumentRow): Promise<ComplianceDocumentRow[]> {
+  return (await replaceOlderWithKept(admin, doc)).replaced;
+}
+
+export async function replaceOlderWithKept(admin: AdminClient, doc: ComplianceDocumentRow): Promise<{ replaced: ComplianceDocumentRow[]; kept: ComplianceDocumentRow[] }> {
   const db = admin as Db;
   let query = db
     .from("compliance_documents")
@@ -137,14 +156,18 @@ export async function replaceOlder(admin: AdminClient, doc: ComplianceDocumentRo
   const { data, error } = await query.limit(50);
   if (error) throw error;
   const titled = doc.kind === "certification" || doc.kind === "trade_licence" || doc.kind === "other";
-  const older = ((data ?? []) as ComplianceDocumentRow[]).filter((o) => {
+  const same = ((data ?? []) as ComplianceDocumentRow[]).filter((o) => {
     if (o.id === doc.id) return false;
-    if (titled && (o.title ?? "").trim().toLowerCase() !== (doc.title ?? "").trim().toLowerCase()) return false;
-    // Never let an older-dated upload knock out a newer certificate.
-    return !(o.expires_on && doc.expires_on && o.expires_on > doc.expires_on);
+    return !(titled && (o.title ?? "").trim().toLowerCase() !== (doc.title ?? "").trim().toLowerCase());
   });
+  const newer = (o: ComplianceDocumentRow) => (o.expires_on ? Boolean(doc.expires_on && doc.expires_on > o.expires_on) : true);
   const out: ComplianceDocumentRow[] = [];
-  for (const o of older) {
+  const kept: ComplianceDocumentRow[] = [];
+  for (const o of same) {
+    if (!newer(o)) {
+      if (o.status !== "expired") kept.push(o);
+      continue;
+    }
     const { data: hit, error: upErr } = await db
       .from("compliance_documents")
       .update({ status: "replaced", replaced_by: doc.id })
@@ -155,7 +178,34 @@ export async function replaceOlder(admin: AdminClient, doc: ComplianceDocumentRo
     if (upErr) throw upErr;
     if (((hit ?? []) as unknown[]).length) out.push({ ...o, status: "replaced", replaced_by: doc.id });
   }
-  return out;
+  // A dated copy that isn't newer than a live one (the same certificate again, an old copy) is
+  // itself marked replaced by that live one, so nothing is chased twice. An undated one stays as
+  // it is (no expiry → no reminders) until the owner gives its date.
+  const live = kept.find((k) => k.expires_on);
+  if (doc.expires_on && live && live.expires_on && live.expires_on >= doc.expires_on) {
+    const { error: selfErr } = await db.from("compliance_documents").update({ status: "replaced", replaced_by: live.id }).eq("id", doc.id).eq("company_id", doc.company_id);
+    if (selfErr) throw selfErr;
+    doc.status = "replaced";
+    doc.replaced_by = live.id;
+  }
+  return { replaced: out, kept };
+}
+
+// ── Uploaded files not (yet) filed ───────────────────────────────────────────────────
+
+/** Remember a path we handed out / wrote, so an object nobody files is cleaned up after 24 h. */
+export async function trackUpload(admin: AdminClient, scope: { organizationId: string; companyId: string }, path: string, nowMs: number): Promise<void> {
+  const { error } = await (admin as Db)
+    .from("compliance_uploads")
+    .upsert({ path, organization_id: scope.organizationId, company_id: scope.companyId, created_at: new Date(nowMs).toISOString() }, { onConflict: "path", ignoreDuplicates: true });
+  if (error) console.error("[compliance] could not track an upload:", error.message ?? error);
+}
+
+export async function untrackUploads(admin: AdminClient, companyId: string, paths: Array<string | null | undefined>): Promise<void> {
+  const list = paths.filter((p): p is string => Boolean(p));
+  if (list.length === 0) return;
+  const { error } = await (admin as Db).from("compliance_uploads").delete().eq("company_id", companyId).in("path", list);
+  if (error) console.error("[compliance] could not untrack uploads:", error.message ?? error);
 }
 
 /** Give a pending document its holder (and any corrected details); then replace older ones. */
@@ -224,9 +274,15 @@ export function savedLine(input: {
   today: string;
   reminders: boolean;
   replacedCount?: number;
+  /** A live one on file this didn't replace (not shown to be newer): its expiry, or "" when it has none. */
+  keptExpiresOn?: string | null;
 }): string {
   const what = describeDocument(input, input.holderLabel);
-  const replaced = input.replacedCount ? " It replaces the old one." : "";
+  const kept =
+    input.keptExpiresOn === undefined || input.keptExpiresOn === null
+      ? ""
+      : ` The one already on file${input.keptExpiresOn ? ` (expires ${prettyDate(input.keptExpiresOn)})` : ""} stays the current one${input.expiresOn ? "" : " until I know this one's date"}.`;
+  const replaced = input.replacedCount ? " It replaces the old one." : kept;
   if (!input.expiresOn) {
     return `Saved: ${what}.${replaced} I couldn't see an expiry date - text me "expires" and the date if it has one.`;
   }

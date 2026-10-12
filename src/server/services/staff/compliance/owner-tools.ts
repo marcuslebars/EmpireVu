@@ -101,15 +101,31 @@ async function statusTool(state: ToolRunState): Promise<Record<string, unknown>>
 
 // ── file_compliance_doc ──────────────────────────────────────────────────────────────
 
-async function targetDocument(state: ToolRunState, c: ComplianceCompany, kind: ComplianceKind | null): Promise<ComplianceDocumentRow | null> {
+/**
+ * Which document the owner means. A document waiting for "whose is it?" (pending, any age — the
+ * same set the briefing counts) always wins when they answer whose it is, or don't name another
+ * kind: their answer never lands on an already-filed document. Without a pending one, a fix goes
+ * to the newest document texted / uploaded in the last 7 days; changing WHOSE a filed document is
+ * needs the document named (`kind`).
+ */
+async function targetDocument(
+  state: ToolRunState,
+  c: ComplianceCompany,
+  kind: ComplianceKind | null,
+  changingHolder: boolean,
+): Promise<{ doc: ComplianceDocumentRow } | { error: string }> {
   const docs = await loadDocuments(state.admin, c);
-  const recent = (d: ComplianceDocumentRow, days: number) => state.nowMs - Date.parse(d.created_at) <= days * 86_400_000;
   const byKind = (list: ComplianceDocumentRow[]) => (kind ? list.filter((d) => d.kind === kind) : list);
-  const pending = docs.filter((d) => d.status === "pending" && recent(d, 14));
-  const pick = byKind(pending)[0] ?? pending[0];
-  if (pick) return pick;
-  const lately = docs.filter((d) => d.uploaded_via !== "sub_link" && recent(d, 7));
-  return byKind(lately)[0] ?? lately[0] ?? null;
+  const pending = docs.filter((d) => d.status === "pending");
+  if (pending.length && (changingHolder || !kind || byKind(pending).length)) return { doc: byKind(pending)[0] ?? pending[0] };
+  const lately = docs.filter((d) => d.status !== "pending" && d.uploaded_via !== "sub_link" && state.nowMs - Date.parse(d.created_at) <= 7 * 86_400_000);
+  if (changingHolder) {
+    if (!kind) return { error: "Nothing is waiting for whose it is. To move a filed document to someone else, say which one (pass its kind)." };
+    const named = byKind(lately)[0];
+    return named ? { doc: named } : { error: `No ${kindLabel(kind)} from the last week to change. It can be changed in Settings > AI front desk > Compliance.` };
+  }
+  const doc = byKind(lately)[0] ?? (kind ? null : lately[0]);
+  return doc ? { doc } : { error: "No document from the last week to change. Ask the owner to text a photo of it." };
 }
 
 async function resolveHolder(state: ToolRunState, c: ComplianceCompany, holder: string, name: string | null, newSub: boolean): Promise<HolderPick | { error: string }> {
@@ -138,17 +154,29 @@ async function fileTool(state: ToolRunState, input: Input): Promise<Record<strin
   const kind = isComplianceKind(input.kind) ? input.kind : null;
   const expiresOn = str(input.expires_on, 10);
   if (expiresOn && !isDateKey(expiresOn)) return { error: "expires_on must be a real date, YYYY-MM-DD." };
-  const doc = await targetDocument(state, c, kind);
-  if (!doc) return { error: "No document from the last week to file. Ask the owner to text a photo of it." };
   const holderInput = str(input.holder, 20);
+  if (holderInput && !["company", "crew", "sub"].includes(holderInput)) return { error: "holder must be company, crew or sub." };
+  const target = await targetDocument(state, c, kind, Boolean(holderInput));
+  if ("error" in target) return target;
+  const doc = target.doc;
   let holder: HolderPick | { error: string } | null = null;
   if (holderInput) {
-    if (!["company", "crew", "sub"].includes(holderInput)) return { error: "holder must be company, crew or sub." };
     holder = await resolveHolder(state, c, holderInput, str(input.name, 120), input.new_sub === true);
   } else if (doc.holder_type) {
     holder = doc.holder_type === "company" ? COMPANY_HOLDER : null;
     if (doc.holder_type === "crew" && doc.profile_id) holder = { type: "crew", profileId: doc.profile_id, subcontractorId: null, label: "crew" };
     if (doc.holder_type === "subcontractor" && doc.subcontractor_id) holder = { type: "subcontractor", profileId: null, subcontractorId: doc.subcontractor_id, label: "sub" };
+  } else {
+    // Still waiting for whose it is: keep the details they gave, and ask again.
+    const patch: Record<string, unknown> = {};
+    if (kind) patch.kind = kind;
+    if (expiresOn) patch.expires_on = expiresOn;
+    for (const [key, max] of [["issuer", 80], ["number", 40], ["title", 60]] as const) {
+      const v = str(input[key], max);
+      if (v) patch[key] = v;
+    }
+    if (Object.keys(patch).length) await (state.admin as Db).from("compliance_documents").update(patch).eq("id", doc.id).eq("company_id", c.companyId).eq("status", "pending");
+    return { ok: true, still_waiting: true, tell_owner: `Got it. Whose is the ${kindLabel(kind ?? doc.kind, doc.title)} - yours, a crew member's or a sub's?` };
   }
   if (!holder) return { error: "Whose is it - the business (company), a crew member (crew + name) or a sub (sub + name)?" };
   if ("error" in holder) return holder;
@@ -196,6 +224,7 @@ async function askSubTool(state: ToolRunState, input: Input): Promise<Record<str
   const soonest = docs.filter((d) => daysBetween(today, d.expires_on as string) <= 30).sort((a, b) => (a.expires_on ?? "").localeCompare(b.expires_on ?? ""))[0];
   const result = await proposeSubDocsRequest(state.admin, c, sub.id, { documentId: soonest?.id ?? null, askedInlineTo: state.ownerPhone, nowMs: state.nowMs });
   if (!result.ok) {
+    if (result.reason === "no_channel") return { error: result.message ?? `I can't reach ${subLabel(sub)}.` };
     if (result.reason === "no_contact") return { error: `I don't have a cell or email for ${subLabel(sub)}. Add one (add_subcontractor or Settings) and ask again.` };
     if (result.reason === "already_asked") return { ok: true, already_waiting: true, tell_owner: `You've already got #${result.shortCode ?? "?"} waiting for ${subLabel(sub)}. Reply Y ${result.shortCode ?? ""} to send it.`.trim() };
     return { error: `Couldn't ask ${subLabel(sub)} (${result.reason}).` };

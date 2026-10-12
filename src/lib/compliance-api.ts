@@ -129,7 +129,7 @@ async function prepareFile(file: File): Promise<{ blob: Blob; contentType: strin
 
 async function putFile(upload: { bucket: string; path: string; token: string }, blob: Blob, contentType: string): Promise<void> {
   if (!supabase) throw new Error("Uploads aren't available right now - try again later.");
-  const { error } = await supabase.storage.from(upload.bucket).uploadToSignedUrl(upload.path, upload.token, blob, { contentType, upsert: true });
+  const { error } = await supabase.storage.from(upload.bucket).uploadToSignedUrl(upload.path, upload.token, blob, { contentType, upsert: false });
   if (error) throw new Error(error.message || "Upload failed - try again.");
 }
 
