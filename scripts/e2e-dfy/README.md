@@ -143,3 +143,41 @@ payroll. Re-runnable (every run starts from a fresh database); `E2E_STOP=1` stop
   import, Undo · H1 `job_post` → Y → `/s/<slug>/jobs` · H2 apply → confirmation, screening, digest,
   `interview_invite` · H3 late apply → morning confirmation, Tuesday briefing doesn't count
   applicants, digest, Y → the invite · Z the house org saw none of it.
+
+## Phase 4 receipts, plans, compliance, purchasing (`phase4.sh` / `phase4.ts`)
+
+`scripts/e2e-dfy/phase4.sh` starts a fresh stack on its own ports and data dirs (567xx,
+`E2E_ROOT=/var/tmp/e2e-p4`, `/var/tmp/e2epg-p4`, `/var/tmp/e2esock-p4`, `/var/tmp/e2e-faketime-p4`;
+each can be overridden) with `E2E_FAKE_STRIPE=1` and a `STRIPE_CONNECT_WEBHOOK_SECRET`, and drives
+docs/ai-staff.md's Receipts & HST, Service plans, Compliance and Purchasing, plus the Office
+manager's heads-ups. Re-runnable (every run starts from a fresh database); `E2E_STOP=1` stops the
+stack after. `phase4-results.json` goes to `$E2E_PHASE4_OUT` (default `$E2E_ROOT/phase4-out`).
+
+- Clock: a Monday M0 chosen so M0+9 … M0+11 sit in the quarter's HST reminder window, then M0+7,
+  +8, +9, +11 (07:01 / 09:00 / 15:05), +12 (≈10 days before the first plan visit), +31, +33, +38.
+- Seeding: a Close purchase + switch-on + live + a published site, Stripe Connect charges enabled,
+  HST registrant + accountant (PATCH ai-settings/tax-clerk); the quarter's invoices (two counted, a
+  draft and an imported one not) and expenses (a meal at 50%); a sub + their WSIB clearance through
+  Settings → Compliance; a supplier + a roof recipe through Settings → Purchasing; an A1-style
+  house org with a rule-based weekly recurring series and job-done invoicing (snapshot taken).
+- Fakes added: `POST /__media {id, contentType, spec}` registers MMS media (a JPEG / PDF carrying
+  `E2EDOC{spec}E2EDOC`) served at Twilio's `…/Media/ME…`; the receipt reader and the compliance
+  reader answer only from that spec; the SMS agent's `share_compliance_doc` and the owner agent's
+  `materials_status`; a Stripe fake (customers, Checkout Sessions on a connected account, retrieve
+  / expire; `GET /__stripe/sessions`) reached through `intercept.cjs`, which (only with
+  `E2E_FAKE_STRIPE=1`) sends the SDK's `https` requests for api.stripe.com to the fakes server;
+  Resend attachments are captured with their size and the reply-to.
+- Steps: R1 receipt photo + "Jones job" → expense on the booking, file in expense-receipts, one
+  reply · R2 duplicate · R3/C1 "insurance certificate" → Compliance (never read as a receipt) · R4 a
+  bare photo → "Got the picture" · P1 plan via Settings, `/s/<slug>/plans` · P2/P3 sign-up → 303 to
+  Checkout on the connected account → signed Connect webhook → active + one series on the plan
+  months, texts · C2 a customer asks for proof of insurance → `share_compliance_doc` → Y → link →
+  302 to the file · H1 A1 photos take the old paths · P4 Monday renewal batch → `plan_renewals` → Y
+  → renewal link · C3 30-day text, expired link 410, a revoked link 410 · T1/T2 HST reminder
+  (figures) → `accountant_packet` → Y → PDF + 2 CSVs · C4 `request_sub_docs` → Y → upload link · U1
+  two quoted jobs → `materials_order` × 2 · U2 "N n" for a share while orders wait · U3 "Y n
+  delivery" / "Y n" → supplier emails (no customer name, no prices) · O1 the 07:00 briefing's
+  heads-ups, ≤ 612 septets · C5 the sub uploads through the public link · U4 the pickup reminder ·
+  U5 a "PO-n" receipt → actual in `materials_status` · P5 visit heads-up · C6/C7 7-day and expiry
+  texts · P6 lapse (only untouched future visits removed) · P7 a prepaid plan visit isn't invoiced
+  again · Z the house org saw none of it; its series and invoicing unchanged.
