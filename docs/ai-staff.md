@@ -1580,4 +1580,153 @@ The companies are loaded at most once per 30 s per worker (`loadPurchasingCompan
 
 ## Profit advisor
 
+Tells the owner where the money is going: a short money text each week, a monthly check on the price list (with a raise to approve when a service is clearly underpriced), and a 30/60/90-day cash forecast that warns when cash looks tight. Every number is built in code from the app's own data — no model calls — and nothing changes a price without the owner's `Y`. **Estimates from your app data - not financial advice** (said in the tools, the price question and Settings). Code: `src/server/services/staff/profit-advisor/`. Migration: `20261014120000_staff_profit_advisor.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Profit advisor** (`src/components/settings/staff/ProfitAdvisorSettingsSection.tsx`).
+
+### What the owner sees
+
+- **Friday 15:00** (setting: day and time), from the platform number, only when 2+ jobs were finished in the last 7 days or the next 30 days look tight:
+
+  > CrankLeads: This week: 6 jobs done, $8,420 billed, profit about $3,100 (37%). Best: Jones roof $1,200. Watch: Smith deck lost $180 (labour 9h over). Next 30 days: about $11k in, $7k out - fine. Text 'profit' for more.
+
+  When the numbers are a guess it says so ("3 crew have no pay rate - profit is a guess.", "2 jobs have no price yet.", "4 jobs have no hours or receipts logged."). An owner with more than one business gets the business name first ("Northshore Roofing: This week: …"). Tight: "… Next 30 days: about $4k in, $7k out - tight around Nov 6 (about $2,400 short)."
+- **The first Tuesday of the month**, when a service makes well under the business's average margin but customers still say yes to it:
+
+  > CrankLeads: #12 Price check - Gutter cleaning: 18 jobs in 6 months, 12% margin (you average 35%), and you win 92% of quotes. Y raises it from $189 to $215 (+14%) for new quotes. Estimates from your app data - not financial advice. Reply Y 12 to raise it, N 12 to leave it.
+
+  `Y 12` → "Done - Gutter cleaning is now $215 on your price list (was $189). New quotes use it; quotes already sent keep their price. I'll show you how it does in next month's price check." `N 12` → "OK - Gutter cleaning stays at $189. I won't ask about it again for 90 days."
+- **The 07:00 briefing** (Office manager, via `briefingItems`), only when cash looks tight in the next 30 days: "Cash looks tight around Nov 6 (about $2,400 short)".
+- **By text:** "profit" / "how did we do this month" (`profit`), "how did the Jones roof do" (`job_profit`), "will I be OK for cash" (`cash_forecast`), "am I charging enough" (`pricing_check`).
+- **House orgs (A1 etc.)** get none of this unless the owner switches it on in Settings.
+
+### Job profit (`jobs.ts`, `summary.ts`)
+
+The app's own job costing, untouched: `time/service.ts profitReport` (revenue = the job's invoice, else the approved quote / series price, before tax; cost = crew hours × `member_pay_rates` + `job_materials` + receipts on the job before tax). `jobs.ts` is a small service-role wrapper (`serviceCtx` + `profitReport` per 31-day slice, since profitReport caps at 500 jobs; `truncated` says if a slice hit it) that adds the booked length, crew count, quote and price-list item per job. **Imported past jobs** (`source_call_id` `import:…`) are history and left out (`reports/exclusions.ts`). `job_profit` uses `time/service.ts jobProfit` the same way.
+
+- **Best** = the most profit. **Watch** = the job that lost money, else the one under 15% margin. **Why** (`watchReason`): labour 1h+ over the booked time (booked length × crew on it) → "labour 9h over"; else the bigger of materials+receipts or labour ("materials $640").
+- Jobs with no price (no invoice, quote or series price) are left out of billed / profit and counted ("2 jobs have no price yet").
+- **The week** is the 7 days before this week's send time (`weekWindow`: same local time a week ago → this send time), so weeks never overlap or leave a gap.
+
+### Pricing check (`pricing.ts` — pure; `pricing-check.ts` — the data)
+
+Over the last **180 days**:
+- **Margin per price-list item.** A job booked from a quote is split across the quote's lines the customer took (`approved_line_items`, else `line_items`, unselected optional lines out) **in proportion to each line's amount**: a $900 roof line + a $100 vent line → 90% / 10% of that job's revenue and profit. Hand-priced (custom) lines take their share but belong to no item. A job with no quote counts wholly for its `bookings.service_item_id`. Item margin = its share of profit ÷ its share of revenue; "jobs" = every job it was on. The company average = all priced jobs' profit ÷ revenue.
+- **Win rate per item**: quotes sent in the window that had it (not replaced by a revision): approved ÷ decided. A quote sent in the last 30 days that isn't approved, expired or cancelled isn't decided yet and is left out.
+- **Flag**: ≥ 5 finished jobs AND ≥ 5 decided quotes, margin ≥ 10 points under the company average, win rate ≥ 70%.
+- **Proposal**: the raise that would bring the item to the average at the same cost ((1 − item margin) ÷ (1 − average)), **capped at +15%**, rounded **down** to a tidy price ($5 steps from $100, $1 from $20, 25¢ from $5); under +3% isn't asked; **never a cut**. A minimum charge moves with it (whole dollars, same cap). Only simple prices (flat, per unit, per measure, per unit declining) — tiered and banded prices are shown, never changed. **At most one change per item per 90 days**: an applied or declined change holds the item for 90 days; an open question holds it until answered. At most **2** questions per monthly check (the thinnest margins first).
+- **The effect** of past changes: jobs and quotes since `applied_at` vs the numbers the owner saw (`price_changes.basis`), in `pricing_check` and Settings ("Gutter cleaning: raised 30 days ago - 4 jobs since at 31% margin (was 12%), winning 85% of quotes (was 92%)").
+
+### Approval kind `price_change` (`price-change.ts`)
+
+| Kind | Created by | Y | N / expiry |
+| --- | --- | --- | --- |
+| `price_change` (7 days) | the monthly check (`profit_advisor:pricing`), notified through `notifyOwnerOfApproval` (quiet hours and the owner-text budget respected) | claims the `price_changes` row `proposed → applying` (conditional on the approval id), re-checks the cap (> old, ≤ +15%), then writes the price list — the service-role twin of `quotes/catalog-items.ts updateCatalogItemPrices` (rate, minimum, a priced item is active) — **conditional on the price still being the one the owner saw**. → `applied` + `applied_at`. Price changed by hand since → `stale`, nothing written ("Nothing changed - Gutter cleaning is $199 now, not $189 (it was changed since I asked)."). Item gone → `stale`. | N: `declined` (held for 90 days). Expiry: `expired`, nothing changed (may be asked again next month). |
+
+- The question is inserted "notified to nobody", linked to its `price_changes` row, then opened and texted, so the approvals sweep can never text a question that isn't linked. One open question per item (partial unique index); a failed link withdraws the question (`superseded`).
+- **Notes**: the kind isn't in `PRICE_NOTE_KINDS`, so "Y 12 $199" by text is refused by the owner channel ("doesn't take a price") and nothing changes. A note arriving any other way changes nothing and is asked again inline under a fresh code ("Nothing changed yet - #12 only raises Gutter cleaning to exactly $215 (+14%). For another price, change it in your price list. #13 Reply Y 13 to raise it, N 13 to leave it.").
+- **Idempotent**: a second Y is "already" (owner channel); an executor re-run is "Already done - Gutter cleaning is $215." and writes nothing. A question with no `price_changes` row → "#12 isn't linked to a price change any more, so nothing changed."
+- The DB backstop: `price_changes_raise_only` (new > old, ≤ floor(old × 1.15)) and the same for the minimum.
+- `front-desk/approval-text.ts replyInstruction`: `price_change` → "Reply Y 12 to raise it, N 12 to leave it."
+
+### Cash forecast (`forecast.ts` — pure; `forecast-data.ts` — tolerant reads)
+
+There's no bank balance in the app, so the forecast is **relative**: it starts at $0 today and, day by day for 90 days, adds what's expected in and takes off what's expected out. Two cases: **likely** and **low** (cautious: money in later and smaller, money out +10%).
+
+| In (tax included — it's cash) | Likely | Low |
+| --- | --- | --- |
+| Open invoices (sent / viewed / partially paid, balance > 0) | due date + that customer's usual lateness (median days paid after the due date over the last 12 months; else the company's; else 7 days). Already later than usual → in a week. 90+ days overdue → half | 2 weeks later; later than usual → in a month; 90+ days overdue → nothing |
+| Approved quotes with no invoice yet (approved in the last year) | an unpaid deposit within a week; the balance after the booked job (+ the company's usual days from invoice to paid, else 14; no booking → in 30 days) | half the deposit in 3 weeks; 75% of the balance 2 weeks later |
+| Booked jobs (pending / confirmed, next 90 days, no quote counted above, no invoice, not imported, not a Customer care warranty/callback visit — tolerant read of `care_case_bookings`) | price (booking `price_cents`, else the series price, else a flat price-list price) + 13% HST, 90%, after the job | 70%, 2 weeks later |
+| | no price → half the average invoice of the last 90 days | nothing |
+| Recurring visits past the generated horizon (`recurring_jobs` active; the series' own `visit_dates`, else its rule via `occurrencesBetween`, after `generated_through`) | like booked jobs | like booked jobs |
+| Annual service-plan renewals ending in the window (`service_agreements` active / renewal due, not declined) | 70% on the term end | nothing |
+
+| Out | Likely | Low |
+| --- | --- | --- |
+| Overhead: the last 90 days of `expenses` (this company's, plus company-less ones in a one-company org; amounts as paid, HST included) as a daily rate | single expenses over **$2,500** are one-offs and left out (noted) | +10% |
+| Payroll: the last 28 days of closed `time_entries` × `member_pay_rates` as a daily rate | crew without a rate at the average known rate (noted) | +10% |
+| HST: returns whose payment is due in the window (the Tax Clerk's `hst.ts` periods + `worksheetFor`; registrants only; a period still running is scaled to its full length) | net tax | same |
+| Open purchase orders (approved / sent / confirmed / ready) | only what's beyond the usual materials spend already in the overhead rate up to the last needed-by day | each in full on its needed-by day |
+| Fleet rentals still out (tolerant read of `rentals`, if the table exists: rate per day until due back, paid on return) | same | same |
+
+**Tight** = the likely running total drops below −cushion (setting, default $0: more going out than coming in) **by at least $1,000 and at least a week of normal spending**. A smaller dip is just the days between paying bills and the next payment landing, which any running business covers from the bank — flagging it every week would teach the owner to ignore the warning. The day reported is the lowest point, and "short" is how far below −cushion it is then. `tight30` drives the weekly text and the briefing; `tight90` and the low case show in `cash_forecast` and Settings.
+
+**Tolerant**: every source is read on its own. A failed read leaves that source out with a note ("HST not included - couldn't read it."); Fleet's `rentals` is optional (no note when the table isn't there). The forecast as a whole never fails the weekly text, the briefing or a tool.
+
+### Owner tools (`owner-tools.ts`, all read-only)
+
+| Tool | Does |
+| --- | --- |
+| `profit` | `period`: `this_week` (default) / `last_week` / `this_month` / `last_month` / `last_30_days`. Jobs done, billed, costs, profit, margin, the top and bottom 3 (with why), crew without a pay rate, caveats, how profit is worked out, the disclaimer. |
+| `job_profit` | `job` (customer name / job words), jobs of the last 6 months. Billed (and from what), labour hours and cost vs booked, materials, receipts, profit, margin, why, crew without a rate. Several matches → "which one" (or `most_recent: true`). |
+| `cash_forecast` | The one-line summary, 30/60/90 likely + cautious, tight in 30 / 90 days / if things go slow, the biggest money coming in, what's going out (overhead by category, payroll, lumps), notes, how it works, the disclaimer. |
+| `pricing_check` | Per item: price, jobs, margin, decided quotes, win rate, looks underpriced, what the monthly check would ask, why not asked (changed in 90 days, question waiting, tiered price, too small). Questions waiting, past changes and their effect. Says it changed nothing. |
+
+Prompt note: when to use each, keep it short, say figures are estimates, the forecast starts at $0 (no bank balance), and prices only change by the owner's Y on a `price_change` question.
+
+### Briefing items (`briefing-items.ts`)
+
+`briefingItems(admin, scope, localDate)` → `["Cash looks tight around Nov 6 (about $2,400 short)"]` only when the forecast (as of 07:00 that day) is tight in the next 30 days. `[]` when cash looks fine, for house orgs / the advisor off, and on any failure. Never throws. The Office manager isn't wired to it yet (integration does that).
+
+### Settings
+
+`companies.ai_settings.profit_advisor`, read only by `staff/profit-advisor/settings.ts readProfitAdvisorSettings`:
+
+```
+profit_advisor = {
+  enabled,                                       // CrankLeads on, house orgs off
+  weekly: { enabled: true, day: 5, time: "15:00" },  // 0 = Sunday; 07:00–19:30 in half hours (sent until 20:00)
+  pricing_check: { enabled: true },
+  tight_cushion_cents: 0,                        // 0–$100,000
+  any_on                                         // written by mergeProfitAdvisorSettings: the sweeps' filter for house orgs
+}
+```
+
+Route `GET | PATCH /api/organizations/:org/companies/:company/ai-settings/profit-advisor`: members read the switches; **owners/admins** also get the cash forecast, the price check (items, questions waiting, past changes) and the last weekly text (margins come from pay rates, which are owner/admin-only). PATCH (owners/admins) `{ enabled?, weekly?: { enabled, day, time }, pricingCheck?: { enabled }, tightCushionCents? }`, strict, merged into `ai_settings.profit_advisor` only via `updateAiSettings`.
+
+UI: the switch, the weekly text (day + time), the monthly price check, the cushion ("Call cash 'tight' when money out runs ahead of money in by more than…" — $0 / $1,000 / $2,500 / $5,000 / $10,000 / $25,000), a note when no confirmed cell is on file, and for owners/admins the forecast table (likely + "if slow"), "looks tight later", notes, the services with jobs / margin / win rate / "would ask", questions waiting, past changes, the last weekly text, and the disclaimer.
+
+`profitAdvisorActiveFor` = enabled and the company active. The registry uses it to offer the owner tools and the prompt note only there. No SMS-agent tools, no `ownerMedia` handler.
+
+### Schema (`20261014120000_staff_profit_advisor.sql`)
+
+- `price_changes`: item (`service_catalog_item_id`, **set null** on delete — the history stays), label / pricing type / unit snapshot, status `proposed | applying | applied | declined | expired | stale | failed`, old / new rate and minimum, `pct`, `basis` (jobs, margin %, company margin %, quotes, win %, window), `run_key` (`YYYY-MM`), `approval_id` (unique), `decided_at`, `applied_at`, `result`. Checks: a raise only, ≤ +15% (rate and minimum). One open question per item (partial unique index on `service_catalog_item_id` where `proposed | applying`). **Owners/admins read** (`is_organization_admin`).
+- `profit_advisor_runs`: the sweeps' claims, unique `(company_id, kind, run_key)` (`weekly` + local date, `pricing` + month), status `claimed | sent | skipped | failed`, attempts, body, detail, last error. **Service role only.**
+- Both: RLS on, composite FK to `companies (id, organization_id)`, `updated_at` triggers, no client writes. Re-runnable. The rollback withdraws pending `price_change` questions and drops both tables (raised prices stay — they're the owner's approved prices). SQL checks: `scripts/sql-tests/zz_profit_advisor.test.sql`. Local types: `staff/profit-advisor/db-types.ts`.
+
+### Env
+
+None of its own, and **no model calls** (no `AI_MODEL_PROFIT_ADVISOR`): money is worked out and worded in code so a text can never state a number the data doesn't support. Texts use `TWILIO_FROM_NUMBER` (the platform number).
+
+### Sweeps
+
+The companies are loaded at most once per 30 s per worker (`loadProfitCompanies`): every CrankLeads company with the advisor on, plus house-org companies with `any_on`; active ones only, filtered at the query.
+- **`profit_advisor:weekly`** (10 min): on the owner's day from their time until 20:00 local, with a verified owner cell. Claimed in `profit_advisor_runs` (`weekly`, local date) before anything is read. Fewer than 2 jobs and cash fine → `skipped`. A failed text → `failed`, re-claimed after 30 min (3 tries in all, conditional on the attempt count) inside the window; a platform STOP → `skipped`.
+- **`profit_advisor:pricing`** (30 min): the first Tuesday of the month, caught up through Friday, 09:00–17:00 local. Claimed per month (`pricing`, `YYYY-MM`); a failed check is retried after 30 min (3 tries). Up to 2 `price_change` questions.
+
+### Shared files edited
+
+`front-desk/approval-text.ts` (one `replyInstruction` case). `time/service.ts` is **not** edited (wrapper instead).
+
+### Tests
+
+`src/test/staff-profit-advisor.test.ts` (fake DB, real services — `profitReport` / `jobProfit`, insertApproval, notify, the owner channel; Twilio faked):
+- the forecast maths: pay lags, invoices (customer lateness, behind, 90+ days), quotes, jobs (priced / no price / prepaid visit), series, overhead one-offs, payroll at the average rate, POs beyond the usual spend, rentals, windows, tight (date, shortfall, cushion, the noise floor), the low case, the texts;
+- the pricing maths: proportional attribution of multi-line jobs, win rates, the flag rules, the raise (cap, tidy, never a cut, simple prices only, minimum), the owner text, quote lines;
+- the weekly text word for word (the brief's example), caveats, shortening, a quiet week;
+- settings, house orgs, registry wiring (after purchasing, no duplicates);
+- the weekly sweep: the real week's job costing (imported and A1 jobs left out), once across workers, day / time / 20:00, quiet week skipped, tight week sent anyway, retry after a failed send, off / no cell;
+- the pricing check (read-only report), **`price_change` end to end through `decideApproval`** (the exact owner text, Y raises once + recorded + idempotent, the next check shows the effect and holds the item; N held 90 days; expiry; stale price; a note re-asks under a fresh code), **through `handleOwnerInboundSms`** ("Y 1 $199" changes nothing, "Y 1" raises it), A1 never checked;
+- the forecast inputs from every source, a failed source as a note, a missing `rentals` table;
+- owner tools, briefing items, the Settings view (member vs owner).
+
+`src/test/profit-advisor-route.test.ts` (member vs owner, strict PATCH, another org's company), `src/test/profit-advisor-settings-section.test.tsx` (the section).
+
+### Not yet
+
+- No bank balance: the forecast is relative to today and only knows money that's already invoiced, quoted or booked, so 60–90 days out it is pessimistic for a business that books close in (new work isn't guessed at). The cushion setting is how the owner tells it what's usually in the bank.
+- Overhead and payroll are spread evenly per day (not on actual pay days or bill dates).
+- The pricing check only raises simple prices; tiered / banded items are reported, not changed. A job's labour isn't split by line beyond the line amounts.
+- Owner-chosen prices ("Y 12 $199") aren't taken — the owner changes the price list directly.
+- Warranty / callback visits are excluded from the forecast only when the Customer care tables exist; their cost still counts in job profit if they're on a costed job.
+
 ## Fleet & equipment

@@ -167,6 +167,9 @@ export function replyInstruction(kind: ApprovalKind, code: number | null, payloa
       const item = typeof payload.exampleItem === "string" && /^[a-z]{3,14}$/.test(payload.exampleItem) ? payload.exampleItem : null;
       return `Reply Y${c} to order it, Y${c} ${other} for ${other}${item ? `, Y${c} no ${item} to leave ${item} out` : ""}, N${c} to skip.`;
     }
+    // Profit advisor (docs/ai-staff.md → "Profit advisor").
+    case "price_change":
+      return `Reply Y${c} to raise it, N${c} to leave it.`;
     default:
       return `Reply Y${c} to approve, N${c} to skip.`;
   }
