@@ -1573,3 +1573,11 @@ The companies are loaded at most once per 30 s per worker (`loadPurchasingCompan
 - Saving a recipe deletes then inserts its lines (not one transaction).
 - A job moved after its PO went out keeps the needed-by the supplier was given; the owner is told to call them.
 - On Y, an inactive (removed) supplier is never emailed; the owner gets the call-in list instead.
+
+## Email inbox
+
+## Customer care & warranty
+
+## Profit advisor
+
+## Fleet & equipment

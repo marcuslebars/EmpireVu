@@ -1,6 +1,6 @@
 import { platformNumber } from "@/server/outbound/platform-number";
 import type { Inserts, Tables } from "@/server/db/database.types";
-import { sendEmail } from "@/server/outbound/email";
+import { sendEmail, type SendEmailInput } from "@/server/outbound/email";
 import { sendSms } from "@/server/outbound/sms";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { isPlatformOptedOut } from "@/server/services/platform-opt-out";
@@ -243,6 +243,8 @@ export interface DeliverMessageInput {
    * labels those "Assistant"). Omit for staff / automation messages.
    */
   sentBy?: string | null;
+  /** Email only: threading headers (In-Reply-To / References), filtered in outbound/email.ts. */
+  emailHeaders?: SendEmailInput["headers"];
 }
 
 export interface DeliverMessageResult {
@@ -317,6 +319,7 @@ export async function deliverMessage(input: DeliverMessageInput): Promise<Delive
           html: input.html ?? undefined,
           fromName: input.fromName ?? undefined,
           replyTo: input.replyTo ?? undefined,
+          ...(input.emailHeaders ? { headers: input.emailHeaders } : {}),
         })
       ).id;
     }

@@ -16,6 +16,10 @@ import { taxClerkRole } from "@/server/services/staff/tax-clerk";
 import { servicePlansRole } from "@/server/services/staff/service-plans";
 import { complianceRole } from "@/server/services/staff/compliance";
 import { purchasingRole } from "@/server/services/staff/purchasing";
+import { emailClerkRole } from "@/server/services/staff/email-clerk";
+import { customerCareRole } from "@/server/services/staff/customer-care";
+import { profitAdvisorRole } from "@/server/services/staff/profit-advisor";
+import { fleetRole } from "@/server/services/staff/fleet";
 import type { OwnerMediaHandler, RoleApprovalExecutor, RoleOwnerTool, StaffRoleModule } from "@/server/services/staff/types";
 import type { AgentTool } from "@/server/services/sms-agent/tools";
 
@@ -23,7 +27,7 @@ import type { AgentTool } from "@/server/services/sms-agent/tools";
 export const CORE_APPROVAL_KINDS = new Set(["send_quote", "custom_price", "book_job", "send_reply", "callback", "owner_command"]);
 
 export function staffRoles(): StaffRoleModule[] {
-  return [estimatorRole, bookkeeperRole, dispatcherRole, marketerRole, officeManagerRole, importerRole, portingRole, recruiterRole, taxClerkRole, servicePlansRole, complianceRole, purchasingRole];
+  return [estimatorRole, bookkeeperRole, dispatcherRole, marketerRole, officeManagerRole, importerRole, portingRole, recruiterRole, taxClerkRole, servicePlansRole, complianceRole, purchasingRole, emailClerkRole, customerCareRole, profitAdvisorRole, fleetRole];
 }
 
 /** The roles switched on for one company (a failing activeFor counts as off). */

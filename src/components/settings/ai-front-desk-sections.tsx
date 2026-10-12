@@ -14,6 +14,10 @@ import { TaxClerkSettingsSection } from "@/components/settings/staff/TaxClerkSet
 import { ServicePlansSettingsSection } from "@/components/settings/staff/ServicePlansSettingsSection";
 import { ComplianceSettingsSection } from "@/components/settings/staff/ComplianceSettingsSection";
 import { PurchasingSettingsSection } from "@/components/settings/staff/PurchasingSettingsSection";
+import { EmailClerkSettingsSection } from "@/components/settings/staff/EmailClerkSettingsSection";
+import { CustomerCareSettingsSection } from "@/components/settings/staff/CustomerCareSettingsSection";
+import { ProfitAdvisorSettingsSection } from "@/components/settings/staff/ProfitAdvisorSettingsSection";
+import { FleetSettingsSection } from "@/components/settings/staff/FleetSettingsSection";
 
 /**
  * The sections that follow "Text conversations" in Settings → AI front desk, in order:
@@ -46,4 +50,8 @@ export const AI_FRONT_DESK_SECTIONS: AiFrontDeskSlot[] = [
   { id: "service-plans", render: (props) => <ServicePlansSettingsSection {...props} /> },
   { id: "compliance", render: (props) => <ComplianceSettingsSection {...props} /> },
   { id: "purchasing", render: (props) => <PurchasingSettingsSection {...props} /> },
+  { id: "email-clerk", render: (props) => <EmailClerkSettingsSection {...props} /> },
+  { id: "customer-care", render: (props) => <CustomerCareSettingsSection {...props} /> },
+  { id: "profit-advisor", render: (props) => <ProfitAdvisorSettingsSection {...props} /> },
+  { id: "fleet", render: (props) => <FleetSettingsSection {...props} /> },
 ];

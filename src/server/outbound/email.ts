@@ -33,6 +33,28 @@ export interface SendEmailInput {
   replyTo?: string;
   /** Files to attach (e.g. the invoice PDF). `content` is base64. */
   attachments?: EmailAttachment[];
+  /**
+   * Extra headers, for threading a reply into the customer's conversation:
+   * `In-Reply-To` / `References` (the inbound Message-ID). Only these are passed on;
+   * anything else is dropped so callers can't spoof From/To/Subject through headers.
+   */
+  headers?: Partial<Record<ThreadHeader, string>>;
+}
+
+export type ThreadHeader = "In-Reply-To" | "References";
+const THREAD_HEADERS: readonly ThreadHeader[] = ["In-Reply-To", "References"];
+
+/** Only the threading headers, each one line and length-capped (no header injection). */
+export function threadHeaders(input: SendEmailInput["headers"]): Record<string, string> | null {
+  if (!input) return null;
+  const out: Record<string, string> = {};
+  for (const name of THREAD_HEADERS) {
+    const value = input[name];
+    if (typeof value !== "string") continue;
+    const clean = value.replace(/[\r\n]+/g, " ").trim().slice(0, 2000);
+    if (clean) out[name] = clean;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 export interface EmailAttachment {
@@ -130,6 +152,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         ...(input.attachments?.length
           ? { attachments: input.attachments.map((a) => ({ filename: a.filename, content: a.content })) }
           : {}),
+        ...(threadHeaders(input.headers) ? { headers: threadHeaders(input.headers) } : {}),
       }),
     });
   } catch (error) {

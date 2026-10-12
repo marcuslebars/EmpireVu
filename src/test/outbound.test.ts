@@ -69,6 +69,22 @@ describe("outbound email", () => {
     expect(body.reply_to).toBeUndefined();
   });
 
+  it("passes only the threading headers, one line each; no headers key when none", async () => {
+    configureEmail();
+    fetchMock.mockResolvedValue({ ok: true });
+    await sendEmail({
+      to: "jane@example.com",
+      subject: "Re: roof",
+      body: "Hi",
+      headers: { "In-Reply-To": "<abc@mail.gmail.com>", References: "<x@y>\r\nBcc: evil@x.com <abc@mail.gmail.com>", ...({ From: "spoof@x.com" } as object) },
+    });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.headers).toEqual({ "In-Reply-To": "<abc@mail.gmail.com>", References: "<x@y> Bcc: evil@x.com <abc@mail.gmail.com>" });
+    expect(body.from).toBe("A1 Marine Care <hello@a1marinecare.ca>");
+    await sendEmail({ to: "jane@example.com", subject: "Hi", body: "Hi" });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).headers).toBeUndefined();
+  });
+
   it("includes reply_to when configured", async () => {
     configureEmail();
     vi.stubEnv("OUTBOUND_REPLY_TO", "owner@a1marinecare.ca");
