@@ -19,7 +19,7 @@ import { emptyRole, type StaffRoleModule, type StaffSweep } from "@/server/servi
 import { executeMaterialsOrder, MATERIALS_ORDER_KIND } from "./orders";
 import { purchasingOwnerTools } from "./owner-tools";
 import { loadPurchasingCompanies, purchasingActiveFor, type PurchasingCompany } from "./settings";
-import { runCompanyDrafts, runCompanyReminders } from "./sweeps";
+import { runCompanyDrafts, runCompanyJobChanges, runCompanyReminders } from "./sweeps";
 
 let cached: { atMs: number; companies: PurchasingCompany[] } | null = null;
 
@@ -48,7 +48,15 @@ async function eachCompany(admin: AdminClient, nowMs: number, run: (company: Pur
 
 export const PURCHASING_SWEEPS: StaffSweep[] = [
   { name: "purchasing:draft", intervalMs: 10 * 60_000, run: (admin, nowMs) => eachCompany(admin, nowMs, (c) => runCompanyDrafts(admin, c, nowMs)) },
-  { name: "purchasing:reminders", intervalMs: 10 * 60_000, run: (admin, nowMs) => eachCompany(admin, nowMs, (c) => runCompanyReminders(admin, c, nowMs)) },
+  {
+    name: "purchasing:reminders",
+    intervalMs: 10 * 60_000,
+    run: (admin, nowMs) =>
+      eachCompany(admin, nowMs, async (c) => {
+        await runCompanyJobChanges(admin, c, nowMs);
+        await runCompanyReminders(admin, c, nowMs);
+      }),
+  },
 ];
 
 export const purchasingRole: StaffRoleModule = {

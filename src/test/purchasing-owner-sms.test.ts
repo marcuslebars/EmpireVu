@@ -8,6 +8,7 @@ import { createFakeDb, type FakeDb } from "@/test/helpers/fake-supabase";
 const deliverMessage = vi.fn((..._a: unknown[]) => Promise.resolve({ status: "sent", body: "" }));
 const executeApprovedAction = vi.fn((..._a: unknown[]) => Promise.resolve({ ok: true, message: "Sent." }));
 const sendEmail = vi.fn((..._a: unknown[]) => Promise.resolve({ id: "re_1" }));
+const runOwnerCommandAgent = vi.fn((..._a: unknown[]) => Promise.resolve({ reply: "On it.", confirmationId: null, actions: [], rounds: 1 }));
 
 let db: FakeDb;
 
@@ -21,6 +22,7 @@ vi.mock("@/server/services/workflow-engine/messaging", () => ({
 vi.mock("@/server/outbound/email", () => ({ sendEmail: (...a: unknown[]) => sendEmail(...a) }));
 vi.mock("@/server/services/sms-agent/approved", () => ({ executeApprovedAction: (...a: unknown[]) => executeApprovedAction(...a) }));
 vi.mock("@/server/services/usage", () => ({ recordUsageSafe: vi.fn(), recordAiUsageSafe: vi.fn() }));
+vi.mock("@/server/services/owner-channel/agent", () => ({ runOwnerCommandAgent: (...a: unknown[]) => runOwnerCommandAgent(...a) }));
 vi.mock("@/server/services/bookings", () => ({ rescheduleBooking: vi.fn(), updateBookingStatus: vi.fn() }));
 
 import { looksLikeApprovalAttempt, parseApprovalReply, parseTextNoteReply } from "@/server/services/owner-channel/approvals";
@@ -76,6 +78,7 @@ beforeEach(() => {
   deliverMessage.mockClear();
   executeApprovedAction.mockClear();
   sendEmail.mockClear();
+  runOwnerCommandAgent.mockClear();
   delete process.env.ANTHROPIC_API_KEY;
 });
 
@@ -85,9 +88,13 @@ afterEach(() => {
 
 describe("words after Y (materials_order)", () => {
   it("parsing: only a yes + words, never a question or a thank-you; price/anyway keep their own parse", () => {
-    expect(parseTextNoteReply("Y 4 delivery")).toEqual({ approved: true, code: 4, note: "delivery" });
-    expect(parseTextNoteReply("yes 4, no nails")).toEqual({ approved: true, code: 4, note: "no nails" });
-    expect(parseTextNoteReply("Y delivery")).toEqual({ approved: true, code: null, note: "delivery" });
+    expect(parseTextNoteReply("Y 4 delivery")).toEqual({ approved: true, code: 4, note: "delivery", textNote: true });
+    expect(parseTextNoteReply("yes 4, no nails")).toEqual({ approved: true, code: 4, note: "no nails", textNote: true });
+    expect(parseTextNoteReply("Y delivery")).toEqual({ approved: true, code: null, note: "delivery", textNote: true });
+    // ok/okay + an action is a command, never a note.
+    expect(parseTextNoteReply("ok move Jones to Friday")).toBeNull();
+    expect(parseTextNoteReply("OK send Jones the invoice")).toBeNull();
+    expect(parseTextNoteReply("ok text Dana I'm late")).toBeNull();
     expect(parseTextNoteReply("Y 4")).toBeNull(); // a plain decision
     expect(parseTextNoteReply("Y 4 $700")).toBeNull(); // a price
     expect(parseTextNoteReply("ok thanks")).toBeNull();
@@ -125,15 +132,41 @@ describe("words after Y (materials_order)", () => {
     expect(db.tables.owner_approvals.every((a) => a.status === "pending")).toBe(true);
   });
 
-  it('a note it can\'t read ("Y 4 make it friday"): nothing sent, asked again with a new code', async () => {
+  it('a note it can\'t read ("Y 4 make it friday"): not a decision - the old "did you mean" path, nothing sent', async () => {
     seed("crankleads", [materials()]);
     await text("Y 4 make it friday");
+    expect(intents()).toEqual(["approval_did_you_mean"]);
     expect(sendEmail).not.toHaveBeenCalled();
-    const fresh = db.tables.owner_approvals.find((a) => a.id !== "m-1")!;
-    expect(fresh).toMatchObject({ kind: "materials_order", status: "pending", notified_to: OWNER });
-    expect(lastReply()).toContain(`Nothing was sent: I'm not sure what "make it friday" means.`);
-    expect(lastReply()).toContain(`Reply Y ${fresh.short_code} to order it`);
-    expect(db.tables.purchase_orders[0]).toMatchObject({ status: "draft", approval_id: fresh.id });
+    expect(db.tables.owner_approvals).toHaveLength(1);
+    expect(db.tables.owner_approvals[0].status).toBe("pending");
+    expect(db.tables.purchase_orders[0]).toMatchObject({ status: "draft", approval_id: "m-1" });
+  });
+
+  it("status words and commands with one materials order waiting: never an order", async () => {
+    for (const body of ["ok delivered", "ok dropped off", "ok picked up", "Y 4 delivered", "ok picked it up"]) {
+      seed("crankleads", [materials()]);
+      await text(body);
+      expect(sendEmail).not.toHaveBeenCalled();
+      expect(db.tables.owner_approvals[0].status).toBe("pending");
+      expect(intents()[0]).toBe("approval_did_you_mean");
+    }
+    for (const body of ["ok move Jones to Friday", "OK send Jones the invoice", "ok text Dana I'm late"]) {
+      seed("crankleads", [materials()]);
+      runOwnerCommandAgent.mockClear();
+      await text(body);
+      expect(runOwnerCommandAgent).toHaveBeenCalledTimes(1);
+      expect((runOwnerCommandAgent.mock.calls[0][0] as { body: string }).body).toBe(body);
+      expect(intents()).toEqual(["command"]);
+      expect(sendEmail).not.toHaveBeenCalled();
+      expect(db.tables.owner_approvals[0].status).toBe("pending");
+    }
+  });
+
+  it('"Y 4 delivery" and "Y delivery" (the only thing waiting) still order', async () => {
+    seed("crankleads", [materials()]);
+    await text("Y 4 delivery");
+    expect(intents()).toEqual(["approval_done"]);
+    expect(db.tables.purchase_orders[0]).toMatchObject({ status: "sent", fulfilment: "delivery" });
   });
 
   it("other kinds and house orgs: exactly the old path", async () => {
@@ -148,9 +181,10 @@ describe("words after Y (materials_order)", () => {
     seed("crankleads", [approval({ id: "a-1" }), materials()]);
     await text("Y 3 delivery");
     expect(intents()).toEqual(["approval_did_you_mean"]);
-    // A price on a materials_order is passed to its executor, which can't use it and asks again.
+    // A price on a materials_order: "doesn't take a price", as for any kind that doesn't.
     await text("Y 4 $700");
     expect(sendEmail).not.toHaveBeenCalled();
-    expect(lastReply()).toContain("Nothing was sent");
+    expect(intents()[1]).toBe("approval_note_not_allowed");
+    expect(lastReply()).toContain("doesn't take a price");
   });
 });

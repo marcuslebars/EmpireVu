@@ -23,8 +23,12 @@ export function lineText(line: Pick<PoLine, "qty" | "unit" | "label">): string {
 }
 
 /** Estimated total of the lines (cents); lines with no estimate count as 0. */
+/** The most an estimate can say (cents) — keeps est_total_cents sane whatever a recipe or model says. */
+export const MAX_EST_TOTAL_CENTS = 1_000_000_000;
+
 export function estTotalCents(lines: PoLine[]): number {
-  return lines.reduce((sum, l) => sum + (l.estUnitCostCents != null ? Math.round(l.qty * l.estUnitCostCents) : 0), 0);
+  const total = lines.reduce((sum, l) => sum + (l.estUnitCostCents != null ? Math.round(l.qty * l.estUnitCostCents) : 0), 0);
+  return Math.min(MAX_EST_TOTAL_CENTS, Math.max(0, total));
 }
 
 /** Lines as one comma list that fits `max` characters ("…, +2 more"). */
@@ -74,6 +78,8 @@ export interface OrderSummaryInput {
   lines: PoLine[];
   estTotalCents: number;
   aiEstimate: boolean;
+  /** Some AI amounts or prices were capped. */
+  capped?: boolean;
   supplier: string | null;
   supplierEmail: string | null;
   supplierPhone: string | null;
@@ -100,7 +106,7 @@ export function yesAction(input: Pick<OrderSummaryInput, "supplier" | "supplierE
 /** The owner's materials_order question (the code and reply line are added when it's texted). PURE. */
 export function buildOrderSummary(input: OrderSummaryInput): string {
   const money = input.estTotalCents > 0 ? `~${dollars(input.estTotalCents)}` : "no prices yet";
-  const tail = `(${money}${input.aiEstimate ? ", AI estimate - check it" : ""}). ${yesAction(input)}.`;
+  const tail = `(${money}${input.capped ? ", AI estimate capped - check it" : input.aiEstimate ? ", AI estimate - check it" : ""}). ${yesAction(input)}.`;
   const head = `Materials for ${input.job} ${input.jobDay} (${input.poNumber}): `;
   const room = Math.max(40, MAX_SUMMARY_CHARS - head.length - tail.length - 1);
   return `${head}${linesList(input.lines, room)} ${tail}`;
@@ -109,7 +115,7 @@ export function buildOrderSummary(input: OrderSummaryInput): string {
 // ── The owner's note on a "Y" ─────────────────────────────────────────────────────
 
 export type NoteResult =
-  | { ok: true; fulfilment: Fulfilment; lines: PoLine[]; changes: string[] }
+  | { ok: true; fulfilment: Fulfilment; lines: PoLine[]; changes: string[]; understood: number }
   | { ok: false; why: string };
 
 const FILLER = /^(?:but|please|pls|just|ok|okay|and|also|then|so|actually|make it|i'?ll|we'?ll|i will|we will|it|send it|order it|go ahead)\b[\s,]*/i;
@@ -128,14 +134,15 @@ function words(text: string): string[] {
 }
 
 /** Lines whose label (+ unit) contain every meaningful word of `target`. */
-export function matchLines(lines: PoLine[], target: string): number[] {
+export function matchLines(lines: PoLine[], target: string, opts: { labelOnly?: boolean } = {}): number[] {
   const all = words(target);
   const meaningful = all.filter((w) => !STOP_WORDS.has(w) && w.length >= 2);
-  const want = meaningful.length ? meaningful : all;
+  // Leaving items out matches the item's own name (whole words), never just its unit ("no box").
+  const want = meaningful.length ? meaningful : opts.labelOnly ? [] : all;
   if (want.length === 0) return [];
   const out: number[] = [];
   lines.forEach((line, i) => {
-    const have = new Set(words(`${line.label} ${line.unit ?? ""}`));
+    const have = new Set(words(opts.labelOnly ? line.label : `${line.label} ${line.unit ?? ""}`));
     if (want.every((w) => have.has(w))) out.push(i);
   });
   return out;
@@ -153,34 +160,40 @@ export function parseOrderNote(note: string, lines: PoLine[], current: Fulfilmen
     .replace(/[‘’]/g, "'")
     .replace(/[.!]+$/g, "")
     .trim();
-  if (!text) return { ok: true, fulfilment: current, lines, changes: [] };
+  if (!text) return { ok: true, fulfilment: current, lines, changes: [], understood: 0 };
   const clauses = text
-    .split(/\s*(?:,|;|&|\+|\band\b|\bplus\b|\balso\b)\s*|\s+(?=(?:no|without|skip|drop|minus|except|remove|delivery|deliver|delivered|pickup|pick up)\b)/)
+    .split(/\s*(?:,|;|&|\+|\band\b|\bplus\b|\balso\b)\s*|\s+(?=(?:no|without|skip|drop|minus|except|remove|delivery|deliver|pickup|pick up)\b)/)
     .map((c) => c.trim())
     .filter(Boolean);
   let fulfilment = current;
   let next = lines.map((l) => ({ ...l }));
   const changes: string[] = [];
+  let understood = 0;
   for (const raw of clauses) {
     let clause = raw;
     for (let i = 0; i < 4 && FILLER.test(clause); i++) clause = clause.replace(FILLER, "").trim();
     if (!clause) continue;
-    if (/^(?:for |as a |as |by |get it |have it |have them )?(?:delivery|deliver(?:ed)?(?: it| them)?|ship(?: it)?|drop(?:ped)? off)$/.test(clause)) {
+    // Instructions only ("delivery", "deliver it", "have it delivered") — never a status word on its
+    // own ("delivered", "dropped off", "picked up"): those are the owner telling us it arrived.
+    if (/^(?:(?:for |as a |by )?delivery|deliver(?: it| them)|(?:get|have) (?:it|them) delivered)$/.test(clause)) {
       if (fulfilment !== "delivery") changes.push("delivery");
       fulfilment = "delivery";
+      understood += 1;
       continue;
     }
-    if (/^(?:for |as a |as )?(?:pick ?up|pick(?: it| them)? up|pickup instead|grab(?: it| them)?)$/.test(clause)) {
+    if (/^(?:(?:for |as a )?pick ?up(?: instead)?|pick (?:it|them) up)$/.test(clause)) {
       if (fulfilment !== "pickup") changes.push("pickup");
       fulfilment = "pickup";
+      understood += 1;
       continue;
     }
     const remove = /^(?:no|without|skip|drop|minus|remove|except|leave (?:out|off)|hold(?: the)?|don'?t need(?: the)?|not)\s+(?:the\s+)?(.+)$/.exec(clause);
     if (remove) {
-      const hit = matchLines(next, remove[1]);
+      const hit = matchLines(next, remove[1], { labelOnly: true });
       if (hit.length === 0) return { ok: false, why: `there's no "${remove[1]}" on the list` };
       changes.push(`no ${hit.map((i) => next[i].label).join(", ")}`);
       next = next.filter((_, i) => !hit.includes(i));
+      understood += 1;
       continue;
     }
     const qtyFirst = /^(?:only\s+|just\s+)?(\d{1,5}(?:\.\d{1,2})?)\s*(?:x\s+)?([a-z].*)$/.exec(clause);
@@ -192,12 +205,13 @@ export function parseOrderNote(note: string, lines: PoLine[], current: Fulfilmen
       if (hit.length !== 1) return { ok: false, why: hit.length ? `"${amount.target}" matches more than one item` : `there's no "${amount.target}" on the list` };
       next[hit[0]] = { ...next[hit[0]], qty: amount.qty };
       changes.push(lineText(next[hit[0]]));
+      understood += 1;
       continue;
     }
     return { ok: false, why: `I'm not sure what "${raw}" means` };
   }
   if (next.length === 0) return { ok: false, why: "that leaves nothing to order" };
-  return { ok: true, fulfilment, lines: next, changes };
+  return { ok: true, fulfilment, lines: next, changes, understood };
 }
 
 /** A short item word for the reply line's example ("Y 12 no nails"). PURE. */

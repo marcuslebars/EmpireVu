@@ -114,7 +114,7 @@ export async function materialsStatus(admin: AdminClient, company: PurchasingCom
     return {
       po: p.po_number,
       status: p.status === "draft" ? "waiting on your Y/N" : p.status.replace("_", " "),
-      job: j ? jobName(j) : null,
+      job: j ? jobName(j) : p.job_label ?? null,
       jobDay: j ? dayLabel(localDate(new Date(j.scheduledFor), company.timeZone)) : null,
       supplier: p.supplier_name,
       fulfilment: p.fulfilment,

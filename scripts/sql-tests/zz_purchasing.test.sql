@@ -13,7 +13,7 @@ declare
   t text;
   r text;
   p text;
-  all_tables text[] := array['suppliers','material_recipes','purchase_orders','purchase_order_drafts'];
+  all_tables text[] := array['suppliers','material_recipes','purchase_orders','purchase_order_drafts','purchasing_daily_counts'];
 begin
   raise notice '== purchasing: RLS on, no client writes';
   foreach t in array all_tables loop
@@ -31,8 +31,8 @@ begin
       raise exception 'FAIL anon can read %', t;
     end if;
   end loop;
-  if has_table_privilege('authenticated', 'public.purchase_order_drafts', 'SELECT') then
-    raise exception 'FAIL authenticated can read purchase_order_drafts';
+  if has_table_privilege('authenticated', 'public.purchase_order_drafts', 'SELECT') or has_table_privilege('authenticated', 'public.purchasing_daily_counts', 'SELECT') then
+    raise exception 'FAIL authenticated can read the claim tables';
   end if;
   if not exists (select 1 from pg_policies where tablename = 'suppliers' and cmd = 'SELECT' and qual like '%is_organization_admin%') then
     raise exception 'FAIL suppliers is not admin-read only';
@@ -53,10 +53,18 @@ insert into public.organizations (id, name, slug) values
   ('b2000000-0000-4000-8000-000000000001', 'Purchasing Test', 'purchasing-test'),
   ('b2000000-0000-4000-8000-000000000002', 'Other Org', 'purchasing-other')
 on conflict do nothing;
+insert into auth.users (id, email) values ('b1000000-0000-4000-8000-000000000003', 'owner@purchasing.test') on conflict do nothing;
+insert into public.profiles (id, email, full_name) values ('b1000000-0000-4000-8000-000000000003', 'owner@purchasing.test', 'Pat Owner') on conflict do nothing;
+insert into public.organization_memberships (organization_id, profile_id, role) values
+  ('b2000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000003', 'owner')
+on conflict do nothing;
 insert into public.organization_memberships (organization_id, profile_id, role) values
   ('b2000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000001', 'member'),
   ('b2000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000002', 'admin')
 on conflict do nothing;
+-- Re-runnable on a used database: pin the roles this test relies on.
+update public.organization_memberships set role = 'member' where organization_id = 'b2000000-0000-4000-8000-000000000001' and profile_id = 'b1000000-0000-4000-8000-000000000001';
+update public.organization_memberships set role = 'admin' where organization_id = 'b2000000-0000-4000-8000-000000000001' and profile_id = 'b1000000-0000-4000-8000-000000000002';
 insert into public.companies (id, organization_id, name, slug) values
   ('b3000000-0000-4000-8000-000000000001', 'b2000000-0000-4000-8000-000000000001', 'Northshore', 'northshore-purchasing'),
   ('b3000000-0000-4000-8000-000000000002', 'b2000000-0000-4000-8000-000000000002', 'Elsewhere', 'elsewhere-purchasing')
@@ -112,4 +120,27 @@ begin
   exception when unique_violation then
     raise notice 'ok   PO numbers unique per company';
   end;
+end $$;
+
+-- One open order per job; a cancelled one doesn't count; deleting the booking keeps the order.
+insert into public.bookings (id, organization_id, company_id, title, scheduled_for, status)
+values ('b6000000-0000-4000-8000-000000000001', 'b2000000-0000-4000-8000-000000000001', 'b3000000-0000-4000-8000-000000000001', 'Roof', '2026-10-15 12:00+00', 'confirmed')
+on conflict do nothing;
+insert into public.purchase_orders (id, organization_id, company_id, booking_id, status, po_seq, po_number, job_label) values
+  ('b5000000-0000-4000-8000-000000000003', 'b2000000-0000-4000-8000-000000000001', 'b3000000-0000-4000-8000-000000000001', 'b6000000-0000-4000-8000-000000000001', 'cancelled', 2, 'PO-2', 'Jones - Roof'),
+  ('b5000000-0000-4000-8000-000000000004', 'b2000000-0000-4000-8000-000000000001', 'b3000000-0000-4000-8000-000000000001', 'b6000000-0000-4000-8000-000000000001', 'draft', 3, 'PO-3', 'Jones - Roof')
+on conflict do nothing;
+do $$
+begin
+  begin
+    insert into public.purchase_orders (organization_id, company_id, booking_id, status, po_seq, po_number) values ('b2000000-0000-4000-8000-000000000001', 'b3000000-0000-4000-8000-000000000001', 'b6000000-0000-4000-8000-000000000001', 'draft', 4, 'PO-4');
+    raise exception 'FAIL two open orders for one job';
+  exception when unique_violation then
+    raise notice 'ok   one open order per job (a cancelled one does not count)';
+  end;
+  delete from public.bookings where id = 'b6000000-0000-4000-8000-000000000001';
+  if (select count(*) from public.purchase_orders where po_number in ('PO-2', 'PO-3') and company_id = 'b3000000-0000-4000-8000-000000000001' and booking_id is null and job_label = 'Jones - Roof') <> 2 then
+    raise exception 'FAIL deleting the booking removed the order history';
+  end if;
+  raise notice 'ok   deleting a booking keeps its orders (booking_id set null, job_label kept)';
 end $$;

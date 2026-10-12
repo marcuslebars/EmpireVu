@@ -26,9 +26,11 @@ import { briefingItems } from "@/server/services/staff/purchasing/briefing-items
 import type { PoLine } from "@/server/services/staff/purchasing/db-types";
 import { buildOrderSummary, callInText, lineText, parseOrderNote, renderSupplierEmail } from "@/server/services/staff/purchasing/format";
 import { expandRecipes, selectedServiceKeys, unitsOf, wholeUnits } from "@/server/services/staff/purchasing/lines";
-import { approvalExpiry, defaultPurchasingDeps, MATERIALS_ORDER_KIND, neededByFor, type PurchasingDeps } from "@/server/services/staff/purchasing/orders";
+import { AlreadyOrderedError, approvalExpiry, clearOrphanDrafts, defaultPurchasingDeps, draftForJob, loadJob, MATERIALS_ORDER_KIND, neededByFor, type PurchasingDeps } from "@/server/services/staff/purchasing/orders";
 import { loadPurchasingCompanies, loadPurchasingCompany, mergePurchasingSettings, purchasingActiveFor, readPurchasingSettings, type PurchasingCompany } from "@/server/services/staff/purchasing/settings";
-import { reminderText, runCompanyDrafts, runCompanyReminders } from "@/server/services/staff/purchasing/sweeps";
+import { jobChangeText, reminderText, runCompanyDrafts, runCompanyJobChanges, runCompanyReminders } from "@/server/services/staff/purchasing/sweeps";
+import { claimDraft } from "@/server/services/staff/purchasing/claims";
+import { orderNoteFits } from "@/server/services/staff/purchasing/notes";
 import { getPurchasingView } from "@/server/services/staff/purchasing/view";
 
 const TZ = "America/Toronto";
@@ -119,6 +121,7 @@ function seed(): FakeDb {
       ],
       purchase_orders: [],
       purchase_order_drafts: [],
+      purchasing_daily_counts: [],
       owner_approvals: [],
       owner_command_log: [],
       message_log: [],
@@ -131,6 +134,7 @@ function seed(): FakeDb {
       owner_approvals: [["company_id", "short_code"]],
       purchase_orders: [["company_id", "po_seq"]],
       purchase_order_drafts: [["booking_id"]],
+      purchasing_daily_counts: [["company_id", "local_date"]],
     },
   );
 }
@@ -585,6 +589,154 @@ describe("briefing items", () => {
     db.tables.purchase_orders[0].status = "picked_up";
     expect(await briefingItems(db.client, { organizationId: ORG, companyId: CO }, "2026-10-14")).toEqual([]);
     expect(await briefingItems(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO }, "2026-10-14")).toEqual([]);
+  });
+});
+
+// ── Review fixes: races, crashes, caps, moved jobs ─────────────────────────────────
+
+describe("robustness", () => {
+  it("status words never read as delivery/pickup; 'no X' matches the item's own name, not its unit", () => {
+    for (const w of ["delivered", "dropped off", "picked up", "ship it", "grab it"]) expect(parseOrderNote(w, ROOF_LINES, "pickup").ok).toBe(false);
+    expect(parseOrderNote("have it delivered", ROOF_LINES, "pickup")).toMatchObject({ ok: true, fulfilment: "delivery" });
+    expect(parseOrderNote("pick it up", ROOF_LINES, "delivery")).toMatchObject({ ok: true, fulfilment: "pickup" });
+    expect(parseOrderNote("no box", ROOF_LINES, "pickup").ok).toBe(false);
+    expect(parseOrderNote("no roll", ROOF_LINES, "pickup").ok).toBe(false);
+    const nails = parseOrderNote("no nails", [...ROOF_LINES, L("finishing nails", 2, "box"), L("nailer rental", 1, null)], "pickup") as { lines: PoLine[]; changes: string[] };
+    expect(nails.changes).toEqual(["no nails, finishing nails"]);
+    expect(nails.lines.map((l) => l.label)).toEqual(["shingles", "underlay", "nailer rental"]);
+  });
+
+  it("orderNoteFits: only a note that reads in full against that order's lines", async () => {
+    await runCompanyDrafts(db.client, await crank(), NOW, deps());
+    const a = rows("owner_approvals")[0] as never;
+    expect(await orderNoteFits(db.client, a, "delivery")).toBe(true);
+    expect(await orderNoteFits(db.client, a, "no nails")).toBe(true);
+    expect(await orderNoteFits(db.client, a, "delivered")).toBe(false);
+    expect(await orderNoteFits(db.client, a, "please")).toBe(false);
+    expect(await orderNoteFits(db.client, a, "move Jones to Friday")).toBe(false);
+  });
+
+  it("the sweep and order_materials racing: one order (23505 → already ordered)", async () => {
+    const c = await crank();
+    const job = (await loadJob(db.client, c, "b-jones"))!;
+    await draftForJob(db.client, c, job, { source: "owner", nowMs: NOW, askedInlineTo: OWNER }, deps());
+    // The other one lost the race at the unique index.
+    db.failNext("purchase_orders", "insert", { message: 'duplicate key value violates unique constraint "purchase_orders_one_open_per_booking_idx"', code: "23505" });
+    await expect(draftForJob(db.client, c, job, { source: "auto", nowMs: NOW }, deps())).rejects.toBeInstanceOf(AlreadyOrderedError);
+    expect(rows("purchase_orders")).toHaveLength(1);
+    expect(rows("owner_approvals")).toHaveLength(1);
+    // And the owner tool takes the same claim the sweep takes.
+    db.tables.purchase_orders = [];
+    db.tables.owner_approvals = [];
+    expect(await claimDraft(db.client, c, "b-jones", NOW)).not.toBeNull();
+    expect((await runOwnerTool(ownerState(), "order_materials", { job: "Jones" })).tell_owner).toBe("I'm already putting together the materials for Jones - Roof replacement - give me a minute.");
+    // …until the claim is stale (a dead worker): then it's taken over.
+    const later = await runOwnerTool(ownerState(NOW + 16 * 60_000), "order_materials", { job: "Jones" });
+    expect(later.ok).toBe(true);
+  });
+
+  it("a stuck 'working' claim is re-claimed after 15 min; a sweep failure mid-way leaves no question without its order", async () => {
+    const c = await crank();
+    db.tables.purchase_order_drafts.push({ id: "cl-1", organization_id: ORG, company_id: CO, booking_id: "b-jones", outcome: "working", attempts: 1, updated_at: new Date(NOW - 5 * 60_000).toISOString() });
+    expect((await runCompanyDrafts(db.client, c, NOW, deps())).asked).toBe(0);
+    expect((await runCompanyDrafts(db.client, c, NOW + 11 * 60_000, deps())).asked).toBe(1);
+    expect(rows("purchase_order_drafts")[0]).toMatchObject({ outcome: "asked", attempts: 2 });
+  });
+
+  it("orphans: a draft order with no question is cancelled (and an unlinked question withdrawn); the job can be ordered again", async () => {
+    db.tables.purchase_orders.push({ id: "po-orphan", organization_id: ORG, company_id: CO, booking_id: "b-jones", status: "draft", po_seq: 1, po_number: "PO-1", lines: ROOF_LINES, approval_id: null, created_at: new Date(NOW - 10 * 60_000).toISOString() });
+    db.tables.owner_approvals.push({ id: "a-orphan", organization_id: ORG, company_id: CO, kind: MATERIALS_ORDER_KIND, status: "pending", short_code: 1, payload: { poId: "po-orphan" }, notified_at: new Date(NOW).toISOString(), notified_to: null, created_at: new Date(NOW).toISOString() });
+    // A fresh one (still being asked) is left alone.
+    expect(await clearOrphanDrafts(db.client, CO, NOW - 6 * 60_000)).toBe(0);
+    await runCompanyDrafts(db.client, await crank(), NOW, deps());
+    expect(rows("purchase_orders").find((p) => p.id === "po-orphan")).toMatchObject({ status: "cancelled", cancel_reason: "orphan" });
+    expect(rows("owner_approvals").find((a) => a.id === "a-orphan")!.status).toBe("superseded");
+    expect(rows("purchase_orders").filter((p) => p.status === "draft").map((p) => p.po_number)).toEqual(["PO-2"]);
+  });
+
+  it("the daily cap holds across overlapping workers", async () => {
+    db.tables.bookings.push(booking("b-2", { scheduled_for: "2026-10-16T12:00:00.000Z" }), booking("b-3", { scheduled_for: "2026-10-17T12:00:00.000Z" }));
+    db.tables.companies[0].ai_settings = { purchasing: { max_per_day: 1 } };
+    const c = await crank();
+    await Promise.all([runCompanyDrafts(db.client, c, NOW, deps()), runCompanyDrafts(db.client, c, NOW, deps()), runCompanyDrafts(db.client, c, NOW, deps())]);
+    expect(rows("owner_approvals")).toHaveLength(1);
+    expect(rows("purchasing_daily_counts")).toEqual([expect.objectContaining({ local_date: "2026-10-12", asked: 1 })]);
+  });
+
+  it("a slot is given back when nothing was asked", async () => {
+    db.tables.bookings = [booking("b-gutter", { quote_id: "q-2" }), booking("b-jones")];
+    db.tables.companies[0].ai_settings = { purchasing: { max_per_day: 1 } };
+    await runCompanyDrafts(db.client, await crank(), NOW, deps()); // gutter: no materials → slot back → Jones asked
+    expect(rows("owner_approvals")).toHaveLength(1);
+    expect(rows("purchasing_daily_counts")[0].asked).toBe(1);
+  });
+
+  it("a quote that can't be read: no draft (no guessing)", async () => {
+    db.tables.bookings = [booking("b-jones", { quote_id: "q-missing" })];
+    const model = vi.fn(noModel);
+    expect(await runCompanyDrafts(db.client, await crank(), NOW, deps({ model }))).toEqual({ asked: 0, skipped: 1 });
+    expect(model).not.toHaveBeenCalled();
+  });
+
+  it("AI caps: ≤1,000 per line; a total over $100k loses its prices; both say check it", async () => {
+    db.tables.bookings = [booking("b-gutter", { quote_id: "q-2", title: "Gutter repair" })];
+    const huge: PurchasingModel = async () => '{"materials":[{"label":"gutter hangers","qty":50000,"unit":"pcs","unit_cost":40}]}';
+    await runCompanyDrafts(db.client, await crank(), NOW, deps({ model: huge }));
+    const [po] = rows("purchase_orders");
+    expect((po.lines as PoLine[])[0]).toMatchObject({ qty: 1000, capped: true, estUnitCostCents: 4000 });
+    expect(rows("owner_approvals")[0].summary).toContain("(~$40,000, AI estimate capped - check it)");
+    db = seed();
+    db.tables.bookings = [booking("b-gutter", { quote_id: "q-2", title: "Gutter repair" })];
+    const pricey: PurchasingModel = async () => '{"materials":[{"label":"copper","qty":900,"unit":"ft","unit_cost":5000}]}';
+    await runCompanyDrafts(db.client, await crank(), NOW, deps({ model: pricey }));
+    expect(rows("purchase_orders")[0]).toMatchObject({ est_total_cents: 0 });
+    expect(rows("owner_approvals")[0].summary).toContain("(no prices yet, AI estimate capped - check it)");
+  });
+
+  it("an inactive supplier is never emailed on Y: the owner gets the call-in list", async () => {
+    const { id } = await drafted();
+    db.tables.suppliers[0].active = false;
+    const result = await decide(id, true);
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(result.message).toMatch(/^Call in PO-1 to Home Depot Pro \(Barrie\)/);
+  });
+
+  it("a job with an order out moves: the owner is told, and the reminder follows the new day; cancelled: told once", async () => {
+    const { id } = await drafted();
+    await decide(id, true);
+    expect(rows("purchase_orders")[0]).toMatchObject({ job_label: "Jones - Roof replacement", job_scheduled_for: JOB_AT });
+    const c = await crank();
+    // The reminder went out for Thursday's job…
+    expect(await runCompanyReminders(db.client, c, Date.parse("2026-10-14T19:30:00Z"), deps())).toBe(1);
+    sendSms.mockClear();
+    // …then the job moves to Friday.
+    db.tables.bookings.find((b) => b.id === "b-jones")!.scheduled_for = "2026-10-16T12:00:00.000Z";
+    const t = Date.parse("2026-10-14T20:00:00Z");
+    expect(await runCompanyJobChanges(db.client, c, t, deps())).toBe(1);
+    expect(await runCompanyJobChanges(db.client, c, t + HOUR, deps())).toBe(0);
+    expect(texts().map((x) => x.body)).toEqual(["CrankLeads: Jones - Roof replacement moved to Fri Oct 16 - PO-1 at Home Depot Pro (Barrie) still says pickup Wed Oct 14; call them."]);
+    expect(rows("purchase_orders")[0]).toMatchObject({ reminder_sent_at: null, job_scheduled_for: "2026-10-16T12:00:00.000Z" });
+    expect(await runCompanyReminders(db.client, c, Date.parse("2026-10-15T19:30:00Z"), deps())).toBe(1);
+    // Same day, new time: nothing to say.
+    db.tables.bookings.find((b) => b.id === "b-jones")!.scheduled_for = "2026-10-16T15:00:00.000Z";
+    expect(await runCompanyJobChanges(db.client, c, t + 2 * HOUR, deps())).toBe(0);
+    // Cancelled: once.
+    sendSms.mockClear();
+    db.tables.bookings.find((b) => b.id === "b-jones")!.status = "cancelled";
+    expect(await runCompanyJobChanges(db.client, c, t + 3 * HOUR, deps())).toBe(1);
+    expect(await runCompanyJobChanges(db.client, c, t + 4 * HOUR, deps())).toBe(0);
+    expect(texts()[0].body).toBe('CrankLeads: Jones - Roof replacement was cancelled - PO-1 at Home Depot Pro (Barrie) is still on order. Call them to cancel, then text "cancel PO-1".');
+    // At night nothing is sent.
+    expect(jobChangeText({ job: "Lee", poNumber: "PO-2", supplier: null, fulfilment: "delivery", neededBy: "2026-10-14", movedTo: "Fri Oct 16" })).toBe("Lee moved to Fri Oct 16 - PO-2 still says delivery Wed Oct 14; call them.");
+  });
+
+  it("a deleted booking: the order keeps its job label for status", async () => {
+    const { id } = await drafted();
+    await decide(id, true);
+    db.tables.bookings = db.tables.bookings.filter((b) => b.id !== "b-jones");
+    db.tables.purchase_orders[0].booking_id = null; // on delete set null
+    const status = await runOwnerTool(ownerState(), "materials_status", { po: "PO-1" });
+    expect((status.orders as Array<Record<string, unknown>>)[0]).toMatchObject({ po: "PO-1", job: "Jones - Roof replacement" });
   });
 });
 
