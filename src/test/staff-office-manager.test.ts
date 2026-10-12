@@ -35,7 +35,7 @@ import { officeManagerRole } from "@/server/services/staff/office-manager";
 import { runMorningBriefings } from "@/server/services/staff/office-manager/briefing";
 import { clock, composeBriefing, gsmPlain, MAX_BRIEFING_SEPTETS, sentence, septets, waitingLine, type BriefingInput } from "@/server/services/staff/office-manager/compose";
 import { isNewLead, sinceWindow, type BriefingDeps } from "@/server/services/staff/office-manager/gather";
-import { MAX_STAFF_ITEMS, staffBriefingItems } from "@/server/services/staff/office-manager/staff-items";
+import { MAX_STAFF_ITEMS, pickFairly, staffBriefingItems } from "@/server/services/staff/office-manager/staff-items";
 import { bookingForPo } from "@/server/services/staff/tax-clerk/receipts";
 import {
   briefingDue,
@@ -866,7 +866,14 @@ describe("heads-ups from other AI staff", () => {
       { name: "c", items: () => Promise.resolve(null as unknown as string[]) },
       { name: "d", items: () => Promise.resolve(["third", "fourth", "fifth"]) },
     ]);
-    expect(items).toEqual(["first", "second", "third", "fourth"].slice(0, MAX_STAFF_ITEMS));
+    // Fair: each role's first line, then each role's second line.
+    expect(items).toEqual(["first", "third", "second", "fourth"].slice(0, MAX_STAFF_ITEMS));
+  });
+
+  it("one busy role can't crowd the others out", () => {
+    expect(pickFairly([["care 1"], ["c1", "c2", "c3", "c4"], [], ["fleet 1", "fleet 2", "fleet 3", "fleet 4"]], 4)).toEqual(["care 1", "c1", "fleet 1", "c2"]);
+    expect(pickFairly([[], []], 4)).toEqual([]);
+    expect(pickFairly([["a", "b"]], 4)).toEqual(["a", "b"]);
   });
 
   it("house orgs: the real roles add nothing (all four are off there)", async () => {
