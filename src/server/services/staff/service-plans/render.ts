@@ -11,6 +11,7 @@ import { esc, safeHref, siteTheme } from "@/server/services/dfy/site-render";
 import type { ServiceAgreementRow, ServicePlanRow } from "./db-types";
 import { includedOf, planSchedule } from "./plans";
 import { dayText, longDate, money, priceText, scheduleSentence } from "./schedule";
+import { planConsentText } from "./texts";
 
 export interface PlansPageContext {
   content: SiteContent;
@@ -27,10 +28,7 @@ export interface FormState {
   paysOnline?: boolean;
 }
 
-/** The consent wording shown next to the box (and kept, in short, on the agreement). */
-export function planConsentText(businessName: string): string {
-  return `Yes, ${businessName} may text me about my service plan (visit reminders and renewals) at the number above. Message and data rates may apply. Reply STOP to opt out. Consent is not a condition of purchase.`;
-}
+export { planConsentText } from "./texts";
 
 function page(ctx: PlansPageContext, title: string, body: string, opts: { noindex?: boolean; turnstile?: boolean } = {}): string {
   const f = ctx.content.facts;
@@ -138,9 +136,10 @@ export function renderRequested(ctx: PlansPageContext, plan: Pick<ServicePlanRow
   );
 }
 
-export function renderAlreadyOn(ctx: PlansPageContext, plan: Pick<ServicePlanRow, "name">): string {
+/** Back from Checkout (?paid=1). The plan starts when Stripe tells us; the customer gets a text. */
+export function renderPaid(ctx: PlansPageContext, plan: Pick<ServicePlanRow, "name">): string {
   const name = ctx.content.facts.name;
-  return page(ctx, `${plan.name} - ${name}`, `<h1>You're already on this plan</h1><div class="card"><p>${esc(plan.name)} with ${esc(name)} is already set up for this number. Questions? Text or call us.</p></div>`, { noindex: true });
+  return page(ctx, `Thanks - ${name}`, `<h1>Thanks - you're signed up!</h1><div class="card"><p>Your payment for ${esc(plan.name)} is in. ${esc(name)} will text you your first visit shortly.</p><p><a href="${esc(ctx.siteUrl)}">Back to ${esc(name)}</a></p></div>`, { noindex: true });
 }
 
 export interface RenewalView {
@@ -150,6 +149,10 @@ export interface RenewalView {
   /** For a renewed plan: through when. */
   renewedThrough?: string | null;
   error?: string | null;
+  /** A plan that lapsed recently and can still be paid to come back. */
+  restartable?: boolean;
+  /** A neutral note on top (payment received / processing). */
+  notice?: string | null;
 }
 
 export function renderRenewal(ctx: PlansPageContext, token: string, view: RenewalView): string {
@@ -159,12 +162,16 @@ export function renderRenewal(ctx: PlansPageContext, token: string, view: Renewa
   if (a.status === "renewed") {
     return page(ctx, `Renewed - ${name}`, `<h1>You're renewed${view.firstName ? `, ${esc(view.firstName)}` : ""}!</h1><div class="card"><p>Your ${esc(a.plan_name)} plan with ${esc(name)} is renewed${view.renewedThrough ? ` through ${esc(longDate(view.renewedThrough))}` : ""}. Thanks!</p></div>`, { noindex: true });
   }
-  if (a.status !== "active" && a.status !== "renewal_due") {
+  if (view.notice) {
+    return page(ctx, `${a.plan_name} - ${name}`, `<h1>${esc(a.plan_name)}</h1><div class="card"><p>${esc(view.notice)}</p></div>`, { noindex: true });
+  }
+  if (a.status !== "active" && a.status !== "renewal_due" && !view.restartable) {
     return page(ctx, `${a.plan_name} - ${name}`, `<h1>This plan has ended</h1><div class="card"><p>Your ${esc(a.plan_name)} plan isn't active any more. Text or call ${esc(name)} and we'll set you up again.</p></div>`, { noindex: true });
   }
   const ends = a.term_end ? ` Your current year ends ${esc(longDate(a.term_end))}.` : "";
   const keep = view.nextVisit ? ` Renewing keeps your next visit on ${esc(dayText(view.nextVisit))}.` : "";
   const button = a.billing === "annual" ? `Pay ${money(price)} + HST and renew` : "Keep my plan for another year";
+  const lapsedNote = view.restartable ? " Your plan lapsed, but you can still restart it here." : "";
   const terms = a.billing === "annual" ? `${money(price)} + HST for the next 12 months, paid now.` : `Still ${money(price)} + HST a visit, invoiced after each visit.`;
   return page(
     ctx,
@@ -172,7 +179,7 @@ export function renderRenewal(ctx: PlansPageContext, token: string, view: Renewa
     `<h1>Renew your ${esc(a.plan_name)} plan</h1>
 <div class="card">
 ${view.error ? `<div class="err" role="alert">${esc(view.error)}</div>` : ""}
-<p>${view.firstName ? `Hi ${esc(view.firstName)}. ` : ""}${esc(terms)}${ends}${keep}</p>
+<p>${view.firstName ? `Hi ${esc(view.firstName)}. ` : ""}${esc(terms)}${ends}${keep}${esc(lapsedNote)}</p>
 <form method="post" action="${esc(`${ctx.siteUrl}/plans/renew/${token}`)}"><button type="submit">${esc(button)}</button></form>
 <p class="small">Not renewing? You don't need to do anything - your plan just ends.</p>
 </div>`,

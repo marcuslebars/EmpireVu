@@ -10,8 +10,9 @@ import { createSupabaseAdminClient } from "@/server/supabase/admin";
 /**
  * One service plan + its sign-up form (docs/ai-staff.md → "Service plans"). GET renders it; POST is
  * the plain HTML form submit: an annual plan of a business that takes cards online answers 303 to
- * Stripe Checkout (the first year's invoice, on the business's own Stripe account); otherwise the
- * owner is asked (plan_signup) and the page says so.
+ * Stripe Checkout (the first year's DRAFT invoice, on the business's own Stripe account; issued
+ * when paid); otherwise the owner is asked (plan_signup) and the page says so. Answers are neutral:
+ * the page never tells whether a number is already on a plan.
  * Abuse layers on POST: a streamed 16 KB body cap, per-IP and per-plan rate limits, a per-phone
  * daily cap, honeypot + minimum fill time (the render time is required), Turnstile when configured.
  * The company and plan come from the slug row and the plan id only; the body never picks a tenant.
@@ -25,9 +26,10 @@ interface RouteContext {
 const MAX_BODY = 16 * 1024;
 const GENERIC = "Your sign-up couldn't be sent. Please try again in a few minutes.";
 
-export async function GET(_request: Request, context: RouteContext): Promise<NextResponse> {
+export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    return respond(await planPage(createSupabaseAdminClient(), context.params.slug, context.params.planId), "no-store");
+    const paid = new URL(request.url).searchParams.get("paid") === "1";
+    return respond(await planPage(createSupabaseAdminClient(), context.params.slug, context.params.planId, undefined, { paid }), "no-store");
   } catch (err) {
     console.error("[plans] public plan page failed:", err instanceof Error ? err.message : err);
     return unavailable();

@@ -93,6 +93,8 @@ create table if not exists public.service_agreements (
   customer_email text check (customer_email is null or char_length(customer_email) <= 254),
   service_address text check (service_address is null or char_length(service_address) <= 300),
   sms_consent_at timestamptz,
+  -- The consent wording the customer ticked ("<version>: <text>"), kept with the timestamp.
+  sms_consent_text text check (sms_consent_text is null or char_length(sms_consent_text) <= 600),
   -- The executor's claim (owner Y), so a retried decision never starts the plan twice.
   decision_claimed_at timestamptz,
   activated_at timestamptz,
@@ -106,6 +108,7 @@ create table if not exists public.service_agreements (
   foreign key (company_id, organization_id) references public.companies (id, organization_id) on delete cascade
 );
 alter table public.service_agreements add column if not exists renewal_price_cents integer;
+alter table public.service_agreements add column if not exists sms_consent_text text;
 create index if not exists service_agreements_company_idx on public.service_agreements (company_id, status, term_end);
 create index if not exists service_agreements_status_idx on public.service_agreements (status, term_end);
 create index if not exists service_agreements_series_idx on public.service_agreements (recurring_job_id) where recurring_job_id is not null;
@@ -180,7 +183,7 @@ grant select (
   visit_months, term_start, term_end, visit_dates, recurring_job_id, invoice_ids, pending_invoice_id,
   previous_agreement_id, renewed_by_agreement_id, approval_id, renewal_approval_id, renewal_asked_at,
   renewal_declined_at, renewal_texted_at, renewal_price_cents, customer_name, customer_phone, customer_email, service_address,
-  sms_consent_at, decision_claimed_at, activated_at, lapsed_at, cancelled_at, cancel_reason,
+  sms_consent_at, sms_consent_text, decision_claimed_at, activated_at, lapsed_at, cancelled_at, cancel_reason,
   owner_notified_at, created_at, updated_at
 ) on public.service_agreements to authenticated;
 

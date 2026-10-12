@@ -64,6 +64,7 @@ export interface ServiceAgreementRow {
   customer_email: string | null;
   service_address: string | null;
   sms_consent_at: string | null;
+  sms_consent_text: string | null;
   decision_claimed_at: string | null;
   activated_at: string | null;
   lapsed_at: string | null;

@@ -340,6 +340,14 @@ describe("per-invoice pause", () => {
     expect(mails[0].html).toContain("/open?e=reminder-1");
   });
 
+  it("a service plan's sign-up / renewal invoice waiting on the customer never turns overdue", async () => {
+    await reminders.setInvoiceRemindersPaused(ctx(), "inv-1", true);
+    db.tables.service_agreements = [{ id: "agr-1", organization_id: ORG, pending_invoice_id: "inv-1", status: "renewal_due" }];
+    const r = await reminders.sweepInvoiceReminders(new Date("2026-10-03T15:00:00Z"));
+    expect(r.flaggedOverdue).toEqual([]);
+    expect(triggers).toEqual([]);
+  });
+
   it("uses the brand's custom wording in the scheduled reminder", async () => {
     db.tables.companies[0].invoice_settings = { reminderSubject: "{company_name}: {invoice_number} overdue", reminderMessage: "Hello {first_name}, {days_overdue} days now." };
     await reminders.sweepInvoiceReminders(new Date("2026-10-03T15:00:00Z"));

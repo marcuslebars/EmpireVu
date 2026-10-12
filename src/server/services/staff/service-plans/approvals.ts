@@ -108,7 +108,7 @@ export async function executePlanSignup(admin: AdminClient, approval: OwnerAppro
         return { ok: false, message: `Couldn't create ${who}'s first-year invoice, so the plan wasn't started. Try again from the app.` };
       }
     }
-    const started = await startAgreement(admin, company, agreement, { nowMs, from: ["pending_owner"], invoice }, deps);
+    const started = await startAgreement(admin, company, agreement, { nowMs, from: ["pending_owner"], invoice, ownerApproved: true }, deps);
     if (!started.ok) return { ok: false, message: `${who}'s sign-up was already handled.` };
     const first = started.firstVisit ? `, first ${dayText(started.firstVisit)}` : "";
     const paid = invoice ? ` with their invoice (${money(invoice.totalCents)})` : "";

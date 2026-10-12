@@ -41,7 +41,7 @@ export type AutoInvoiceOutcome =
 
 export async function autoInvoiceCompletedBooking(
   ctx: TenantServiceContext,
-  booking: Pick<Tables<"bookings">, "id" | "company_id" | "contact_id" | "title"> & { recurring_job_id?: string | null },
+  booking: Pick<Tables<"bookings">, "id" | "company_id" | "contact_id" | "title"> & { recurring_job_id?: string | null; occurrence_date?: string | null; scheduled_for?: string | null },
 ): Promise<AutoInvoiceOutcome> {
   try {
     if (!booking.company_id) return { action: "skipped", reason: "booking has no company" };
@@ -49,8 +49,8 @@ export async function autoInvoiceCompletedBooking(
     const company = await loadCompanyForInvoice(ctx.supabase, ctx.organizationId, booking.company_id);
     const mode = parseInvoiceSettings(company?.invoice_settings ?? null).autoInvoiceOnComplete;
     if (mode === "off") return { action: "skipped", reason: "auto-invoicing is off" };
-    // A visit of an annual service plan was paid for up front (docs/ai-staff.md → "Service plans").
-    if (await isPrepaidPlanVisit(ctx.organizationId, booking.recurring_job_id)) {
+    // A visit inside a paid annual service-plan term was paid for up front (docs/ai-staff.md → "Service plans").
+    if (await isPrepaidPlanVisit(ctx.organizationId, booking.recurring_job_id, booking.occurrence_date ?? booking.scheduled_for)) {
       return { action: "skipped", reason: "covered by a prepaid service plan" };
     }
 
