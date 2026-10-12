@@ -144,6 +144,11 @@ export function replyInstruction(kind: ApprovalKind, code: number | null, payloa
     // The Tax Clerk (docs/ai-staff.md → "Receipts & HST").
     case "accountant_packet":
       return `Reply Y${c} to email it, N${c} to skip.`;
+    // Service plans (docs/ai-staff.md → "Service plans").
+    case "plan_signup":
+      return `Reply Y${c} to start it, N${c} to skip.`;
+    case "plan_renewals":
+      return `Reply Y${c} to text them, N${c} to skip.`;
     default:
       return `Reply Y${c} to approve, N${c} to skip.`;
   }

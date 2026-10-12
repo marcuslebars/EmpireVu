@@ -64,7 +64,8 @@ describe("staff modules load from any entry point", () => {
     );
     expect(baseline.ownerTools).toEqual(expect.arrayContaining(["pending_estimates", "who_owes_me", "weather_outlook", "start_win_back"]));
     for (const list of Object.values(baseline)) expect(list).not.toContain("undefined");
-  });
+    // The first cold load of the whole module graph takes ~4.5 s alone, more under the full suite.
+  }, 30_000);
 
   for (const entry of ENTRIES) {
     it(`loading ${entry} first gives the same registry`, async () => {
