@@ -203,3 +203,22 @@ export function firstNameOf(name: string | null | undefined): string | null {
   const first = (name ?? "").trim().split(/[\s,]+/)[0] ?? "";
   return /^[A-Za-zÀ-ÿ'-]{2,30}$/.test(first) ? first[0].toUpperCase() + first.slice(1) : null;
 }
+
+const GREETING = /^(hi|hello|hey|good (morning|afternoon|evening)|dear|greetings)\b[\w\s,.'!-]{0,30}[,!.]?$/i;
+const SIGN_OFF = /^(thanks|thank you|cheers|regards|best|sincerely|sent from my)\b/i;
+
+/**
+ * Their ask in one line, for a customer email placed by the rules (no model summary): the first
+ * question in the new text, else its first real line — greetings and sign-offs skipped. PURE.
+ */
+export function firstAsk(text: string | null | undefined, max = 110): string | null {
+  const body = newText(text);
+  const lines = body
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter((l) => l && !GREETING.test(l) && !SIGN_OFF.test(l));
+  const sentences = lines.flatMap((l) => l.match(/[^.!?]+[.!?]*/g) ?? [l]).map((s) => s.replace(/^(hi|hello|hey)[\s,!]+(\w+[,!]\s*)?/i, "").trim()).filter((s) => s.split(/\s+/).length >= 3);
+  const pick = sentences.find((s) => s.includes("?")) ?? sentences[0] ?? lines[0];
+  const out = clean(pick, max);
+  return out ? out[0].toUpperCase() + out.slice(1) : null;
+}

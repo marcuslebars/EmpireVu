@@ -34,8 +34,12 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Inbound email not configured." }, { status: 503 });
   }
 
-  const rawBody = await request.text();
-  if (rawBody.length > MAX_BODY_BYTES) return NextResponse.json({ error: "Too large." }, { status: 413 });
+  // Size in BYTES: the declared length first (nothing read), then what actually arrived.
+  const declared = Number(request.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return NextResponse.json({ error: "Too large." }, { status: 413 });
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength > MAX_BODY_BYTES) return NextResponse.json({ error: "Too large." }, { status: 413 });
+  const rawBody = new TextDecoder().decode(bytes);
 
   const verified = emailClerkDeps().provider.verify({ rawBody, headers: request.headers });
   if (!("event" in verified)) {

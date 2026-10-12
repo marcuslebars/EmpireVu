@@ -42,13 +42,20 @@ export function lineFor(company: EmailClerkCompany, row: InboundEmailRow, nowMs:
   return alertLine(row, { today: localDateOf(nowMs, company.timeZone), inboxLink: row.category === "customer" ? inboxLink(company) : null, task: Boolean(row.task_id) });
 }
 
-/** Text the owner about one email now (or hold it). Records the outcome on the row. */
+/**
+ * Text the owner about one email now (or hold it). Claimed none → sending first, so two workers on
+ * the same row never both text; the outcome is recorded on the row. Already alerted → its status.
+ */
 export async function alertForEmail(admin: AdminClient, company: EmailClerkCompany, row: InboundEmailRow, nowMs: number): Promise<OwnerAlertStatus> {
+  const db = admin as Db;
+  const { data: claimed } = await db.from("inbound_emails").update({ owner_alert_status: "sending" }).eq("id", row.id).eq("owner_alert_status", "none").select("id");
+  if (((claimed ?? []) as unknown[]).length === 0) return row.owner_alert_status === "none" ? "sending" : row.owner_alert_status;
   const status = await textOwner(admin, company, lineFor(company, row, nowMs), nowMs);
-  await (admin as Db)
+  await db
     .from("inbound_emails")
     .update({ owner_alert_status: status, owner_alerted_at: status === "sent" ? new Date(nowMs).toISOString() : null })
-    .eq("id", row.id);
+    .eq("id", row.id)
+    .eq("owner_alert_status", "sending");
   return status;
 }
 

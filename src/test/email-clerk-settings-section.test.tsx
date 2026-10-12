@@ -57,6 +57,15 @@ describe("EmailClerkSettingsSection", () => {
     expect(screen.queryByText("Gmail")).toBeNull();
   });
 
+  it("no inbox yet: owners get a button that makes it (POST create_inbox)", async () => {
+    apiFetch.mockImplementation((_p: string, init?: { method?: string }) => Promise.resolve(init?.method === "POST" ? view : { ...view, inbox: null, recent: null, counts: null }));
+    wrap(<EmailClerkSettingsSection orgId="org-1" companyId="co-1" companyName="Northshore Roofing" canManage />);
+    await waitFor(() => expect(screen.getByText("Get my inbox address")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Get my inbox address"));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(PATH, { method: "POST", body: JSON.stringify({ action: "create_inbox" }) }));
+    await waitFor(() => expect(screen.getByTestId("email-inbox-address")).toHaveTextContent(ADDRESS));
+  });
+
   it("not set up on this server", async () => {
     apiFetch.mockImplementation(() => Promise.resolve({ ...view, configured: false, inbox: null, recent: null, counts: null }));
     wrap(<EmailClerkSettingsSection orgId="org-1" companyId="co-1" companyName="Northshore Roofing" canManage />);

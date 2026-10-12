@@ -1,6 +1,7 @@
 /**
  * Settings → AI front desk → Email inbox (docs/ai-staff.md → "Email inbox"): the switches for
- * everyone; for owners/admins the inbox address (made on first view when the feature is on), the
+ * everyone; for owners/admins the inbox address (made only on an explicit "create" — POST action
+ * `create_inbox` — or the owner's `email_setup`, never by a GET), the
  * forwarding status, and the recent emails by kind with any draft waiting on their Y. Writes go
  * through updateAiSettings (only ai_settings.email_clerk).
  */
@@ -61,7 +62,7 @@ export async function getEmailClerkView(admin: AdminClient, scope: Scope, opts: 
   };
   if (!opts.manager || !configured) return base;
   const nowMs = opts.nowMs ?? Date.now();
-  const inbox = emailClerkOn(company) ? await ensureInbox(admin, company, nowMs) : await loadInbox(admin, company);
+  const inbox = await loadInbox(admin, company);
   if (!inbox) return base;
   const db = admin as Db;
   const { data, error } = await db
@@ -106,6 +107,16 @@ export async function getEmailClerkView(admin: AdminClient, scope: Scope, opts: 
       attachments: files.get(r.id) ?? 0,
     })),
   };
+}
+
+/** Owner/admin: make the inbox address (feature on, server set up). Null → company not found. */
+export async function createEmailInbox(admin: AdminClient, scope: Scope, nowMs: number = Date.now()): Promise<EmailClerkView | { error: string } | null> {
+  const company = await loadEmailClerkCompany(admin, scope.organizationId, scope.companyId);
+  if (!company) return null;
+  if (!inboundConfigured()) return { error: "Email inbox isn't set up on this server yet." };
+  if (!emailClerkOn(company)) return { error: "Turn the email inbox on first." };
+  await ensureInbox(admin, company, nowMs);
+  return getEmailClerkView(admin, scope, { manager: true, nowMs });
 }
 
 /** Owner/admin: merge ONLY ai_settings.email_clerk. */

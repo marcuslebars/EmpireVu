@@ -94,7 +94,7 @@ export async function fetchContent(admin: AdminClient, row: Pick<InboundEmailRow
     return false;
   }
   if (!fetched) {
-    await (admin as Db).from("inbound_emails").update({ status: "ignored", last_error: "gone at the provider" }).eq("id", row.id).eq("status", "new");
+    await (admin as Db).from("inbound_emails").update({ status: "ignored", locked_until: null, last_error: "gone at the provider" }).eq("id", row.id).in("status", ["new", "processing"]);
     return false;
   }
   // From the sweep the row stays `processing` (its lease); from the webhook it becomes `received`.
@@ -110,7 +110,8 @@ export async function fetchContent(admin: AdminClient, row: Pick<InboundEmailRow
  */
 export async function receiveInboundEmail(admin: AdminClient, data: InboundWebhookData, nowMs: number = Date.now()): Promise<IntakeResult> {
   if (!inboundConfigured()) return { status: "ignored", reason: "not_configured" };
-  const inbox = await findInboxFor(admin, [...data.to, ...data.cc, ...data.bcc, ...data.receivedFor]);
+  // The envelope recipient (received_for) is where it was delivered; the headers only when it's missing.
+  const inbox = await findInboxFor(admin, data.receivedFor.length ? data.receivedFor : [...data.to, ...data.cc, ...data.bcc]);
   if (!inbox) return { status: "ignored", reason: "unknown_address" };
   const company = await loadEmailClerkCompany(admin, inbox.organization_id, inbox.company_id);
   if (!emailClerkOn(company)) return { status: "ignored", reason: "off" };

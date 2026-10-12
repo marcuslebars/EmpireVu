@@ -62,7 +62,8 @@ create table if not exists public.inbound_emails (
   auth jsonb,
   attachments_meta jsonb not null default '[]'::jsonb,
   received_at timestamptz not null default now(),
-  status text not null default 'new' check (status in ('new', 'received', 'processing', 'done', 'failed', 'ignored')),
+  -- new → received → processing → done | failed (retried after 10 min) | dead (3 tries used) | ignored
+  status text not null default 'new',
   attempts integer not null default 0,
   locked_until timestamptz,
   last_error text,
@@ -87,7 +88,7 @@ create table if not exists public.inbound_emails (
     'none', 'no_draft', 'awaiting_owner', 'sending', 'sent', 'skipped', 'expired', 'superseded', 'blocked', 'failed'
   )),
   replied_at timestamptz,
-  owner_alert_status text not null default 'none' check (owner_alert_status in ('none', 'held', 'sent', 'dropped', 'approval', 'digest')),
+  owner_alert_status text not null default 'none',
   owner_alerted_at timestamptz,
   digest_date date,
   processed_at timestamptz,
@@ -95,10 +96,20 @@ create table if not exists public.inbound_emails (
   updated_at timestamptz not null default now(),
   foreign key (company_id, organization_id) references public.companies (id, organization_id) on delete cascade
 );
+-- The checks are (re)created by name, so a re-run picks up new values.
+alter table public.inbound_emails drop constraint if exists inbound_emails_status_check;
+alter table public.inbound_emails add constraint inbound_emails_status_check
+  check (status in ('new', 'received', 'processing', 'done', 'failed', 'ignored', 'dead'));
+alter table public.inbound_emails drop constraint if exists inbound_emails_owner_alert_status_check;
+alter table public.inbound_emails add constraint inbound_emails_owner_alert_status_check
+  check (owner_alert_status in ('none', 'sending', 'held', 'sent', 'dropped', 'approval', 'digest'));
+
 create unique index if not exists inbound_emails_message_idx on public.inbound_emails (inbox_id, message_id);
 create unique index if not exists inbound_emails_provider_idx on public.inbound_emails (provider, provider_email_id);
 create unique index if not exists inbound_emails_approval_idx on public.inbound_emails (approval_id) where approval_id is not null;
-create index if not exists inbound_emails_queue_idx on public.inbound_emails (created_at) where status in ('new', 'received', 'processing', 'failed');
+-- The sweep's queue: only rows that can still be claimed (dead / done / ignored never are).
+drop index if exists public.inbound_emails_queue_idx;
+create index if not exists inbound_emails_claim_idx on public.inbound_emails (status, created_at) where status in ('new', 'received', 'processing', 'failed');
 create index if not exists inbound_emails_company_idx on public.inbound_emails (organization_id, company_id, received_at desc);
 create index if not exists inbound_emails_held_idx on public.inbound_emails (company_id) where owner_alert_status = 'held';
 create index if not exists inbound_emails_contact_idx on public.inbound_emails (contact_id) where contact_id is not null;

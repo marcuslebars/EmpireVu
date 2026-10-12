@@ -21,13 +21,13 @@ export type EmailCategory =
   | "bill"
   | "other";
 
-/** new = metadata only (content not fetched yet) → received → processing → done | failed | ignored. */
-export type InboundStatus = "new" | "received" | "processing" | "done" | "failed" | "ignored";
+/** new = metadata only (content not fetched yet) → received → processing → done | failed (retried) | dead (gave up) | ignored. */
+export type InboundStatus = "new" | "received" | "processing" | "done" | "failed" | "ignored" | "dead";
 
 export type ReplyStatus = "none" | "no_draft" | "awaiting_owner" | "sending" | "sent" | "skipped" | "expired" | "superseded" | "blocked" | "failed";
 
 /** The owner's per-email text (customer / bid invite / supplier about an open PO). */
-export type OwnerAlertStatus = "none" | "held" | "sent" | "dropped" | "approval" | "digest";
+export type OwnerAlertStatus = "none" | "sending" | "held" | "sent" | "dropped" | "approval" | "digest";
 
 export interface EmailInboxRow {
   id: string;
@@ -52,6 +52,8 @@ export interface EmailDetail {
   po_number?: string | null;
   /** Forwarding confirmation: which provider ("gmail" | "outlook"). The code itself is never stored. */
   provider?: string | null;
+  /** Forwarding confirmation: the mailbox that asked (Gmail names it). */
+  forwarded_from?: string | null;
   reason?: string | null;
 }
 

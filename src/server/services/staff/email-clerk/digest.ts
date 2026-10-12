@@ -66,6 +66,12 @@ async function claimDigest(admin: AdminClient, company: EmailClerkCompany, local
   return ((hit ?? []) as EmailDigestRow[])[0] ?? null;
 }
 
+async function markCovered(admin: AdminClient, ids: string[], today: string): Promise<void> {
+  for (let i = 0; i < ids.length; i += 100) {
+    await (admin as Db).from("inbound_emails").update({ digest_date: today }).in("id", ids.slice(i, i + 100)).is("digest_date", null);
+  }
+}
+
 /** One company's digest, if it's due. Returns the text sent (or null). */
 export async function runCompanyDigest(admin: AdminClient, company: EmailClerkCompany, nowMs: number): Promise<string | null> {
   if (!company.ownerPhone || !digestDue(company, nowMs)) return null;
@@ -89,9 +95,13 @@ export async function runCompanyDigest(admin: AdminClient, company: EmailClerkCo
     .limit(200);
   if (error) throw error;
   // Already texted on its own (a supplier about our PO) → not repeated.
-  const rows = ((data ?? []) as InboundEmailRow[]).filter((r) => r.owner_alert_status !== "sent" && r.owner_alert_status !== "held");
+  const rows = ((data ?? []) as InboundEmailRow[]).filter((r) => !["sent", "held", "sending"].includes(r.owner_alert_status));
   const body = digestText({ today, rows });
-  if (!body) return null;
+  if (!body) {
+    // Junk only: nothing to text, but today covered them (tomorrow's digest doesn't count them again).
+    await markCovered(admin, rows.map((r) => r.id), today);
+    return null;
+  }
 
   const claim = await claimDigest(admin, company, today, nowMs);
   if (!claim) return null;
@@ -106,9 +116,7 @@ export async function runCompanyDigest(admin: AdminClient, company: EmailClerkCo
   }
   const ids = rows.map((r) => r.id);
   await db.from("email_clerk_digests").update({ status: "sent", body, email_ids: ids, updated_at: nowIso }).eq("id", claim.id);
-  for (let i = 0; i < ids.length; i += 100) {
-    await db.from("inbound_emails").update({ digest_date: today }).in("id", ids.slice(i, i + 100)).is("digest_date", null);
-  }
+  await markCovered(admin, ids, today);
   return body;
 }
 

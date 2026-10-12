@@ -1580,7 +1580,7 @@ Answers the business's email the way the front desk answers its texts, without r
 
 ### What the owner sees
 
-- **Setting it up.** Settings shows the business inbox (`northshore-roofing-k3j9x2ab@in.crankleads.com`) with a copy button and the Gmail and Outlook steps. By text, "set up email" (`email_setup`) sends the address and the steps. Gmail then emails its confirmation to the inbox, and the owner gets, at any hour (they're setting it up right then): `Gmail wants to confirm forwarding to your business inbox. Code: 123456789. In Gmail: Settings > See all settings > Forwarding and POP/IMAP, enter the code, Verify, then choose "Forward a copy of incoming mail to" northshore-roofing-k3j9x2ab@in.crankleads.com and Save.` A Microsoft forwarding code gets the same treatment. **No link in any email is ever opened.** The first real email that arrives marks forwarding as working.
+- **Setting it up.** In Settings the owner taps **Get my inbox address** (a page view never makes one), or texts "set up email" (`email_setup`). They get the business inbox (`northshore-roofing-k3j9x2ab@in.crankleads.com`) with a copy button and the Gmail and Outlook steps. Gmail then emails its confirmation to the inbox, and the owner gets, at any hour (they're setting it up right then): `Gmail (dana@gmail.com) wants to confirm forwarding to your business inbox. Code: 123456789. In Gmail: Settings > See all settings > Forwarding and POP/IMAP, enter the code, Verify, then choose "Forward a copy of incoming mail to" northshore-roofing-k3j9x2ab@in.crankleads.com and Save. Didn't ask for this? Ignore it.` The mailbox that asked is recorded as the forwarding mailbox. The code is redacted from the stored email (`[code]`) and kept nowhere. A Microsoft forwarding code gets the same treatment. **No link in any email is ever opened.** Forwarding counts as working once real mail (not spam, bounces, auto-replies or no-reply) arrives *through* that mailbox: addressed to it, or naming it in X-Forwarded-For / X-Forwarded-To / X-Original-To / Delivered-To. Without a recorded mailbox, any real mail that wasn't addressed to the inbox directly counts, and the mailbox is read from those headers.
 - **A customer emails** ("Can you quote a full roof on 12 Bay St?"). The email shows in the app inbox like a text, and the owner gets (08:00–21:00, otherwise in the morning):
 
   > #12 Email from Dana Jones: "Can you quote a full roof on 12 Bay St?" Draft: "Hi Dana, Thanks for reaching out to Northshore Roofing. Dana will get back to you with a price for the full roof - could you send a few photos? Thanks, Northshore Roofing" Full draft: https://app.crankleads.com/settings?section=front-desk&email=… Reply Y 12 to send it, N 12 to skip.
@@ -1597,20 +1597,24 @@ Answers the business's email the way the front desk answers its texts, without r
 
 1. **Webhook** (`intake.ts`). Steps in order:
    - The Svix signature is checked over the raw body (`signing.ts`: HMAC-SHA256 of `id.timestamp.body` with the base64-decoded `whsec_` secret, any `v1,` entry, constant-time, ±5 minutes). A bad signature gets a 400 and nothing is stored.
-   - The inbox is found from the recipients: To, Cc, Bcc, and Resend's `received_for`, which carries our address when Gmail forwards an email still addressed to the owner. An address that isn't one of ours, or a company with the feature off, gets a 200 and is ignored. **The tenant comes only from that address**, looked up server-side.
+   - The inbox is found from the envelope recipient (Resend's `received_for`, which carries our address when Gmail forwards an email still addressed to the owner). Only when that's empty are To / Cc / Bcc used. An address that isn't one of ours, or a company with the feature off, gets a 200 and is ignored. **The tenant comes only from that address**, looked up server-side.
    - One row is stored per Message-ID per inbox (and per Resend id), so a retry is a no-op.
    - The content is fetched (`GET /emails/receiving/{id}`, 8 s), and the webhook answers 200.
    - A failed fetch still stores the row (`new`), and the sweep fetches it later. Only a failed DB write answers 500, so Resend retries.
-2. **Sweep `email_clerk:process`** (every minute, `process.ts`). Each email is claimed with a conditional update (status → `processing`, a 5-minute lease, attempts + 1). A failure is retried after 10 minutes, up to 3 tries.
+   - A body over 256 KB is refused (413): first by its declared `content-length`, before anything is read, then by the bytes actually received.
+2. **Sweep `email_clerk:process`** (every minute, `process.ts`). Each email is claimed with a conditional update (status → `processing`, a 5-minute lease taken from the clock at the claim, attempts + 1). A failure is retried after 10 minutes. After 3 tries the row is `dead`, and so is a row whose last lease ran out with a worker gone. The queue is read in SQL: `new`/`received`/`failed` rows with tries left (failed ones 10 minutes after the last try), and `processing` rows whose lease ran out. A pile of dead rows can never crowd out new mail. An email gone at the provider is `ignored`. The bid task and the per-email alert are claimed with conditional updates (`task_id is null`; alert `none → sending`), so two workers can't both make them.
 3. **Classification** (`classify.ts`, deterministic first):
-   - Forwarding confirmations count only from `forwarding-noreply@google.com` or Microsoft's own domains, and never when DKIM/DMARC failed (a fake is spam).
+   - **Sender check:** Resend's `authentication` must say DKIM or DMARC **passed** and DMARC didn't fail. An unverified sender (failed, or neither passed, or no result) is never treated as the person in the From. Mail that would be a customer's, or person-to-person "other", goes to the digest as `unverified sender: …`: no contact match, no consent, no conversation entry, no draft, and no superseding of their waiting draft.
+   - Forwarding confirmations count only from the **exact** system senders (`forwarding-noreply@google.com`, `account-security-noreply@accountprotection.microsoft.com`), only when signed, and never for a known contact. An unsigned one is spam. A customer on Hotmail writing "confirm… forward… gate code 4521" is a customer.
+   - Mail from the recorded forwarding mailbox, or from its company domain when that isn't a free-mail domain (the owner's staff), is internal (`other`, "from you or your staff"): no contact, no draft.
    - Then, in order: bounces, auto-replies (`Auto-Submitted`, `Out of Office`…), spam flags, our own mail looping back, mail from the owner's own address, and suppliers. A supplier matches by its address, by its company domain (never a freemail domain) or by one of our `PO-n` numbers.
-   - Next, a known contact is a customer, and list or bulk mail is a newsletter.
+   - Next, a known contact (verified sender) is a customer, and list or bulk mail is a newsletter. A rule-placed customer's one-line ask is the first question (or first real line) of their new text, never the subject.
    - Anything else goes to the model (`ai.ts classifyEmail`, JSON: category, a summary of 15 words or fewer, vendor/GC, amount, due date, project). A no-reply sender can never be a customer.
    - Without a model, keywords decide (bid / bill / marketing / work words).
 4. **Customer** (`customer.ts`):
    - The contact is matched by email within the company (case-insensitive), or created with `consent_source 'inbound_email'` and implied inquiry consent from now.
    - An existing contact's `sms_consent_at` is stamped, the way a customer's own text is (`recordInquiryConsent`'s rules: never over an email opt-out or express consent).
+   - An email that asks to stop ("unsubscribe", "stop emailing me", "remove me", "don't email me") never stamps consent. It sets the contact's `email_opt_out_at` (a new person is created with the opt-out and no consent), and nothing is drafted.
    - One inbound `message_log` row is written (channel `email`, from, to the inbox, subject, the new text without the quoted history). The app inbox and the conversation thread show it with no UI change.
    - The next upcoming booking is linked.
    - Then the draft and the approval. A newer email from the same customer supersedes the older reply still waiting.
@@ -1624,7 +1628,7 @@ Answers the business's email the way the front desk answers its texts, without r
 
 | Kind | Created by | Owner text | Y | N / expiry |
 | --- | --- | --- | --- | --- |
-| `email_reply` (48 h, always in v1) | the process sweep, for a customer email with a draft. Inserted already marked notified (to nobody), linked to the email, then opened and texted through `notifyOwnerOfApproval` (quiet hours + `ownerAlertGate`) | `Email from Dana Jones: "<their ask>" Draft: "<first ~220 chars>" Full draft: <app link>` + `Reply Y 12 to send it, N 12 to skip.` (`approval-text.ts`) | Claims `awaiting_owner → sending` on the approval id, then `deliverMessage` (channel email). It goes **to the sender's own address** (never a Reply-To the email asked for), with `fromName` the business, `replyTo` the inbox, `In-Reply-To` / `References` from the Message-ID chain, subject `Re: …`, `sent_by 'email_clerk'`, and consent checked (an email opt-out → `Didn't send - Dana Jones unsubscribed from your emails.`). A failed send isn't retried. | Nothing sent. N: `OK - nothing sent. Dana Jones's email is in your app inbox if you want to answer it yourself.` Expiry: `No answer on #12, so the reply to Dana Jones wasn't sent. Their email is in your app inbox.` |
+| `email_reply` (48 h, always in v1) | the process sweep, for a customer email with a draft. Inserted already marked notified (to nobody), linked to the email, then opened and texted through `notifyOwnerOfApproval` (quiet hours + `ownerAlertGate`) | `Email from Dana Jones: "<their ask>" Draft: "<first ~220 chars>" Full draft: <app link>` + `Reply Y 12 to send it, N 12 to skip.` (`approval-text.ts`) | Claims `awaiting_owner → sending` on the approval id, then `deliverMessage` (channel email). It goes **to the sender's own address** (never a Reply-To the email asked for), with `fromName` the business, `replyTo` the inbox, `In-Reply-To` / `References` from the Message-ID chain, subject `Re: …`, `sent_by 'email_clerk'`, and consent checked (an email opt-out → `Didn't send - Dana Jones unsubscribed from your emails.`). A failed send isn't retried; if the send itself throws, the row is marked `failed` (never left in `sending`) and the owner is told to answer from the inbox. | Nothing sent. N: `OK - nothing sent. Dana Jones's email is in your app inbox if you want to answer it yourself.` Expiry: `No answer on #12, so the reply to Dana Jones wasn't sent. Their email is in your app inbox.` |
 
 A price note ("Y 12 $700") sends nothing: the draft only goes out exactly as written, and the owner answers from the inbox to change it.
 
@@ -1653,7 +1657,8 @@ email_clerk = {
 Read only by `settings.ts readEmailClerkSettings`. `emailClerkActiveFor` = enabled, the company active, **and** the server set up (`INBOUND_EMAIL_DOMAIN` + `RESEND_WEBHOOK_SECRET`).
 
 Route: `GET | PATCH /api/organizations/:org/companies/:company/ai-settings/email-clerk`.
-- **GET:** members read the switches. Owners/admins also get the address (the inbox is made on their first view when the feature is on), the forwarding status, the last 7 days by kind, and recent emails with any draft waiting on them (and its code).
+- **GET:** members read the switches. Owners/admins also get the address (if made), the forwarding status, the last 7 days by kind, and recent emails with any draft waiting on them (and its code). A GET never makes the inbox.
+- **POST** (owners/admins) `{ action: "create_inbox" }`: makes the address (feature on, server set up).
 - **PATCH** (owners/admins): `{ enabled?, draftReplies?, digest?, digestTime? }`, strict, merged into `ai_settings.email_clerk` only via `updateAiSettings`.
 
 UI:
@@ -1671,11 +1676,11 @@ Without the server env it says "Email inbox isn't set up on this server yet."
   - identity: unique `(inbox_id, message_id)` and `(provider, provider_email_id)`;
   - sender / recipients / subject, `text_body` (≤ 20k) and `html_excerpt` (sanitized: plain formatting tags only, **no attributes**, so no links, images or handlers; ≤ 20k);
   - `in_reply_to`, `reference_ids`, `thread_key` (the root id), a few routing headers, SPF/DKIM/DMARC, and the attachment metadata;
-  - processing: `status new | received | processing | done | failed | ignored`, `attempts`, `locked_until`, `last_error`;
+  - processing: `status new | received | processing | done | failed | dead | ignored`, `attempts`, `locked_until`, `last_error`;
   - `category` (11 values, checked), `classified_by`, `detail` (vendor / amount / due / project / PO / forwarding provider — **never the confirmation code**) and `ai_summary`;
   - links: contact, booking, supplier, PO, message_log, task;
   - the reply: `draft_subject`, `draft_reply`, `approval_id` (unique) and `reply_status` (`none | no_draft | awaiting_owner | sending | sent | skipped | expired | superseded | blocked | failed`);
-  - alerts: `owner_alert_status` (`none | held | sent | dropped | approval | digest`) and `digest_date`.
+  - alerts: `owner_alert_status` (`none | sending | held | sent | dropped | approval | digest`) and `digest_date`.
 - **`email_attachments`.** One row per file (unique email + Resend attachment id), status `stored | skipped_type | skipped_size | failed`, and a stored row must have a path.
 - **`email_clerk_digests`.** The daily claim, unique `(company_id, local_date)`, with attempts. Service role only.
 - **Bucket `email-attachments`.** Private, 10 MB, the allowlist above, and **no storage policies** (service role + signed URLs only).
@@ -1699,7 +1704,7 @@ All four tables have RLS on, the composite FK to `companies (id, organization_id
 ### Sweeps
 
 - `email_clerk:process` (1 min): claims and processes stored emails (≤ 25 a pass), then sends the alerts held overnight as one text per company (08:00–21:00; claimed `held → sent`, given back if the text fails).
-- `email_clerk:digest` (5 min): companies with an inbox and the feature on (house orgs only with an inbox, which needs them switched on), loaded at most every 30 s. A company is due from the digest time until 20:00 with a verified owner cell. It covers emails not yet in a digest from the last 48 h, minus those already texted. It claims the day's row before sending and retries a failed text after 10 minutes (3 tries). If there's nothing but junk, no text goes out.
+- `email_clerk:digest` (5 min): companies with an inbox and the feature on (house orgs only with an inbox, which needs them switched on), loaded at most every 30 s. A company is due from the digest time until 20:00 with a verified owner cell. It covers emails not yet in a digest from the last 48 h, minus those already texted. It claims the day's row before sending and retries a failed text after 10 minutes (3 tries). If there's nothing but junk, no text goes out, and that junk is marked covered for the day (tomorrow's digest doesn't count it again).
 
 ### Shared files edited
 
@@ -1731,6 +1736,7 @@ Nothing else shared: `outbound/email.ts` / `messaging.ts` already pass the threa
 - An email the owner forwards by hand ("Fwd:") is treated as coming from the owner (`other`), not from the original sender.
 - Attachments are kept but not shown in the app yet (the Settings list counts them), and they aren't read by the model.
 - One inbox per company. Changing the address means deleting its row (the old address then stops working).
+- Senders without a DKIM/DMARC pass (some small mail hosts) land in the digest as "unverified sender" rather than the inbox, even when they're real customers.
 
 ## Customer care & warranty
 

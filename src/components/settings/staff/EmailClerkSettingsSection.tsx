@@ -75,7 +75,7 @@ const REPLY: Record<string, string> = {
   sent: "Replied",
   skipped: "You skipped the draft",
   expired: "Draft expired",
-  superseded: "Newer draft sent instead",
+  superseded: "Replaced by a newer draft",
   blocked: "Not sent (unsubscribed)",
   failed: "Reply failed",
   no_draft: "Answer it from the inbox",
@@ -153,6 +153,11 @@ export function EmailClerkSettingsSection({ orgId, companyId, canManage }: AiFro
     enabled: Boolean(orgId && companyId),
     staleTime: 30_000,
   });
+  const create = useMutation({
+    mutationFn: () => apiFetch<EmailClerkView>(path(orgId, companyId), { method: "POST", body: JSON.stringify({ action: "create_inbox" }) }),
+    onSuccess: (view) => qc.setQueryData(queryKey, view),
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Could not make the address"),
+  });
   const update = useMutation({
     mutationFn: (patch: Patch) => apiFetch<EmailClerkView>(path(orgId, companyId), { method: "PATCH", body: JSON.stringify(patch) }),
     onSuccess: (view) => {
@@ -221,6 +226,14 @@ export function EmailClerkSettingsSection({ orgId, companyId, canManage }: AiFro
             </p>
             {!data.inbox.forwardingConfirmedAt && <ForwardingSteps address={data.inbox.address} />}
             <p className="text-xs text-muted-foreground">Keep this address private - anything sent to it lands in your inbox. Replies go out from {data.companyName}, and the customer's answer comes back here.</p>
+          </div>
+        )}
+        {!data.inbox && s.enabled && canManage && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">Get a private address to forward your business email to.</p>
+            <button type="button" disabled={create.isPending} onClick={() => create.mutate()} className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm disabled:opacity-50">
+              Get my inbox address
+            </button>
           </div>
         )}
         {!data.inbox && s.enabled && !canManage && <p className="text-xs text-muted-foreground">Owners and admins see the inbox address and the emails.</p>}

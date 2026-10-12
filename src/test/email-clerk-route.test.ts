@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakeDb, type FakeDb } from "@/test/helpers/fake-supabase";
 
 // Email inbox settings route: GET (members read the switches; the address and emails are for
-// owners/admins, made on first view) and PATCH (owners/admins, strict, merging ONLY
+// owners/admins; only POST create_inbox makes it) and PATCH (owners/admins, strict, merging ONLY
 // ai_settings.email_clerk).
 const h = vi.hoisted(() => ({ db: null as FakeDb | null, role: "owner" }));
 vi.mock("@/server/supabase/admin", () => ({ createSupabaseAdminClient: () => h.db?.client }));
@@ -19,7 +19,7 @@ vi.mock("@/server/organizations/context", async (importOriginal) => {
   };
 });
 
-import { GET, PATCH } from "@/app/api/organizations/[organizationId]/companies/[companyId]/ai-settings/email-clerk/route";
+import { GET, PATCH, POST } from "@/app/api/organizations/[organizationId]/companies/[companyId]/ai-settings/email-clerk/route";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const COMPANY = "22222222-2222-4222-8222-222222222222";
@@ -53,16 +53,20 @@ afterEach(() => {
 });
 
 describe("email inbox settings route", () => {
-  it("GET: owners get the address (made once); members don't", async () => {
+  it("GET never makes the inbox; POST create_inbox (owners/admins) does, once", async () => {
     h.role = "member";
     const member = await json(await GET(req("GET"), ctx));
     expect(member.data).toMatchObject({ configured: true, inbox: null, recent: null, settings: { enabled: true } });
-    expect(h.db!.tables.email_inboxes).toHaveLength(0);
+    expect((await POST(req("POST", { action: "create_inbox" }), ctx)).status).toBe(403);
     h.role = "owner";
-    const owner = await json(await GET(req("GET"), ctx));
-    expect((owner.data?.inbox as { address: string }).address).toMatch(/^northshore-[a-z2-9]{8}@in\.crankleads\.test$/);
-    await GET(req("GET"), ctx);
+    expect((await json(await GET(req("GET"), ctx))).data?.inbox).toBeNull();
+    expect(h.db!.tables.email_inboxes).toHaveLength(0);
+    expect((await POST(req("POST", { action: "nope" }), ctx)).status).toBe(400);
+    const made = await json(await POST(req("POST", { action: "create_inbox" }), ctx));
+    expect((made.data?.inbox as { address: string }).address).toMatch(/^northshore-[a-z2-9]{8}@in\.crankleads\.test$/);
+    await POST(req("POST", { action: "create_inbox" }), ctx);
     expect(h.db!.tables.email_inboxes).toHaveLength(1);
+    expect((await json(await GET(req("GET"), ctx))).data?.inbox).toMatchObject({ address: (made.data?.inbox as { address: string }).address });
   });
 
   it("GET without the server set up: says so, makes nothing", async () => {

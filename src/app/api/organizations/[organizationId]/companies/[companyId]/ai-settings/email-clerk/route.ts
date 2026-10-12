@@ -5,7 +5,7 @@ import { handleRoute, parseJsonBody } from "@/server/api/route";
 import { UserFacingError } from "@/server/errors";
 import { AuthorizationError, requireOrganizationContext } from "@/server/organizations/context";
 import { assertCompanyInOrganization, type TenantServiceContext } from "@/server/services/shared";
-import { getEmailClerkView, updateEmailClerkSettings } from "@/server/services/staff/email-clerk/view";
+import { createEmailInbox, getEmailClerkView, updateEmailClerkSettings } from "@/server/services/staff/email-clerk/view";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
@@ -56,6 +56,20 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
     const patch = await parseJsonBody(request, patchSchema);
     const data = await updateEmailClerkSettings(createSupabaseAdminClient(), { organizationId, companyId }, patch);
     if (!data) throw new UserFacingError("Company not found.", { status: 404 });
+    return NextResponse.json({ data });
+  });
+}
+
+const actionSchema = z.object({ action: z.literal("create_inbox") }).strict();
+
+/** Owner/admin: `{ action: "create_inbox" }` makes the business inbox address (a GET never does). */
+export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
+  return handleRoute(async () => {
+    const { organizationId, companyId } = await guard(context, true);
+    await parseJsonBody(request, actionSchema);
+    const data = await createEmailInbox(createSupabaseAdminClient(), { organizationId, companyId });
+    if (!data) throw new UserFacingError("Company not found.", { status: 404 });
+    if ("error" in data) throw new UserFacingError(data.error, { status: 400 });
     return NextResponse.json({ data });
   });
 }

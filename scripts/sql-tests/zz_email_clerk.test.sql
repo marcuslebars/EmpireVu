@@ -163,6 +163,15 @@ begin
     raise notice 'ok   categories are checked';
   end;
   begin
+    insert into public.inbound_emails (organization_id, company_id, inbox_id, provider_email_id, message_id, status) values ('e2000000-0000-4000-8000-000000000001', 'e3000000-0000-4000-8000-000000000001', 'e4000000-0000-4000-8000-000000000001', 're_st', '<st@x.test>', 'zombie');
+    raise exception 'FAIL an unknown status';
+  exception when check_violation then
+    raise notice 'ok   statuses are checked (dead is one)';
+  end;
+  insert into public.inbound_emails (organization_id, company_id, inbox_id, provider_email_id, message_id, status, attempts, owner_alert_status)
+  values ('e2000000-0000-4000-8000-000000000001', 'e3000000-0000-4000-8000-000000000001', 'e4000000-0000-4000-8000-000000000001', 're_dead', '<dead@x.test>', 'dead', 3, 'sending')
+  on conflict do nothing;
+  begin
     insert into public.inbound_emails (organization_id, company_id, inbox_id, provider_email_id, message_id) values ('e2000000-0000-4000-8000-000000000002', 'e3000000-0000-4000-8000-000000000001', 'e4000000-0000-4000-8000-000000000001', 're_x', '<x@x.test>');
     raise exception 'FAIL an email under another org''s company';
   exception when foreign_key_violation then

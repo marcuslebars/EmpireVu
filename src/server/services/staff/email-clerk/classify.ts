@@ -34,7 +34,10 @@ export interface ClassifyContext {
   suppliers: Array<{ id: string; name: string; branch: string | null; email: string | null }>;
   /** The company's purchase orders that a PO-n in the email could mean. */
   purchaseOrders: Array<{ id: string; po_number: string; supplier_id: string | null; status: string }>;
+  /** A contact of this company has the sender's address (only used when the sender is verified). */
   knownContact: boolean;
+  /** The owner's mailbox that forwards here (email_inboxes.forwarded_from): mail from it, or its company domain, is internal. */
+  forwardedFrom?: string | null;
 }
 
 export interface RuleResult {
@@ -52,20 +55,22 @@ export interface Classification {
   noReply: boolean;
   /** A PO-n of ours that the email names (for the model path too). */
   po: ClassifyContext["purchaseOrders"][number] | null;
+  /** DKIM/DMARC say the From is real. An unverified sender is never treated as a customer. */
+  verified: boolean;
 }
 
+/** Google's and Microsoft's own system senders for forwarding checks (exact addresses only). */
 const GOOGLE_FORWARDING = new Set(["forwarding-noreply@google.com"]);
-const MICROSOFT_DOMAINS = ["microsoft.com", "outlook.com", "live.com", "hotmail.com", "microsoftonline.com", "office365.com", "office.com"];
+const MICROSOFT_FORWARDING = new Set(["account-security-noreply@accountprotection.microsoft.com"]);
 
-function authFailed(auth: EmailFacts["auth"]): boolean {
+/**
+ * The sender is who the From says: Resend's check says DKIM or DMARC passed and DMARC didn't fail.
+ * No result (or neither passed) → unverified. PURE.
+ */
+export function senderVerified(auth: EmailFacts["auth"]): boolean {
   if (!auth) return false;
-  const passes = auth.dkim === "pass" || auth.dmarc === "pass";
-  const fails = auth.dkim === "fail" || auth.dmarc === "fail";
-  return fails && !passes;
-}
-
-function underDomain(domain: string | null, roots: string[]): boolean {
-  return Boolean(domain && roots.some((r) => domain === r || domain.endsWith(`.${r}`)));
+  if (auth.dmarc === "fail") return false;
+  return auth.dkim === "pass" || auth.dmarc === "pass";
 }
 
 /** Gmail: "(#123456789) Gmail Forwarding Confirmation - Receive Mail from dana@gmail.com". PURE. */
@@ -80,11 +85,19 @@ export function gmailConfirmation(f: EmailFacts): { code: string | null; forward
 
 /** Microsoft (Outlook.com / 365) forwarding verification with a code. PURE. */
 export function microsoftConfirmation(f: EmailFacts): { code: string } | null {
-  if (!underDomain(domainOf(f.fromAddress), MICROSOFT_DOMAINS)) return null;
+  const from = normalizeAddress(f.fromAddress);
+  if (!from || !MICROSOFT_FORWARDING.has(from)) return null;
   const words = `${f.subject ?? ""}\n${f.text}`;
   if (!/forward/i.test(words) || !/(verif|confirm)/i.test(words)) return null;
-  const code = /\b(?:security|verification|confirmation)?\s*code\s*(?:is)?\s*[:-]?\s*([A-Z0-9]{4,10})\b/i.exec(words)?.[1];
-  return code && /\d/.test(code) ? { code } : null;
+  const code = /\b(?:security|verification|confirmation)\s+code\s*(?:is)?\s*[:-]?\s*(\d{4,10})\b/i.exec(words)?.[1];
+  return code ? { code } : null;
+}
+
+/** "Unsubscribe" / "stop emailing me" / "remove me from your list" — a clear email opt-out. PURE. */
+export function asksToStop(text: string | null | undefined): boolean {
+  const t = (text ?? "").trim();
+  if (!t || t.length > 400) return false;
+  return /\b(unsubscribe|opt[\s-]?out|stop (e-?mailing|sending|contacting|messaging)|remove me|take me off|(do not|don't|dont|never) (e-?mail|contact|message) (me|us)( again)?|no more e-?mails?)\b/i.test(t);
 }
 
 function header(f: EmailFacts, name: string): string {
@@ -131,17 +144,22 @@ export function classifyByRules(f: EmailFacts, ctx: ClassifyContext): Classifica
   const noReply = isNoReplyAddress(from);
   const named = poNumbersIn(`${f.subject ?? ""}\n${f.text}`);
   const po = ctx.purchaseOrders.find((p) => named.includes(p.po_number)) ?? null;
-  const done = (rule: RuleResult): Classification => ({ rule, noReply, po });
+  const verified = senderVerified(f.auth);
+  const done = (rule: RuleResult): Classification => ({ rule, noReply, po, verified });
 
-  const gmail = gmailConfirmation(f);
-  if (gmail) {
-    if (authFailed(f.auth)) return done({ category: "spam", detail: { reason: "fake forwarding confirmation (failed DKIM/DMARC)" } });
-    return done({ category: "forwarding_confirmation", detail: { provider: "gmail" }, code: gmail.code });
-  }
-  const ms = microsoftConfirmation(f);
-  if (ms) {
-    if (authFailed(f.auth)) return done({ category: "spam", detail: { reason: "fake forwarding confirmation (failed DKIM/DMARC)" } });
-    return done({ category: "forwarding_confirmation", detail: { provider: "outlook" }, code: ms.code });
+  // A forwarding check comes only from Google's / Microsoft's exact system sender, signed (DKIM or
+  // DMARC pass), and never from someone we know.
+  if (!(ctx.knownContact && verified)) {
+    const gmail = gmailConfirmation(f);
+    if (gmail) {
+      if (!verified) return done({ category: "spam", detail: { reason: "unsigned forwarding confirmation" } });
+      return done({ category: "forwarding_confirmation", detail: { provider: "gmail", forwarded_from: gmail.forwardedFrom }, code: gmail.code });
+    }
+    const ms = microsoftConfirmation(f);
+    if (ms) {
+      if (!verified) return done({ category: "spam", detail: { reason: "unsigned forwarding confirmation" } });
+      return done({ category: "forwarding_confirmation", detail: { provider: "outlook" }, code: ms.code });
+    }
   }
   if (isBounce(f)) return done({ category: "bounce", detail: {} });
   if (isAutoReply(f)) return done({ category: "auto_reply", detail: {} });
@@ -152,6 +170,12 @@ export function classifyByRules(f: EmailFacts, ctx: ClassifyContext): Classifica
     return done({ category: "no_reply", detail: { reason: "our own mail" } });
   }
   if (from && ctx.ownerEmail && from === normalizeAddress(ctx.ownerEmail)) return done({ category: "other", detail: { reason: "from you" } });
+  // The owner's own forwarding mailbox, or (a company domain) their staff.
+  const fwd = normalizeAddress(ctx.forwardedFrom);
+  const fwdDomain = domainOf(fwd);
+  if (from && fwd && (from === fwd || (fwdDomain && !FREEMAIL_DOMAINS.has(fwdDomain) && domainOf(from) === fwdDomain))) {
+    return done({ category: "other", detail: { reason: "from you or your staff" } });
+  }
 
   const supplier = supplierFor(f, ctx);
   if (supplier || po) {
@@ -163,9 +187,9 @@ export function classifyByRules(f: EmailFacts, ctx: ClassifyContext): Classifica
       purchaseOrderId: po?.id ?? null,
     });
   }
-  if (ctx.knownContact && !noReply && !isBulk(f)) return done({ category: "customer", detail: {} });
+  if (ctx.knownContact && verified && !noReply && !isBulk(f)) return done({ category: "customer", detail: {} });
   if (isBulk(f)) return done({ category: "newsletter", detail: {} });
-  return { rule: null, noReply, po };
+  return { rule: null, noReply, po, verified };
 }
 
 // ── Without a model ─────────────────────────────────────────────────────────────

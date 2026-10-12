@@ -97,13 +97,14 @@ export function heldText(lines: string[]): string {
 }
 
 /** Gmail / Outlook forwarding confirmation → the owner. We never click anything in the email. */
-export function forwardingText(input: { provider: string | null; code: string | null; address: string }): string {
+export function forwardingText(input: { provider: string | null; code: string | null; address: string; forwardedFrom?: string | null }): string {
+  const who = input.forwardedFrom ? clean(input.forwardedFrom, 80) : null;
   if (input.provider === "gmail") {
     return input.code
-      ? `Gmail wants to confirm forwarding to your business inbox. Code: ${input.code}. In Gmail: Settings > See all settings > Forwarding and POP/IMAP, enter the code, Verify, then choose "Forward a copy of incoming mail to" ${input.address} and Save.`
-      : `Gmail sent a forwarding confirmation for ${input.address}, but I couldn't read the code. In Gmail: Settings > See all settings > Forwarding and POP/IMAP > Verify, and use "Re-send email".`;
+      ? `Gmail${who ? ` (${who})` : ""} wants to confirm forwarding to your business inbox. Code: ${input.code}. In Gmail: Settings > See all settings > Forwarding and POP/IMAP, enter the code, Verify, then choose "Forward a copy of incoming mail to" ${input.address} and Save. Didn't ask for this? Ignore it.`
+      : `Gmail${who ? ` (${who})` : ""} sent a forwarding confirmation for ${input.address}, but I couldn't read the code. In Gmail: Settings > See all settings > Forwarding and POP/IMAP > Verify, and use "Re-send email".`;
   }
-  return `Outlook sent a code to confirm forwarding to your business inbox: ${input.code}. Enter it where Outlook asks, then turn forwarding on to ${input.address}.`;
+  return `Outlook sent a code to confirm forwarding to your business inbox: ${input.code}. Enter it where Outlook asks, then turn forwarding on to ${input.address}. Didn't ask for this? Ignore it.`;
 }
 
 const IGNORED: EmailCategory[] = ["newsletter", "auto_reply", "bounce", "no_reply", "spam"];
@@ -149,7 +150,13 @@ export function digestText(input: DigestInput): string | null {
       )}`,
     );
   }
-  if (others.length) parts.push(`${plural(others.length, "other email", "other emails")}${detail(others.map((r) => `${senderLabel(r)}: ${askOf(r, 40)}`))}`);
+  if (others.length) {
+    parts.push(
+      `${plural(others.length, "other email", "other emails")}${detail(
+        others.map((r) => `${r.detail?.reason === "unverified sender" ? "unverified sender: " : ""}${senderLabel(r)}: ${askOf(r, 40)}`),
+      )}`,
+    );
+  }
   if (ignored.length) {
     const allNews = ignored.every((r) => r.category === "newsletter");
     parts.push(`${ignored.length} ${allNews ? (ignored.length === 1 ? "newsletter" : "newsletters") : "newsletters/automatic emails"} ignored`);

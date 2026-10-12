@@ -21,6 +21,7 @@ import { loadBusinessFacts } from "@/server/services/sms-agent/facts";
 import { emitActivityEventAndDispatch } from "@/server/services/workflow-engine/dispatch";
 import { EXPRESS_CONSENT_SOURCES } from "@/server/services/workflow-engine/messaging";
 import { draftReply } from "./ai";
+import { asksToStop } from "./classify";
 import { alertForEmail, fullDraftLink } from "./alerts";
 import type { Db, EmailInboxRow, InboundEmailRow } from "./db-types";
 import { emailClerkDeps } from "./deps";
@@ -81,7 +82,7 @@ export async function recordEmailInquiryConsent(admin: AdminClient, organization
   contact.consent_source = consentSource;
 }
 
-async function contactFor(admin: AdminClient, company: EmailClerkCompany, row: InboundEmailRow, nowMs: number): Promise<Contact> {
+async function contactFor(admin: AdminClient, company: EmailClerkCompany, row: InboundEmailRow, nowMs: number, optOut: boolean): Promise<Contact> {
   const db = admin as Db;
   if (row.contact_id) {
     const { data } = await db.from("contacts").select("*").eq("organization_id", company.organizationId).eq("id", row.contact_id).maybeSingle();
@@ -89,10 +90,18 @@ async function contactFor(admin: AdminClient, company: EmailClerkCompany, row: I
   }
   const found = await findContactByEmail(admin, company, row.from_address ?? "");
   if (found) {
-    await recordEmailInquiryConsent(admin, company.organizationId, found, nowMs);
+    // "Unsubscribe" is never an inquiry: no consent stamped.
+    if (!optOut) await recordEmailInquiryConsent(admin, company.organizationId, found, nowMs);
     return found;
   }
   const names = namesFrom(row);
+  if (optOut) {
+    return createContact(
+      ctxFor(admin, company.organizationId),
+      { companyId: company.companyId, firstName: names.first, lastName: names.last, email: normalizeAddress(row.from_address) },
+      { dispatchWorkflow: false },
+    );
+  }
   return createContact(
     ctxFor(admin, company.organizationId),
     {
@@ -237,7 +246,13 @@ async function askOwner(admin: AdminClient, company: EmailClerkCompany, row: Inb
 
 export async function handleCustomerEmail(admin: AdminClient, company: EmailClerkCompany, row: InboundEmailRow, inbox: EmailInboxRow, nowMs: number): Promise<InboundEmailRow> {
   const db = admin as Db;
-  const contact = await contactFor(admin, company, row, nowMs);
+  const optOut = asksToStop(newText(row.text_body) || row.subject);
+  const contact = await contactFor(admin, company, row, nowMs, optOut);
+  if (optOut && !contact.email_opt_out_at) {
+    const at = new Date(nowMs).toISOString();
+    await db.from("contacts").update({ email_opt_out_at: at }).eq("organization_id", company.organizationId).eq("id", contact.id).is("email_opt_out_at", null);
+    contact.email_opt_out_at = at;
+  }
   const messageLogId = row.message_log_id ?? (await logInbound(admin, company, row, inbox, contact));
   const bookings = await upcomingBookings(admin, company, contact.id, nowMs);
   const linkFields = { contact_id: contact.id, message_log_id: messageLogId, booking_id: row.booking_id ?? bookings[0]?.id ?? null };

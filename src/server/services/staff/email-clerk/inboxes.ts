@@ -82,8 +82,9 @@ export async function ensureInbox(
 }
 
 /**
- * The inbox an email was for: the first of its recipients (To, Cc, Bcc, the envelope's
- * forwarded-for, Delivered-To / X-Original-To / X-Forwarded-To) that is one of ours. Unknown → null.
+ * The inbox an email was for: the first of the given addresses that is one of ours (the caller
+ * passes the envelope recipients — Resend's received_for — and falls back to To / Cc / Bcc only
+ * when those are missing). Unknown → null.
  */
 export async function findInboxFor(admin: AdminClient, candidates: Array<string | null | undefined>): Promise<EmailInboxRow | null> {
   const domain = inboundDomain();

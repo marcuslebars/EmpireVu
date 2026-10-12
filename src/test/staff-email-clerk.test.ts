@@ -29,19 +29,20 @@ import { activeRolesFor, registryProblems, roleApprovalExecutor, roleOwnerTools,
 import { emailClerkRole } from "@/server/services/staff/email-clerk";
 import { classifyEmail, guardDraft, parseClassification, tidyDraft, type EmailClerkModel } from "@/server/services/staff/email-clerk/ai";
 import { briefingItems } from "@/server/services/staff/email-clerk/briefing-items";
-import { classifyByRules, fallbackCategory, gmailConfirmation, type ClassifyContext, type EmailFacts } from "@/server/services/staff/email-clerk/classify";
+import { asksToStop, classifyByRules, fallbackCategory, gmailConfirmation, senderVerified, type ClassifyContext, type EmailFacts } from "@/server/services/staff/email-clerk/classify";
 import { resetEmailClerkDeps, setEmailClerkDeps } from "@/server/services/staff/email-clerk/deps";
 import { digestDue, resetEmailClerkCompanyCache, runCompanyDigest, sweepDigests } from "@/server/services/staff/email-clerk/digest";
 import { alertLine, digestText, forwardingText, replySummary, setupText } from "@/server/services/staff/email-clerk/format";
 import { buildAddress, ensureInbox, slugPart } from "@/server/services/staff/email-clerk/inboxes";
 import { contentColumns } from "@/server/services/staff/email-clerk/intake";
-import { asMessageId, clean, htmlToText, messageIds, newText, parseAddress, poNumbersIn, replySubject, sanitizeHtml, threadKeyFor } from "@/server/services/staff/email-clerk/parse";
-import { sweepInbound } from "@/server/services/staff/email-clerk/process";
+import { asMessageId, clean, firstAsk, htmlToText, messageIds, newText, parseAddress, poNumbersIn, replySubject, sanitizeHtml, threadKeyFor } from "@/server/services/staff/email-clerk/parse";
+import { forwardedVia, MAX_ATTEMPTS, sweepInbound } from "@/server/services/staff/email-clerk/process";
+import { alertForEmail } from "@/server/services/staff/email-clerk/alerts";
 import { isResendDownloadUrl, parseFetchedEmail, parseWebhookEvent, resendInboundProvider, type FetchedEmail, type InboundEmailProvider } from "@/server/services/staff/email-clerk/provider";
 import { threadingHeaders } from "@/server/services/staff/email-clerk/reply";
 import { emailClerkActiveFor, loadEmailClerkCompany, mergeEmailClerkSettings, readEmailClerkSettings } from "@/server/services/staff/email-clerk/settings";
 import { signPayload, verifySvixSignature } from "@/server/services/staff/email-clerk/signing";
-import { getEmailClerkView } from "@/server/services/staff/email-clerk/view";
+import { createEmailInbox, getEmailClerkView } from "@/server/services/staff/email-clerk/view";
 import type { BusinessFacts } from "@/server/services/sms-agent/facts";
 
 const TZ = "America/Toronto";
@@ -164,7 +165,7 @@ function mail(spec: MailSpec = {}): { emailId: string; messageId: string } {
     html: spec.html ?? null,
     headers: { from: spec.from ?? "Dana Jones <dana.jones@example.com>", "message-id": messageId, ...(spec.headers ?? {}) },
     messageId,
-    authentication: spec.auth ?? { spf: "pass", dkim: "pass", dmarc: "pass" },
+    authentication: "auth" in spec ? spec.auth ?? null : { spf: "pass", dkim: "pass", dmarc: "pass" },
     attachments: spec.attachments ?? [],
     createdAt: new Date(NOW).toISOString(),
   });
@@ -300,6 +301,8 @@ describe("parsing", () => {
     expect(newText("Sounds good, Thursday works.\n\nOn Mon, Oct 12, 2026 at 9:00 AM Northshore <x@y> wrote:\n> Can we come Thursday?")).toBe("Sounds good, Thursday works.");
     expect(newText("Yes please\n-----Original Message-----\nFrom: A")).toBe("Yes please");
     expect(newText("Ok\nFrom: Northshore\nSent: Monday\nTo: me\nSubject: x\nold")).toBe("Ok");
+    expect(firstAsk("Hi Northshore,\n\nHope you're well. Are we still on for Thursday? Thanks,\nJo")).toBe("Are we still on for Thursday?");
+    expect(firstAsk("Hello,\nThe gutter on the north side is leaking again.\nThanks")).toBe("The gutter on the north side is leaking again.");
   });
 
   it("owner-facing snippets never carry a link or markup; PO numbers are found", () => {
@@ -358,20 +361,67 @@ const ctxBase: ClassifyContext = {
   purchaseOrders: [{ id: "po-3", po_number: "PO-3", supplier_id: "sup-rona", status: "sent" }],
   knownContact: false,
 };
-const facts = (over: Partial<EmailFacts> = {}): EmailFacts => ({ fromAddress: "dana@example.com", fromName: "Dana", subject: "Roof", text: "Hi", headers: {}, auth: null, ...over });
+const PASS = { spf: "pass", dkim: "pass", dmarc: "pass" };
+const facts = (over: Partial<EmailFacts> = {}): EmailFacts => ({ fromAddress: "dana@example.com", fromName: "Dana", subject: "Roof", text: "Hi", headers: {}, auth: PASS, ...over });
 
 describe("classification rules", () => {
   it("Gmail forwarding confirmation: only from Google, never when it fails DKIM/DMARC", () => {
     const g = facts({ fromAddress: "forwarding-noreply@google.com", subject: "(#123456789) Gmail Forwarding Confirmation - Receive Mail from dana@gmail.com", text: "Confirmation code: 123456789\nTo allow... click the link https://mail-settings.google.com/x" });
     expect(gmailConfirmation(g)).toEqual({ code: "123456789", forwardedFrom: "dana@gmail.com" });
-    expect(classifyByRules(g, ctxBase).rule).toMatchObject({ category: "forwarding_confirmation", code: "123456789", detail: { provider: "gmail" } });
+    expect(classifyByRules(g, ctxBase).rule).toMatchObject({ category: "forwarding_confirmation", code: "123456789", detail: { provider: "gmail", forwarded_from: "dana@gmail.com" } });
     expect(classifyByRules({ ...g, auth: { spf: "fail", dkim: "fail", dmarc: "fail" } }, ctxBase).rule?.category).toBe("spam");
+    // "Not failed" isn't enough: no signature result at all → not a confirmation.
+    expect(classifyByRules({ ...g, auth: null }, ctxBase).rule?.category).toBe("spam");
+    expect(classifyByRules({ ...g, auth: { spf: "pass", dkim: "none", dmarc: "none" } }, ctxBase).rule?.category).toBe("spam");
     expect(classifyByRules({ ...g, fromAddress: "forwarding-noreply@g00gle.test" }, ctxBase).rule?.category).not.toBe("forwarding_confirmation");
   });
 
-  it("Microsoft forwarding code", () => {
+  it("Microsoft forwarding code — only from Microsoft's exact system sender", () => {
     const m = facts({ fromAddress: "account-security-noreply@accountprotection.microsoft.com", subject: "Verify your forwarding address", text: "Use security code 482910 to confirm forwarding." });
     expect(classifyByRules(m, ctxBase).rule).toMatchObject({ category: "forwarding_confirmation", code: "482910", detail: { provider: "outlook" } });
+    expect(classifyByRules({ ...m, fromAddress: "security@outlook.com" }, ctxBase).rule?.category).not.toBe("forwarding_confirmation");
+  });
+
+  it("the reviewer's probe: a Hotmail customer mentioning confirm / forward / a gate code is a customer, not a forwarding check", () => {
+    const probe = facts({ fromAddress: "dana.jones@hotmail.com", fromName: "Dana Jones", subject: "Photos", text: "can you confirm you got my photos? I can forward more. Gate code 4521" });
+    expect(classifyByRules(probe, ctxBase).rule).toBeNull();
+    expect(classifyByRules(probe, { ...ctxBase, knownContact: true }).rule?.category).toBe("customer");
+    expect(fallbackCategory(probe, false)).not.toBe("forwarding_confirmation");
+    // Even Google's sender with a forwarding subject never wins over a known contact.
+    expect(classifyByRules(facts({ fromAddress: "forwarding-noreply@google.com", subject: "Gmail Forwarding Confirmation" }), { ...ctxBase, knownContact: true }).rule?.category).not.toBe("forwarding_confirmation");
+  });
+
+  it("sender verification: DKIM or DMARC pass, and DMARC not failed; a spoofed known contact isn't a customer", () => {
+    expect(senderVerified({ dkim: "pass", dmarc: "none" })).toBe(true);
+    expect(senderVerified({ dkim: "none", dmarc: "pass" })).toBe(true);
+    expect(senderVerified({ dkim: "pass", dmarc: "fail" })).toBe(false);
+    expect(senderVerified({ dkim: "none", dmarc: "none" })).toBe(false);
+    expect(senderVerified(null)).toBe(false);
+    const spoof = classifyByRules(facts({ auth: { spf: "fail", dkim: "fail", dmarc: "fail" } }), { ...ctxBase, knownContact: true });
+    expect(spoof).toMatchObject({ rule: null, verified: false });
+  });
+
+  it("internal mail: the forwarding mailbox, and its company domain (never a freemail one)", () => {
+    const ctx = { ...ctxBase, forwardedFrom: "dana@northshore-roofing.test" };
+    expect(classifyByRules(facts({ fromAddress: "dana@northshore-roofing.test" }), ctx).rule).toMatchObject({ category: "other", detail: { reason: "from you or your staff" } });
+    expect(classifyByRules(facts({ fromAddress: "mike@northshore-roofing.test" }), ctx).rule).toMatchObject({ category: "other", detail: { reason: "from you or your staff" } });
+    const gmail = { ...ctxBase, forwardedFrom: "dana@gmail.com" };
+    expect(classifyByRules(facts({ fromAddress: "dana@gmail.com" }), gmail).rule?.detail.reason).toBe("from you or your staff");
+    expect(classifyByRules(facts({ fromAddress: "customer@gmail.com" }), gmail).rule).toBeNull();
+  });
+
+  it("opt-out requests and forwarding evidence", () => {
+    expect(asksToStop("Please unsubscribe me")).toBe(true);
+    expect(asksToStop("Stop emailing me.")).toBe(true);
+    expect(asksToStop("Don't email me again")).toBe(true);
+    expect(asksToStop("Can you stop by Thursday to look at the roof?")).toBe(false);
+    const inbox = { address: INBOX, forwarded_from: "dana@gmail.com" };
+    expect(forwardedVia({ to_addresses: ["dana@gmail.com"], cc_addresses: [], headers: {} }, inbox, DOMAIN)).toEqual({ from: "dana@gmail.com" });
+    expect(forwardedVia({ to_addresses: [INBOX], cc_addresses: [], headers: {} }, inbox, DOMAIN)).toBeNull();
+    expect(forwardedVia({ to_addresses: ["bob@other.test"], cc_addresses: [], headers: { "x-forwarded-for": `dana@gmail.com ${INBOX}` } }, inbox, DOMAIN)).toEqual({ from: "dana@gmail.com" });
+    const unknown = { address: INBOX, forwarded_from: null };
+    expect(forwardedVia({ to_addresses: ["info@northshore.test"], cc_addresses: [], headers: { "x-forwarded-to": INBOX, "delivered-to": "info@northshore.test" } }, unknown, DOMAIN)).toEqual({ from: "info@northshore.test" });
+    expect(forwardedVia({ to_addresses: [INBOX], cc_addresses: [], headers: {} }, unknown, DOMAIN)).toBeNull();
   });
 
   it("bounces, auto-replies, spam flags, our own mail and the owner's are placed without the model", () => {
@@ -474,8 +524,8 @@ describe("owner texts", () => {
   });
 
   it("forwarding, bid invite and setup lines", () => {
-    expect(forwardingText({ provider: "gmail", code: "123456789", address: INBOX })).toBe(
-      `Gmail wants to confirm forwarding to your business inbox. Code: 123456789. In Gmail: Settings > See all settings > Forwarding and POP/IMAP, enter the code, Verify, then choose "Forward a copy of incoming mail to" ${INBOX} and Save.`,
+    expect(forwardingText({ provider: "gmail", code: "123456789", address: INBOX, forwardedFrom: "dana@gmail.com" })).toBe(
+      `Gmail (dana@gmail.com) wants to confirm forwarding to your business inbox. Code: 123456789. In Gmail: Settings > See all settings > Forwarding and POP/IMAP, enter the code, Verify, then choose "Forward a copy of incoming mail to" ${INBOX} and Save. Didn't ask for this? Ignore it.`,
     );
     expect(alertLine({ category: "bid_invite", from_name: "Pat", from_address: "pat@smithbuild.test", ai_summary: null, subject: "ITB", text_body: null, detail: { from_business: "Smith Build", project: "roof", due_on: "2026-10-16" } }, { today: "2026-10-12", task: true })).toBe(
       "Bid invite: Smith Build - roof, due Fri. It's on your task list.",
@@ -602,7 +652,7 @@ describe("a customer's email", () => {
     expect(rows("owner_approvals")).toHaveLength(0);
     const morning = Date.parse("2026-10-13T12:05:00Z"); // 8:05 Toronto
     await sweepInbound(db.client, morning);
-    expect(texts().map((t) => t.body)).toEqual(['CrankLeads: Email from Dana Jones: "Roof quote" Answer it in the app: https://app.crankleads.test/inbox']);
+    expect(texts().map((t) => t.body)).toEqual(['CrankLeads: Email from Dana Jones: "How much to fix a leak by the chimney?" Answer it in the app: https://app.crankleads.test/inbox']);
     await sweepInbound(db.client, morning + 60_000);
     expect(texts()).toHaveLength(1);
   });
@@ -735,17 +785,26 @@ describe("other mail", () => {
     vi.setSystemTime(night);
     await deliver({ from: "Gmail Team <forwarding-noreply@google.com>", to: [INBOX], subject: "(#123456789) Gmail Forwarding Confirmation - Receive Mail from dana@gmail.com", text: "dana@gmail.com has requested to automatically forward mail to your email address. Confirmation code: 123456789 https://mail.google.com/verify?x" });
     await sweepInbound(db.client, night);
+    expect(texts()[0].body).toContain("Gmail (dana@gmail.com) wants to confirm forwarding");
     expect(texts()[0].body).toContain("Code: 123456789.");
     expect(texts()[0].body).not.toContain("https://mail.google.com");
     const row = rows("inbound_emails")[0];
     expect(row).toMatchObject({ category: "forwarding_confirmation", owner_alert_status: "sent" });
-    expect(JSON.stringify(row.detail)).not.toContain("123456789");
+    // The code is kept nowhere: not in the detail, the text or the subject.
+    expect(JSON.stringify(row)).not.toContain("123456789");
+    expect(String(row.text_body)).toContain("Confirmation code: [code]");
+    expect(rows("email_inboxes")[0]).toMatchObject({ forwarded_from: "dana@gmail.com" });
     expect(rows("email_inboxes")[0].forwarding_requested_at).toBeTruthy();
     expect(rows("email_inboxes")[0].forwarding_confirmed_at).toBeFalsy();
     expect(rows("contacts")).toHaveLength(2);
-    // The first real email marks forwarding as working.
-    await deliver({ from: "Jo Lee <jo.lee@example.com>" });
+    // Mail sent straight to the inbox (not through dana@gmail.com), or junk, proves nothing.
+    await deliver({ from: "Jo Lee <jo.lee@example.com>", to: [INBOX] });
+    await deliver({ from: "MAILER-DAEMON@mx.test", to: ["dana@gmail.com"], subject: "Undelivered Mail Returned to Sender" });
     await sweepInbound(db.client, night + 60_000);
+    expect(rows("email_inboxes")[0].forwarding_confirmed_at).toBeFalsy();
+    // Real mail forwarded from dana@gmail.com marks forwarding as working.
+    await deliver({ from: "Jo Lee <jo.lee@example.com>", to: ["dana@gmail.com"], subject: "Thursday" });
+    await sweepInbound(db.client, night + 2 * 60_000);
     expect(rows("email_inboxes")[0].forwarding_confirmed_at).toBeTruthy();
   });
 
@@ -804,6 +863,170 @@ describe("other mail", () => {
   });
 });
 
+// ── Review fixes ─────────────────────────────────────────────────────────────────
+
+describe("review fixes", () => {
+  it("the probe through the sweep: a Hotmail customer is a customer (in the inbox), and nobody is texted a 'code'", async () => {
+    await inbox();
+    classifyAnswer = '{"category":"customer","summary":"Did you get my photos?"}';
+    await deliver({ from: "Dana Jones <dana.jones@hotmail.com>", subject: "Photos", text: "can you confirm you got my photos? I can forward more. Gate code 4521" });
+    await sweepInbound(db.client, NOW);
+    expect(rows("inbound_emails")[0]).toMatchObject({ category: "customer", status: "done" });
+    expect(rows("message_log").some((m) => m.direction === "inbound" && m.from_addr === "dana.jones@hotmail.com")).toBe(true);
+    expect(texts().map((t) => t.body).join(" ")).not.toMatch(/confirm forwarding|Code: 4521/);
+  });
+
+  it("rows that keep failing go dead after 3 tries and never crowd out new mail (more than a page of them)", async () => {
+    await inbox();
+    const inboxId = String(rows("email_inboxes")[0].id);
+    const old = "2026-10-01T00:00:00.000Z";
+    for (let i = 0; i < 260; i++) {
+      db.tables.inbound_emails.push({
+        id: `dead-${i}`, organization_id: ORG, company_id: CO, inbox_id: inboxId, provider: "resend", provider_email_id: `re_dead_${i}`, message_id: `<dead-${i}@x>`,
+        status: i % 2 ? "dead" : "failed", attempts: MAX_ATTEMPTS, created_at: old, updated_at: old, received_at: old, owner_alert_status: "none", reply_status: "none",
+      });
+    }
+    draftAnswer = "Hi Dana,\n\nThanks.\n\nThanks,\nNorthshore Roofing";
+    await deliver();
+    await sweepInbound(db.client, NOW);
+    const fresh = rows("inbound_emails").find((r) => String(r.provider_email_id).startsWith("re_in_"));
+    expect(fresh).toMatchObject({ status: "done", category: "customer" });
+
+    // A row whose content never comes: failed, failed, then dead — and not picked up again.
+    fetchEmail.mockRejectedValue(new Error("Resend 503"));
+    await deliver({ subject: "never" });
+    const id = String(rows("inbound_emails").find((r) => r.subject === "never")?.id);
+    let t = NOW;
+    for (let i = 0; i < 4; i++) {
+      t += 11 * 60_000;
+      vi.setSystemTime(t);
+      await sweepInbound(db.client, t);
+    }
+    fetchEmail.mockReset();
+    fetchEmail.mockImplementation(async (eid: string) => fetched.get(eid) ?? null);
+    const row = rows("inbound_emails").find((r) => r.id === id)!;
+    expect(row).toMatchObject({ status: "dead", attempts: MAX_ATTEMPTS });
+    expect(row.last_error).toMatch(/content not fetched yet/);
+  });
+
+  it("a worker that died holding the last lease: the row goes dead, not round again", async () => {
+    await inbox();
+    const inboxId = String(rows("email_inboxes")[0].id);
+    db.tables.inbound_emails.push({ id: "stuck", organization_id: ORG, company_id: CO, inbox_id: inboxId, provider: "resend", provider_email_id: "re_stuck", message_id: "<stuck@x>", status: "processing", attempts: MAX_ATTEMPTS, locked_until: new Date(NOW - 60_000).toISOString(), created_at: "2026-10-12T00:00:00Z", updated_at: "2026-10-12T00:00:00Z" });
+    await sweepInbound(db.client, NOW);
+    expect(rows("inbound_emails").find((r) => r.id === "stuck")?.status).toBe("dead");
+  });
+
+  it("an email gone at the provider during a pass is ignored, not retried", async () => {
+    await inbox();
+    fetchEmail.mockRejectedValueOnce(new Error("Resend 503"));
+    const { emailId } = await deliver();
+    fetched.delete(emailId);
+    await sweepInbound(db.client, NOW);
+    expect(rows("inbound_emails")[0]).toMatchObject({ status: "ignored", last_error: "gone at the provider" });
+  });
+
+  it("a spoofed From (DKIM/DMARC failed, or no result) is never the known customer: no consent, no thread, no draft — digest as unverified", async () => {
+    await inbox();
+    draftAnswer = "Hi Jo";
+    await deliver({ from: "Jo Lee <jo.lee@example.com>", subject: "Change of bank details", text: "Please send the refund to my new account.", auth: { spf: "fail", dkim: "fail", dmarc: "fail" } });
+    await deliver({ from: "Jo Lee <jo.lee@example.com>", subject: "Also", text: "Can you quote the deck?", auth: null });
+    await sweepInbound(db.client, NOW);
+    expect(rows("inbound_emails").map((r) => [r.category, (r.detail as { reason?: string }).reason, r.contact_id ?? null])).toEqual([
+      ["other", "unverified sender", null],
+      ["other", "unverified sender", null],
+    ]);
+    expect(rows("contacts").find((c) => c.id === "ct-lee")).toMatchObject({ sms_consent_at: null, consent_source: null });
+    expect(rows("message_log").filter((m) => m.direction === "inbound")).toHaveLength(0);
+    expect(rows("owner_approvals")).toHaveLength(0);
+    expect(texts()).toHaveLength(0);
+    const four = Date.parse("2026-10-12T20:00:00Z");
+    vi.setSystemTime(four);
+    await sweepDigests(db.client, four);
+    expect(texts()[0].body).toContain("2 other emails (unverified sender: Jo Lee: Change of bank details; unverified sender: Jo Lee: Can you quote the deck?)");
+  });
+
+  it('"unsubscribe" never stamps consent; it marks the email opt-out and drafts nothing', async () => {
+    await inbox();
+    draftAnswer = "Hi Jo";
+    await deliver({ from: "Jo Lee <jo.lee@example.com>", subject: "Re: spring special", text: "Please unsubscribe me." });
+    await sweepInbound(db.client, NOW);
+    const lee = rows("contacts").find((c) => c.id === "ct-lee")!;
+    expect(lee.sms_consent_at).toBeNull();
+    expect(lee.email_opt_out_at).toBe(new Date(NOW).toISOString());
+    expect(rows("owner_approvals")).toHaveLength(0);
+    expect(rows("inbound_emails")[0]).toMatchObject({ category: "customer", reply_status: "no_draft" });
+    // A new person asking to stop: a contact with the opt-out, no consent.
+    classifyAnswer = '{"category":"customer","summary":"Stop emailing me"}';
+    await deliver({ from: "New Person <new@example.com>", subject: "stop", text: "Stop emailing me" });
+    await sweepInbound(db.client, NOW + 60_000);
+    const created = rows("contacts").find((c) => c.email === "new@example.com");
+    expect(created?.consent_source ?? null).toBeNull();
+    expect(created?.email_opt_out_at).toBeTruthy();
+  });
+
+  it("tenant from the envelope (received_for) first: a To naming our inbox doesn't override it", async () => {
+    await inbox();
+    const res = await deliver({ receivedFor: [`someone-else-aaaaaaaa@${DOMAIN}`], to: [INBOX] });
+    expect(res.json).toMatchObject({ status: "ignored" });
+    const { emailId, messageId } = mail({ to: [INBOX] });
+    const ok = await webhook(signed(eventBody(emailId, messageId, { received_for: [] })));
+    expect(await ok.json()).toMatchObject({ status: "stored" });
+  });
+
+  it("mail from the owner's own forwarding mailbox (or their staff on its domain) is internal: no contact, no draft", async () => {
+    await inbox();
+    db.tables.email_inboxes[0].forwarded_from = "dana@northshore-roofing.test";
+    draftAnswer = "Hi";
+    await deliver({ from: "Mike <mike@northshore-roofing.test>", subject: "Jones job", text: "Can you quote the Jones roof?" });
+    await sweepInbound(db.client, NOW);
+    expect(rows("inbound_emails")[0]).toMatchObject({ category: "other" });
+    expect(rows("contacts")).toHaveLength(2);
+    expect(rows("owner_approvals")).toHaveLength(0);
+  });
+
+  it("a known contact's owner text quotes their ask, not the subject", async () => {
+    await inbox();
+    await deliver({ from: "Jo Lee <jo.lee@example.com>", subject: "Hello", text: "Hi Northshore,\n\nHope you're well. Are we still on for Thursday?\n\nThanks,\nJo" });
+    await sweepInbound(db.client, NOW);
+    expect(texts()[0].body).toBe('CrankLeads: Email from Jo Lee: "Are we still on for Thursday?" Answer it in the app: https://app.crankleads.test/inbox');
+  });
+
+  it("an alert is claimed: two workers on one row send one text", async () => {
+    await inbox();
+    await deliver({ from: "Rona Midland <orders@rona.test>", subject: "PO-3 confirmed", text: "PO-3 confirmed." });
+    await sweepInbound(db.client, NOW);
+    sendSms.mockClear();
+    const row = rows("inbound_emails")[0];
+    row.owner_alert_status = "none";
+    const co = (await loadEmailClerkCompany(db.client, ORG, CO))!;
+    await Promise.all([alertForEmail(db.client, co, row as never, NOW), alertForEmail(db.client, co, row as never, NOW)]);
+    expect(texts()).toHaveLength(1);
+  });
+
+  it("the digest: a junk-only day is covered, so tomorrow doesn't count it again", async () => {
+    await inbox();
+    await deliver({ from: "Deals <deals@shop.test>", subject: "50% off", headers: { "list-unsubscribe": "<mailto:u@shop.test>" } });
+    await sweepInbound(db.client, NOW);
+    const co = (await loadEmailClerkCompany(db.client, ORG, CO))!;
+    const four = Date.parse("2026-10-12T20:00:00Z");
+    expect(await runCompanyDigest(db.client, co, four)).toBeNull();
+    expect(rows("inbound_emails")[0].digest_date).toBe("2026-10-12");
+    classifyAnswer = '{"category":"bill","summary":"Invoice","from_business":"Rona","amount":412,"due_date":"2026-10-30"}';
+    const next = Date.parse("2026-10-13T14:00:00Z");
+    vi.setSystemTime(next);
+    await deliver({ from: "billing <noreply@billing.example.com>", subject: "Invoice 4411", text: "Amount due $412.00" });
+    await sweepInbound(db.client, next);
+    expect(await runCompanyDigest(db.client, co, Date.parse("2026-10-13T20:00:00Z"))).toBe('Email today: 1 bill (Rona $412 due Oct 30). Text "email status" for more.');
+  });
+
+  it("the webhook refuses an oversized body by its declared length, before reading it", async () => {
+    await inbox();
+    const req = new Request("https://app.test/api/webhooks/email/inbound", { method: "POST", headers: { "content-length": String(10 * 1024 * 1024) }, body: "{}" });
+    expect((await webhook(req)).status).toBe(413);
+  });
+});
+
 // ── House orgs, tools, briefing, view, registry ──────────────────────────────────
 
 describe("house orgs (A1) are untouched", () => {
@@ -828,6 +1051,7 @@ describe("house orgs (A1) are untouched", () => {
 
 describe("owner tools", () => {
   it("email_setup makes the inbox and returns the steps; email_status; email_find", async () => {
+    expect(rows("email_inboxes")).toHaveLength(0);
     const setup = await runOwnerTool(ownerState(), "email_setup", {});
     expect(setup).toMatchObject({ ok: true, forwarding_confirmed: false });
     expect(String(setup.address)).toMatch(new RegExp(`^northshore-roofing-[a-z2-9]{8}@${DOMAIN.replace(/\./g, "\\.")}$`));
@@ -874,11 +1098,14 @@ describe("briefing items", () => {
 });
 
 describe("Settings view", () => {
-  it("managers get the address (made on first view) and recent emails with the full draft; members don't", async () => {
+  it("a GET never makes the inbox; create_inbox does; managers see recent emails with the full draft, members don't", async () => {
     const member = await getEmailClerkView(db.client, { organizationId: ORG, companyId: CO }, { manager: false });
     expect(member).toMatchObject({ configured: true, inbox: null, recent: null });
-    const owner = await getEmailClerkView(db.client, { organizationId: ORG, companyId: CO }, { manager: true, nowMs: NOW });
-    expect(owner?.inbox?.address).toMatch(/^northshore-roofing-/);
+    expect((await getEmailClerkView(db.client, { organizationId: ORG, companyId: CO }, { manager: true, nowMs: NOW }))?.inbox).toBeNull();
+    expect(rows("email_inboxes")).toHaveLength(0);
+    expect(await createEmailInbox(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO })).toEqual({ error: "Turn the email inbox on first." });
+    const owner = (await createEmailInbox(db.client, { organizationId: ORG, companyId: CO }, NOW)) as { inbox: { address: string } };
+    expect(owner.inbox.address).toMatch(/^northshore-roofing-/);
     db.tables.email_inboxes[0].address = INBOX;
     draftAnswer = "Hi Dana,\n\nThanks.\n\nThanks,\nNorthshore Roofing";
     await deliver();

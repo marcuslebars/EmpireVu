@@ -86,21 +86,29 @@ export async function executeEmailReply(admin: AdminClient, approval: OwnerAppro
   // Claim before sending: one send per approval.
   if (!(await setReplyStatus(admin, row, approval.id, "awaiting_owner", "sending"))) return { ok: true, message: `#${code} was already handled.` };
 
-  const result = await deliverMessage({
-    context: ctxFor(admin, company.organizationId),
-    channel: "email",
-    // Always the sender's own address (never a Reply-To the email asked for).
-    to: row.from_address,
-    subject: row.draft_subject ?? replySubject(row.subject),
-    body: row.draft_reply,
-    companyId: company.companyId,
-    contactId: contact.id,
-    consentContact: contact,
-    fromName: company.name,
-    replyTo: inbox.address,
-    sentBy: EMAIL_SENT_BY,
-    emailHeaders: threadingHeaders(row),
-  });
+  let result: Awaited<ReturnType<typeof deliverMessage>>;
+  try {
+    result = await deliverMessage({
+      context: ctxFor(admin, company.organizationId),
+      channel: "email",
+      // Always the sender's own address (never a Reply-To the email asked for).
+      to: row.from_address,
+      subject: row.draft_subject ?? replySubject(row.subject),
+      body: row.draft_reply,
+      companyId: company.companyId,
+      contactId: contact.id,
+      consentContact: contact,
+      fromName: company.name,
+      replyTo: inbox.address,
+      sentBy: EMAIL_SENT_BY,
+      emailHeaders: threadingHeaders(row),
+    });
+  } catch (err) {
+    // Never left in `sending`: failed, and the owner answers by hand.
+    console.error("[email-clerk] reply send threw:", err instanceof Error ? err.message : err);
+    await setReplyStatus(admin, row, approval.id, "sending", "failed");
+    return { ok: false, message: `Couldn't send the reply to ${who} - something went wrong on our side. Answer them from the app inbox.` };
+  }
   const nowIso = new Date().toISOString();
   if (result.status === "sent") {
     await setReplyStatus(admin, row, approval.id, "sending", "sent", { replied_at: nowIso });
