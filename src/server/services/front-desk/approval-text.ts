@@ -175,6 +175,9 @@ export function replyInstruction(kind: ApprovalKind, code: number | null, payloa
       return payload.option === "call" ? `Reply Y${c} for the call, N${c} to leave it.` : `Reply Y${c} for the visit, N${c} to leave it.`;
     case "warranty_claim":
       return `Reply Y${c} to book it, N${c} and I'll tell them you'll call.`;
+    // Profit advisor (docs/ai-staff.md → "Profit advisor").
+    case "price_change":
+      return `Reply Y${c} to raise it, N${c} to leave it.`;
     default:
       return `Reply Y${c} to approve, N${c} to skip.`;
   }
