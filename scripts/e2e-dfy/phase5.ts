@@ -699,7 +699,7 @@ async function main(): Promise<void> {
     const got = sinceMark();
     const reply = ownerTexts(got);
     console.log(`   owner: ${short(reply[0]?.body, 500)}`);
-    check(reply.length === 1 && reply[0].from === PLATFORM && noPrefix(reply[0].body) === `Gmail wants to confirm forwarding to your business inbox. Code: 123456789. In Gmail: Settings > See all settings > Forwarding and POP/IMAP, enter the code, Verify, then choose "Forward a copy of incoming mail to" ${inbox} and Save.`, "the exact code text");
+    check(reply.length === 1 && reply[0].from === PLATFORM && noPrefix(reply[0].body) === `Gmail (dana@northshoresnow.ca) wants to confirm forwarding to your business inbox. Code: 123456789. In Gmail: Settings > See all settings > Forwarding and POP/IMAP, enter the code, Verify, then choose "Forward a copy of incoming mail to" ${inbox} and Save. Didn't ask for this? Ignore it.`, "the exact code text");
     check(got.some((c) => c.kind === "resend_inbound_get" && c.what === "email" && c.emailId === e.id && c.auth === true), "content fetched from Resend (GET /emails/receiving/{id}, Bearer key)");
     check(!got.some((c) => c.kind === "unhandled" || (c.kind === "website" && /google/.test(String(c.path)))), "no link in the email was opened");
     const { data: row } = await db.from("inbound_emails").select("*").eq("provider_email_id", e.id).single();
@@ -1149,7 +1149,7 @@ async function main(): Promise<void> {
     console.log(`   owner: ${short(own[0]?.body, 500)}`);
     const longD = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
     const ends = `${Number(D0.slice(0, 4)) + 1}${D0.slice(4)}`;
-    check(appr?.status === "pending" && own.length === 1 && noPrefix(own[0].body) === `#${appr?.short_code} Kim Ross says "Hi, the deck railing is loose again" (job ${longD(D0)}; 12-month workmanship warranty to ${longD(ends)}). Y books a no-charge warranty visit (I'll text them times), N and I'll tell them you'll call. Reply Y ${appr?.short_code} to book it, N ${appr?.short_code} and I'll tell them you'll call.`, `warranty_claim #${appr?.short_code}, exact text`);
+    check(appr?.status === "pending" && own.length === 1 && noPrefix(own[0].body) === `#${appr?.short_code} Kim Ross says "Hi, the deck railing is loose again" (job ${longD(D0)}; 12-month workmanship warranty to ${longD(ends)}). Y books a no-charge warranty visit (I'll text them times), N and I'll tell them you'll call. Reply Y ${appr?.short_code} or N ${appr?.short_code}.`, `warranty_claim #${appr?.short_code}, exact text`);
     const toKim = smsTo(got, KIM.phone);
     check(toKim.length === 1 && !/covered|free|warranty/i.test(String(toKim[0].body)), `Kim: "${short(toKim[0]?.body, 120)}" (never told it's covered)`);
     setMark();
