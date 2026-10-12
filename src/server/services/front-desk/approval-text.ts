@@ -170,6 +170,11 @@ export function replyInstruction(kind: ApprovalKind, code: number | null, payloa
     // Email inbox (docs/ai-staff.md → "Email inbox").
     case "email_reply":
       return `Reply Y${c} to send it, N${c} to skip.`;
+    // Customer care (docs/ai-staff.md → "Customer care & warranty").
+    case "care_followup":
+      return payload.option === "call" ? `Reply Y${c} for the call, N${c} to leave it.` : `Reply Y${c} for the visit, N${c} to leave it.`;
+    case "warranty_claim":
+      return `Reply Y${c} to book it, N${c} and I'll tell them you'll call.`;
     default:
       return `Reply Y${c} to approve, N${c} to skip.`;
   }

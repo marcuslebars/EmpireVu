@@ -13,6 +13,7 @@
  *
  * Best-effort by design: completing the job must never fail because invoicing did.
  */
+import { isCareVisitBooking } from "@/server/services/staff/customer-care/care-visit";
 import { isPrepaidPlanVisit } from "@/server/services/staff/service-plans/prepaid";
 import { createTask } from "@/server/services/tasks";
 import type { TenantServiceContext } from "@/server/services/shared";
@@ -53,6 +54,8 @@ export async function autoInvoiceCompletedBooking(
     if (await isPrepaidPlanVisit(ctx.organizationId, booking.recurring_job_id, booking.occurrence_date ?? booking.scheduled_for)) {
       return { action: "skipped", reason: "covered by a prepaid service plan" };
     }
+    // A callback / warranty visit is never billed (docs/ai-staff.md → "Customer care & warranty").
+    if (await isCareVisitBooking(ctx.organizationId, booking.id)) return { action: "skipped", reason: "a no-charge callback / warranty visit" };
 
     let invoice;
     try {

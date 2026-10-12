@@ -1734,6 +1734,132 @@ Nothing else shared: `outbound/email.ts` / `messaging.ts` already pass the threa
 
 ## Customer care & warranty
 
+Checks in with every customer after a job, gets an unhappy customer in front of the owner the same day, and runs callbacks and warranty visits with the owner's OK. Keeps a workmanship warranty for every finished job and the equipment the business installed. Code: `src/server/services/staff/customer-care/`. Migration: `20261014110000_staff_customer_care.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Customer care & warranty** (`src/components/settings/staff/CustomerCareSettingsSection.tsx`).
+
+**On for CrankLeads companies where the texting assistant (SMS agent) is on** — customers answer the check-in and pick visit times through it (`careActiveFor` = switched on + SMS agent active + company active). **House orgs (A1 …) are off** unless they switch both on: no check-ins, no warranties recorded, no tools, no prompt notes, no sweeps touch them, and their invoices and review requests are exactly as before.
+
+**Google review policy (hard rule).** The check-in never gates review requests. Nothing here reads a rating to decide whether, when or whom to ask for a review; `reviews/*` and `review_requests` are untouched (tested: a 5/5 and a 2/5 leave the review rows byte-for-byte the same). The only link is the other way round: a check-in moves a day so it doesn't land on top of a review request. The SMS agent is told never to ask for a review.
+
+### What the owner and customers see
+
+- **The day after a job, 10:00** (setting), from the business number: "Hi Dana, it's Northshore Roofing - how did the roof replacement go? Reply 1-5 (5 = great), or tell us anything we missed."
+- **Dana replies "5, great job"** → the assistant thanks her. Nothing else (no review ask, no owner text).
+- **Dana replies "2 - still leaking by the chimney"** → the assistant says sorry and that Mike will follow up; Mike gets, right away (08:00–21:00, else at 08:00): `Dana Jones rated the roof replacement job 2/5: "still leaking by the chimney". Y 1 books a callback visit (I'll text them times). Y 2 texts them "Mike will call you today." N 1 to leave it.`
+  - `Y 1` → Dana: "Hi Dana, it's Northshore Roofing. Mike would like to come back and take a look at the roof replacement. Would any of these work: Wed Oct 14 in the morning, Wed Oct 14 in the afternoon or Thu Oct 15 in the morning? Just reply with the one that suits." Mike: "Texted Dana Jones times for a callback visit: …. I'll book the one they pick." Dana answers "Thursday morning" → the assistant books it → Mike: "Booked Dana Jones's callback visit for Thu Oct 15 in the morning (no charge - it won't be invoiced). It's pending on your calendar."
+  - `Y 2` → Dana: "Hi Dana, it's Northshore Roofing. Mike will call you today about the roof replacement." Mike: "Texted Dana Jones that you'll call today. Their number: 705-555-0123." The assistant steps back from Dana's conversation (owner takeover, 72 h).
+  - `N 1` → nothing is sent; the case stays open ("text "resolve Dana Jones" when it's sorted").
+- **A customer texts "the roof is leaking again"** → the assistant checks the warranty; if the job is still under warranty, Mike gets `#3 Dana Jones says "the roof leaks" (job May 4, 2026; 12-month workmanship warranty to May 4, 2027). Y books a no-charge warranty visit (I'll text them times), N and I'll tell them you'll call. Reply Y 3 to book it, N 3 and I'll tell them you'll call.` Y → the same times text ("… look at the roof replacement - no charge for the visit …") and booking; N → "Hi Dana, it's Northshore Roofing. Mike will give you a call about the roof replacement." The customer is never told it's covered — that's the owner's call.
+- **By text:** "how's customer care?" (`care_status`), "warranty for Dana Jones" (`warranty_lookup`), "Dana's sorted" (`resolve_case`), "add a Lennox EL296 furnace for Dana, warranty to Nov 2035" (`add_equipment`).
+- **The 07:00 briefing** (`briefing-items.ts`, wired at integration): "1 unhappy customer waiting (Dana Jones 2/5)", "Warranty question from Dana Jones waiting on you", "Warranty visit for Dana today".
+
+### Check-ins (`checkins.ts`)
+
+- **Planning** (`customer_care:jobs`, every 5 min): `booking.completed` activity events from the last 3 days for the companies where the role works. Each job gets ONE `care_checkins` row (unique `booking_id` — the claim): `scheduled`, or `skipped` with the reason (check-ins off, no cell, opted out, under the minimum job size / no price on it when a minimum is set, no business texting number, finished too long ago). Callback / warranty visits (`care_case_bookings`) get none.
+- **When:** `delay_days` (1) after the job's local day at `time` (10:00), always 09:00–20:00 local, DST-safe (10:00 EDT = 14:00Z, 10:00 EST = 15:00Z, tested). Job value = `bookings.price_cents`, else its quote's subtotal.
+- **Reviews:** if a review request for that customer (scheduled, sending or sent) is on the same local day as the check-in, or due in the 24 h after it, the check-in moves to the next day at the same time (at most 3 times, then skipped). With the default review delay (2 h after the job) the next-day check-in never moves.
+- **Sending** (`customer_care:checkins`, every 5 min): claimed `scheduled → sending`, then re-checked — still on, the job still done, a cell, not opted out, the customer hasn't texted in the last 24 h, no check-in to them in the last 7 days, no open care case, no review clash — and only 09:00–20:00 (a due check-in waits for the morning; more than 36 h late → skipped). From the company's own number only (`resolveCompanySmsFrom`), CASL consent through `deliverMessage` (`consentContact` with the job as `last_purchase_at`), STOP footer automatic, `message_log.sent_by = 'customer_care'`.
+
+### Replies — SMS agent tools (`agent-tools.ts`)
+
+| Tool | Does |
+| --- | --- |
+| `record_job_feedback {rating?, comment?, unhappy?}` | Only when a check-in went to this customer in the last 14 days. Records the rating / words on it. 4–5 (not unhappy) → "thank them warmly … don't ask for a review". 1–3, or `unhappy: true` → `openComplaint` (below); the agent says sorry and that the owner will follow up (no hand-off needed: the tool told the owner). A second unhappy text adds to the same case's notes (one case per check-in, partial unique index + a pre-check), no second alert. |
+| `check_warranty {problem, job_hint?}` | The customer's jobs (`job_warranties`) and installed equipment, as facts **for the agent only** ("don't quote warranty terms … never say it's covered or free"). Picks the job / equipment the words name, else the most recent job still under warranty. Under warranty → a `warranty` case + a `warranty_claim` approval (one open claim per customer; a repeat says "already has this"). Nothing under warranty → the agent is told to hand off as before. |
+| `book_care_visit {date?, window?, starts_at?}` | The customer picks a time from the visit offer: the case is claimed `offered → booking`, the time re-checked against the calendar (`defaultAgentServices.checkAvailability`), then booked (below). Taken → back to `offered` with fresh alternatives. A repeat of the same call doesn't book twice. |
+
+Prompt notes: answer a check-in with `record_job_feedback`; problems with past work → `check_warranty` first, never say covered / free, never promise a visit; a pick from a visit offer → `book_care_visit`, never `book_slot`; never ask for a review. The front desk's own rule ("hand off warranty claims", "never promise warranties") is unchanged: the tools only add the owner's question, and hand off whenever nothing is under warranty. A house org (role off) gets none of the tools or notes.
+
+### Care cases (`cases.ts`)
+
+`care_cases`: kind `complaint | callback | warranty`, status `open → scheduled → resolved | closed`, `opened_via checkin | sms_agent | owner`, the rating and the customer's words, the job, the owner's choice (`followup visit | call | none | expired`, claimed once), the visit offer (`visit_kind`, `visit_stage offered | booking | booked | owner_calls`, `offered_slots`), the owner alert and its approvals.
+
+**One owner text, two codes.** A low rating creates two `care_followup` approvals (visit, call). They're inserted already "notified" to nobody, so the approvals sweep never texts them one by one and a "Y" can't land on them yet. The case's alert carries both codes; once it went out (08:00–21:00, verified cell, owner-alert budget) both rows are stamped `notified_to` the owner's phone, so "Y 1" / "Y 2" / "N 1" work like any approval. At night the alert waits (`owner_alert_status pending`) for the outbox sweep at 08:00; an alert whose approvals were all decided in the app first is dropped. If creating the approvals fails, the owner still gets a plain heads-up.
+
+### Approval kinds (`approvals.ts`)
+
+| Kind | Asked by | Owner text | Y | N / expiry |
+| --- | --- | --- | --- | --- |
+| `care_followup` (48 h, expiry inside 09:00–20:00) | `record_job_feedback`, two rows per case, one text (above) | `Dana Jones rated the roof replacement job 2/5: "…". Y 1 books a callback visit (I'll text them times). Y 2 texts them "Mike will call you today." N 1 to leave it.` (each row's own summary: `… Y books a callback visit (I'll text them times).` / `… Y texts them "Mike will call you today."`; reply lines `Reply Y 1 for the visit, N 1 to leave it.` / `Reply Y 2 for the call, N 2 to leave it.`) | visit row → the times text (`offerVisit`); call row → "Mike will call you today about …" + owner takeover. The other row is superseded. | N: nothing sent, case open. Expiry: nothing sent; the owner gets "No answer on #1, so nothing was sent to Dana Jones. Their case stays open - text "care status" to see it." (08:00–21:00). |
+| `warranty_claim` (48 h) | `check_warranty`, through `notifyOwnerOfApproval` (quiet hours respected) | `Dana Jones says "the roof leaks" (job May 4, 2026; 12-month workmanship warranty to May 4, 2027). Y books a no-charge warranty visit (I'll text them times), N and I'll tell them you'll call.` + `Reply Y 3 to book it, N 3 and I'll tell them you'll call.` (equipment: `(Lennox EL296 installed Nov 2, 2025; manufacturer warranty to Nov 2, 2035)`) | the no-charge visit times text | N: "Hi Dana, it's Northshore Roofing. Mike will give you a call about …" + takeover; owner: "OK - I told Dana Jones you'll give them a call. Their number: …". Expiry: the same customer text, and the owner is told. |
+
+Idempotent: the first decision claims the case (`followup_decided_at is null → set`) before anything is sent; a repeat answers "Already handled: …". Neither kind takes a note (a price note is refused by the owner channel as for every non-price kind). A case already resolved / closed sends nothing.
+
+### Visits (`visits.ts`)
+
+- **Offer:** the owner's Y texts the customer the first 2–3 open times from the business's own calendar — the SMS agent's availability (`defaultAgentServices.checkAvailability`: booking windows via `availabilityForTenant`, else hourly online-booking times), the same core as `check_availability` and the phone. No cell / opted out / no business number → the owner is told to call. No open times (no online booking, a full calendar) → the customer gets "Mike will call you to set up a time…", the owner is told, the conversation is the owner's.
+- **Booking** (`book_care_visit`): a NEW booking, service role, mirroring the agent's own booking insert — title `Callback: Roof replacement (Dana Jones)` / `Warranty visit: …`, `status pending`, `source 'customer_care'`, the window (or the hourly slot length), a description saying it's no charge — then `care_case_bookings` (unique `booking_id`; if the link can't be written the booking is cancelled, so no unlinked visit can ever be invoiced), the case `scheduled / booked`, `booking.created` emitted (reminders work as usual), the owner told (08:00–21:00).
+- **Never auto-invoiced:** `invoices/auto.ts` asks `care-visit.ts isCareVisitBooking` (one service-role read of `care_case_bookings`, pinned to the booking's org and id; any error → false) and skips with "a no-charge callback / warranty visit". Every other job, A1's included, is invoiced exactly as before (tested).
+- Texts after hours (the owner answered at 22:00) wait in the outbox for 09:00 ("It's late, so I'll text Dana Jones times … at 9am tomorrow").
+
+### Customer texts (`outbox.ts`)
+
+Every case text is a `care_messages` row (unique company + kind + dedupe key = the case), claimed `queued → sending` before `deliverMessage`, from the company's own number only, 09:00–20:00 local (else `not_before` = the next 09:00 and the `customer_care:outbox` sweep sends it after checking the case is still open and, for an offer, still offered; older than 3 days → skipped). CASL: they answer the customer's own message about their job — `consentContact` with the latest finished job as `last_purchase_at`; an opt-out always wins. `message_log.sent_by = 'customer_care'`. A row stuck `sending` for 10 minutes is marked failed, never re-sent.
+
+### Warranty (`warranty.ts`)
+
+- Default workmanship warranty in Settings (`warranty.months`, default 12; 0 = none; optional terms text). Per price-list item override in `warranty_terms` (months, terms).
+- Each finished job (planning sweep) gets a `job_warranties` row: the booking's own price-list item plus its quote's services (`input_snapshot.services`) → the longest override among them, else the default; starts on the job's local day, ends `months` later (end-of-month clamped). Callback / warranty visits don't start a new warranty.
+- `installed_equipment` (make, model, serial, installed, manufacturer warranty end, the customer, optionally the job): Settings or the owner's `add_equipment`.
+
+### Owner tools (`owner-tools.ts`)
+
+| Tool | Does |
+| --- | --- |
+| `care_status` | Open cases (who, phone, unhappy / warranty claim / callback, rating, their words, where it stands), check-ins and answers in the last 30 days, the average rating, upcoming care visits. Customer words quoted as data. |
+| `warranty_lookup` | `customer` (name or phone, this company only) → their jobs with warranty dates and terms, and their equipment with manufacturer warranty dates. "Whether you cover something is your call." |
+| `resolve_case` | `customer`, `outcome resolved | closed`, optional note → marks their open cases and withdraws any pending question about them. |
+| `add_equipment` | `customer`, make / model, serial, installed, manufacturer warranty end (YYYY-MM-DD) → saved. Not customer-facing, so no approval. |
+
+### Settings
+
+`companies.ai_settings.customer_care`, read only by `settings.ts readCustomerCareSettings`:
+
+```
+customer_care = {
+  enabled,                                            // CrankLeads on, house orgs off unless switched on
+  checkins: { enabled: true, time: "10:00",           // 09:00–19:00 local
+              delay_days: 1, min_job_cents: 0 },      // 1–7 days; 0 = every job
+  warranty: { months: 12, terms: null },              // 0–600 months
+  any_on                                              // written by mergeCustomerCareSettings: the sweeps' filter for house orgs
+}
+```
+
+Route `GET | PATCH | POST /api/organizations/:org/companies/:company/ai-settings/customer-care`: members read (settings, the numbers, warranty overrides, equipment); the open cases only for owners/admins. Owners/admins PATCH `{ enabled?, checkins?: { enabled, time, delayDays, minJobCents }, warranty?: { months, terms } }` (strict; merged into `ai_settings.customer_care` only via `updateAiSettings`) and POST `{ action: "save_term", catalogItemId, months | null }`, `{ action: "save_equipment", equipment: { customer, make, model, serial, installedOn, warrantyEnds, notes } }`, `{ action: "remove_equipment", equipmentId }`, `{ action: "resolve_case", caseId, outcome }`.
+
+UI: on/off, a note when the texting assistant is off, the 30-day numbers, check-ins (on/off, the next day … at …, skip jobs under $…), the default warranty + terms, per-service overrides, installed equipment (add / remove), open cases with **Resolved** / **Close**.
+
+### Schema (`20261014110000_staff_customer_care.sql`)
+
+- `warranty_terms` (unique per company + item), `job_warranties` (unique `booking_id`), `installed_equipment`, `care_case_bookings` (unique `booking_id`): members read.
+- `care_checkins` (unique `booking_id`; rating 1–5), `care_cases` (one case per check-in answer, one open warranty claim per customer — partial unique indexes): owners/admins read (customers' complaints).
+- `care_messages` (unique company + kind + dedupe key): service role only.
+- RLS on all seven, composite FKs to `companies (id, organization_id)`, no client writes, `updated_at` triggers. No column is added to `bookings`. Rollback withdraws pending `care_followup` / `warranty_claim` approvals, then drops the tables (visits stay on the calendar as ordinary bookings). SQL checks: `scripts/sql-tests/zz_customer_care.test.sql`. Local types: `staff/customer-care/db-types.ts`.
+
+### Env
+
+None of its own, and no model calls: every text is built in code; replies are read by the SMS agent's own model. Uses Twilio (`TWILIO_*`, `PLATFORM_SMS_NUMBER`) like the rest of the front desk.
+
+### Sweeps
+
+`customer_care:jobs` (5 min), `customer_care:checkins` (5 min), `customer_care:outbox` (2 min). Companies are loaded at most once a minute per worker (`loadCareCompanies`: every CrankLeads company with the role and the SMS agent on, plus house-org companies with `any_on`, filtered at the query).
+
+### Shared files edited
+
+`invoices/auto.ts` (the care-visit skip, 3 lines), `front-desk/approval-text.ts` (`replyInstruction` lines for `care_followup` and `warranty_claim`).
+
+### Tests
+
+`src/test/staff-customer-care.test.ts` (fake DB, real services; Twilio and the calendar faked): settings and words, DST times, reply lines; the registry and gating (CrankLeads on, SMS agent off → off, A1 off / opted in); check-ins (planned once, the 12-month warranty, sent once from the business number with `sent_by`, A1 untouched, per-service override, 0 months, the review clash moves the check-in and leaves the review row untouched, skips, never at night, no check-in for care visits); `record_job_feedback` (5/5 → nothing but thanks and the review rows unchanged; not a check-in answer; 2/5 → one case and ONE owner text with both codes, a second text adds to it; at night the alert and the codes wait for 08:00); **`care_followup` end to end through `handleOwnerInboundSms` → `decideApproval`** (Y visit → times → `book_care_visit` books the "Callback: …" visit linked to the case, owner told, idempotent; a taken time; Y call → text + takeover + the sibling superseded; N; expiry; a late Y waits for 9am; no open times); **`warranty_claim` end to end** (exact owner text, one open claim, Y → no-charge times → "Warranty visit: …" booking; N; expiry; nothing under warranty → hand off; equipment; A1 off); owner tools; briefing items (incl. a failed read → []); the Settings view and actions. `src/test/customer-care-route.test.ts`: the route (roles, strict PATCH, actions) and job done → invoice (a care visit skipped; other jobs and A1's invoiced; tolerant). `src/test/customer-care-settings-section.test.tsx`: the Settings section.
+
+### Not yet
+
+- Check-ins go by SMS only (no email for customers without a cell).
+- A job whose price is unknown (no `price_cents`, no quote) is skipped when a minimum job size is set.
+- The owner's Y on a visit offers the next 2–3 open times only; "after 3pm" or a specific day goes through the conversation (the customer asks, the assistant hands off).
+- A visit booked by `book_care_visit` is `pending` like every assistant booking; the owner confirms it in the app.
+- A held owner alert whose worker crashed mid-send is re-sent once (better twice than never: the codes ride on it).
+- No ownerMedia handler (no photos needed).
+
 ## Profit advisor
 
 ## Fleet & equipment
