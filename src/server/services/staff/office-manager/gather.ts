@@ -23,6 +23,7 @@ import { crewPlanForDay, shortAddress, type CrewJob } from "@/server/services/st
 import { isOpenJob, loadJobs, serviceLabels } from "@/server/services/staff/dispatcher/jobs";
 import { isWeatherSensitiveJob } from "@/server/services/staff/dispatcher/settings";
 import { dayLabel, localDate, localDayRange, zonedInstant } from "@/server/services/staff/dispatcher/time";
+import { staffBriefingItems } from "./staff-items";
 import { assessWindow, defaultWeatherProvider, getCompanyForecast, weatherConfigured, type Forecast, type WeatherProvider } from "@/server/services/staff/dispatcher/weather";
 import { clock, type BriefingInput, type JobsPart, type MoneyPart, type SincePart, type WaitingPart, type WeatherDayPart, type WeatherPart } from "./compose";
 import type { Db } from "./db-types";
@@ -270,13 +271,14 @@ export async function gatherBriefing(admin: AdminClient, company: BriefingCompan
   const failed: BriefingPartName[] = [];
   // The fold is expected when the Bookkeeper's alert is on; an unreadable company counts as a failure.
   const foldWanted = options.fold && (!ctx || (ctx.settings.enabled && ctx.settings.dailyAlert));
-  const [jobs, weather, money, fold, waiting, since] = await Promise.all([
+  const [jobs, weather, money, fold, waiting, since, staff] = await Promise.all([
     tolerant("jobs", co, () => jobsPart(admin, company, today)),
     tolerant("weather", co, () => weatherPart(admin, company, today, nowMs, deps)),
     tolerant("money", co, () => moneyPart(admin, company, today, window)),
     foldWanted && ctx ? tolerant("money alert", co, () => foldPart(admin, ctx, nowMs)) : Promise.resolve(null),
     tolerant("approvals", co, () => waitingPart(admin, company, nowMs)),
     tolerant("activity", co, () => sincePart(admin, company, window)),
+    tolerant("staff", co, () => staffBriefingItems(admin, { organizationId: company.organizationId, companyId: co, timeZone: tz }, today)),
   ]);
   if (!jobs) failed.push("jobs");
   if (!waiting) failed.push("approvals");
@@ -295,6 +297,7 @@ export async function gatherBriefing(admin: AdminClient, company: BriefingCompan
       fold: fold?.groups.map((g) => g.line) ?? [],
       waiting: waiting?.part ?? null,
       since,
+      staff: staff ?? [],
       unreadable: { jobs: !jobs, waiting: !waiting },
     },
     details: { jobs: jobs?.details ?? [], weather: weather?.details ?? [], owing: money?.details ?? [], waiting: waiting?.details ?? [] },

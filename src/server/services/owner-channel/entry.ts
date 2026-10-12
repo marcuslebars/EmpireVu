@@ -1,13 +1,15 @@
 import type { Json, Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import type { AdminClient, InboundOwnerSms } from "@/server/services/front-desk/contracts";
-import { ANYWAY_NOTE_KINDS, PRICE_NOTE_KINDS } from "@/server/services/front-desk/approval-text";
+import { ANYWAY_NOTE_KINDS, PRICE_NOTE_KINDS, TEXT_NOTE_KINDS } from "@/server/services/front-desk/approval-text";
 import { SHORT_CODE_REUSE_MS } from "@/server/services/front-desk/approvals";
 import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
 import { runOwnerCommandAgent } from "./agent";
-import { decideApproval, isExpired, listLine, looksLikeApprovalAttempt, parseApprovalReply, type ParsedApprovalReply } from "./approvals";
+import { orderNoteFits } from "@/server/services/staff/purchasing/notes";
+import { decideApproval, isExpired, listLine, looksLikeApprovalAttempt, parseApprovalReply, parseTextNoteReply, type ParsedApprovalReply } from "./approvals";
 import { consumeLimit, findOwnerCompanies, sameOwnerPhone, sendOwnerSms, type OwnerCompany } from "./common";
 import { CONFIRM_CODE_RE, confirmationMatches, MAX_CONFIRM_ATTEMPTS, OWNER_COMMAND_KIND } from "./owner-commands";
+import { ownerMediaHandlersFor } from "@/server/services/staff/registry";
 
 /** Texts per phone per hour we'll act on at all, and model-backed commands per hour. */
 const OWNER_SMS_PER_HOUR = 60;
@@ -207,7 +209,7 @@ async function handleApproval(
 
   // A note is a price (or "anyway" for payroll); on a kind that can't take it, ask rather than drop it.
   const anyway = parsed.note === "anyway";
-  if (parsed.note && target.status === "pending" && !(anyway ? ANYWAY_NOTE_KINDS : PRICE_NOTE_KINDS).has(target.kind)) {
+  if (parsed.note && target.status === "pending" && !(parsed.textNote ? TEXT_NOTE_KINDS : anyway ? ANYWAY_NOTE_KINDS : PRICE_NOTE_KINDS).has(target.kind)) {
     const code = target.short_code ?? "?";
     return {
       intent: "approval_note_not_allowed",
@@ -234,6 +236,20 @@ async function handleApproval(
 async function anywayApplies(admin: AdminClient, phone: string, scope: OwnerCompany[], code: number | null, nowMs: number): Promise<boolean> {
   const asked = await approvalsAskedOf(admin, scope.map((c) => c.companyId), phone, nowMs);
   return asked.some((p) => p.status === "pending" && !isExpired(p, nowMs) && ANYWAY_NOTE_KINDS.has(p.kind) && (code == null || p.short_code === code));
+}
+
+/**
+ * Does "Y 12 <words>" go to a TEXT_NOTE_KINDS approval (materials_order) asked of this phone? With a
+ * code: that code's pending row is one. Without: it's the only thing waiting. Either way the words
+ * must read in full as a note on that order (staff/purchasing/notes.ts) — otherwise the text takes
+ * the old did-you-mean / command path.
+ */
+async function textNoteApplies(admin: AdminClient, phone: string, scope: OwnerCompany[], parsed: ParsedApprovalReply, nowMs: number): Promise<boolean> {
+  const asked = await approvalsAskedOf(admin, scope.map((c) => c.companyId), phone, nowMs);
+  const live = asked.filter((p) => p.status === "pending" && !isExpired(p, nowMs) && p.kind !== OWNER_COMMAND_KIND);
+  const target = parsed.code != null ? live.find((p) => p.short_code === parsed.code) : live.length === 1 ? live[0] : null;
+  if (!target || !TEXT_NOTE_KINDS.has(target.kind) || !parsed.note) return false;
+  return orderNoteFits(admin, target, parsed.note);
 }
 
 /**
@@ -346,6 +362,31 @@ export async function handleOwnerInboundSms(admin: AdminClient, sms: InboundOwne
   return { handled: true };
 }
 
+async function runOwnerMediaHandlers(admin: AdminClient, sms: InboundOwnerSms, company: OwnerCompany, body: string, logId: string, nowMs: number): Promise<Outcome | null> {
+  let handlers: Awaited<ReturnType<typeof ownerMediaHandlersFor>>;
+  try {
+    handlers = await ownerMediaHandlersFor(admin, { organizationId: company.organizationId, companyId: company.companyId });
+  } catch {
+    return null;
+  }
+  for (const { role, handler } of handlers) {
+    try {
+      const res = await handler.run(admin, {
+        scope: { organizationId: company.organizationId, companyId: company.companyId, companyName: company.name, timeZone: company.timeZone },
+        ownerPhone: sms.from,
+        body,
+        media: sms.media,
+        logId,
+        nowMs,
+      });
+      if (res) return { intent: res.intent ?? `media:${role}`, reply: res.reply, company, result: res.result };
+    } catch (err) {
+      console.error(`[owner-channel] ${role} media handler failed:`, err instanceof Error ? err.message : err);
+    }
+  }
+  return null;
+}
+
 async function route(admin: AdminClient, sms: InboundOwnerSms, owned: OwnerCompany[], logId: string, last10: string, nowMs: number): Promise<Outcome> {
   let body = sms.body.trim();
   let hint: OwnerCompany | null = sms.companyId ? owned.find((c) => c.companyId === sms.companyId) ?? null : null;
@@ -362,10 +403,6 @@ async function route(admin: AdminClient, sms: InboundOwnerSms, owned: OwnerCompa
     }
   }
 
-  if (!body && sms.media.length > 0) {
-    return { intent: "media_only", reply: "Got the picture — I can't do anything with photos here yet. Text me what you need.", company: hint };
-  }
-
   const codeMatch = CONFIRM_CODE_RE.exec(body);
   if (codeMatch) {
     const confirmed = await handleConfirmationCode(admin, sms, codeMatch[1], owned, nowMs);
@@ -376,10 +413,34 @@ async function route(admin: AdminClient, sms: InboundOwnerSms, owned: OwnerCompa
   // "Y anyway" / "Y 12 anyway" only means something for a pending payroll_period asked of this
   // phone (the Recruiter); otherwise the text goes down exactly the path it always did.
   if (parsed?.note === "anyway" && !(await anywayApplies(admin, sms.from, hint ? [hint] : owned, parsed.code, nowMs))) parsed = null;
+  // "Y 12 delivery" / "Y 12 no nails" only means something for a pending materials_order asked of
+  // this phone (Purchasing); otherwise the text goes down exactly the path it always did.
+  if (!parsed) {
+    const withWords = parseTextNoteReply(body);
+    if (withWords && (await textNoteApplies(admin, sms.from, hint ? [hint] : owned, withWords, nowMs))) parsed = withWords;
+  }
   if (parsed) return handleApproval(admin, sms, parsed, owned, hint, body, nowMs);
   if (looksLikeApprovalAttempt(body)) {
     const ask = await askDidYouMean(admin, sms, owned, hint, nowMs);
     if (ask) return ask;
+  }
+
+  if (sms.media.length > 0) {
+    // Photos/PDFs for AI staff (staff/types.ts ownerMedia), after approvals and codes so a "Y 12"
+    // with a photo stays an approval. Only when the business is clear; with no handler (house
+    // orgs) this is exactly the old path.
+    let mediaCompany = hint ?? (owned.length === 1 ? owned[0] : null) ?? (body ? companyNamedIn(body, owned) : null);
+    if (!mediaCompany) {
+      const recent = await recentCompanyId(admin, sms.from, logId, nowMs);
+      mediaCompany = owned.find((c) => c.companyId === recent) ?? null;
+    }
+    if (mediaCompany) {
+      const handled = await runOwnerMediaHandlers(admin, sms, mediaCompany, body, logId, nowMs);
+      if (handled) return handled;
+    }
+    if (!body) {
+      return { intent: "media_only", reply: "Got the picture — I can't do anything with photos here yet. Text me what you need.", company: hint };
+    }
   }
 
   // A command: pick the business, then let the agent work.

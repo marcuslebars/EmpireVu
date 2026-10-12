@@ -10,6 +10,10 @@ import { ImporterSettingsSection } from "@/components/settings/staff/ImporterSet
 import { OfficeManagerSettingsSection } from "@/components/settings/staff/OfficeManagerSettingsSection";
 import { PortingSettingsSection } from "@/components/settings/staff/PortingSettingsSection";
 import { RecruiterSettingsSection } from "@/components/settings/staff/RecruiterSettingsSection";
+import { TaxClerkSettingsSection } from "@/components/settings/staff/TaxClerkSettingsSection";
+import { ServicePlansSettingsSection } from "@/components/settings/staff/ServicePlansSettingsSection";
+import { ComplianceSettingsSection } from "@/components/settings/staff/ComplianceSettingsSection";
+import { PurchasingSettingsSection } from "@/components/settings/staff/PurchasingSettingsSection";
 
 /**
  * The sections that follow "Text conversations" in Settings → AI front desk, in order:
@@ -38,4 +42,8 @@ export const AI_FRONT_DESK_SECTIONS: AiFrontDeskSlot[] = [
   { id: "importer", render: (props) => <ImporterSettingsSection {...props} /> },
   { id: "porting", render: (props) => <PortingSettingsSection {...props} /> },
   { id: "recruiter", render: (props) => <RecruiterSettingsSection {...props} /> },
+  { id: "tax-clerk", render: (props) => <TaxClerkSettingsSection {...props} /> },
+  { id: "service-plans", render: (props) => <ServicePlansSettingsSection {...props} /> },
+  { id: "compliance", render: (props) => <ComplianceSettingsSection {...props} /> },
+  { id: "purchasing", render: (props) => <PurchasingSettingsSection {...props} /> },
 ];

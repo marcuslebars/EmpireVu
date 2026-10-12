@@ -28,6 +28,8 @@ export interface ParsedApprovalReply {
   code: number | null;
   /** Only ever a price ("$700", "but 700 + HST"), or "anyway" (payroll_period) — anything else isn't a decision. */
   note: string | null;
+  /** Set by parseTextNoteReply: words for a TEXT_NOTE_KINDS approval ("delivery", "no nails"). */
+  textNote?: true;
 }
 
 const YES_WORDS = ["y", "yes", "yep", "yup", "yeah", "ok", "okay", "approve", "approved"];
@@ -61,6 +63,24 @@ export function parseApprovalReply(body: string): ParsedApprovalReply | null {
   // "Y 700 + HST" — the digits were the price, not a code.
   if (code != null && parseOwnerNote(`${withNote[2]} ${rest}`).kind === "price") return { approved: true, code: null, note: `${withNote[2]} ${rest}` };
   return null;
+}
+
+/**
+ * "Y 12 delivery" / "Y 12 no nails": a yes-word + optional code + words that aren't a price or
+ * "anyway". Only a decision where a TEXT_NOTE_KINDS approval (materials_order) waits on this
+ * phone — owner-channel/entry.ts checks that; otherwise the text takes the path it always did.
+ * PURE.
+ */
+export function parseTextNoteReply(body: string): ParsedApprovalReply | null {
+  const text = (body ?? "").trim();
+  if (parseApprovalReply(text) || text.includes("?") || text.length > 200) return null;
+  // "ok move Jones to Friday" / "OK send Jones the invoice" stay commands.
+  if (!looksLikeApprovalAttempt(text)) return null;
+  const withNote = WITH_NOTE_RE.exec(text);
+  if (!withNote || !YES_WORDS.includes(withNote[1].toLowerCase())) return null;
+  const rest = withNote[3].trim();
+  if (!rest || QUESTION_OR_IDIOM.test(rest) || /^(thanks|thank you|thx|ty|cheers|sounds good|great|perfect|cool|got it)\b/i.test(rest)) return null;
+  return { approved: true, code: withNote[2] ? Number.parseInt(withNote[2], 10) : null, note: rest, textNote: true };
 }
 
 const QUESTION_OR_IDIOM = /^(what|what's|whats|who|who's|when|where|how|why|is|are|do|does|can|could|any|worries|problem|prob|way|idea|clue|rush)\b/i;

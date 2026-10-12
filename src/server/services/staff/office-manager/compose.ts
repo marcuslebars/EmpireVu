@@ -72,6 +72,8 @@ export interface BriefingInput {
   fold: string[];
   waiting: WaitingPart | null;
   since: SincePart | null;
+  /** Heads-ups from other AI staff (staff-items.ts), most urgent first. */
+  staff?: string[];
   /** Parts whose read failed: never claim "no jobs" / "nothing waiting" for them. */
   unreadable?: { jobs?: boolean; waiting?: boolean };
   /** Septets available (612 minus the platform prefix). */
@@ -217,6 +219,7 @@ export function composeBriefing(input: BriefingInput): ComposedBriefing {
     !weatherLine(input.weather) &&
     !moneyLine(input.money, input.periodPhrase) &&
     input.fold.length === 0 &&
+    (input.staff ?? []).length === 0 &&
     !waitingLine(input.waiting) &&
     !sinceLine(input.since);
   if (quiet) {
@@ -225,7 +228,8 @@ export function composeBriefing(input: BriefingInput): ComposedBriefing {
   }
 
   // Reductions, applied in order until the text fits.
-  const state = { waitClip: 55, waitItems: 3, since: true, crew: true, fold: input.fold.length, tomorrow: true };
+  const staff = (input.staff ?? []).map((line) => sentence(line));
+  const state = { waitClip: 55, waitItems: 3, since: true, crew: true, fold: input.fold.length, tomorrow: true, staff: staff.length };
   const build = () =>
     gsmPlain(
       [
@@ -234,6 +238,7 @@ export function composeBriefing(input: BriefingInput): ComposedBriefing {
         weatherLine(input.weather, state.tomorrow),
         moneyLine(input.money, input.periodPhrase),
         ...input.fold.slice(0, state.fold),
+        ...staff.slice(0, state.staff),
         unreadableWaiting ? 'Approvals: couldn\'t load them - text "waiting".' : waitingLine(input.waiting, state.waitItems, state.waitClip),
         state.since ? sinceLine(input.since) : null,
         REPLY_HINT,
@@ -245,9 +250,12 @@ export function composeBriefing(input: BriefingInput): ComposedBriefing {
     () => (state.waitClip > 32 ? ((state.waitClip = 32), true) : false),
     () => (state.waitItems > 1 ? ((state.waitItems = 1), true) : false),
     () => (state.since ? ((state.since = false), true) : false),
+    () => (state.staff > 2 ? ((state.staff = 2), true) : false),
     () => (state.crew ? ((state.crew = false), true) : false),
     () => (state.tomorrow ? ((state.tomorrow = false), true) : false),
     () => (state.waitItems > 0 ? ((state.waitItems = 0), true) : false),
+    () => (state.staff > 1 ? ((state.staff = 1), true) : false),
+    () => (state.staff > 0 ? ((state.staff = 0), true) : false),
   ];
   let text = build();
   for (const step of steps) {

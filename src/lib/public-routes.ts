@@ -23,6 +23,7 @@ const PUBLIC_PATHS: RegExp[] = [
   /^\/import\/[^/]+\/?$/, // customer import from the owner's texted link — no login
   /^\/forward\//, // done-for-you one-tap call forwarding (from the owner's "last step" text)
   /^\/port\/[^/]+\/?$/, // keep your number: the owner's port form (texted) — no login
+  /^\/compliance\/upload\/[^/]+\/?$/, // compliance: a sub's upload link (texted / emailed) — no login
   // Set-password / recovery links (incl. the CrankLeads welcome email). The page verifies
   // the link's token itself and sends a visitor without one to sign-in.
   /^\/update-password\/?$/,

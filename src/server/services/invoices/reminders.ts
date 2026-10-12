@@ -29,6 +29,7 @@ import { addDays, daysBetween, dueReminderIndex, isOpenStatus } from "./math";
 import { sendInvoiceReminderEmail } from "./notify";
 import { parseInvoiceSettings, type InvoiceSettings } from "./settings";
 import { isCollectionsHold } from "@/server/services/staff/bookkeeper/hold";
+import { isPendingPlanInvoice } from "@/server/services/staff/service-plans/prepaid";
 
 export interface ReminderSweepResult {
   scanned: number;
@@ -69,6 +70,9 @@ export async function sweepInvoiceReminders(now = new Date(), limit = 1000): Pro
     const today = todayFor(company, now);
     const daysOverdue = daysBetween(inv.due_date, today);
     if (daysOverdue <= 0) continue;
+
+    // A service plan's sign-up / renewal invoice waiting on the customer isn't late (staff/service-plans).
+    if (inv.reminders_paused && (await isPendingPlanInvoice(db, inv.organization_id, inv.id))) continue;
 
     // 1. invoice.overdue, once.
     const { data: prior } = await db

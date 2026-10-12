@@ -29,6 +29,8 @@ import { getQuotesConfig } from "@/server/services/quotes/config";
 import { getPlatformStripe } from "@/server/services/quotes/company-stripe";
 import { syncConnectedAccountState } from "@/server/services/quotes/connect";
 import { enforceWebhookBackstop } from "@/server/services/rate-limit";
+import { onPlanCheckoutCompleted, onPlanInvoicePayment } from "@/server/services/staff/service-plans/agreements";
+import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -84,8 +86,18 @@ export async function POST(request: Request): Promise<NextResponse> {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
         // Invoice payments (card: paid now; bank debit: processing → pending row).
+        // A service plan's own Checkout (sign-up / renewal): issue its draft invoice, record the
+        // payment like any invoice payment, start / renew the plan.
+        if (session.metadata?.plan_agreement_id && session.metadata?.invoice_id) {
+          const result = await onPlanCheckoutCompleted(createSupabaseAdminClient(), session, accountId, (s) => handleInvoiceCheckoutCompleted(s, event.id, accountId));
+          logInvoice(event, accountId, result);
+          break;
+        }
         if (session.metadata?.invoice_id) {
-          logInvoice(event, accountId, await handleInvoiceCheckoutCompleted(session, event.id, accountId));
+          const result = await handleInvoiceCheckoutCompleted(session, event.id, accountId);
+          logInvoice(event, accountId, result);
+          // A service plan's sign-up / renewal invoice paid → start / renew the plan (never throws).
+          if (result.outcome === "applied") await onPlanInvoicePayment(createSupabaseAdminClient(), result.invoiceId);
           break;
         }
         if (!getQuotesConfig().enabled) break;
@@ -106,7 +118,9 @@ export async function POST(request: Request): Promise<NextResponse> {
         const session = event.data.object as Stripe.Checkout.Session;
         if (!session.metadata?.invoice_id) break;
         const result = event.type === "checkout.session.async_payment_succeeded" ? "succeeded" : "failed";
-        logInvoice(event, accountId, await handleInvoiceAsyncPayment(session, event.id, accountId, result));
+        const outcome = await handleInvoiceAsyncPayment(session, event.id, accountId, result);
+        logInvoice(event, accountId, outcome);
+        if (result === "succeeded" && outcome.outcome === "applied") await onPlanInvoicePayment(createSupabaseAdminClient(), outcome.invoiceId);
         break;
       }
 

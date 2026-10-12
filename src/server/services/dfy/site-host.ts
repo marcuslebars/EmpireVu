@@ -41,6 +41,7 @@ const PASSTHROUGH = [/^\/api\/public\/forms\//, /^\/_next\//, /^\/favicon\.ico$/
  *   pages host + "/acme-snow"  → "/s/acme-snow"
  *   pages host + "/"           → "/s/_"  (the route's neutral 404 — no slug can be "_")
  *   pages host + "/acme-snow/jobs" (+ "/<job id>") → "/s/acme-snow/jobs…" (the Recruiter's jobs pages)
+ *   pages host + "/acme-snow/plans" (+ "/<plan id>" | "/renew/<token>") → "/s/acme-snow/plans…" (Service plans)
  *   pages host + "/a/b"        → "/s/_"
  *   any other host             → null
  */
@@ -50,6 +51,8 @@ export function pagesRewritePath(host: string | null, pathname: string, pagesBas
   if (PASSTHROUGH.some((re) => re.test(pathname))) return null;
   const m = pathname.match(/^\/([a-z0-9-]{1,62})\/?$/);
   if (m) return `/s/${m[1]}`;
+  const plans = pathname.match(/^\/([a-z0-9-]{1,62})\/plans(\/[0-9a-f-]{36}|\/renew\/[a-f0-9]{32})?\/?$/);
+  if (plans) return `/s/${plans[1]}/plans${plans[2] ?? ""}`;
   const jobs = pathname.match(/^\/([a-z0-9-]{1,62})\/jobs(\/[0-9a-f-]{36})?\/?$/);
   return jobs ? `/s/${jobs[1]}/jobs${jobs[2] ?? ""}` : "/s/_";
 }

@@ -10,11 +10,11 @@
  */
 import type Anthropic from "@anthropic-ai/sdk";
 
-import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } from "@/server/services/front-desk/contracts";
+import type { AdminClient, ApprovalDecision, ExecuteResult, InboundMedia, OwnerApprovalRow } from "@/server/services/front-desk/contracts";
 import type { AgentTool } from "@/server/services/sms-agent/tools";
 import type { ToolRunState } from "@/server/services/owner-channel/tools";
 
-export type StaffRole = "estimator" | "bookkeeper" | "dispatcher" | "marketer" | "office_manager" | "importer" | "porting" | "recruiter";
+export type StaffRole = "estimator" | "bookkeeper" | "dispatcher" | "marketer" | "office_manager" | "importer" | "porting" | "recruiter" | "tax_clerk" | "service_plans" | "compliance" | "purchasing";
 
 /**
  * Runs an owner_approvals row of a kind the role owns, once the owner decided (Y / N / expiry).
@@ -59,8 +59,40 @@ export interface StaffRoleModule {
    * a role without it counts as on.
    */
   activeFor?: (admin: AdminClient, scope: { organizationId: string; companyId: string }) => Promise<boolean>;
+  /**
+   * Photos/PDFs the OWNER texts to the platform number (a receipt, an insurance certificate…).
+   * Asked in staffRoles() order, only for roles active for the company; the first non-null
+   * result is the reply. Return null to pass. Must never throw. Without a handler (house orgs,
+   * every role that leaves this unset) the owner channel behaves exactly as before.
+   */
+  ownerMedia?: OwnerMediaHandler;
 }
 
 export function emptyRole(role: StaffRole): StaffRoleModule {
   return { role, approvalExecutors: {}, agentTools: [], agentPromptNotes: [], ownerTools: [], ownerPromptNotes: [], sweeps: [] };
+}
+
+/** What an ownerMedia handler sees: one owner text that carried media, already tied to a company. */
+export interface OwnerMediaInput {
+  scope: { organizationId: string; companyId: string; companyName: string; timeZone: string };
+  ownerPhone: string;
+  /** The text that came with the media ("" when it was only a picture). */
+  body: string;
+  /** Twilio media (fetch with sms-agent/media.ts helpers; Twilio auth + SSRF guard). */
+  media: InboundMedia[];
+  /** owner_command_log id, also the idempotency key (Twilio may redeliver; the log dedupes). */
+  logId: string;
+  nowMs: number;
+}
+
+export interface OwnerMediaResult {
+  /** Text sent back to the owner from the platform number. */
+  reply: string;
+  /** owner_command_log.intent; defaults to `media:<role>`. */
+  intent?: string;
+  result?: Record<string, unknown>;
+}
+
+export interface OwnerMediaHandler {
+  run(admin: AdminClient, input: OwnerMediaInput): Promise<OwnerMediaResult | null>;
 }

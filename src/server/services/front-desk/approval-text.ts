@@ -22,6 +22,13 @@ export const PRICE_NOTE_KINDS = new Set<string>(["custom_price", "send_quote", "
 /** Kinds where "Y 12 anyway" means something (payroll_period: lock with open time entries). */
 export const ANYWAY_NOTE_KINDS = new Set<string>(["payroll_period"]);
 
+/**
+ * Kinds where "Y 12 <words>" means something (materials_order: "Y 12 delivery", "Y 12 no nails").
+ * Only a decision when one of these waits on the owner's phone (owner-channel/entry.ts); the kind's
+ * executor reads the words and asks again when it can't.
+ */
+export const TEXT_NOTE_KINDS = new Set<string>(["materials_order"]);
+
 export interface ApprovalLine {
   label: string;
   amountCents: number;
@@ -141,6 +148,25 @@ export function replyInstruction(kind: ApprovalKind, code: number | null, payloa
       return `Reply Y${c} to post it, N${c} to skip.`;
     case "interview_invite":
       return `Reply Y${c} to text them, N${c} to skip.`;
+    // The Tax Clerk (docs/ai-staff.md → "Receipts & HST").
+    case "accountant_packet":
+      return `Reply Y${c} to email it, N${c} to skip.`;
+    // Service plans (docs/ai-staff.md → "Service plans").
+    case "plan_signup":
+      return `Reply Y${c} to start it, N${c} to skip.`;
+    case "plan_renewals":
+      return `Reply Y${c} to text them, N${c} to skip.`;
+    // Compliance (docs/ai-staff.md → "Compliance").
+    case "request_sub_docs":
+      return payload.channel === "email" ? `Reply Y${c} to email them the link, N${c} to skip.` : `Reply Y${c} to text them the link, N${c} to skip.`;
+    case "share_compliance_doc":
+      return `Reply Y${c} to send it, N${c} to skip.`;
+    // Purchasing (docs/ai-staff.md → "Purchasing").
+    case "materials_order": {
+      const other = payload.fulfilment === "delivery" ? "pickup" : "delivery";
+      const item = typeof payload.exampleItem === "string" && /^[a-z]{3,14}$/.test(payload.exampleItem) ? payload.exampleItem : null;
+      return `Reply Y${c} to order it, Y${c} ${other} for ${other}${item ? `, Y${c} no ${item} to leave ${item} out` : ""}, N${c} to skip.`;
+    }
     default:
       return `Reply Y${c} to approve, N${c} to skip.`;
   }
