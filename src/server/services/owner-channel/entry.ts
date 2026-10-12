@@ -429,7 +429,7 @@ async function route(admin: AdminClient, sms: InboundOwnerSms, owned: OwnerCompa
     // Photos/PDFs for AI staff (staff/types.ts ownerMedia), after approvals and codes so a "Y 12"
     // with a photo stays an approval. Only when the business is clear; with no handler (house
     // orgs) this is exactly the old path.
-    let mediaCompany = hint ?? (owned.length === 1 ? owned[0] : null);
+    let mediaCompany = hint ?? (owned.length === 1 ? owned[0] : null) ?? (body ? companyNamedIn(body, owned) : null);
     if (!mediaCompany) {
       const recent = await recentCompanyId(admin, sms.from, logId, nowMs);
       mediaCompany = owned.find((c) => c.companyId === recent) ?? null;

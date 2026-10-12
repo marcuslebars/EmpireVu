@@ -118,4 +118,15 @@ describe("owner media hook", () => {
     await text("what's on tomorrow", []);
     expect(ownerMediaHandlersFor).not.toHaveBeenCalled();
   });
+
+  it("an owner with two businesses: the business named in the words wins over the one texted about recently", async () => {
+    db.tables.companies.push({ id: "co-2", organization_id: "org-1", name: "Lakeside Snow", timezone: "America/Toronto", owner_phone_e164: OWNER, owner_phone_verified_at: "2026-10-01T00:00:00Z", ai_settings: {} });
+    db.tables.companies[0].name = "Northshore Roofing";
+    db.tables.owner_command_log.push({ id: "log-old", from_phone: OWNER, phone: OWNER, company_id: "co-1", intent: "command", created_at: new Date(Date.now() - 60_000).toISOString(), provider_ref: "SMold" });
+    handlers = [{ role: "tax_clerk", handler: { run: handlerRun } }];
+    handlerRun.mockResolvedValue({ reply: "filed" });
+    await text("salt for Lakeside Snow");
+    expect((handlerRun.mock.calls[0][1] as { scope: { companyId: string } }).scope.companyId).toBe("co-2");
+  });
 });
+

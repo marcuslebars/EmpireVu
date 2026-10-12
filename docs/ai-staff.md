@@ -8,7 +8,7 @@ CrankLeads replaces everyone in the office except the owner. The AI front desk (
   - the owner-by-text agent (extra tools + prompt notes),
   - the approval runner (`owner-channel/approvals.ts` → the role's executor for its own kinds; the result is recorded on the row),
   - the scheduler (`runStaffSweeps`, each sweep throttled and isolated),
-  - photos/PDFs the owner texts in (`ownerMedia`): `owner-channel/entry.ts` asks the handlers of the roles active for that business (`ownerMediaHandlersFor`) in registry order, after approval replies and confirm codes, only when the business is clear. The first non-null reply wins; a handler that throws is skipped. With no handler (house orgs) a bare picture still gets "Got the picture…" and a picture with words still goes to the owner agent as text.
+  - photos/PDFs the owner texts in (`ownerMedia`): `owner-channel/entry.ts` asks the handlers of the roles active for that business (`ownerMediaHandlersFor`) in registry order, after approval replies and confirm codes, only when the business is clear (the one the text came in for, the only one, the one named in the words, else the one texted about in the last 12 hours). The first non-null reply wins; a handler that throws is skipped. With no handler (house orgs) a bare picture still gets "Got the picture…" and a picture with words still goes to the owner agent as text.
 - **Settings** — Settings → AI front desk, one section per role (`src/components/settings/staff/*`), each role its own `companies.ai_settings.<section>` key.
 
 Roles: Estimator, Bookkeeper, Dispatcher, Marketer — each section below is written by that role's builder.

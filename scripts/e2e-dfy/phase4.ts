@@ -676,19 +676,20 @@ async function main(): Promise<void> {
     setMark();
   });
 
-  await step("R3/C1. a photo with \"insurance certificate\" → the tax clerk passes (never read as a receipt), Compliance files it with its expiry and replies", async () => {
+  await step("R3/C1. a photo with \"insurance certificate\" → the tax clerk reads it, its reader says not a receipt, it passes; Compliance files it with its expiry and replies", async () => {
     const coi: Doc = { contentType: "image/jpeg", spec: { type: "cert", label: "coi", kind: "liability_insurance", title: "Commercial general liability", issuer: "Intact", number: "POL-7782214821", holder: "Northshore Snow & Lawn", issued: D(-327), expires: D(38) } };
     const before = (await db.from("receipt_texts").select("id").eq("company_id", dana.companyId!)).data?.length ?? 0;
     await text(dana.phone, PLATFORM, "insurance certificate", [coi]);
     const got = sinceMark();
     const reply = smsTo(got, dana.phone);
     console.log(`   owner: ${short(reply[0]?.body)}`);
-    check(readers(got, "receipt_reader").length === 0, "the receipt reader was never called");
+    check(readers(got, "receipt_reader").length === 1 && readers(got, "receipt_reader")[0].documentKind === "not_receipt", "the receipt reader said not_receipt (it reads even with certificate words)");
     check(readers(got, "compliance_reader").length === 1, "read once by the compliance reader");
     check(reply.length === 1 && reply[0].from === PLATFORM && new RegExp(`^(CrankLeads: )?Saved: liability insurance \\(Intact, policy \\.\\.\\.4821\\), expires ${esc(monYear(D(38)))}\\. I'll remind you 30 days before\\.$`).test(String(reply[0].body)), "the saved line (masked policy number, expiry, 30-day promise)");
     check(!String(reply[0]?.body).includes("7782214821"), "never the whole policy number");
     const after = (await db.from("receipt_texts").select("id").eq("company_id", dana.companyId!)).data?.length ?? 0;
-    check(after === before, "no receipt_texts row for it");
+    const { data: nr } = await db.from("receipt_texts").select("status").eq("company_id", dana.companyId!).eq("status", "not_receipt");
+    check(after === before + 1 && (nr ?? []).length === 1, "one receipt_texts row, not_receipt");
     const { data: ex } = await db.from("expenses").select("id").eq("company_id", dana.companyId!).gte("spent_on", D(-5));
     check((ex ?? []).length === 1, "no expense filed for the certificate");
     const { data: doc } = await db.from("compliance_documents").select("*").eq("company_id", dana.companyId!).eq("kind", "liability_insurance");
@@ -709,7 +710,7 @@ async function main(): Promise<void> {
     check(reply.length === 1 && /^(CrankLeads: )?Got the picture — I can't do anything with photos here yet\. Text me what you need\.$/.test(String(reply[0].body)), "\"Got the picture\" reply");
     check(readers(got, "receipt_reader").length === 1 && readers(got, "receipt_reader")[0].documentKind === "not_receipt", "the receipt reader said not_receipt");
     const { data: rt } = await db.from("receipt_texts").select("status").eq("company_id", dana.companyId!).eq("status", "not_receipt");
-    check((rt ?? []).length === 1, "receipt_texts: not_receipt");
+    check((rt ?? []).length === 2, "receipt_texts: not_receipt (the certificate's and this one)");
     const docsAfter = (await db.from("compliance_documents").select("id").eq("company_id", dana.companyId!)).data?.length ?? 0;
     check(docsAfter === docsBefore, "no compliance document");
     setMark();
@@ -1053,7 +1054,7 @@ async function main(): Promise<void> {
     setMark();
   });
 
-  await step("U2. other kinds' plain replies are unaffected while materials orders wait: a customer's insurance ask → \"N n\" declines it (customer told) and both materials orders stay pending", async () => {
+  await step("U2. other kinds' plain replies are unaffected while materials orders wait: a customer's insurance ask → \"N n\" declines it (the customer is NOT texted; the conversation goes to the owner) and both materials orders stay pending", async () => {
     await text(KIM.phone, dana.catcher!, "Do you have a certificate of insurance you can send me?");
     const appr = await latestApproval(dana.companyId!, "share_compliance_doc");
     check(appr?.status === "pending" && /Kim Ross/.test(appr?.summary ?? ""), `share question #${appr?.short_code} for Kim`);
@@ -1061,7 +1062,7 @@ async function main(): Promise<void> {
     await text(dana.phone, PLATFORM, `N ${appr?.short_code}`);
     const got = sinceMark();
     const toKim = smsTo(got, KIM.phone);
-    check(toKim.length === 1 && /^Hi Kim, it's Northshore Snow & Lawn\. We'll get back to you directly about the liability insurance certificate\./.test(String(toKim[0].body)), `Kim: "${short(toKim[0]?.body, 160)}"`);
+    check(toKim.length === 0, `no text to Kim on N (${toKim.length})`);
     const { data: a2 } = await db.from("owner_approvals").select("status").eq("id", appr?.id).single();
     check(a2?.status === "declined" || a2?.status === "rejected", `share approval ${a2?.status}`);
     const { data: pos } = await db.from("purchase_orders").select("status").eq("company_id", dana.companyId!);
@@ -1109,7 +1110,7 @@ async function main(): Promise<void> {
     check(new RegExp(`Pick up materials at Home Depot Pro \\(Barrie\\) for Smith \\(${ids.smithPo}\\)`).test(body), "heads-up: the materials pickup");
     check(new RegExp(`${hst.label} HST due in ${daysBetween(D(11), hst.due)} days \\(about \\$568\\.75\\)`).test(body), "heads-up: HST due");
     check(septets(body) <= 612, `≤ 612 GSM septets (${septets(body)})`);
-    check(!/[^\x00-\x7F]/.test(body), "plain ASCII");
+    check([...body].every((ch) => ch.charCodeAt(0) < 128), "plain ASCII");
     setMark();
   });
 
