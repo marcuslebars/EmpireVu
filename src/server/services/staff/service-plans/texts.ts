@@ -6,6 +6,12 @@ import { prettyPhone } from "@/server/services/front-desk/approval-text";
 import type { PlanBilling } from "./db-types";
 import { dayText, longDate, money, monthsText, partOfDay, priceText, shortDate, visitName } from "./schedule";
 
+/** The consent wording on the sign-up form; the version is stored with it (agreement + contact). */
+export const PLAN_CONSENT_VERSION = "plan-sms-v1";
+export function planConsentText(businessName: string): string {
+  return `Yes, ${businessName} may text me about my service plan (visit reminders and renewals) at the number above. Message and data rates may apply. Reply STOP to opt out. Consent is not a condition of purchase.`;
+}
+
 export function firstNameOf(name: string | null | undefined): string {
   const first = (name ?? "").trim().split(/\s+/)[0] ?? "";
   return /^\+?\d[\d\s()-]{6,}$/.test(first) ? "" : first;
@@ -104,16 +110,22 @@ export interface SignupSummaryInput {
   /** Annual plan with no online payment: Y also sends the first-year invoice. */
   sendsInvoice?: boolean;
   ownerAsked?: boolean;
+  /** The phone matched this existing customer, but they typed another name (customerName). */
+  matchedCustomer?: string | null;
+  /** The service address typed on the form (used only if the owner says Y). */
+  address?: string | null;
 }
 
 /** "New plan sign-up: Dana Jones (705-555-0123), Spring + Fall Lawn Care $420/yr (May + Oct). Y starts the plan, books the visits (first: Tue May 4) and texts them to confirm." */
 export function signupSummary(input: SignupSummaryInput): string {
   const phone = prettyPhone(input.customerPhone);
-  const who = phone && phone !== input.customerName ? `${input.customerName} (${phone})` : input.customerName;
-  const head = input.ownerAsked ? `Sign ${who} up for` : `New plan sign-up: ${who},`;
+  let who = phone && phone !== input.customerName ? `${input.customerName} (${phone})` : input.customerName;
+  if (input.matchedCustomer) who = `signed up as ${input.customerName}, phone ${phone ?? "?"} matches your customer ${input.matchedCustomer} -`;
+  const head = input.ownerAsked ? `Sign ${who} up for` : `New plan sign-up: ${who}${input.matchedCustomer ? "" : ","}`;
+  const at = input.address?.trim() ? ` At ${input.address.trim().slice(0, 80)}.` : "";
   const first = input.firstVisit ? ` (first: ${dayText(input.firstVisit)})` : "";
   const invoice = input.sendsInvoice ? `, sends their first-year invoice` : "";
-  return plain(`${head} ${input.planName} ${priceText(input.priceCents, input.billing)} (${monthsText(input.months)}). Y starts the plan, books the visits${first}${invoice} and texts them to confirm.`).slice(0, 500);
+  return plain(`${head} ${input.planName} ${priceText(input.priceCents, input.billing)} (${monthsText(input.months)}). Y starts the plan, books the visits${first}${invoice} and texts them to confirm.${at}`).slice(0, 500);
 }
 
 export interface RenewalLine {

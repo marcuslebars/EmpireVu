@@ -19,9 +19,9 @@
 import { localDate, weekdayOf } from "@/server/services/booking-windows";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { localHour } from "@/server/services/owner-channel/common";
-import { cancelAgreement, contactName, defaultPlanDeps, ensureSeries, lapseAgreement, settlePlanInvoice, type PlanDeps } from "./agreements";
+import { cancelAgreement, contactName, defaultPlanDeps, ensureSeries, lapseAgreement, REACTIVATE_DAYS, settlePlanInvoice, storedAddress, type PlanDeps } from "./agreements";
 import { createPlanApproval, PLAN_RENEWALS_KIND, supersedeApproval } from "./approval-kinds";
-import { invoiceStates, isPaid } from "./billing";
+import { invoiceStates, moneyIn } from "./billing";
 import type { Db, PlanMessageRow, ServiceAgreementRow } from "./db-types";
 import { dueMessages, inCustomerWindow, loadContact, queueAndSend, sendClaimed, skipMessage } from "./messages";
 import { loadPlan, planSchedule } from "./plans";
@@ -45,7 +45,14 @@ function usable(company: PlanCompany | undefined): company is PlanCompany {
 
 export async function sweepPayments(admin: AdminClient, nowMs: number, deps: PlanDeps = defaultPlanDeps): Promise<{ settled: number; abandoned: number; repaired: number }> {
   const out = { settled: 0, abandoned: 0, repaired: 0 };
-  const waiting = await agreementsWhere(admin, (q) => q.in("status", ["pending_payment", "active", "renewal_due"]).not("pending_invoice_id", "is", null).order("created_at", { ascending: true }), 500);
+  // Lapsed plans keep a payable renewal invoice for REACTIVATE_DAYS; cancelled ones are watched a
+  // while for money that raced the cancel (the owner is told, never silently kept).
+  const recent = new Date(nowMs - (REACTIVATE_DAYS + LAPSE_GRACE_DAYS) * DAY).toISOString();
+  const waiting = [
+    ...(await agreementsWhere(admin, (q) => q.in("status", ["pending_payment", "active", "renewal_due"]).not("pending_invoice_id", "is", null).order("created_at", { ascending: true }), 500)),
+    ...(await agreementsWhere(admin, (q) => q.eq("status", "lapsed").not("pending_invoice_id", "is", null).gte("lapsed_at", recent), 500)),
+    ...(await agreementsWhere(admin, (q) => q.eq("status", "cancelled").not("pending_invoice_id", "is", null).gte("cancelled_at", recent), 200)),
+  ];
   const companies = await loadPlanCompanies(admin, waiting.map((a) => a.company_id));
   const byOrg = new Map<string, ServiceAgreementRow[]>();
   for (const a of waiting) byOrg.set(a.organization_id, [...(byOrg.get(a.organization_id) ?? []), a]);
@@ -54,10 +61,23 @@ export async function sweepPayments(admin: AdminClient, nowMs: number, deps: Pla
     for (const row of rows) {
       const company = companies.get(row.company_id);
       if (!company?.crankleads) continue;
-      const state = states.get(row.pending_invoice_id as string);
-      if (isPaid(state)) {
+      let state = states.get(row.pending_invoice_id as string);
+      // Paid online but the webhook couldn't issue the draft: issue it now, then settle.
+      if (state?.status === "draft" && moneyIn(state)) {
+        await deps.billing.issueDraft(admin, row.organization_id, state.id).catch((err: unknown) => console.error("[service-plans] issuing a paid draft failed:", err instanceof Error ? err.message : err));
+        state = (await invoiceStates(admin, orgId, [state.id])).get(state.id);
+      }
+      if (moneyIn(state)) {
         const result = await settlePlanInvoice(admin, row.pending_invoice_id as string, nowMs, deps, async () => company);
         if (result !== "noop") out.settled += 1;
+        continue;
+      }
+      // A lapsed plan's renewal invoice nobody paid: voided once the restart window closes.
+      if (row.status === "lapsed" && row.term_end && addDaysYmd(row.term_end, LAPSE_GRACE_DAYS + REACTIVATE_DAYS) < localDate(new Date(nowMs), company.timeZone)) {
+        if (state && state.status !== "void" && state.amountPaidCents === 0 && state.pendingPaymentCents === 0) {
+          await deps.billing.voidUnpaid(admin, row.organization_id, state.id, "Service plan lapsed - renewal never paid.");
+        }
+        await (admin as Db).from("service_agreements").update({ pending_invoice_id: null }).eq("organization_id", row.organization_id).eq("id", row.id).eq("status", "lapsed");
         continue;
       }
       const stale = row.status === "pending_payment" && Date.parse(row.created_at) < nowMs - PENDING_PAYMENT_DAYS * DAY;
@@ -75,7 +95,8 @@ export async function sweepPayments(admin: AdminClient, nowMs: number, deps: Pla
     if (!company?.crankleads) continue;
     try {
       const plan = await loadPlan(admin, company, row.plan_id);
-      if (await ensureSeries(admin, row, plan, nowMs)) out.repaired += 1;
+      const contact = await loadContact(admin, company.organizationId, row.contact_id);
+      if (await ensureSeries(admin, row, plan, nowMs, storedAddress(contact), localDate(new Date(nowMs), company.timeZone))) out.repaired += 1;
     } catch (err) {
       console.error(`[service-plans] series repair for ${row.id} failed:`, err instanceof Error ? err.message : err);
     }
@@ -178,7 +199,7 @@ export async function sweepRenewals(admin: AdminClient, nowMs: number, deps: Pla
       if (inCustomerWindow(nowMs, company.timeZone)) {
         for (const r of list) {
           if (!r.term_end) continue;
-          if (addDaysYmd(r.term_end, LAPSE_GRACE_DAYS) < today) {
+          if (addDaysYmd(r.term_end, LAPSE_GRACE_DAYS) < today && r.renewal_texted_at) {
             if ((await lapseAgreement(admin, company, r, nowMs, deps)).ok) out.lapsed += 1;
           } else if (r.term_end < today && r.status === "active") {
             const { data } = await (admin as Db).from("service_agreements").update({ status: "renewal_due" }).eq("organization_id", company.organizationId).eq("id", r.id).eq("status", "active").select("id");
@@ -250,6 +271,8 @@ export async function sweepHeadsUp(admin: AdminClient, nowMs: number, deps: Plan
       for (const b of (data ?? []) as Array<{ id: string; recurring_job_id: string; scheduled_for: string }>) {
         const agreement = bySeries.get(b.recurring_job_id);
         if (!agreement) continue;
+        // The confirmation / renewed text already named this visit (it's within ~11 days of the start).
+        if (agreement.activated_at && Date.parse(b.scheduled_for) - Date.parse(agreement.activated_at) < (HEADS_UP_DAYS + 1) * DAY) continue;
         const contact = await loadContact(admin, company.organizationId, agreement.contact_id);
         const date = localDate(new Date(b.scheduled_for), company.timeZone);
         const body = headsUpText({ firstName: firstNameOf(contact?.first_name ?? agreement.customer_name), businessName: company.name, date, timeOfDay: localHhmm(b.scheduled_for, company.timeZone), planMonths: agreement.visit_months });

@@ -17,9 +17,10 @@ interface RouteContext {
   params: { slug: string; token: string };
 }
 
-export async function GET(_request: Request, context: RouteContext): Promise<NextResponse> {
+export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    return respond(await renewalPage(createSupabaseAdminClient(), context.params.slug, context.params.token), "no-store");
+    const paid = new URL(request.url).searchParams.get("paid") === "1";
+    return respond(await renewalPage(createSupabaseAdminClient(), context.params.slug, context.params.token, { paid }), "no-store");
   } catch (err) {
     console.error("[plans] renewal page failed:", err instanceof Error ? err.message : err);
     return unavailable();

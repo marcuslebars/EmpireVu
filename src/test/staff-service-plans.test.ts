@@ -25,7 +25,7 @@ import { explicitDatesToGenerate, explicitVisitDates, generateVisits } from "@/s
 import { activeRolesFor, roleApprovalExecutor, roleOwnerTools, staffRoles } from "@/server/services/staff/registry";
 import { servicePlansRole } from "@/server/services/staff/service-plans";
 import { offerServicePlan } from "@/server/services/staff/service-plans/agent-tool";
-import { defaultPlanDeps, onPlanInvoicePayment, publicSignup, type PlanDeps } from "@/server/services/staff/service-plans/agreements";
+import { defaultPlanDeps, lapseAgreement, namesFit, onPlanCheckoutCompleted, onPlanInvoicePayment, publicSignup, type PlanDeps } from "@/server/services/staff/service-plans/agreements";
 import { PLAN_RENEWALS_KIND, PLAN_SIGNUP_KIND } from "@/server/services/staff/service-plans/approval-kinds";
 import type { IssuedInvoice, PlanBillingDeps, TermInvoiceInput } from "@/server/services/staff/service-plans/billing";
 import { briefingItems } from "@/server/services/staff/service-plans/briefing-items";
@@ -67,7 +67,7 @@ const SITE_CONTENT = {
 function company(over: Record<string, unknown> = {}) {
   return {
     id: CO, organization_id: ORG, name: "Northshore Lawn", brand_from_name: null, timezone: TZ, ai_settings: {}, stage: "active",
-    owner_phone_e164: OWNER, owner_phone_verified_at: "2026-10-01T00:00:00Z", invoice_settings: {}, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z",
+    owner_phone_e164: OWNER, owner_phone_verified_at: "2026-10-01T00:00:00Z", invoice_settings: {}, stripe_connected_account_id: "acct_1", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z",
     ...over,
   };
 }
@@ -135,11 +135,32 @@ const rows = (t: string) => (db.tables[t] ?? []) as Array<Record<string, unknown
 const agreements = () => rows("service_agreements");
 
 /** Billing seam: Stripe ready or not, invoices written straight into the fake DB. */
-function fakeBilling(opts: { stripe: boolean }): PlanBillingDeps & { issued: TermInvoiceInput[] } {
+function fakeBilling(opts: { stripe: boolean }): PlanBillingDeps & { issued: TermInvoiceInput[]; drafts: TermInvoiceInput[]; checkouts: string[] } {
   const issued: TermInvoiceInput[] = [];
+  const drafts: TermInvoiceInput[] = [];
+  const checkouts: string[] = [];
   let n = 0;
   return {
     issued,
+    drafts,
+    checkouts,
+    draftTermInvoice: async (_admin, input) => {
+      drafts.push(input);
+      n += 1;
+      const total = Math.round(input.priceCents * 1.13);
+      const id = `inv-${n}`;
+      db.tables.invoices.push({ id, organization_id: input.organizationId, company_id: input.companyId, contact_id: input.contactId, status: "draft", invoice_number: null, public_token: `${"cd".repeat(15)}${String(n).padStart(2, "0")}`, total_cents: total, balance_due_cents: total, pending_payment_cents: 0, amount_paid_cents: 0, reminders_paused: true });
+      return { id, totalCents: total };
+    },
+    issueDraft: async (_admin, _org, invoiceId) => {
+      const inv = rows("invoices").find((i) => i.id === invoiceId);
+      if (inv && inv.status === "draft") Object.assign(inv, { status: "sent", invoice_number: `INV-${invoiceId}` });
+    },
+    planCheckoutUrl: async (_admin, input) => {
+      checkouts.push(input.returnUrl);
+      const inv = rows("invoices").find((i) => i.id === input.invoiceId);
+      return inv?.status === "draft" ? `https://checkout.stripe.test/c/${input.invoiceId}` : null;
+    },
     stripeReady: async () => opts.stripe,
     issueTermInvoice: async (_admin, input): Promise<IssuedInvoice> => {
       issued.push(input);
@@ -150,7 +171,6 @@ function fakeBilling(opts: { stripe: boolean }): PlanBillingDeps & { issued: Ter
       db.tables.invoices.push({ id, organization_id: input.organizationId, company_id: input.companyId, contact_id: input.contactId, status: "sent", public_token: token, total_cents: total, balance_due_cents: total, pending_payment_cents: 0, amount_paid_cents: 0, reminders_paused: input.pauseReminders });
       return { id, token, totalCents: total, url: `https://pay.test/i/${token}` };
     },
-    checkoutUrl: async (token) => `https://checkout.stripe.test/c/${token}`,
     voidUnpaid: async (_admin, _org, invoiceId) => {
       const inv = rows("invoices").find((i) => i.id === invoiceId);
       if (inv) inv.status = "void";
@@ -165,9 +185,18 @@ function depsWith(billing: PlanBillingDeps): PlanDeps {
 
 function payInvoice(id: string) {
   const inv = rows("invoices").find((i) => i.id === id)!;
-  inv.status = "paid";
+  inv.status = inv.status === "draft" || inv.status === "void" ? inv.status : "paid";
   inv.amount_paid_cents = inv.total_cents;
   inv.balance_due_cents = 0;
+}
+
+/** The Connect webhook for OUR plan Checkout: issue the draft, record the payment, settle. */
+async function stripePaid(invoiceId: string, deps: PlanDeps, nowMs = NOW + 60_000) {
+  const agreement = agreements().find((a) => a.pending_invoice_id === invoiceId || ((a.invoice_ids as string[] | undefined) ?? []).includes(invoiceId))!;
+  return onPlanCheckoutCompleted(db.client, { id: `cs_${invoiceId}`, metadata: { plan_agreement_id: String(agreement.id), invoice_id: invoiceId } }, "acct_1", async () => {
+    payInvoice(invoiceId);
+    return { outcome: "applied" };
+  }, nowMs, deps);
 }
 
 async function crank(): Promise<PlanCompany> {
@@ -343,7 +372,7 @@ describe("plan_signup end to end (per-visit plan) through decideApproval", () =>
     const approval = rows("owner_approvals")[0];
     expect(approval).toMatchObject({ kind: PLAN_SIGNUP_KIND, requested_by: "service_plans" });
     expect(approval.summary).toBe(
-      "New plan sign-up: Dana Jones (705-555-0123), Spring + Fall Lawn Care $95/visit (May + Oct). Y starts the plan, books the visits (first: Tue May 4) and texts them to confirm.",
+      "New plan sign-up: Dana Jones (705-555-0123), Spring + Fall Lawn Care $95/visit (May + Oct). Y starts the plan, books the visits (first: Tue May 4) and texts them to confirm. At 12 Bay St, Midland.",
     );
     // The owner was asked from the platform number.
     expect(textsTo(OWNER)[0].body).toContain("New plan sign-up: Dana Jones");
@@ -408,43 +437,90 @@ describe("plan_signup end to end (per-visit plan) through decideApproval", () =>
 });
 
 describe("annual plan paid online", () => {
-  it("sign-up → Checkout → paid (webhook hook) → started + the owner told", async () => {
+  it("sign-up → our Checkout on a DRAFT invoice → the webhook issues it, records the payment, starts the plan", async () => {
     const billing = fakeBilling({ stripe: true });
     const deps = depsWith(billing);
     const page = await signUpForPlan(db.client, { slug: "northshore-lawn", planId: PLAN_YEAR, params: signupParams(), nowMs: NOW }, deps);
     expect(page.status).toBe(303);
-    expect(page.redirect).toMatch(/^https:\/\/checkout\.stripe\.test\/c\//);
-    expect(billing.issued[0]).toMatchObject({ priceCents: 42000, pauseReminders: true, dueDate: "2026-10-12", lineLabel: "Lawn Care Plus - service plan, 12 months" });
+    expect(page.redirect).toBe("https://checkout.stripe.test/c/inv-1");
+    expect(billing.checkouts[0]).toBe(`http://localhost:3000/s/northshore-lawn/plans/${PLAN_YEAR}`);
+    expect(billing.issued).toHaveLength(0); // nothing issued (no number, no invoice.sent, no owner copy) until it's paid
+    expect(billing.drafts[0]).toMatchObject({ priceCents: 42000, lineLabel: "Lawn Care Plus - service plan, 12 months" });
+    expect(rows("invoices")[0]).toMatchObject({ status: "draft", invoice_number: null, reminders_paused: true });
     const [pending] = agreements();
     expect(pending).toMatchObject({ status: "pending_payment", pending_invoice_id: "inv-1", invoice_ids: ["inv-1"] });
     expect(rows("owner_approvals")).toHaveLength(0);
     // Not paid yet: nothing starts.
     expect((await sweepPayments(db.client, NOW, deps)).settled).toBe(0);
-    payInvoice("inv-1");
+    // Back from Checkout before the webhook: a neutral thank-you.
+    expect((await planPage(db.client, "northshore-lawn", PLAN_YEAR, deps, { paid: true })).html).toContain("Thanks - you're signed up!");
     sendSms.mockClear();
-    const result = await sweepPayments(db.client, NOW + 60_000, deps);
-    expect(result.settled).toBe(1);
+    await stripePaid("inv-1", deps);
+    expect(rows("invoices")[0]).toMatchObject({ status: "paid", invoice_number: "INV-inv-1", amount_paid_cents: 47460 });
     expect(agreements()[0]).toMatchObject({ status: "active", pending_invoice_id: null, invoice_ids: ["inv-1"] });
     const series = rows("recurring_jobs").find((r) => r.id === agreements()[0].recurring_job_id)!;
     expect(series.line_items).toEqual([]); // prepaid: visits carry no price
-    expect(await isPrepaidPlanVisit(ORG, String(series.id), db.client)).toBe(true);
-    expect(await isPrepaidPlanVisit(HOUSE_ORG, A1_SERIES, db.client)).toBe(false);
+    // Dana is a matched customer (name fits) with no address on file: the typed address waits for the owner.
+    expect(series.location).toBeNull();
     expect(textsTo(OWNER)[0].body).toBe("CrankLeads: New plan: Dana Jones signed up for Lawn Care Plus and paid $474.60 online. First visit Tue May 4 is on the calendar.");
     expect(textsTo(DANA_PHONE)[0].body).toContain("you're signed up for Lawn Care Plus");
-    // The webhook path is idempotent with the sweep.
+    // Retries are idempotent (webhook again, the hook, the sweep).
+    await stripePaid("inv-1", deps, NOW + 120_000);
     await onPlanInvoicePayment(db.client, "inv-1", NOW + 120_000);
+    await sweepPayments(db.client, NOW + 180_000, deps);
     expect(rows("recurring_jobs")).toHaveLength(2);
     expect(textsTo(DANA_PHONE)).toHaveLength(1);
   });
 
-  it("never paid → closed after 3 days, the invoice voided", async () => {
+  it("paid, but the webhook couldn't issue the draft: the payments sweep issues it and starts the plan", async () => {
+    const deps = depsWith(fakeBilling({ stripe: true }));
+    await signUpForPlan(db.client, { slug: "northshore-lawn", planId: PLAN_YEAR, params: signupParams(), nowMs: NOW }, deps);
+    payInvoice("inv-1"); // payment recorded on the still-draft invoice
+    expect(rows("invoices")[0].status).toBe("draft");
+    expect((await sweepPayments(db.client, NOW + 60_000, deps)).settled).toBe(1);
+    expect(rows("invoices")[0].status).toBe("sent");
+    expect(agreements()[0].status).toBe("active");
+  });
+
+  it("never paid → closed after 3 days, the draft voided (no invoice number used)", async () => {
     const deps = depsWith(fakeBilling({ stripe: true }));
     await signUpForPlan(db.client, { slug: "northshore-lawn", planId: PLAN_YEAR, params: signupParams(), nowMs: NOW }, deps);
     agreements()[0].created_at = new Date(NOW).toISOString();
     expect((await sweepPayments(db.client, NOW + 2 * DAY, deps)).abandoned).toBe(0);
     expect((await sweepPayments(db.client, NOW + 4 * DAY, deps)).abandoned).toBe(1);
     expect(agreements()[0]).toMatchObject({ status: "cancelled", cancel_reason: "never paid" });
-    expect(rows("invoices")[0].status).toBe("void");
+    expect(rows("invoices")[0]).toMatchObject({ status: "void", invoice_number: null });
+  });
+
+  it("someone else's number: the owner is asked (never Checkout), shown both names; the typed address only after Y", async () => {
+    const deps = depsWith(fakeBilling({ stripe: true }));
+    expect(namesFit("Dana Jones", { first_name: "Dana", last_name: "Jones" })).toBe(true);
+    expect(namesFit("dan", { first_name: "Dana", last_name: "Jones" })).toBe(true);
+    expect(namesFit("Pat Lee", { first_name: "Dana", last_name: "Jones" })).toBe(false);
+    const page = await signUpForPlan(db.client, { slug: "northshore-lawn", planId: PLAN_YEAR, params: signupParams({ name: "Pat Lee", address: "99 Other Rd, Midland" }), nowMs: NOW }, deps);
+    expect(page.status).toBe(200);
+    expect(page.html).toContain("will confirm it");
+    const [agreement] = agreements();
+    expect(agreement).toMatchObject({ status: "pending_owner", contact_id: DANA, customer_name: "Pat Lee" });
+    const approval = rows("owner_approvals")[0];
+    expect(approval.summary).toContain("New plan sign-up: signed up as Pat Lee, phone 705-555-0123 matches your customer Dana Jones - Lawn Care Plus $420/yr");
+    expect(approval.summary).toContain("At 99 Other Rd, Midland.");
+    // Dana's own details were not changed; the ticked box is kept only as evidence.
+    const dana = rows("contacts").find((c) => c.id === DANA)!;
+    expect(dana).toMatchObject({ first_name: "Dana", consent_source: "implied_inquiry", sms_consent_at: "2026-06-01T00:00:00Z" });
+    expect((dana.metadata as Record<string, unknown>).plan_sms_consent).toMatchObject({ version: "plan-sms-v1", text: expect.stringContaining("may text me about my service plan") });
+    expect(agreement.sms_consent_text).toMatch(/^plan-sms-v1: Yes, Northshore Lawn may text me/);
+    // Y: the owner OK'd it, so the typed address goes on the calendar.
+    const { executePlanSignup } = await import("@/server/services/staff/service-plans/approvals");
+    db.tables.owner_approvals[0].status = "approved";
+    await executePlanSignup(db.client, approval as never, { approved: true, decidedVia: "sms", decidedBy: OWNER }, deps, NOW);
+    const series = rows("recurring_jobs").find((r) => r.id === agreements()[0].recurring_job_id)!;
+    expect(series.location).toBe("99 Other Rd, Midland");
+    // Signing up again with that number: the same neutral page, nothing revealed, nothing new.
+    const again = await signUpForPlan(db.client, { slug: "northshore-lawn", planId: PLAN_YEAR, params: signupParams({ name: "Someone Else" }), nowMs: NOW }, deps);
+    expect(again.html).toContain("will confirm it");
+    expect(agreements()).toHaveLength(1);
+    expect(rows("owner_approvals")).toHaveLength(1);
   });
 
   it("no online payments → the owner is asked, Y sends the first-year invoice", async () => {
@@ -459,6 +535,8 @@ describe("annual plan paid online", () => {
     const out = await executePlanSignup(db.client, approval as never, { approved: true, decidedVia: "sms", decidedBy: OWNER }, deps, NOW);
     expect(out.message).toBe("Started Dana Jones on Lawn Care Plus: 2 visits booked, first Tue May 4. Texted them to confirm with their invoice ($474.60).");
     expect(billing.issued[0]).toMatchObject({ pauseReminders: false, dueDate: "2026-10-26" });
+    // The owner said Y: the typed address is used.
+    expect(rows("recurring_jobs").find((r) => r.id === agreements()[0].recurring_job_id)?.location).toBe("12 Bay St");
     expect(textsTo(DANA_PHONE)[0].body).toContain("Your invoice for the year ($474.60) is here: https://pay.test/i/");
   });
 });
@@ -554,14 +632,15 @@ describe("plan_renewals end to end through decideApproval", () => {
     const go = await renewFromPage(db.client, { slug: "northshore-lawn", token, nowMs: NOW }, deps);
     expect(go.status).toBe(303);
     expect(go.redirect).toMatch(/^https:\/\/checkout\.stripe\.test\//);
-    // A second tap reuses the same invoice.
+    // A second tap reuses the same draft.
     await renewFromPage(db.client, { slug: "northshore-lawn", token, nowMs: NOW }, deps);
-    expect(billing.issued).toHaveLength(1);
-    expect(billing.issued[0]).toMatchObject({ priceCents: 42000, pauseReminders: true, dueDate: "2026-10-31" });
+    expect(billing.drafts).toHaveLength(1);
+    expect(billing.issued).toHaveLength(0);
+    expect(billing.drafts[0]).toMatchObject({ priceCents: 42000, pauseReminders: true, dueDate: "2026-10-31" });
+    expect(billing.checkouts[0]).toBe(`http://localhost:3000/s/northshore-lawn/plans/renew/${token}`);
     const invoiceId = String(agreements().find((a) => a.id === row.id)!.pending_invoice_id);
-    payInvoice(invoiceId);
     sendSms.mockClear();
-    await sweepPayments(db.client, NOW + 60_000, deps);
+    await stripePaid(invoiceId, deps);
     expect(agreements().find((a) => a.id === row.id)!.status).toBe("renewed");
     const next = agreements().find((a) => a.previous_agreement_id === row.id)!;
     expect(next).toMatchObject({ status: "active", invoice_ids: [invoiceId], price_cents: 42000 });
@@ -623,8 +702,130 @@ describe("lapse", () => {
     expect(ids).toContain("v-done");
     expect(ids).not.toContain("v-untouched");
     expect(rows("recurring_jobs").find((r) => r.id === series)).toMatchObject({ status: "ended" });
-    expect(textsTo(OWNER)[0].body).toMatch(/^CrankLeads: Dana Jones's Spring \+ Fall Lawn Care plan lapsed: the renewal wasn't paid by Nov 14, 2026\. I took \d+ upcoming visits? off the calendar\.$/);
+    expect(textsTo(OWNER)[0].body).toMatch(/^CrankLeads: Dana Jones's Spring \+ Fall Lawn Care plan lapsed: the renewal wasn't paid by Nov 14, 2026\. I took \d+ upcoming visits? off the calendar\. If they pay in the next 60 days, I'll renew it\.$/);
     expectA1Untouched();
+  });
+});
+
+describe("lapse safety", () => {
+  /** An annual plan ending Oct 31 whose renewal link went out, with an ISSUED renewal invoice (no cards online). */
+  async function renewalOut() {
+    const billing = fakeBilling({ stripe: false });
+    const deps = depsWith(billing);
+    const row = await activeAgreement(PLAN_YEAR, "2026-10-31");
+    Object.assign(row, { status: "renewal_due", renewal_texted_at: new Date(NOW).toISOString(), renewal_token: "e".repeat(32), renewal_price_cents: 42000 });
+    const go = await renewFromPage(db.client, { slug: "northshore-lawn", token: "e".repeat(32), nowMs: NOW }, deps);
+    expect(go.redirect).toMatch(/\/i\/[a-f0-9]{32}$/);
+    const invoiceId = String(row.pending_invoice_id);
+    expect(rows("invoices").find((i) => i.id === invoiceId)).toMatchObject({ status: "sent", reminders_paused: true });
+    return { row, invoiceId, deps };
+  }
+  const day = (n: number) => Date.parse("2026-10-31T14:00:00Z") + n * DAY; // 10:00 EDT, n days after the term
+
+  it("an e-Transfer recorded before the payments sweep ran: renewed, never lapsed", async () => {
+    const { row, invoiceId, deps } = await renewalOut();
+    payInvoice(invoiceId);
+    sendSms.mockClear();
+    const out = await sweepRenewals(db.client, day(16), deps);
+    expect(out.lapsed).toBe(0);
+    expect(agreements().find((a) => a.id === row.id)?.status).toBe("renewed");
+    expect(textsTo(OWNER).some((t) => t.body.includes("lapsed"))).toBe(false);
+  });
+
+  it("a bank debit still clearing: not lapsed on grace day 13 or after it; renewed once it clears", async () => {
+    const { row, invoiceId, deps } = await renewalOut();
+    rows("invoices").find((i) => i.id === invoiceId)!.pending_payment_cents = 47460;
+    expect((await sweepRenewals(db.client, day(13), deps)).lapsed).toBe(0);
+    expect((await sweepRenewals(db.client, day(16), deps)).lapsed).toBe(0);
+    expect(agreements().find((a) => a.id === row.id)?.status).toBe("renewal_due");
+    const inv = rows("invoices").find((i) => i.id === invoiceId)!;
+    inv.pending_payment_cents = 0;
+    payInvoice(invoiceId);
+    expect((await sweepPayments(db.client, day(17), deps)).settled).toBe(1);
+    expect(agreements().find((a) => a.id === row.id)?.status).toBe("renewed");
+  });
+
+  it("paid after it lapsed: brought back (renewed, visits back on the calendar) and the owner told", async () => {
+    const { row, invoiceId, deps } = await renewalOut();
+    const series = String(row.recurring_job_id);
+    expect((await sweepRenewals(db.client, day(16), deps)).lapsed).toBe(1);
+    expect(rows("recurring_jobs").find((r) => r.id === series)?.status).toBe("ended");
+    // The issued renewal invoice stays payable, and isn't "overdue".
+    expect(rows("invoices").find((i) => i.id === invoiceId)?.status).toBe("sent");
+    expect(agreements().find((a) => a.id === row.id)?.pending_invoice_id).toBe(invoiceId);
+    payInvoice(invoiceId);
+    sendSms.mockClear();
+    expect((await sweepPayments(db.client, day(20), deps)).settled).toBe(1);
+    expect(agreements().find((a) => a.id === row.id)?.status).toBe("renewed");
+    const next = agreements().find((a) => a.previous_agreement_id === row.id)!;
+    expect(next).toMatchObject({ status: "active", term_start: "2026-11-01", term_end: "2027-10-31" });
+    expect(rows("recurring_jobs").find((r) => r.id === series)).toMatchObject({ status: "active" });
+    expect(rows("bookings").some((b) => b.recurring_job_id === series && b.occurrence_date === "2027-05-04")).toBe(true);
+    expect(textsTo(OWNER)[0].body).toBe("CrankLeads: Dana Jones paid for Lawn Care Plus after it lapsed, so I renewed it and put their visits back on the calendar.");
+    // Once only.
+    await sweepPayments(db.client, day(21), deps);
+    expect(textsTo(OWNER)).toHaveLength(1);
+  });
+
+  it("money for a cancelled plan isn't kept quietly: the owner is told once", async () => {
+    const { row, invoiceId, deps } = await renewalOut();
+    row.status = "cancelled";
+    row.cancelled_at = new Date(NOW).toISOString();
+    payInvoice(invoiceId);
+    sendSms.mockClear();
+    await sweepPayments(db.client, NOW + DAY, deps);
+    await sweepPayments(db.client, NOW + 2 * DAY, deps);
+    expect(textsTo(OWNER).map((t) => t.body)).toEqual(["CrankLeads: Dana Jones paid $474.60 for Lawn Care Plus, but that plan is cancelled. Nothing was booked - restart it in Settings or refund them."]);
+  });
+
+  it("no renewal link ever went out (renewals off / the owner said no): no lapse, no \"wasn't paid\" text", async () => {
+    db.tables.companies[0].ai_settings = { service_plans: { renewals: { enabled: false } } };
+    const row = await activeAgreement(PLAN_VISIT, "2026-10-31");
+    row.status = "renewal_due";
+    expect((await sweepRenewals(db.client, day(20))).lapsed).toBe(0);
+    expect((await lapseAgreement(db.client, await crank(), row as never, day(20))).reason).toBe("no renewal link sent");
+    expect(textsTo(OWNER)).toHaveLength(0);
+  });
+});
+
+describe("prepaid visits (job done → invoice)", () => {
+  it("only a visit inside a started annual term counts; next term's and hand-moved post-lapse visits are invoiced; A1 always", async () => {
+    const row = await activeAgreement(PLAN_YEAR, "2026-10-31"); // term 2025-11-01 .. 2026-10-31
+    const series = String(row.recurring_job_id);
+    expect(await isPrepaidPlanVisit(ORG, series, "2026-05-05", db.client)).toBe(true);
+    expect(await isPrepaidPlanVisit(ORG, series, "2026-10-31T13:00:00Z", db.client)).toBe(true);
+    // The renewal went out (next-term visits booked) but nobody paid yet.
+    expect(await isPrepaidPlanVisit(ORG, series, "2027-05-04", db.client)).toBe(false);
+    // Lapsed; a visit moved by hand to after the term survived the lapse.
+    row.status = "lapsed";
+    expect(await isPrepaidPlanVisit(ORG, series, "2026-12-09", db.client)).toBe(false);
+    // A pending sign-up never started: nothing is prepaid.
+    expect(await isPrepaidPlanVisit(ORG, series, null, db.client)).toBe(false);
+    expect(await isPrepaidPlanVisit(HOUSE_ORG, A1_SERIES, "2026-10-20", db.client)).toBe(false);
+  });
+});
+
+describe("double texts and consent", () => {
+  it("no heads-up when the confirmation already named a visit within ~11 days", async () => {
+    // Signed up Apr 27; the first visit (May 4, 7 days later) was in the confirmation.
+    const start = Date.parse("2027-04-27T14:00:00Z");
+    vi.setSystemTime(start);
+    const deps = depsWith(fakeBilling({ stripe: false }));
+    const { createAgreement, startAgreement } = await import("@/server/services/staff/service-plans/agreements");
+    const c = await crank();
+    const { agreement } = await createAgreement(db.client, c, { plan: rows("service_plans")[0] as never, contactId: DANA, status: "pending_owner", source: "settings" }, start);
+    const started = await startAgreement(db.client, c, agreement, { nowMs: start, from: ["pending_owner"] }, deps);
+    expect(started.firstVisit).toBe("2027-05-04");
+    expect(textsTo(DANA_PHONE)[0].body).toContain("booked for Tue May 4");
+    sendSms.mockClear();
+    expect((await sweepHeadsUp(db.client, start + 60 * 60_000)).sent).toBe(0);
+  });
+
+  it("CASL: the purchase date only counts once the plan started", async () => {
+    const { consentFor } = await import("@/server/services/staff/service-plans/messages");
+    const contact = rows("contacts")[0] as never;
+    expect(consentFor(contact, { activated_at: null })).not.toHaveProperty("last_purchase_at");
+    expect(consentFor(contact, { activated_at: "2026-10-12T14:00:00Z" })).toMatchObject({ last_purchase_at: "2026-10-12T14:00:00Z" });
   });
 });
 

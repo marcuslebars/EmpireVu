@@ -56,14 +56,18 @@ export async function loadContact(admin: AdminClient, organizationId: string, co
   return (data as PlanContact | null) ?? null;
 }
 
-/** CASL: a plan the customer signed up for is a purchase relationship from when it started. */
-export function consentFor(contact: PlanContact, agreement: Pick<ServiceAgreementRow, "activated_at" | "term_start" | "created_at">): ConsentContact {
+/**
+ * CASL: a plan the customer signed up for is a purchase relationship from when it STARTED (paid
+ * online, renewed, or started on the owner's OK). A plan that never started gives nothing extra:
+ * the contact's own consent decides (e.g. the "declined" text answers their own sign-up).
+ */
+export function consentFor(contact: PlanContact, agreement: Pick<ServiceAgreementRow, "activated_at">): ConsentContact {
   return {
     sms_opt_out_at: contact.sms_opt_out_at,
     email_opt_out_at: contact.email_opt_out_at,
     sms_consent_at: contact.sms_consent_at,
     consent_source: contact.consent_source,
-    last_purchase_at: agreement.activated_at ?? (agreement.term_start ? `${agreement.term_start}T12:00:00Z` : agreement.created_at),
+    ...(agreement.activated_at ? { last_purchase_at: agreement.activated_at } : {}),
   };
 }
 
