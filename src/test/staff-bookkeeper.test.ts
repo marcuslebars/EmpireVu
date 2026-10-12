@@ -103,7 +103,9 @@ function seed(extra: Record<string, Array<Record<string, unknown>>> = {}) {
     companies: [
       {
         id: CO, organization_id: ORG, name: "Northshore Snow & Lawn", brand_from_name: null, timezone: "America/Toronto", owner_phone_e164: OWNER,
-        owner_phone_verified_at: "2026-10-01T00:00:00Z", ai_settings: {}, quote_public_base_url: "https://pay.northshore.test", invoice_settings: null,
+        // The Office manager's morning briefing (on by default for CrankLeads) would carry the 8am
+        // alert instead (staff-office-manager.test.ts); these tests cover the standalone alert.
+        owner_phone_verified_at: "2026-10-01T00:00:00Z", ai_settings: { office_manager: { enabled: false } }, quote_public_base_url: "https://pay.northshore.test", invoice_settings: null,
         updated_at: "2026-10-01T00:00:00Z",
       },
       {
@@ -719,6 +721,32 @@ describe("daily money alert", () => {
     await runDailyMoneyAlerts(h.db!.client, Date.now());
     expect(smsTo(OWNER)).toHaveLength(1);
     expect(rows("money_alerts").find((r) => r.alert_date === "2026-10-14")).toMatchObject({ status: "skipped" });
+  });
+
+  it("defers to the Office manager's morning briefing on briefing days (it carries the items), and goes alone on other days", async () => {
+    notable();
+    rows("companies")[0].ai_settings = {}; // CrankLeads default: the briefing is on, Monday to Saturday
+    at(MORNING); // Tuesday 08:15
+    await runDailyMoneyAlerts(h.db!.client, Date.now());
+    expect(smsTo(OWNER)).toHaveLength(0);
+    expect(rows("money_alerts")).toHaveLength(0);
+    expect(rows("money_alert_items")).toHaveLength(0);
+    at("2026-10-18T12:15:00Z"); // Sunday 08:15: no briefing that day → the standalone alert
+    await runDailyMoneyAlerts(h.db!.client, Date.now());
+    expect(smsTo(OWNER)).toHaveLength(1);
+    expect(smsTo(OWNER)[0].body).toContain("Money check for Northshore Snow & Lawn:");
+  });
+
+  it("leaves out overdue imported balances still on the import's hold, and lists them once released", async () => {
+    seed({ invoices: [invoice({ id: "inv-imp", invoice_number: "INV-IMP", due_date: "2026-08-01", public_token: "timp", reminders_paused: true, import_hold: true })] });
+    at(MORNING);
+    await runDailyMoneyAlerts(h.db!.client, Date.now());
+    expect(smsTo(OWNER)).toHaveLength(0);
+    rows("invoices")[0].import_hold = false;
+    at("2026-10-14T12:15:00Z");
+    await runDailyMoneyAlerts(h.db!.client, Date.now());
+    expect(smsTo(OWNER)).toHaveLength(1);
+    expect(smsTo(OWNER)[0].body).toContain("Now 60+ days overdue: Jamie Lee $1,240 (INV-IMP).");
   });
 
   it("only between 8 and 11 local, and not when the alert is off or nothing is notable", async () => {

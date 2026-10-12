@@ -1,6 +1,7 @@
 // The one origin the browser and the app talk to in the e2e run (Supabase URL + app URL):
 //   /rest/v1/*  → PostgREST (real, against the local e2e database)
-//   /storage/v1/object/* → a minimal storage stub (service-role upload, download; files under $E2E_ROOT/storage)
+//   /storage/v1/object/* → a minimal storage stub (service-role upload, download, signed upload / read
+//                 URLs, list, remove; files under $E2E_ROOT/storage)
 //   /auth/v1/*  → a minimal stub of Supabase Auth backed by auth.users (only the endpoints the
 //                 app actually calls: admin users list/get/create/update, generate_link, user,
 //                 token password/refresh, logout)
@@ -8,7 +9,7 @@
 //   everything else (the SPA, Vite modules, HMR websocket) → Vite dev
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createServer, request as httpRequest } from "node:http";
 import { connect } from "node:net";
@@ -60,9 +61,10 @@ const userByEmail = async (email) => (await rows(`select ${USER_COLS} from auth.
 
 function session(user) {
   // PostgREST is a static binary, so libfaketime can't move its clock: it runs on real time
-  // while we run ahead. Backdate iat and keep exp far out so both clocks accept the token.
-  const iat = Math.floor(Date.now() / 1000) - 7 * 86400;
-  const exp = iat + 3600 * 24 * 60;
+  // while we run ahead. Backdate iat and keep exp far out so both clocks accept the token
+  // (30 days: phase3.ts runs the fake clock up to ~10 days ahead before it signs someone in).
+  const iat = Math.floor(Date.now() / 1000) - 30 * 86400;
+  const exp = iat + 3600 * 24 * 90;
   const access_token = signJwt({ sub: user.id, email: user.email, role: "authenticated", aud: "authenticated", iat, exp, session_id: randomUUID(), aal: "aal1", amr: [{ method: "password", timestamp: iat }], app_metadata: { provider: "email" }, user_metadata: user.raw_user_meta_data ?? {} });
   return { access_token, token_type: "bearer", expires_in: exp - iat, expires_at: exp, refresh_token: `rt_${user.id}_${randomUUID()}`, user: toUser(user) };
 }
@@ -191,7 +193,95 @@ function proxy(req, res, port, rewritePath) {
 // Files land under $E2E_ROOT/storage/<bucket>/<path>; each upload upserts a storage.objects row so
 // the driver can assert it. Only buckets that exist in storage.buckets (created by migrations) work.
 const STORAGE_DIR = join(process.env.E2E_ROOT || "/var/tmp/e2e-dfy", "storage");
+// Phase 3 additions (the customer-imports and porting-docs buckets): signed upload URLs
+// (createSignedUploadUrl → PUT /object/upload/sign/<bucket>/<path>?token=…), list (POST
+// /object/list/<bucket>), remove (DELETE /object/<bucket> {prefixes}) and signed read URLs.
+const signedUploads = new Map(); // token → "<bucket>/<name>"
+const signedReads = new Map();
+async function readRaw(req) {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  return Buffer.concat(chunks);
+}
+function firstPart(body, type) {
+  if (!type.startsWith("multipart/form-data")) return body;
+  // supabase-js sends Blobs as multipart (a cacheControl field, then the file): take the file part.
+  const boundary = `--${type.split("boundary=")[1]}`;
+  const text = body.toString("latin1");
+  const parts = text.split(boundary).slice(1, -1);
+  const file = parts.find((p) => /filename=|name=""/.test(p.slice(0, p.indexOf("\r\n\r\n")))) ?? parts[parts.length - 1] ?? "";
+  const start = file.indexOf("\r\n\r\n") + 4;
+  return Buffer.from(file.slice(start, file.length - 2), "latin1");
+}
+async function storageExtra(req, res, url) {
+  const p = url.pathname.replace(/^\/storage\/v1/, "");
+  const bucketOk = async (bucket) => (await sql(`select count(*) from storage.buckets where id = ${lit(bucket)}`)) === "1";
+  const save = async (bucket, name, bytes) => {
+    const file = join(STORAGE_DIR, bucket, name);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, bytes);
+    await sql(`delete from storage.objects where bucket_id = ${lit(bucket)} and name = ${lit(name)}; insert into storage.objects (bucket_id, name) values (${lit(bucket)}, ${lit(name)})`);
+  };
+  let m = p.match(/^\/object\/upload\/sign\/([^/]+)\/(.+)$/);
+  if (m) {
+    const [, bucket, raw] = m;
+    const name = decodeURIComponent(raw);
+    if (name.includes("..") || !(await bucketOk(bucket))) return send(res, 404, { statusCode: "404", error: "not_found", message: "Bucket not found" });
+    if (req.method === "POST") {
+      const auth = verifyJwt(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+      if (auth?.role !== "service_role") return send(res, 403, { statusCode: "403", error: "Unauthorized", message: "fake storage: service role only" });
+      const token = randomUUID().replace(/-/g, "");
+      signedUploads.set(token, `${bucket}/${name}`);
+      return send(res, 200, { url: `/object/upload/sign/${bucket}/${raw}?token=${token}` });
+    }
+    if (req.method === "PUT") {
+      const token = url.searchParams.get("token");
+      if (!token || signedUploads.get(token) !== `${bucket}/${name}`) return send(res, 400, { statusCode: "400", error: "InvalidSignature", message: "fake storage: bad upload token" });
+      signedUploads.delete(token);
+      await save(bucket, name, firstPart(await readRaw(req), String(req.headers["content-type"] || "")));
+      return send(res, 200, { Key: `${bucket}/${name}` });
+    }
+  }
+  m = p.match(/^\/object\/list\/([^/]+)$/);
+  if (m && req.method === "POST") {
+    const body = JSON.parse((await readRaw(req)).toString("utf8") || "{}");
+    const dir = join(STORAGE_DIR, m[1], String(body.prefix || "").replace(/\/+$/, ""));
+    const names = existsSync(dir) ? readdirSync(dir).filter((n) => statSync(join(dir, n)).isFile()) : [];
+    const hits = names.filter((n) => !body.search || n.includes(body.search)).slice(0, body.limit || 100);
+    return send(res, 200, hits.map((n) => ({ name: n, id: randomUUID(), metadata: { size: statSync(join(dir, n)).size } })));
+  }
+  m = p.match(/^\/object\/([^/]+)$/);
+  if (m && req.method === "DELETE") {
+    const body = JSON.parse((await readRaw(req)).toString("utf8") || "{}");
+    const out = [];
+    for (const name of body.prefixes ?? []) {
+      const file = join(STORAGE_DIR, m[1], name);
+      if (!name.includes("..") && existsSync(file)) {
+        unlinkSync(file);
+        out.push({ name });
+      }
+      await sql(`delete from storage.objects where bucket_id = ${lit(m[1])} and name = ${lit(name)}`);
+    }
+    return send(res, 200, out);
+  }
+  m = p.match(/^\/object\/sign\/([^/]+)\/(.+)$/);
+  if (m && req.method === "POST") {
+    const token = randomUUID().replace(/-/g, "");
+    signedReads.set(token, `${m[1]}/${decodeURIComponent(m[2])}`);
+    return send(res, 200, { signedURL: `/object/sign/${m[1]}/${m[2]}?token=${token}` });
+  }
+  if (m && req.method === "GET") {
+    const key = signedReads.get(url.searchParams.get("token") || "");
+    const file = join(STORAGE_DIR, m[1], decodeURIComponent(m[2]));
+    if (key !== `${m[1]}/${decodeURIComponent(m[2])}` || !existsSync(file)) return send(res, 404, { statusCode: "404", error: "not_found", message: "Object not found" });
+    res.writeHead(200, { "content-type": "application/octet-stream" });
+    return res.end(readFileSync(file));
+  }
+  return null;
+}
+
 async function storage(req, res, url) {
+  if ((await storageExtra(req, res, url)) !== null || res.headersSent || res.writableEnded) return;
   const m = url.pathname.match(/^\/storage\/v1\/object\/(?:(public|authenticated|sign)\/)?([^/]+)\/(.+)$/);
   if (!m) return send(res, 404, { statusCode: "404", error: "not_found", message: "fake storage: no route" });
   const [, scope, bucket, rawPath] = m;

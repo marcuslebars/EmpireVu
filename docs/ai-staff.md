@@ -442,3 +442,541 @@ The Marketer brings past customers back and keeps the Google listing active. It 
 **Not yet** — no Google Business Profile API: replies and posts are pasted by the owner (`postReply` is the seam). The Places API only returns 5 "most relevant" reviews and doesn't say whether the owner already replied, so a recent review the owner answered on Google may still get a draft (they can N it). Seasonal / custom campaign kinds exist in the schema but only win-back is drafted. The campaign send window and rate aren't editable in the UI.
 
 Tests: `src/test/marketer.test.ts`, `marketer-consent.test.ts`, `marketer-route.test.ts`.
+
+## Office manager
+
+One text to the owner each morning: today's jobs, weather risk, money, what's waiting on them and how yesterday went. On briefing days it also carries the Bookkeeper's 8am money alert, so the owner gets one text, not two. Code: `src/server/services/staff/office-manager/`. Migration: `20261012100000_staff_office_manager.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Office manager** (`src/components/settings/staff/OfficeManagerSettingsSection.tsx`).
+
+### What the owner sees
+
+At 07:00 (Tuesday), from the platform number to the verified owner cell:
+
+```
+CrankLeads: Morning Dana - Northshore Roofing, Tue Oct 13.
+Today: 4 jobs, first at 8am. Mike 2, Sam 1, 1 unassigned.
+Weather: today rain 90%, 12 mm - 4 jobs at risk.
+Money: $1,250 came in yesterday, $2,480 overdue (2 invoices).
+Payment failed: Jamie Lee $500 (INV-30).
+Now 30+ days overdue: Jamie Lee $1,240 (INV-30).
+Waiting on you: #12 AI estimate for Jamie Lee: Eavestrough repair $750 +...; #13 Record $500 e-Transfer from Bob Jones on INV-9.
+Yesterday: 2 new leads, 2 quotes sent, 1 approved. AI handled 2 text chats and 1 call.
+Reply "today" for details.
+```
+
+Dana texts "today" → the owner agent calls `briefing_now` with `detail: true` and relays every job by crew member, the weather numbers, who's late paying and each approval in full. On a truly quiet day: `Morning Dana - all quiet at Northshore Roofing today (Tue Oct 13): no jobs booked and nothing waiting on you.`
+
+### The parts (`gather.ts`, `compose.ts`)
+
+Each part is read on its own. A part with nothing to say is left out. A failed read of the weather, money or yesterday parts just leaves that part out (logged). A failed read of **today's jobs, the approvals waiting, or the Bookkeeper's alert items** (when that alert is on) fails the attempt instead (`last_error "couldn't read: jobs"`), so it is retried. On the last try before 11:00 the text goes anyway, but it says "Today's jobs: couldn't load them - check the app." / "Approvals: couldn't load them - text \"waiting\"." and is never the quiet one-liner.
+
+| Part | Source |
+| --- | --- |
+| Today | The Dispatcher's `crewPlanForDay` for the local day (pending / confirmed / completed / no-show; cancelled excluded): count, first start, per crew member (first names, busiest first) plus unassigned. |
+| Weather | Only when the Dispatcher's weather check is on for the company (`dispatch.weather.enabled`, and `WEATHER_PROVIDER` isn't `off`) and its location is already stored (the Dispatcher geocodes; the briefing never does). `getCompanyForecast` (the shared hourly cache) + `assessWindow` with the owner's limits: today's and tomorrow's daytime (07:00–19:00 local; today from now) and each weather-sensitive open job's own window. Nothing is fetched otherwise. |
+| Money | Collected since the last briefing day (succeeded invoice payments + quote deposits), and the overdue total and count (`ar.ts` `loadOpenInvoicesWithNames` + `agingSummary`). Imported balances still on hold (`invoices.import_hold`, read tolerantly) are left out of the overdue total. |
+| Money alert | The Bookkeeper's 8am items not told yet (see below), one line per kind, exactly as the alert words them. |
+| Waiting on you | `listPendingApprovals` (codes assigned first, as `waiting_on_me` does), minus expired ones and owner-command confirmations: up to 3 one-liners, then "+N more". |
+| Yesterday | New leads (contacts created, not imported ones (`consent_source 'import'`) or job applicants (`consent_source 'job_application'` or `metadata.kind 'applicant'`)), quotes sent / approved, customers the AI texted with (`message_log.sent_by 'sms_agent'`, one per contact) and calls it answered (inbound, not voicemail, 5 s or more — the weekly report's rule). |
+
+"Yesterday" is everything since the previous briefing day, local midnight to midnight: Monday after a Saturday briefing says "Since Saturday" and covers Saturday and Sunday (49 hours across the November DST change).
+
+**Length.** At most 4 SMS segments: 612 GSM-7 characters including the "CrankLeads: " prefix (extension characters count double). The text is flattened to plain ASCII (accents, curly quotes, dashes, emoji), so it is never sent as UCS-2. When it's too long, in order: approval one-liners are shortened, then cut to one, the Yesterday line goes, the crew breakdown goes, tomorrow's weather goes, the approvals become a count, and last the folded money lines are dropped from the end. Money lines that didn't fit are not marked reported, so they come the next morning.
+
+### Once a day (`briefing.ts`)
+
+Sweep `office-manager:briefing`, every 2 minutes. Companies are loaded the Bookkeeper's way (every company of a CrankLeads org, plus house-org companies with `ai_settings.office_manager.enabled = true`, filtered at the query; paused / archived companies skipped). A company is due from its set time until 11:00 local, on its briefing days, with a verified owner cell. Today's rows for the due companies are read in one query per 200 companies, so a company already done costs nothing per pass.
+
+- **Claim, then send.** `owner_briefings` is unique on `(company_id, local_date)`. The row is inserted before anything is read or sent, so two workers send one text (tested with two concurrent passes).
+- **A failed send** marks the row `failed`, which releases it: a later pass re-claims it (conditional update on `status = 'failed'` and the attempt count — one winner) 10 minutes later, up to 3 tries, and only before 11:00. A read error after the claim (or an unreadable jobs / approvals / money-alert part, see above) also releases it.
+- **A STOP to the platform number** makes the row `skipped` (no retries that day). A worker that dies mid-send leaves the row `claimed`, and it isn't retried: one missed briefing beats a double text.
+- `briefing_now` never touches `owner_briefings` and never marks money items.
+- `money_fold` records whether the alert's items rode along (`included`), the alert was off (`none`), or they couldn't be read (`failed`). It stays `included` even if marking them reported fails afterwards, since the text carried them.
+
+### The Bookkeeper's 8am alert
+
+- `staff/bookkeeper/daily-alert.ts` (minimal edit): `runDailyMoneyAlerts` skips a company when `briefingTakesMoneyAlert` (`office-manager/settings.ts`) is true. That means the briefing is on, today (local) is a briefing day, the company is active and the owner cell is verified, and today's `owner_briefings` row hasn't ended without the items. A row that is `sent` with `money_fold 'failed'` (the items couldn't be read on the last try), `skipped`, or `failed` with every try used lets the alert go alone. No row, `claimed`, `failed` with tries left, or `sent` with `money_fold 'included'` defers. The settings are checked first (one company read, using the alert's own CrankLeads flag), and the row only on a briefing day. Because the briefing marks items only after a send that carried them, and a final row never folds again, the two never report the same items.
+- On other days (Sunday by default), or with the briefing off, the alert goes alone as before.
+- The briefing reads the untold items with the alert's own `collectAlertEntries` + `newEntries`, words them with `moneyAlertLineGroups` (also used by `composeMoneyAlert`), and only after its text went out calls `markMoneyAlertReported`. That records the keys in `money_alert_items`, marks told promises `missed`, and writes the day's `money_alerts` row (`sent`, or `skipped` when there was nothing).
+- A failed briefing leaves the items untold for the retry or the next day.
+- Items that turn up after the briefing went out (e.g. a payment that fails at 9am) come the next morning.
+- `owner_briefings.money_items` lists what each briefing carried.
+
+### Email copy
+
+With `channels: ["sms", "email"]` the owner also gets an email (`deliverMessage`, Resend) right after the text, to `resolveOwnerContacts` without the platform fallback (`companies.owner_email`, else the org owner / admin). It holds the same summary plus every job by crew member, the weather numbers, who's late paying and each approval in full.
+- Sender name: "CrankLeads" for CrankLeads orgs, the business name otherwise.
+- The outcome is stored in `owner_briefings.email_status`.
+- The email is only ever a copy: it isn't retried, and it never holds up the text.
+
+### Owner tool `briefing_now`
+
+It returns today's briefing as it would read now (`briefing`), the schedule, and with `detail: true` the full lists (`details`). It is read-only.
+
+Prompt note: when the owner texts "today", "details", "briefing" or "what's on today", call it with `detail: true` and relay it. It is a preview, never a re-send; the owner approves listed items with Y/N and the number.
+
+### Settings
+
+`companies.ai_settings.office_manager = { enabled?, time?, days?, channels? }`, read only by `settings.ts readOfficeManagerSettings`:
+
+- `enabled`: default **on** for CrankLeads orgs, **off** for house orgs (A1 is unchanged unless switched on).
+- `time`: `"HH:MM"` from 06:00 to 09:00, default 07:00.
+- `days`: local weekdays, 0 = Sunday, default Monday–Saturday.
+- `channels`: default `["sms"]`.
+
+Route: `GET|PATCH /api/organizations/:org/companies/:company/ai-settings/office-manager`.
+- Members can read: the settings, `defaultEnabled`, whether an owner cell and an email are on file, whether the 8am alert is folded in, and the last briefing.
+- Owners and admins can PATCH `{ enabled?, time?, days?, emailCopy? }` (strict schema; the time must be 06:00–09:00; at least one day). It merges only `office_manager` via `updateAiSettings`.
+
+UI: on/off, send time (06:00–09:00 in half hours), day buttons Mon–Sun, "Also email me a copy", the last briefing's text, and a note when the 8am alert rides along.
+
+`officeManagerActiveFor` is true when the briefing is on and the company is active. The registry uses it to offer `briefing_now` and its prompt note only there.
+
+### Schema (`20261012100000_staff_office_manager.sql`)
+
+`owner_briefings` holds one row per company per local date:
+- `status`: `claimed | sent | failed | skipped`;
+- `attempts` and `last_attempt_at`;
+- `body`, `email_status`, `money_items`, `sent_at`, `last_error`.
+
+It is unique on `(company_id, local_date)`, with a composite FK to `companies (id, organization_id)`. RLS lets members read; there are no client writes, and only the service role writes. Re-runnable. The local type is in `staff/office-manager/db-types.ts`.
+
+### Env
+
+None of its own. No model calls: every line is built in code. Weather uses the Dispatcher's provider (Environment Canada, or `OPEN_METEO_API_KEY`; `WEATHER_PROVIDER=off` turns it off). Texts use `TWILIO_FROM_NUMBER` (the platform number); email uses the existing Resend setup.
+
+### Tests
+
+`src/test/staff-office-manager.test.ts` covers:
+- settings defaults, bounds and merge;
+- DST for America/Toronto: 07:00 is 11:00Z / 12:00Z across the Nov 1 fall-back and the Mar 8 spring-forward, the fall-back Sunday itself, and Monday's 49-hour "Since Saturday" counting a lead from 23:30 Sunday EST;
+- the composer: quiet day, parts left out, the 612-character cap with every part overflowing, GSM flattening;
+- the sweep: the exact text, two concurrent workers, Sunday as a setting, retry after a failed send (10 min, 3 tries, never after 11:00), platform STOP, no verified cell, house org off / opted in, paused company;
+- the fold-in: carried, marked, the 8am alert silent, nothing repeated, kept on a failed send; and no fold when the alert is off;
+- weather: on, off, no location — never fetched when off;
+- the email copy, `briefing_now` (read-only, details, an approval decided through `decideApproval` drops off), the registry, and the route.
+
+`src/test/staff-bookkeeper.test.ts` adds the deferral test (no 8am text on a briefing day, the alert alone on Sunday). Its fixture turns the briefing off so the standalone-alert tests keep testing the standalone alert.
+
+### Not yet
+
+- No approval kinds: the briefing only reports.
+- Items that turn up between the briefing and 11:00 wait for the next morning; they don't get a separate 8am text.
+- The weather line needs the Dispatcher to have located the business once (its first 15:00 check).
+- "Yesterday" counts text chats by customers the AI texted, not the customers' own messages.
+
+## Customer import
+
+A new business brings its existing customer list, so the Bookkeeper, Marketer and Dispatcher have history on day one. Code: `src/server/services/staff/importer/`. Migration: `20261012110000_staff_importer.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Customer import** (`src/components/settings/staff/ImporterSettingsSection.tsx`). Pages: **Import customers** (`/import`, signed in, owners/admins; `src/screens/ImportCustomersPage.tsx`) and the texted link `/import/:token` (no login; `src/screens/PublicImportPage.tsx`). Both use `src/components/import/ImportWizard.tsx`.
+
+**What the owner sees.** Dana texts "can I bring my customers over from Jobber?" → "Sent you the link." and a separate text: "CrankLeads: Bring your customer list over: upload a spreadsheet (CSV or Excel) from Jobber, QuickBooks, Housecall Pro, Square or your own. You'll see a preview before anything is saved, and nobody gets texted. https://…/import/…". She uploads `clients.csv`; a few seconds later the page shows her columns with our guess for each (she can change any of them) and a preview: "272 new customers · 40 you already have (blanks filled) · 1,104 past jobs · 14 open balances · $8,420", 9 rows that will be skipped and why, and sample rows. She presses **Import 312 customers**; she can close the page. When it's done: "CrankLeads: Imported 312 customers (272 new, 40 you already had - blanks filled, nothing overwritten), 1,104 past jobs, 14 open balances ($8,420) from clients.csv. 9 rows skipped - see the import page. Nobody was texted or emailed.\n#12 14 imported balances, $8,420 owing (oldest from Mar 3, 2026). Nobody has been reminded yet. Y to let the Bookkeeper start reminders on them (texts and emails, your usual schedule). Reply Y 12 to approve, N 12 to skip."
+
+### Upload (`batches.ts`, `deps.ts`, `links.ts`)
+
+- CSV or XLSX, ≤ 10 MB, ≤ 25,000 rows, ≤ 60 columns. The browser asks for a batch (`POST …/imports` or `POST /api/public/import/:token`), gets a one-time signed upload URL for the private bucket **`customer-imports`** (path `{org}/{batch}.csv|xlsx`, no storage policies; same pattern as receipts) and uploads straight to storage, then says `uploaded`. ≤ 20 uploads per company per day.
+- **The link** (`/import/:token`): one row per company in `import_links` (service role only), a 32-character random token, valid 14 days after it was last sent (an expired one gets a new token when it's sent again). Same pattern as the setup link: the token is the credential, one 404 for every miss, rate-limited per token and IP, and the link only works while the import is on for that company. Sent by the owner tool `send_import_link`, the "Text me the link" buttons (page + Settings), and the concierge action **Send import link**.
+- The dashboard's setup card (CrankLeads, until live) lists **Bring your customer list** as an optional extra (`dfy/progress-view.ts`), ticked once an import is done.
+
+### Reading the file (`parse.ts`)
+
+CSV: our own RFC 4180 reader (quotes, `""`, newlines inside quotes, comma / semicolon / tab, UTF-8 BOM, Windows-1252 fallback). XLSX: **`exceljs` 4.4.0** (pinned), **streamed** (`WorkbookReader`) and stopped past 25,000 rows — a whole-workbook load of a 10 MB, 240k-row file takes ~900 MB, so it's never loaded whole; the shared-strings part (kept in memory) is size-checked from the zip directory first (≤ 32 MB). The sheet with the most rows wins; date cells → YYYY-MM-DD; rich text, formulas and hyperlinks → their text. The first non-empty row is the header; empty rows are dropped; each row keeps its spreadsheet row number (`row_index + 2`), which is what the preview and the owner text call "row 10". Exact duplicate rows are dropped (unique row hash per batch).
+
+### Columns (`mapping.ts`)
+
+Fields: full / first / last name, business name, phone (several columns allowed; the first good number is the main one, the rest go to `metadata.other_phones`), email, address (parts joined in column order; billing address steps aside when there's a service address), notes, tags, last service date, job date / description / amount, balance owing, invoice date, due date, invoice number. Header heuristics cover Jobber, QuickBooks, Housecall Pro, Square and plain spreadsheets (ids, lifetime totals, lead sources, created dates and statuses are ignored). When they're unsure (no name column, no phone/email column, or a generic header like "Date" / "Total" / "Title"), **Claude** (`AI_MODEL_IMPORTER`, default `claude-sonnet-5-5`, usage recorded) gets the headers and ≤ 5 sample rows fenced as `<data>` (the system prompt says the content is data, never instructions) and answers one field per column; only the unsure columns take its answer, and a malformed answer is ignored. The owner can change any column; every edit rebuilds the preview. A mapping needs at least a name, phone or email column.
+
+### Rows (`normalize.ts`, `resolver.ts`)
+
+Phones → E.164 (North American numbers; "+…" kept; extensions dropped), emails lowercased, names split ("Lee, Jamie", titles dropped, ALL CAPS → Title Case), money → cents ("$1,240.50", "(45.00)"), dates in each column's own order (a column with a first part > 12 is day-first; otherwise month-first; also "Jun 14, 2025" and Excel serial numbers). A row with no name, business, phone or email is skipped with the reason. A job date today or later, a credit balance, a phone or date we can't read are warnings (the row still imports). A row's past job is its job date, else its last service date.
+
+**Matching** an existing contact: same phone (last 10 digits) or same email, in that company, **and a name that fits** (missing parts don't disagree; "Pat" fits "Patricia"). When the phone/email belongs to someone with a clearly different name (a shared family line, a typo), the row is **not** merged: it becomes its own contact (with that phone/email too) and the preview lists it ("same phone or email as Jamie Lee but a different name - added as a separate customer"). A row with no phone and no email is never matched by name — two John Smiths stay two; it only matches the contact an earlier upload made from the very same row (`metadata.import.rowKey`), so a re-upload still adds nobody. Rows of one file that are the same person become one contact (their jobs all count).
+
+### Preview (`preview.ts`)
+
+Before anything is written: new contacts, matches to existing contacts, repeat rows, skipped rows with reasons (≤ 100 listed), past jobs, open balances and their total, new customer accounts, 8 sample rows. A re-upload shows what's already in ("+3 already in") and "You imported this same file on Oct 3" (same file hash).
+
+### What the import writes (`apply.ts`)
+
+The sweep `importer:batches` (every tick; a lease per batch, 2 minutes; every save is conditional on the lease AND the status the step started from, so an owner's Cancel / Undo is never overwritten; companies with the import off are passed over when picking work, so they can't crowd out others) imports **500 rows per chunk** with a ~25 s budget per pass, never in the HTTP request (a small file — ≤ 1 MB — is read and previewed inside the upload request so the page is quick). Each row records what it did on `import_rows` before the cursor moves, so a pass that dies mid-chunk resumes without doing a row twice. Every pass is **counted before it runs** (`import_batches.failures`, reset when the step finishes), so a file that takes the worker down still uses up its tries: reading/previewing gives up after 3 ("We couldn't read that file…"), importing / undoing after 10 — the batch goes to `failed` and the owner is texted ("Your customer import of clients.csv stopped after 4,500 of 12,000 rows … Open the import page to undo what got in, or try the file again."); undo stays available.
+
+| | Written as | Never |
+| --- | --- | --- |
+| New customer | `contacts`: `consent_source: "import"`, **no `sms_consent_at`**, `stage: "closed"`, `metadata.import = { batchId, at, file }`, address / tags / other phones in `metadata` and a notes line | consent, express or implied, from the import |
+| Existing customer | **blanks only**: last name, phone, email, notes, account, `metadata.address/tags` | overwriting anything; touching consent, opt-outs or stage |
+| Business name | `customer_accounts` (when there's none by that exact name), linked to the contact | — |
+| Past job | `bookings` status **completed** in the past (noon local on the job date, `completed_at` = that date → the Marketer's CASL purchase date), `price_cents`, `source: "import:<batch>"`, `source_call_id: "import:<key>"` (unique per company) | `createBooking`, events, recipes, review requests, crew notices |
+| Balance owing | `invoices` status **sent**, the balance as one "Balance carried over" line, no tax, `issue_date` from the file (else the file's due date when that's already passed, else today), due date from the file (else the issue date), a fresh invoice number, `imported_at`, `import_batch_id`, `import_key` (unique per company), **`import_hold: true` + `reminders_paused: true`** | emailed, texted, `invoice.sent`, or pushed to QuickBooks / Xero |
+
+**No customer messages, no workflows.** Every write is a direct insert/update with the service role, pinned to the batch's organization and company; nothing calls a service that emits an activity / workflow event or sends anything (tested: no SMS but the owner's, no email, no dispatch, no `activity_events`, no `workflow_event_jobs`, no `message_log` row for a customer). Imported balances are also kept out of the **accounting sync** — the triggers skip invoices with `imported_at` (and payments on them), "Sync now" / settings-save backfill (`accounting/connections.ts queueBackfill`) leaves them out, and the engine (`syncInvoice`, so `syncPayment` too) skips them: they came from the owner's books, so pushing them back would duplicate them.
+
+**Reports.** Imported contacts (and the Recruiter's applicants: `consent_source` `import` / `job_application`) aren't new leads, and imported past jobs (`source_call_id` `import:…`) aren't jobs done in the period — in the monthly scorecard (and so the weekly report, which reuses its inputs) and the Reports overview (`reports/exclusions.ts`). A1's own cutover import uses `a1:…` keys, so its numbers are unchanged.
+
+**Idempotent re-upload.** The same file again finds the same customers (matched, blanks only), the same jobs (`source_call_id`) and the same balances (`import_key`: contact + their invoice number, else contact + date + amount), so it creates nothing new. A balance changed since (no invoice number in the file) is a new balance.
+
+When the batch is done, one text to the owner (from the platform number, outside 21:00–08:00 — it waits for the morning), with the `chase_imported_balances` question in the same text when balances came in.
+
+### Imported balances stay on hold (`hold.ts`, `approvals.ts`)
+
+While `invoices.import_hold` is true: no reminder email and no `invoice.overdue` automation — the email sweep's query leaves held rows out (`import_hold is false or null`), whether or not someone un-paused the invoice by hand, so held rows never use up its 1,000-row limit for other businesses — and no Bookkeeper text (it skips `reminders_paused` invoices) and no morning-alert overdue line.
+
+| Kind | Asked by | Owner sees | Y | N / expiry |
+| --- | --- | --- | --- | --- |
+| `chase_imported_balances` (TTL 7 days) | the import's done text; `import_status` with `start_reminders`; the Settings / page button | `14 imported balances, $8,420 owing (oldest from Mar 3, 2026). Nobody has been reminded yet. Y to let the Bookkeeper start reminders on them (texts and emails, your usual schedule).` — the last sentence follows the business's settings (texts only, emails only, or "your reminders are off, so nothing goes out until you turn them on") | `import_hold` and `reminders_paused` cleared on that batch's balances still on hold (conditional, so a retry releases nothing twice): "Done - reminders can start on 14 imported balances ($8,420), on your usual schedule." | "OK - the 14 imported balances ($8,420) stay on hold: no reminders. Text "import status" any time to start them." |
+
+A note ("Y 12 only Jones") can't change anything here: nothing is released and the same question comes back under a fresh code.
+
+### Undo (`undo.ts`)
+
+From the import page (a done batch, or a failed one that started importing): the sweep removes, phase by phase in chunks, what the batch **created**, unless it was used since — balances with a payment, reminder or view, or edited since (note: releasing the hold with Y also counts as a change); jobs edited, reassigned, invoiced or no longer completed; customers with any message, conversation, booking, quote or invoice left, or edited; customer accounts still in use. Kept records are reported ("Kept 1 customers … that were used since") with up to 10 examples. Customers the import only matched are never removed (blanks it filled stay filled). A pending `chase_imported_balances` question is withdrawn.
+
+### Owner tools (`owner-tools.ts`)
+
+- `send_import_link`: texts the owner the link.
+- `import_status`: the last 3 imports (status, new / matched customers, past jobs, balances, rows skipped, undo summary), balances on hold and any pending question. `start_reminders: true` creates the `chase_imported_balances` approval inline ("#12 … Reply Y 12 to approve, N 12 to skip.") or points at the pending one.
+
+### Settings, routes
+
+`companies.ai_settings.import = { enabled? }` — **on** for CrankLeads orgs, **off** for house orgs (A1 sees no tools or notes, can't upload, and the sweep leaves any batch of a company that has it off alone until it started importing). Routes (owners/admins; the overview is readable by members):
+
+- `GET|PATCH …/companies/:company/ai-settings/import`
+- `GET|POST …/companies/:company/imports`, `GET|POST …/imports/:batch` (`uploaded`, `mapping`, `import`, `undo`, `cancel`), `POST …/imports/send-link`, `POST …/imports/start-reminders`
+- `GET|POST /api/public/import/:token`, `GET|POST /api/public/import/:token/:batch` (same actions; the token's company only)
+
+### Data (migration `20261012110000_staff_importer.sql`)
+
+- `import_links` (service role only), `import_batches` (owners/admins read — samples hold raw customer rows, like the API; statuses uploading → uploaded → mapped → previewed → importing → done, failed, undoing → undone, cancelled), `import_rows` (service role only; unique `(batch_id, row_hash)`; what each row created).
+- `invoices.imported_at / import_batch_id / import_hold / import_key` (no client grants), unique `(company_id, import_key)`; unique `(company_id, source_call_id)` for `bookings` with an `import:` key; an index on `contacts.metadata->import->>batchId`.
+- Bucket `customer-imports` (private, 10 MB, CSV / XLSX types).
+- `accounting_enqueue_invoice` / `accounting_enqueue_payment` skip imported balances (the rollback restores the originals).
+
+30 days after a batch is finished the sweep deletes its file and the raw rows' cells (the records it made stay; undo still works). Local row types: `staff/importer/db-types.ts`.
+
+Env: `AI_MODEL_IMPORTER` (optional, default `claude-sonnet-5-5`). Dependency: `exceljs` 4.4.0 (exact).
+
+Tests: `src/test/staff-importer.test.ts` (CSV/XLSX reading, the export heuristics and the Claude fallback, row cleaning, settings + house orgs, preview, the quiet import with consent fields and fill-blanks matching, the no-messages guarantee, quiet hours, idempotent re-upload, chunk resume, leases, the holds against the email and Bookkeeper sweeps, `chase_imported_balances` through `decideApproval` (Y, note, N), undo, owner tools, the token route).
+
+Customer accounts match by name in any case ("ORTIZ HOLDINGS" is "Ortiz Holdings").
+
+**Not yet:** XLS (old Excel) files must be saved as XLSX or CSV first.
+
+## Keep your number
+
+The owner keeps their existing business number: it moves (ports) from their carrier to our Twilio account, and calls to it ring the owner's cell first, then the AI. No more call forwarding. Twilio accepts Canadian local port-ins **only through its web form** (no API), so everything is automated except one operator step: pasting the details into that form. Code: `src/server/services/staff/porting/`. Migration: `20261012120000_staff_porting.sql` (rollback in `supabase/rollback/`).
+
+### What the owner sees
+
+1. **Start.** Settings → AI front desk → Keep your number → **Keep (705) 555-0142**, or by text: "can I keep my number?" (owner tool `start_number_port`, whose reply carries the link). An operator can also start one (concierge action **Keep their number: text the owner the porting form**). One open request per company: asking again returns the same link. The owner gets, from the platform number: `Keep your number: to move (705) 555-0142 over we need a few details (about 5 minutes - have a recent phone bill handy): https://…/port/<token> Your calls keep working the whole time.`
+2. **The form** (`/port/:token`, public, the token is the credential, mobile-first): the number(s) (prefilled with the business line; up to 5 on the same account; a warning when the business line is a cell), the current carrier, the name on the account, the authorized person, the account number, the PIN (or "my account doesn't have a PIN"), the **service address** (no PO boxes, Canadian postal code / US ZIP checked), a photo or PDF of a **bill from the last 30 days** (straight to the private `porting-docs` bucket through a one-time signed upload URL), and a **typed-signature e-sign** of the Letter of Authorization (the typed name must match the authorized person). On submit the server generates the LOA PDF (`loa.ts`, pdf-lib: business, authorized person, service address, carrier, numbers, the authorization text naming Twilio Inc. as the new provider, the typed signature, date, IP and browser; **the account number and PIN are never printed on it**), stores it with its SHA-256, and the request becomes `ready`: `Got it - everything's in for moving (705) 555-0142. We'll send it to your carrier within 1 business day and text you when it's in.`
+3. **Submitted** (operator): `Your number move for (705) 555-0142 is in with the carrier (usually 5-7 business days). Don't cancel your old phone service - the move ends it for you. Your carrier may text you asking to approve the transfer: answer YES within 90 minutes or it gets rejected.` This one (and the FOC one) goes out **even in quiet hours**: the carrier's approval text can come minutes after submission.
+4. **Move date set:** `(705) 555-0142 moves over on Tue, Oct 20. Keep your old service until then - calls work the whole time. Your carrier may text you asking to approve the transfer: answer YES within 90 minutes or it gets rejected.`
+5. **Rejected:** `Your carrier sent back the move for (705) 555-0142: <operator's reason>. Fix it here and we'll send it again: <same link>` The form reopens with the reason on top; re-signing makes it `ready` again (the stored account number / PIN are kept unless retyped).
+6. **Done:** `Done: (705) 555-0142 now rings through us. Calls ring your cell first for 20 seconds (press 1 to take one), then your AI answers. You can turn call forwarding off now - it isn't needed any more.` (Voicemail-mode companies: "…then they get your voicemail and a text back".)
+7. **Cancelled:** `Your number move for (705) 555-0142 was cancelled. Nothing changes: your phone works as before.` Owners can cancel from Settings until it's submitted; after that an operator cancels (and cancels at Twilio).
+
+Owner texts are never more than numbers, dates and what to do: never the account number or PIN. Each status change owes exactly one text (`notify_status` = `"<status>@<time>"`, claimed by a conditional update on `notified_status`, and cleared once sent — or once it can never be sent: owner opted out, no verified cell); non-urgent ones wait for 08:00 local (quiet hours 21:00–08:00), and a failed send is retried by the `porting:notify` sweep, which only ever sees pending texts (oldest first). `number_port_status` (owner tool) answers "where's my number move at?".
+
+### Account number and PIN
+
+- Encrypted at rest with **AES-256-GCM** (`crypto.ts`), key `PORTING_ENCRYPTION_KEY` (32 random bytes, base64), a fresh 12-byte IV per value, and the port row's id as additional authenticated data (a ciphertext copied onto another row won't decrypt). Stored as `v1.<iv>.<tag>.<data>`; only the last 4 digits of the account number are kept in clear for display.
+- **No key (or a malformed one) → neither is collected in the app**: the form says "We'll call you for your account number and PIN" (`pin_status = 'call'`) and the operator calls the owner. (Stricter than the brief, which only required this for the PIN: storing the account number in clear would break "encrypted at rest".)
+- Never logged, never in a text, an approval, the settings view, the form view, the operator queue or an audit row. The only way to read them is the concierge action **Reveal account number + PIN** (`port_reveal_secrets`), which runs through the audited concierge runner: the `operator_actions` row records who revealed them and when (`revealed: { accountNumber: true, pin: true }`), never the values.
+- **Purged** by the `porting:purge` sweep 14 days after the port completes or is cancelled: the ciphertexts are nulled, `secrets_purged_at` is set, and **every** `bill-*` file in the port's storage folder is deleted (the current bill, replaced ones and uploads that were never submitted — they show the account number). A bill replaced on the form is also deleted right away. The signed LOA is kept as the record.
+- **Abandoned ports** (collecting / ready / rejected, untouched for **60 days**, `ABANDON_AFTER_MS`) are cancelled by the same sweep (the owner gets the "cancelled" text), so their details and bill are purged 14 days later.
+
+### Port requests (`number_port_requests`)
+
+Status `collecting → ready → submitted → foc_scheduled → completed`, or `rejected` / `cancelled` (`status.ts PORT_TRANSITIONS`; every change is a conditional update on the current status, so two operators can't both win):
+
+| From | To |
+| --- | --- |
+| collecting | ready (owner signs), cancelled |
+| ready | ready (re-signed), submitted, rejected, cancelled |
+| submitted | foc_scheduled, rejected, completed, cancelled |
+| foc_scheduled | foc_scheduled (new date), rejected, completed, cancelled |
+| rejected | ready (owner fixes + re-signs), cancelled |
+
+Also recorded: carrier, numbers, business name, authorized name, service address, bill path / type / upload time, LOA path / SHA-256 / signed time / typed name / IP / user agent, Twilio port request id, FOC date, rejection reason, attached numbers, who started it (`settings | owner_text | operator`), and a timestamp per status. **The owner's form locks** as soon as an operator starts on the port — the first copy on the Ports page (concierge action `port_opened`), a reveal, an LOA / bill download, or Mark submitted (`operator_opened_at`) — so what goes into Twilio's form is what was signed; Mark rejected reopens it. A locked or submitted link shows only the status (no personal details); 30 days after the port ends the link stops working.
+
+**Numbers a port may never touch** (`guards.ts`, checked on the form, on start, and again in the completion sweep): the platform number (`PLATFORM_SMS_NUMBER`, `TWILIO_FROM_NUMBER` — a house business's line such as A1's, which may have no `voice_numbers` row — and `TWILIO_FORWARDING_TEST_FROM`); any number with a `voice_numbers` row unless it's already this company's `business_line` (a catcher row is never converted; the form says "already connected to us").
+
+### The operator step (concierge → **Number ports**, `/concierge/ports`)
+
+Linked from the concierge list header. Every open port (ready first), each with:
+- **Copy for Twilio form:** numbers (E.164), billing telephone number, losing carrier, business name, authorized representative, service address (street, city, province, postal code, country), account number (`ending 9012 - reveal`), PIN (on file / none / call the owner), LOA signed (who, when), the owner's cell (for the carrier's approval text). One copy button per field and **Copy all**.
+- **Signed LOA** and **Phone bill** downloads (`GET /api/concierge/ports/:portId/files/loa|bill` → a 2-minute signed URL; each download is an `operator_actions` row).
+- **Reveal account number + PIN** (confirm, audited, shown in the panel only).
+- **Mark submitted** (with the Twilio port request id), **Set FOC date**, **Mark rejected** (reason, texted to the owner), **Cancel port**. These are concierge actions `port_mark_submitted`, `port_set_foc`, `port_mark_rejected`, `port_cancel` (strict zod input, the port must belong to the named org + company, audited). They're hidden from the account page's generic action buttons (they need a port id); `port_start` stays there.
+- Warnings: LOA or bill over 30 days old (mark rejected so the owner re-signs / sends a newer bill), "call the owner for the PIN", "purged".
+
+### Completion (`completion.ts`, sweep `porting:completion`, hourly)
+
+For each `submitted` / `foc_scheduled` port, each number not yet attached is looked up with the injected Twilio provision client's `listIncoming({ phoneNumber })`. When it appears in the account:
+1. **Mark submitted snapshots the Twilio account** (`listIncoming` for each number, `twilio_snapshot_at`, `preexisting_numbers`; it refuses to submit if Twilio can't be checked). Only numbers that **arrive** after that are attached: one already in the account at submit, or a port with no snapshot, is never auto-attached (the Ports page warns; an operator attaches it by hand).
+2. Guards before anything is touched (each refusal logged): not a platform number; no `voice_numbers` row unless it's this company's `business_line`; not FriendlyName-tagged `EmpireVu catcher …` or `EmpireVu line <another company>`; webhooks unset (or Twilio's demo URLs) or already pointing at our `/business-line` route — anything else means the number is in use.
+3. Its Voice URL → `/api/twilio/voice/business-line`, SMS URL → `/api/twilio/sms/inbound`, FriendlyName `EmpireVu line <companyId>` (distinct from the catcher tag, so it can never be claimed as a catcher).
+4. A `voice_numbers` row (`provider = 'twilio'`, **`mode = 'business_line'`**, the number's SID, active) for the company.
+5. When every number is in: `completed` + the owner's "Done" text. Idempotent (a second pass finds nothing to do). Missing Twilio credentials or `APP_BASE_URL` → the pass is skipped and logged.
+
+Call forwarding stays in place until the port completes (the old carrier's service, and with it the forwarding, ends with the port); the "Done" text tells the owner they can turn it off.
+
+### Calls to the ported line (`business-line.ts`, route `/api/twilio/voice/business-line`)
+
+Signature-verified first (403 otherwise); the tenant comes only from the called number (`voice_numbers` mode `business_line`, active).
+1. **Ring the owner first:** `<Dial timeout="20" answerOnBridge="true" callerId="<caller>" action="…?stage=after">` to the owner's cell (`companies.owner_phone_e164`, **only when verified** — an unverified cell is never rung; the call goes straight to step 3 and Settings says so), plus team members' cells (`organization_memberships.phone_e164`; only this company's people when `company_memberships` rows exist for it, oldest member first) when **Ring my team's cells too** is on — owner first, deduplicated, at most 5, and never one of our own numbers (the ported line itself, the catcher, the platform number: an owner whose "cell" *is* the ported line goes straight to step 3). The caller hears ringing; the owner sees the caller's number. Nothing is queued as a missed call yet (`business_line_calls` row only).
+2. **Press 1 to take it** (on by default): each ringing leg gets `<Number url="…?stage=screen&parent=<CallSid>">` → `Call for Northshore Plumbing. Press 1 to take it.` 1 bridges the call and records `accepted_at`; anything else drops only that leg. So a cell's own voicemail never swallows a customer.
+3. **`<Dial>` ends** (`?stage=after`): answered = `DialCallStatus=completed` and (Twilio's `DialBridged=true`, or screening off, or someone pressed 1; `DialBridged=false` never counts) → `<Hangup/>`. Anything else (no answer, busy, voicemail picked up without pressing 1) → `<Redirect>` to **`/api/twilio/voice/inbound` — the existing catcher path, unchanged**: the durable job, AI answering (or the greeting + voicemail) and the missed-call text-back. Any error on our side (tenant lookup, DB) also falls through there, so a caller is never lost.
+
+The only change to that path: `resolveCatcherTenant` (twilio/missed-call.ts) now matches `mode in ('missed_call_catcher', 'business_line')`, so the redirected call (and its worker job) resolves the company from the ported number. Catcher numbers behave exactly as before (tests: golden greeting TwiML, durable-first ordering, forwarding-test legs).
+
+**Texts** to the ported number need nothing new: inbound SMS already routes any active Twilio `voice_numbers` row (owner → owner channel, customer → the SMS agent), exactly like the catcher number. Outgoing texts still go from the catcher number (`resolveCompanySmsFrom` prefers it); see Not yet.
+
+### Settings
+
+`companies.ai_settings.porting`, read only by `staff/porting/settings.ts readPortingSettings`:
+
+```
+porting = {
+  enabled,                                   // CrankLeads on, house orgs off
+  ring: { enabled: true, seconds: 20,        // 10–40
+          crew: false, screen: true }
+}
+```
+
+Route `GET | PATCH | POST /api/organizations/:org/companies/:company/ai-settings/porting` (members read — without the form link; owners/admins PATCH `{ enabled?, ring?: { enabled, seconds, crew, screen } }` merged into `ai_settings.porting` only via `updateAiSettings`; POST `{ action: "start", number? }` or `{ action: "cancel", portId }`). UI: `src/components/settings/staff/PortingSettingsSection.tsx` — the switch, **Keep (705) 555-0142**, the port's status with the form link and Cancel, the ported line(s), and the ring settings. `portingActiveFor` = `enabled`, so house orgs (A1) never see the owner tools or the prompt note. House orgs can't have a `business_line` number unless an operator ports one for them, so their calls are untouched.
+
+### Owner tools
+
+| Tool | Does |
+| --- | --- |
+| `start_number_port` | Starts (or finds) the request; `tell_owner_exactly` = the form link. Already underway → where it stands. |
+| `number_port_status` | Numbers, status, move date, the carrier's feedback, the next step, the form link while open. |
+
+Prompt note: relay `tell_owner_exactly` word for word; never ask for or repeat the account number or PIN by text; don't cancel the old service; answer the carrier's text YES within 90 minutes. No SMS-agent tools, **no approval kinds** (nothing here acts on a customer or on money).
+
+### Schema (`20261012120000_staff_porting.sql`)
+
+- `voice_numbers.mode` check gains `business_line`.
+- `number_port_requests` (above; unique `token`; one open request per company via a partial unique index on `company_id` where status is open).
+- `business_line_calls` (unique `call_sid`: who was rung, screened or not, `accepted_at`, outcome `answered | missed`).
+- Private bucket `porting-docs` (10 MB; PDF, JPEG, PNG, WebP, HEIC/HEIF) with **no storage policies** (service role only, signed URLs).
+- Both tables: RLS on, **all** privileges revoked from `anon` and `authenticated` — every read goes through owner/admin, public-token or operator server routes.
+- Rollback converts `business_line` rows to `missed_call_catcher` (so calls and texts keep resolving the company; re-point those numbers' Voice URL to `/api/twilio/voice/inbound` if the app code is rolled back too), restores the old mode check, drops both tables and the bucket (empty it first).
+
+Types: `staff/porting/db-types.ts` until merged into `database.types.ts`.
+
+### Env
+
+`PORTING_ENCRYPTION_KEY` — 32 random bytes, base64. Generate one with `openssl rand -base64 32` (or `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`). Set it on the **web** service (the form encrypts, the concierge decrypts). Keep it stable: changing it makes stored values unreadable (the reveal says so; the operator calls the owner). Also uses the existing `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `APP_BASE_URL` (or `TWILIO_WEBHOOK_BASE_URL`) on the **worker** for the completion sweep. No AI model calls.
+
+### Sweeps
+
+`porting:completion` (1 h), `porting:notify` (5 min), `porting:purge` (1 h; also cancels abandoned ports) — through `runStaffSweeps`; each reads only ports in the relevant statuses.
+
+### Tests
+
+`src/test/staff-porting.test.ts` (fake DB; owner text, storage and Twilio faked): encryption (round trip, row binding, wrong key, bad key), settings defaults + merge + `activeFor` (house org off), the status machine and every owner text, start (one per company, owner-text start doesn't double-text, house org refused unless operator), the form end to end (ciphertext only, LOA PDF in the port's folder without the account number, owner text), PO box / signature / bill-path / number validation, no-key mode, the public route (secrets never echoed), the link after submission and its 30-day expiry, operator steps (90-minute warning at night, FOC, rejected → fixed → ready, wrong company refused), quiet-hours hold + notify sweep, failed-text retry, owner cancel rules, the concierge queue + audited reveal (no values in the audit), completion (waits, attaches `business_line`, webhooks, catcher untouched, owner text, idempotent, never another company's number), purge timing, sweeps registered. `src/test/staff-porting-calls.test.ts` (real routes, signed requests): ring owner first (golden TwiML, nothing queued), crew + seconds + unscreened, never ringing our own numbers, fall-throughs, screening (1 bridges, 2 drops), answered vs voicemail-picked-up vs no-answer, the redirected call taking the catcher path (durable job + greeting), **catcher path unchanged** (golden greeting, durable-first, forwarding-test legs, unknown/inactive numbers), and SMS to the ported line reaching the SMS agent. `src/test/porting-settings-section.test.tsx`: the Settings section.
+
+### Not yet
+
+- Never run against live Twilio: check the first real port by hand — that the number appears in `listIncoming` after the FOC, that `<Number url>` screening and `DialBridged` behave as documented, and that `callerId` = the caller's number is accepted for Canadian destinations (if Twilio refuses it, drop `callerId` so the owner sees the business line).
+- Outgoing texts still come from the catcher number. Switching the sender to the ported line (so replies come "from the business number") is a one-line change in `resolveCompanySmsFrom`, left out until the ported number's messaging is confirmed on Twilio.
+- The setup checklist, the concierge account page and the forwarding checks still describe the company by its catcher number + forwarding; they don't show the ported line (Settings → Keep your number and the concierge Number ports page do). A forwarding test run by hand after the port would fail (the old carrier line is gone) — don't run one.
+- The bill's own date isn't read (the owner confirms "from the last 30 days"; the operator sees the upload date).
+
+## Hiring & payroll
+
+The Recruiter does the office's hiring and payroll paperwork. It turns the crew's clock-ins into a payroll the owner OKs by text, with Ontario overtime flagged. Y locks the hours and emails a CSV the bookkeeper can load into any payroll tool. It also writes job posts, puts them on the company site with an apply form, sorts applicants against the job's own requirements, and sets up calls once the owner says yes. Code: `src/server/services/staff/recruiter/`. Migration: `20261012130000_staff_recruiter.sql` (rollback in `supabase/rollback/`).
+
+### What the owner sees
+
+- **Monday 08:00, the morning after a pay period ends**, one text from the platform number:
+
+  > #12 Payroll Sep 28 - Oct 11: Ana 40h, Jo 6h, Mike 82h (OT 6h). Total 128h, OT 6h flagged (over 44h/wk). Y locks these hours and emails the CSV to books@acct.ca. Reply Y 12 to lock it and send the CSV, N 12 to skip.
+
+  **Y 12** locks the period's time entries and emails `northshore-roofing-payroll-2026-09-28-to-2026-10-11.csv` to the bookkeeper email (or the account owner). The owner gets back "Locked payroll Sep 28 - Oct 11 (3 people, 128h, OT 6h) and emailed the CSV to books@acct.ca."
+- **Someone forgot to clock out.** The text adds "1 open entry (no clock-out): Ana Tue Oct 6." and the reply line becomes "Fix the open entry in the app and reply Y 12, or reply Y 12 anyway to lock as is. N 12 to skip." A plain **Y** while it's still open locks nothing; it asks again with a fresh code: "Not locked yet: 1 open entry with no clock-out (Ana Tue Oct 6). Fix it in the app, then reply Y 13 - or Y 13 anyway to lock as is (open entries count as 0)." **Y 13 anyway** locks it, and the open entry counts as 0 in the CSV with a note.
+- **"I need a labourer, $22/hr, start Monday"** (to the assistant): `start_hiring` drafts the post and the reply is the question:
+
+  > #14 Job post "Labourer" - $22/hr, Full-time, start Monday, Midland. Duties: …; …. Needs: …; …. Form also asks: "Do you have your Working at Heights ticket?". Y publishes it on your website with an apply form and texts you copy for Indeed/Facebook. Reply Y 14 to post it, N 14 to skip.
+
+  **Y 14** opens `/s/<slug>/jobs/<id>` (or `pages.crankleads.com/<slug>/jobs/<id>`). The owner gets "Posted the Labourer job: <link>. Copy for Indeed/Facebook is in my other text. …", plus a second text: "Copy for Indeed/Facebook: Northshore Roofing is hiring: Labourer ($22/hr, …). You'll: …. You need: …. Apply here: <link>".
+- **Applicants** fill in the form: name, cell, email, experience, availability, driver's licence and own vehicle (yes/no), plus up to 3 job questions. Each one gets "Hi Jo, thanks for applying for the Labourer job at Northshore Roofing. We got your application and we'll be in touch." from the business number.
+- **08:30 the next morning** (only when there are new applicants):
+
+  > Hiring (Northshore Roofing): 5 new applicants for Labourer. Top: Jo P. 5/5 - 3 yrs roofing, has licence; Sam L. 4/5 - …; +3 more. I'll ask you about inviting the top 3. Text "applicants" for the full list.
+
+  This is followed by up to 3 `interview_invite` approvals a day: "Invite Jo Park (705-555-0142) to talk about the Labourer job? Score 5/5 - …. Y texts them: "Hi Jo, Northshore Roofing would like to talk about the Labourer job. When's a good time for a quick call this week?" Their reply comes to you." On **Y** Jo gets exactly that text, and the reply comes to the owner, not the AI.
+- **By text any time:** "who applied?" (`applicants`), "invite Sam" (`invite_applicant`), "close the labourer job" (`close_job`).
+- **House orgs (A1 etc.)** get none of this unless the owner switches it on in Settings → AI front desk → Hiring & payroll.
+
+### Payroll
+
+- **Periods** (`periods.ts`, pure): weekly or bi-weekly from the anchor date (the first day of any one period, default Mon 2026-01-05), or semi-monthly (1st–15th, 16th–end of month). Dates are the company's local calendar days; `starts_at` / `ends_at` are local midnights (DST-safe).
+- **Hours** (`computePayroll`): `time_entries` → `time/logic.ts workedMinutes` (breaks subtracted). An entry counts on the local day it starts.
+  - Which entries are the company's: `company_id` = the company, plus general time (`company_id` null) when the period has `covers_general_time`.
+    - That flag is set when the period is created, for the org's oldest company with payroll on (`generalTimeCompanyId`). The lock (service check and trigger) follows the same flag, so what's paid is exactly what's locked.
+    - A multi-company org never counts the same hours twice.
+  - **Open entries** (no clock-out) count as 0 and are listed by person and day.
+  - **Edits since the period ended**: an entry added after the end, or changed after it. A clock-out written within 10 minutes of the change doesn't count, so a shift that ran past midnight isn't flagged.
+  - Job count = distinct bookings.
+- **Ontario overtime** — a *flag*, never a payroll calculation:
+  - Hours past 44 in a work week are flagged at 1.5×. The week is **per worker across the whole org**: all their companies and general time count toward the 44, and the hours past it are flagged where they fell (30 h at one company then 30 h at another → 16 h OT at the second).
+  - The work week starts on the anchor's weekday (weekly / bi-weekly) or Monday (semi-monthly).
+  - A work week that straddles the period start counts the earlier days toward the 44. That keeps semi-monthly periods right.
+  - No averaging agreements, exemptions, vacation pay or tax.
+- **The sweep** (`payroll.ts runCompanyPayroll`, `recruiter:payroll` every 5 min):
+  - It runs from 08:00 local on the day after the period ends, caught up for 2 days.
+  - The `pay_periods` row (unique company + start date) is the claim, so each period is asked about once across workers.
+  - A period that would overlap an earlier one (the frequency or anchor changed) is skipped (`overlap`). The `pay_periods_no_overlap` trigger is the backstop.
+  - A period with no hours becomes `empty` and nothing is asked. A failed read deletes the claim so a later pass retries.
+  - Otherwise it creates a `payroll_period` approval (72 h), notified through `notifyOwnerOfApproval` (quiet hours respected), and the period becomes `awaiting_owner`.
+- **The lock**:
+  - `time/service.ts` (`createManualEntry`, `updateEntry`, `deleteEntry`) checks `staff/recruiter/time-lock.ts` first. A locked entry gives a plain `PayPeriodLockedError`: "Those hours are locked for payroll. An owner or admin can unlock the pay period in Settings > AI front desk > Hiring & payroll."
+  - The `time_entries_pay_period_lock` trigger is the backstop. It refuses any client (browser session) insert, edit or delete inside a locked period (`pay_period_locked`, mapped to the same message).
+  - **Exception:** stopping a clock that was left running is always allowed, so a period locked "anyway" never strands a running clock.
+    - The timesheet dialog re-sends every field, with the start at minute precision. Unchanged values (start in the same minute, same break, same job) aren't treated as changes, in the service and in the trigger.
+  - General-time entries are covered only by the locked period with `covers_general_time`.
+  - The trigger is SECURITY INVOKER and checks `pay_periods` inline, which members can read under RLS. `time_entry_in_locked_period` is service-role only.
+  - The service role and `close_job_time_entries` (SECURITY DEFINER) aren't affected.
+- **Unlock / lock from Settings**: `POST /api/organizations/:org/companies/:company/payroll/periods/:periodId { action: "lock" | "unlock", reason? }` (owners/admins).
+  - Unlock clears the email claim, so re-locking emails a fresh CSV.
+  - Every ask, lock, unlock, CSV email, CSV download and skip is a `pay_period_events` row with who did it (`owner_sms:+1…`, `profile:<uuid>`, `system`).
+- **CSV** (`payrollCsv`): one row per person with columns `employee_name, employee_email, period_start, period_end, regular_hours, ot_hours, total_hours, hourly_rate, gross_estimate, job_count, notes`.
+  - Hours are decimals. The rate comes from `member_pay_rates`.
+  - Gross = regular × rate + OT × 1.5 × rate. It's an estimate before deductions.
+  - Notes: the OT flag, open entries not counted, changed after the period, no pay rate.
+  - Cells are formula-safe (`csvCell`: a leading `= + - @`, tab or carriage return is neutralised, and any `\r` is quoted).
+  - Download any period: `GET …/payroll/periods/:periodId/csv` (owners/admins). It's computed fresh from the entries.
+  - The email (Resend `sendEmail` with the CSV attached, sent under the business's name) is claimed by `csv_emailed_at`. A failure still locks, records `csv_email_error`, and tells the owner where to download it.
+
+### Approval kinds
+
+| Kind | Created by | Y | N / expiry |
+| --- | --- | --- | --- |
+| `payroll_period` | the payroll sweep (72 h); an executor re-ask when entries are still open (asked inline to the phone that said Y) | recomputes the hours. Open entries without "anyway" → a fresh `payroll_period` with a new code and the period re-pointed to it; nothing is locked. Otherwise: conditional `status → locked`, CSV email, "Locked payroll … and emailed the CSV to …" | `skipped` / `expired`, nothing locked ("You can lock it or download the CSV in Settings") |
+| `job_post` | owner tool `start_hiring` (asked inline, 48 h) | `awaiting_owner → open` (conditional), the paste copy is texted to the owner once (`owner_texted_at` claim) | `rejected` / `expired` ("Text me what to change … and I'll redraft it") |
+| `interview_invite` | the 08:30 digest (≤ 3 a day; notified normally) or owner tool `invite_applicant` (inline), 48 h | `invited_at` claimed, the exact invite is texted from the business number, and the conversation goes to the owner (an applicant-only contact stays AI-paused; anyone else gets `markOwnerTakeover`). Outside 08:00–21:00 local it's queued (`invite_send_after` = the next 08:00) and the owner is told "It's late, so I'll text Jo … at 8am"; the `recruiter:applicants` sweep sends it, and texts the owner if it can't | nothing sent |
+
+"Y 12 anyway" is a new decision note. `parseApprovalReply` accepts `anyway` after a yes. `owner-channel/entry.ts` only treats it as a decision when a `payroll_period` (`ANYWAY_NOTE_KINDS`) is pending for that phone, matching the code if one was given. Otherwise ("ok anyway" in a house org, "Y 3 anyway" on a quote, nothing pending) the text takes exactly the pre-change path ("did you mean" / command), and `looksLikeApprovalAttempt` judges it as before. `replyInstruction` has lines for the three kinds. Every executor is idempotent: a second Y is "already" (owner channel), and a re-run sends nothing (conditional claims).
+
+### Hiring
+
+- **Drafting** (`ai.ts draftJobPost`, model `AI_MODEL_RECRUITER`, default `claude-sonnet-5-5`, usage recorded):
+  - The input is the owner's words, fenced as data, plus the business name, trade and service area. The model returns JSON (title, pay, type, start, location, summary, 3–6 duties, 2–5 requirements, nice-to-haves, up to 3 job questions).
+  - **Pay** is kept only when every amount in it is one the owner typed (`checkedPay`). It's never invented. With no pay, the owner's text says so.
+  - **Human rights guard** (`protectedGroundProblems`): any line touching a ground protected by the Ontario Human Rights Code is dropped. That covers age ("young", "under 35", "recent grads"), sex/gender ("men", "handyman"), family/marital status, origin/citizenship/ancestry ("native English speaker", "Canadian-born"), creed, disability ("able-bodied"), sexual orientation and public assistance. So is "Canadian experience". Job-related lines stay: "lift 50 lbs", "18 or older", "Working at Heights", "G licence", "10-15 years of experience".
+  - No model, a bad answer or a title that fails → a plain template from the owner's words (`templateJobDraft`).
+  - One draft waits at a time. A new `start_hiring` marks the old one `rejected` and supersedes its approval.
+- **Public pages** (`public.ts`, `jobs-render.ts`; routes `src/app/s/[slug]/jobs/route.ts` and `…/jobs/[jobId]/route.ts`):
+  - They're served only for a `published` `company_sites` row whose company has hiring on. The company comes from the slug row only.
+  - A closed job answers 410 "This job is closed". Anything else gets the site's neutral 404.
+  - The pages use the site's colours, and every value goes through `esc` / `safeHref`. Each job page says "This is a current opening." and "We use AI to help sort applications. A person reads every one and makes every decision." (in line with Ontario's 2026 job-posting rules for larger employers).
+  - The apply form is a plain HTML POST to the same URL (no JS needed). The page carries its render time, so the timing check works without JS.
+  - POST checks: a streamed 16 KB body cap, rate limits (6/hour per IP, 200/hour per job, 5/day per phone across jobs and businesses), honeypot + 3-second minimum fill (a missing render time fails), and Turnstile when configured.
+  - `site-host.ts` now rewrites `pages-host/<slug>/jobs[/<uuid>]` to these routes.
+  - The Indeed/Facebook paste copy always ends with how to apply, "This is a current opening." and the AI disclosure. Only the job details are clipped to fit 560 characters.
+  - A post with no pay: the approval text says Ontario requires the pay or a pay range on public posts and asks the owner to reply N and text it (e.g. "$22-$25/hr"). Ranges are kept as given.
+  - With no live website, the post still opens. The paste copy says "text <business number>", and texts come to the business line, where the prompt note below applies.
+- **Applying** (`applicants.ts submitApplication`):
+  - `job_applicants` has one row per job + E.164 phone. Applying again refreshes the answers (re-screened), with no second text.
+  - The contact is matched by phone (last 10). A **new** contact is inserted directly, with no `contact.created` event, so no lead automation fires. It gets `metadata { kind: "applicant", applicant_job_ids }`, `consent_source 'job_application'`, and its conversation is set to `paused`: their texts reach the owner through the customer-text relay and never go to the AI as a customer.
+  - An **existing** contact (a customer who applies) keeps its details and its AI. Only `applicant_job_ids` is added.
+- **Sweeps never stall**: screening reads only companies with hiring on and rows with attempts left (a row whose job is gone uses its attempts up). Confirmations and queued invites read only companies inside their texting hours.
+- **Confirmation text**: from the company's own number only (no number → `skipped`), 08:00–21:00 local. Later applications wait for the `recruiter:applicants` sweep the next morning, and are dropped after 2 days.
+  - It's transactional (they asked), so opt-outs always win and no 6-month consent expiry applies.
+  - Claimed `pending → sending → sent/skipped/failed`. `message_log.sent_by = 'recruiter'`.
+- **Screening** (`screenApplicant`, `recruiter:applicants` sweep, 20 a pass, at most 3 attempts, the attempt counted before the call):
+  - It scores 1–5 **only against the job's stated requirements, nice-to-haves and duties**.
+  - The model never sees the name, phone or email. Answers are fenced as `<applicant_answers note="data">` with angle brackets stripped. Volunteered ages ("I'm 45", "born in 1974") are redacted.
+  - The prompt forbids considering any protected ground or where experience was gained.
+  - A reason that mentions a protected ground is replaced with the met requirements. No model or a bad answer → `ruleScreening` (licence / vehicle answers against the requirements, how much experience was written).
+  - **Nobody is ever rejected automatically.** The score only orders the owner's list.
+- **Digest** (`runCompanyDigest`, `recruiter:digest` every 5 min):
+  - It runs from 08:30 to 11:00 local, only with new applicants on open jobs and a verified owner cell. It's claimed per local day in `recruiter_sweep_claims`.
+  - The owner gets the text, then every included applicant gets `digest_at`, then interview invites are created for the best ones not yet invited. Invites created by the Recruiter that day count toward the cap of 3. A failed owner text releases the day.
+- **SMS agent prompt note**: "Job applicants …". If the person is asking about a job, an application or an interview, or the history shows the business's applicant texts, the agent never quotes, books or sells, never asks anything personal, and calls `hand_off_to_owner`.
+
+### Owner tools
+
+| Tool | Does |
+| --- | --- |
+| `start_hiring` | `request` (the owner's words), optional `title` / `pay` / `start` / `location` → draft + `job_post` approval. Returns `tell_owner_exactly` (≤ 470 chars, with the code). |
+| `applicants` | Open jobs (or the one named): link, count, new since the digest, the top 8 with score, reason, phone, licence/vehicle, invited. Applicant-written text (name, reason) is quoted, stripped of markup and labelled as data. |
+| `invite_applicant` | `applicant` (name words), optional `job` → `interview_invite` (inline). Ambiguous names list the matches. |
+| `close_job` | Closes an open job (by title words, or the only one). The page answers 410. |
+
+Owner prompt notes tell the agent to relay `tell_owner_exactly` word for word, never invent pay, never judge applicants on anything personal, and that payroll locking and unlocking happen by the payroll text or in Settings, not by command.
+
+### Settings
+
+`companies.ai_settings.recruiter`, read only by `staff/recruiter/settings.ts readRecruiterSettings`:
+
+```
+recruiter = {
+  payroll: { enabled, frequency: "weekly" | "biweekly" | "semimonthly", anchor_date: "YYYY-MM-DD", csv_email },
+  hiring:  { enabled },
+  any_on:  boolean   // written by mergeRecruiterSettings: the sweeps' server-side filter for house orgs
+}
+```
+
+- Both switches default **on** for CrankLeads orgs and **off** for house orgs.
+- The defaults are bi-weekly from 2026-01-05. The CSV goes to the org owner's email when no `csv_email` is set.
+- Route: `GET | PATCH /api/organizations/:org/companies/:company/ai-settings/recruiter`.
+  - Members read the settings only. Pay periods, jobs and the fallback email are for owners/admins.
+  - Owners/admins PATCH `{ payroll?: { enabled, frequency, anchorDate, csvEmail (""/null clears) }, hiring?: { enabled } }` (strict; a real date and email). It's merged into `ai_settings.recruiter` only.
+- UI: `src/components/settings/staff/RecruiterSettingsSection.tsx`.
+  - Payroll on/off, the pay period, the anchor, and the CSV email.
+  - Recent pay periods, each with **CSV**, **Unlock** (asks first) and **Lock & email**.
+  - Hiring on/off, a note when the website isn't live, and the job posts with applicant counts and links.
+
+`recruiterActiveFor(admin, { organizationId, companyId })` is true when payroll or hiring is on. The registry uses it to offer the owner tools and prompt notes only there.
+
+### Schema (`20261012130000_staff_recruiter.sql`)
+
+- `pay_periods`: unique `(company_id, start_date)`.
+  - Columns: status `pending | awaiting_owner | locked | unlocked | skipped | expired | empty`, company-level totals (people, minutes, OT, open entries; no per-person hours), lock / unlock / CSV-email fields.
+  - **Every member may read** it (dates and status only), so the timesheet service can say "locked".
+- `pay_period_events`: the audit log. Owners/admins read.
+- `job_postings`: status `draft | awaiting_owner | open | closed | rejected | expired`, duties / requirements / nice-to-haves / questions as jsonb. Members read.
+- `job_applicants`: unique `(job_id, phone)`, with score, reason, screening, the confirmation claim, `digest_at` and the invite fields. **Owners/admins only** (personal information).
+- `recruiter_sweep_claims`: service role only.
+- `time_entry_in_locked_period(org, company, at)` (SECURITY DEFINER, `authenticated` + service role) and the SECURITY INVOKER trigger `time_entries_pay_period_lock`. It's invoker on purpose, so `is_client_role()` sees the caller.
+- Nothing is client-writable. SQL checks: `scripts/sql-tests/zz_recruiter.test.sql` (privileges, plus the lock: deny edit / delete / backdated insert in a locked period, allow stopping a running clock, allow after unlock, the service role unaffected).
+
+Types: `staff/recruiter/db-types.ts` until merged into `database.types.ts`.
+
+### Env
+
+`AI_MODEL_RECRUITER` (default `claude-sonnet-5-5`), `ANTHROPIC_API_KEY` (without it, job posts use the template and screening uses the rules), `RESEND_API_KEY` + `OUTBOUND_FROM_EMAIL` (the CSV email; already set), optional `TURNSTILE_SECRET_KEY` / `TURNSTILE_SITE_KEY` (the apply form), `PAGES_BASE_URL` (already set for the generated sites).
+
+### Sweeps
+
+`recruiter:payroll` (5 min), `recruiter:applicants` (2 min: screening, confirmation texts, invites queued overnight), `recruiter:digest` (5 min).
+
+- The companies are loaded at most once per 30 s per worker (`loadRecruiterCompanies`). That's every company of a CrankLeads org, plus house-org companies with `any_on`, active ones only. Reads page past the 1000-row cap.
+
+### Tests
+
+`src/test/staff-recruiter.test.ts` (fake DB, real services; Twilio, Resend and the model faked):
+
+- Period maths, OT (44 h, straddling weeks), open and late-edited entries, the CSV, the summary cap.
+- Settings defaults and house orgs, and registry wiring.
+- **`payroll_period` end to end through `decideApproval`**: lock + email + text, the open-entry re-ask then "Y 2 anyway", N, expiry, a stale code, a bookkeeper email, an email failure.
+- Unlock / lock / CSV download, and the settings view.
+- The lock in `time/service.ts`, including the trigger error mapping.
+- The human rights guard and pay checks.
+- `start_hiring` (model draft stripped, template, withdraw, owner tool), and **`job_post` end to end** (publish + paste copy, N).
+- Pages + apply (escaping, 404/410, hiring off, unpublished site, form checks, contact + paused AI, confirmation from the business number, repeat, existing customer, overnight → morning, opt-out).
+- Screening (no PII to the model, redaction, fencing, protected-ground reason, rules fallback, once per applicant).
+- Digest (08:30, cap 3, once a day), and **`interview_invite` end to end** (exact text, owner gets the reply, idempotent).
+- Owner tools, the "anyway" parse, and the pages-host rewrite.
+
+`src/test/recruiter-route.test.ts`: the settings route (member vs owner, strict PATCH), lock / unlock / CSV routes (roles, 404), and the public pages + apply POST (honeypot, too fast, rate limit, bad phone).
+
+### Not yet
+
+- No payroll provider API and no tax: the CSV is generic (no per-provider templates). Gross is an estimate.
+- OT is the plain 44-hour weekly rule. Averaging agreements, exempt roles and public-holiday pay aren't modelled.
+- Changing the frequency or anchor mid-period: the first new-schedule period that overlaps an old one is skipped (not asked), so those days are only in the old period.
+- No "We're hiring" link on the generated home page yet; the jobs page is linked from the paste copy and Settings.
+- No resume upload (the form asks for experience as text). Applicant contacts keep the default contact stage and aren't deleted when a job closes.
+- The SMS agent recognises an existing customer who applied only from the conversation itself (prompt note). Applicant-only contacts are handled deterministically (AI paused).

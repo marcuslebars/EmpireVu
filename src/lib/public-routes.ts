@@ -20,7 +20,9 @@ const PUBLIC_PATHS: RegExp[] = [
   /^\/invite\//, // team invitation, which prompts sign-in itself when needed
   /^\/welcome\/crankleads\/?$/, // CrankLeads purchase landing — the buyer has no session yet
   /^\/setup\/[^/]+\/?$/, // done-for-you quick setup (texted after purchase) — no login
+  /^\/import\/[^/]+\/?$/, // customer import from the owner's texted link — no login
   /^\/forward\//, // done-for-you one-tap call forwarding (from the owner's "last step" text)
+  /^\/port\/[^/]+\/?$/, // keep your number: the owner's port form (texted) — no login
   // Set-password / recovery links (incl. the CrankLeads welcome email). The page verifies
   // the link's token itself and sends a visitor without one to sign-in.
   /^\/update-password\/?$/,

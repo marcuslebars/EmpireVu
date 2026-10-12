@@ -1,7 +1,7 @@
 import type { Json, Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import type { AdminClient, InboundOwnerSms } from "@/server/services/front-desk/contracts";
-import { PRICE_NOTE_KINDS } from "@/server/services/front-desk/approval-text";
+import { ANYWAY_NOTE_KINDS, PRICE_NOTE_KINDS } from "@/server/services/front-desk/approval-text";
 import { SHORT_CODE_REUSE_MS } from "@/server/services/front-desk/approvals";
 import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
 import { runOwnerCommandAgent } from "./agent";
@@ -205,12 +205,13 @@ async function handleApproval(
     return { intent: "confirm_needs_code", reply: "To confirm that, reply with the 4-digit code from my last text (or N to leave it).", company: companyOf(target) };
   }
 
-  // A note is only ever a price; on a kind that can't take one, ask rather than drop it.
-  if (parsed.note && target.status === "pending" && !PRICE_NOTE_KINDS.has(target.kind)) {
+  // A note is a price (or "anyway" for payroll); on a kind that can't take it, ask rather than drop it.
+  const anyway = parsed.note === "anyway";
+  if (parsed.note && target.status === "pending" && !(anyway ? ANYWAY_NOTE_KINDS : PRICE_NOTE_KINDS).has(target.kind)) {
     const code = target.short_code ?? "?";
     return {
       intent: "approval_note_not_allowed",
-      reply: `#${code} (${clip(target.summary, 80)}) doesn't take a price. Reply Y ${code} to approve it as it is, or N ${code}.`,
+      reply: `#${code} (${clip(target.summary, 80)}) ${anyway ? "can't be approved 'anyway'" : "doesn't take a price"}. Reply Y ${code} to approve it as it is, or N ${code}.`,
       company: companyOf(target),
     };
   }
@@ -227,6 +228,12 @@ async function handleApproval(
     company: companyOf(target),
     result: { approvalId: target.id, approved: parsed.approved, note: parsed.note, ok: decided.result?.ok ?? null },
   };
+}
+
+/** Is there a pending approval of a kind that takes "anyway" (with this code, if given) for this phone? */
+async function anywayApplies(admin: AdminClient, phone: string, scope: OwnerCompany[], code: number | null, nowMs: number): Promise<boolean> {
+  const asked = await approvalsAskedOf(admin, scope.map((c) => c.companyId), phone, nowMs);
+  return asked.some((p) => p.status === "pending" && !isExpired(p, nowMs) && ANYWAY_NOTE_KINDS.has(p.kind) && (code == null || p.short_code === code));
 }
 
 /**
@@ -365,7 +372,10 @@ async function route(admin: AdminClient, sms: InboundOwnerSms, owned: OwnerCompa
     if (confirmed) return confirmed;
   }
 
-  const parsed = parseApprovalReply(body);
+  let parsed = parseApprovalReply(body);
+  // "Y anyway" / "Y 12 anyway" only means something for a pending payroll_period asked of this
+  // phone (the Recruiter); otherwise the text goes down exactly the path it always did.
+  if (parsed?.note === "anyway" && !(await anywayApplies(admin, sms.from, hint ? [hint] : owned, parsed.code, nowMs))) parsed = null;
   if (parsed) return handleApproval(admin, sms, parsed, owned, hint, body, nowMs);
   if (looksLikeApprovalAttempt(body)) {
     const ask = await askDidYouMean(admin, sms, owned, hint, nowMs);

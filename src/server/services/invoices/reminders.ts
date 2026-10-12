@@ -13,6 +13,8 @@
  *      invoice per run, so turning reminders on never sends a backlog at once.
  *      An invoice with its own reminders paused is skipped (it still turns overdue), and so is
  *      one the AI Bookkeeper holds (a promise to pay / a payment plan — staff/bookkeeper/hold.ts).
+ *      An imported balance on hold (invoices.import_hold, staff/importer) is left out of the
+ *      query: no overdue event, no email until the owner OKs reminders for it.
  *      The Bookkeeper's reminder TEXTS stamp last_reminder_at too, so an email never goes out on
  *      the same day as a text (the "already reminded today" check below).
  *
@@ -45,6 +47,9 @@ export async function sweepInvoiceReminders(now = new Date(), limit = 1000): Pro
     .in("status", ["sent", "viewed", "partially_paid"])
     .lt("due_date", cutoff)
     .gt("balance_due_cents", 0)
+    // An imported balance the owner hasn't OK'd for reminders yet (staff/importer): no overdue
+    // automation, no email — paused or not. Filtered here so held rows never use up the limit.
+    .or("import_hold.is.false,import_hold.is.null")
     .order("due_date", { ascending: true })
     .limit(limit);
   if (error) throw error;

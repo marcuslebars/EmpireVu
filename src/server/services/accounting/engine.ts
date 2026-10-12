@@ -194,6 +194,9 @@ export async function syncInvoice(ctx: SyncContext, invoiceId: string): Promise<
   if (!inv) return { status: "skipped", detail: "The invoice no longer exists." };
   if (!ctx.settings.syncInvoices) return { status: "skipped", detail: "Invoice sync is turned off." };
   if (inv.status === "draft") return { status: "skipped", detail: "Drafts aren't synced." };
+  // An imported balance (staff/importer) came from the owner's books: pushing it would duplicate
+  // it there. Its payments skip too (their invoice never gets linked).
+  if ((inv as { imported_at?: string | null }).imported_at) return { status: "skipped", detail: "Imported balance - it's already in your books." };
   const link = await ctx.link("invoice", inv.id);
   const issueDate = inv.issue_date ?? (inv.sent_at ?? inv.created_at).slice(0, 10);
   if (!link && issueDate < ctx.startDate) return { status: "skipped", detail: `Issued before the sync start date (${ctx.startDate}).` };

@@ -19,6 +19,9 @@ const MAX_SUMMARY_CHARS = 440;
 /** Kinds where "Y $700" (a price note) means something. ai_estimate: the estimator (docs/ai-staff.md). */
 export const PRICE_NOTE_KINDS = new Set<string>(["custom_price", "send_quote", "ai_estimate"]);
 
+/** Kinds where "Y 12 anyway" means something (payroll_period: lock with open time entries). */
+export const ANYWAY_NOTE_KINDS = new Set<string>(["payroll_period"]);
+
 export interface ApprovalLine {
   label: string;
   amountCents: number;
@@ -129,6 +132,15 @@ export function replyInstruction(kind: ApprovalKind, code: number | null, payloa
       return `Reply Y${c} to tell them, N${c} to skip.`;
     case "ai_estimate":
       return `Reply Y${c} to send it, Y${c} $price (before HST) to change the total, N${c} to skip.`;
+    // The Recruiter (docs/ai-staff.md → "Hiring & payroll").
+    case "payroll_period":
+      return typeof payload.openEntries === "number" && payload.openEntries > 0
+        ? `Fix the open ${payload.openEntries === 1 ? "entry" : "entries"} in the app and reply Y${c}, or reply Y${c} anyway to lock as is. N${c} to skip.`
+        : `Reply Y${c} to lock it and send the CSV, N${c} to skip.`;
+    case "job_post":
+      return `Reply Y${c} to post it, N${c} to skip.`;
+    case "interview_invite":
+      return `Reply Y${c} to text them, N${c} to skip.`;
     default:
       return `Reply Y${c} to approve, N${c} to skip.`;
   }

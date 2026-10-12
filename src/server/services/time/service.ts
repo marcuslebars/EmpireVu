@@ -8,6 +8,7 @@ import type { Tables } from "@/server/db/database.types";
 import { AuthorizationError, ValidationError } from "@/server/organizations/context";
 import { readLineItems, priceOf } from "@/server/services/recurring/service";
 import type { TenantServiceContext } from "@/server/services/shared";
+import { assertTimeUnlocked, isPayPeriodLockedError, PayPeriodLockedError } from "@/server/services/staff/recruiter/time-lock";
 import { computeJobProfit, workedMinutes, labourCents, type JobProfit } from "./logic";
 
 type Entry = Tables<"time_entries">;
@@ -236,6 +237,8 @@ export async function createManualEntry(ctx: TenantServiceContext, input: z.infe
   const profileId = input.profileId ?? ctx.actorProfileId;
   if (!profileId) throw new AuthorizationError("Sign in to log time.");
   const companyId = input.bookingId ? (await bookingCompany(ctx, input.bookingId)).company_id : null;
+  // Payroll lock (docs/ai-staff.md → "Hiring & payroll").
+  await assertTimeUnlocked(ctx.supabase, ctx.organizationId, [{ companyId, startedAt: input.startedAt }]);
   const { data, error } = await ctx.supabase
     .from("time_entries")
     .insert({
@@ -255,6 +258,7 @@ export async function createManualEntry(ctx: TenantServiceContext, input: z.infe
   if (error) {
     // RLS: a crew member logging someone else's time.
     if (error.code === "42501") throw new AuthorizationError("You can only log your own time.");
+    if (isPayPeriodLockedError(error)) throw new PayPeriodLockedError();
     throw error;
   }
   return (await views(ctx, [data as Entry]))[0];
@@ -265,27 +269,41 @@ export async function updateEntry(ctx: TenantServiceContext, id: string, input: 
   if (e1) throw e1;
   if (!existing) throw new TimeNotFoundError();
   const patch: Partial<Entry> = {};
-  if (input.bookingId !== undefined) {
+  // The timesheet dialog re-sends every field (the start at minute precision): a value that's
+  // unchanged isn't a change (so stopping a forgotten clock in a locked period still works).
+  const sameMinute = (a: string, b: string) => Math.floor(Date.parse(a) / 60_000) === Math.floor(Date.parse(b) / 60_000);
+  if (input.bookingId !== undefined && (input.bookingId ?? null) !== (existing.booking_id ?? null)) {
     patch.booking_id = input.bookingId;
     patch.company_id = input.bookingId ? (await bookingCompany(ctx, input.bookingId)).company_id : null;
   }
-  if (input.startedAt !== undefined) patch.started_at = new Date(input.startedAt).toISOString();
+  if (input.startedAt !== undefined && !sameMinute(input.startedAt, existing.started_at)) patch.started_at = new Date(input.startedAt).toISOString();
   if (input.endedAt !== undefined) patch.ended_at = input.endedAt ? new Date(input.endedAt).toISOString() : null;
-  if (input.breakMinutes !== undefined) patch.break_minutes = input.breakMinutes;
+  if (input.breakMinutes !== undefined && input.breakMinutes !== existing.break_minutes) patch.break_minutes = input.breakMinutes;
   if (input.notes !== undefined) patch.notes = input.notes || null;
   const start = Date.parse(patch.started_at ?? existing.started_at);
   const end = patch.ended_at !== undefined ? patch.ended_at : existing.ended_at;
   if (end && Date.parse(end) <= start) throw new ValidationError("The end must be after the start.");
   if (end && Date.parse(end) - start > 24 * 3_600_000) throw new ValidationError("One entry can't be longer than 24 hours.");
+  if (Object.keys(patch).length === 0) return (await views(ctx, [existing as Entry]))[0];
+  // Payroll lock: only stopping a clock left running may touch a locked entry.
+  const onlyStopsClock = !existing.ended_at && Object.keys(patch).every((k) => k === "ended_at" || k === "notes") && patch.ended_at;
+  if (!onlyStopsClock) {
+    await assertTimeUnlocked(ctx.supabase, ctx.organizationId, [
+      { companyId: existing.company_id, startedAt: existing.started_at },
+      { companyId: patch.company_id !== undefined ? patch.company_id : existing.company_id, startedAt: patch.started_at ?? existing.started_at },
+    ]);
+  }
   const { data, error } = await ctx.supabase.from("time_entries").update(patch).eq("organization_id", ctx.organizationId).eq("id", id).select("*").maybeSingle();
-  if (error) throw error;
+  if (error) throw isPayPeriodLockedError(error) ? new PayPeriodLockedError() : error;
   if (!data) throw new TimeNotFoundError();
   return (await views(ctx, [data as Entry]))[0];
 }
 
 export async function deleteEntry(ctx: TenantServiceContext, id: string): Promise<void> {
+  const { data: existing } = await ctx.supabase.from("time_entries").select("company_id, started_at").eq("organization_id", ctx.organizationId).eq("id", id).maybeSingle();
+  if (existing) await assertTimeUnlocked(ctx.supabase, ctx.organizationId, [{ companyId: existing.company_id, startedAt: existing.started_at }]);
   const { data, error } = await ctx.supabase.from("time_entries").delete().eq("organization_id", ctx.organizationId).eq("id", id).select("id");
-  if (error) throw error;
+  if (error) throw isPayPeriodLockedError(error) ? new PayPeriodLockedError() : error;
   if (!data?.length) throw new TimeNotFoundError();
 }
 

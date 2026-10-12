@@ -235,6 +235,25 @@ describe("fetchScorecardInputs tenancy", () => {
   });
 });
 
+describe("fetchScorecardInputs leaves imports out", () => {
+  it("imported customers and job applicants aren't leads; imported past jobs aren't jobs; an A1-style import key still counts", async () => {
+    const db = seed();
+    db.tables.contacts.push(
+      { id: "c-imp", organization_id: ORG_1, company_id: CO_1, created_at: "2026-10-12T15:00:00.000Z", metadata: {}, consent_source: "import" },
+      { id: "c-app", organization_id: ORG_1, company_id: CO_1, created_at: "2026-10-12T15:00:00.000Z", metadata: {}, consent_source: "job_application" },
+    );
+    db.tables.bookings.push(
+      { id: "b-imp", organization_id: ORG_1, company_id: CO_1, created_at: "2026-10-12T15:00:00.000Z", scheduled_for: "2026-10-05T16:00:00.000Z", status: "completed", source_call_id: "import:abc" },
+      { id: "b-a1", organization_id: ORG_1, company_id: CO_1, created_at: "2026-10-12T15:00:00.000Z", scheduled_for: "2026-10-20T15:00:00.000Z", status: "confirmed", source_call_id: "a1:42" },
+      { id: "b-1", organization_id: ORG_1, company_id: CO_1, created_at: "2026-10-12T15:00:00.000Z", scheduled_for: "2026-10-21T15:00:00.000Z", status: "completed", source_call_id: null },
+    );
+    const inputs = await fetchScorecardInputs({ organizationId: ORG_1, actorProfileId: null, supabase: db.client }, CO_1, { from: "2026-10-01T04:00:00.000Z", to: "2026-11-01T04:00:00.000Z" });
+    expect(inputs.newContacts.map((c) => c.id)).toEqual(["c-1"]);
+    expect(inputs.bookings).toHaveLength(2);
+    expect(inputs.bookings.map((b) => b.scheduledFor).sort()).toEqual(["2026-10-20T15:00:00.000Z", "2026-10-21T15:00:00.000Z"]);
+  });
+});
+
 describe("scorecardSkipReason", () => {
   const base = { orgSubscriptionStatus: "active", month: "2026-10", timeZone: "America/Toronto", nowMs: NOV_2 };
   it("skips companies created after the month ended", () => {

@@ -26,7 +26,7 @@ type ApprovalDbRow = Tables<"owner_approvals">;
 export interface ParsedApprovalReply {
   approved: boolean;
   code: number | null;
-  /** Only ever a price ("$700", "but 700 + HST") — anything else isn't a decision. */
+  /** Only ever a price ("$700", "but 700 + HST"), or "anyway" (payroll_period) — anything else isn't a decision. */
   note: string | null;
 }
 
@@ -56,6 +56,8 @@ export function parseApprovalReply(body: string): ParsedApprovalReply | null {
   const code = withNote[2] ? Number.parseInt(withNote[2], 10) : null;
   const rest = withNote[3].trim();
   if (parseOwnerNote(rest).kind === "price") return { approved: true, code, note: rest };
+  // "Y 12 anyway": approve as it stands (payroll_period with open time entries).
+  if (/^anyway[.!]*$/i.test(rest)) return { approved: true, code, note: "anyway" };
   // "Y 700 + HST" — the digits were the price, not a code.
   if (code != null && parseOwnerNote(`${withNote[2]} ${rest}`).kind === "price") return { approved: true, code: null, note: `${withNote[2]} ${rest}` };
   return null;
@@ -72,7 +74,9 @@ const ACTION = /^(move|cancel|reschedule|tell|text|send|list|show|pause|resume|s
  */
 export function looksLikeApprovalAttempt(body: string): boolean {
   const text = (body ?? "").trim();
-  if (parseApprovalReply(text)) return false;
+  const parsed = parseApprovalReply(text);
+  // "anyway" is a decision only where a payroll_period waits (entry.ts); elsewhere judge it as before.
+  if (parsed && parsed.note !== "anyway") return false;
   const m = new RegExp(`^\\s*${WORD}\\b\\s*#?\\s*\\d{0,4}\\s*([,.:;!-]*)\\s*([\\s\\S]*)$`, "i").exec(text);
   if (!m) return false;
   const word = m[1].toLowerCase();

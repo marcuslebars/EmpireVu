@@ -14,7 +14,7 @@ import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } f
 import type { AgentTool } from "@/server/services/sms-agent/tools";
 import type { ToolRunState } from "@/server/services/owner-channel/tools";
 
-export type StaffRole = "estimator" | "bookkeeper" | "dispatcher" | "marketer";
+export type StaffRole = "estimator" | "bookkeeper" | "dispatcher" | "marketer" | "office_manager" | "importer" | "porting" | "recruiter";
 
 /**
  * Runs an owner_approvals row of a kind the role owns, once the owner decided (Y / N / expiry).

@@ -122,7 +122,12 @@ function ListBody() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">CrankLeads setups</h1>
-          <p className="text-sm text-muted-foreground">Newest first. Finish setup for anyone who isn't live.</p>
+          <p className="text-sm text-muted-foreground">
+            Newest first. Finish setup for anyone who isn't live.{" "}
+            <Link to="/concierge/ports" className="font-medium text-foreground underline-offset-2 hover:underline">
+              Number ports
+            </Link>
+          </p>
         </div>
         <Button variant="outline" size="sm" className="shrink-0" onClick={() => query.refetch()} disabled={query.isFetching} aria-label="Refresh">
           <RefreshCw className={cn("h-3.5 w-3.5 sm:mr-1.5", query.isFetching && "animate-spin")} />

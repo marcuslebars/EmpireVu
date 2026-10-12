@@ -6,6 +6,10 @@ import { BookkeeperSettingsSection } from "@/components/settings/staff/Bookkeepe
 import { DispatcherSettingsSection } from "@/components/settings/staff/DispatcherSettingsSection";
 import { EstimatorSettingsSection } from "@/components/settings/staff/EstimatorSettingsSection";
 import { MarketerSettingsSection } from "@/components/settings/staff/MarketerSettingsSection";
+import { ImporterSettingsSection } from "@/components/settings/staff/ImporterSettingsSection";
+import { OfficeManagerSettingsSection } from "@/components/settings/staff/OfficeManagerSettingsSection";
+import { PortingSettingsSection } from "@/components/settings/staff/PortingSettingsSection";
+import { RecruiterSettingsSection } from "@/components/settings/staff/RecruiterSettingsSection";
 
 /**
  * The sections that follow "Text conversations" in Settings → AI front desk, in order:
@@ -30,4 +34,8 @@ export const AI_FRONT_DESK_SECTIONS: AiFrontDeskSlot[] = [
   { id: "bookkeeper", render: (props) => <BookkeeperSettingsSection {...props} /> },
   { id: "dispatcher", render: (props) => <DispatcherSettingsSection {...props} /> },
   { id: "marketer", render: (props) => <MarketerSettingsSection {...props} /> },
+  { id: "office-manager", render: (props) => <OfficeManagerSettingsSection {...props} /> },
+  { id: "importer", render: (props) => <ImporterSettingsSection {...props} /> },
+  { id: "porting", render: (props) => <PortingSettingsSection {...props} /> },
+  { id: "recruiter", render: (props) => <RecruiterSettingsSection {...props} /> },
 ];

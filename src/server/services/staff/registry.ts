@@ -8,6 +8,10 @@ import { bookkeeperRole } from "@/server/services/staff/bookkeeper";
 import { dispatcherRole } from "@/server/services/staff/dispatcher";
 import { estimatorRole } from "@/server/services/staff/estimator";
 import { marketerRole } from "@/server/services/staff/marketer";
+import { importerRole } from "@/server/services/staff/importer";
+import { officeManagerRole } from "@/server/services/staff/office-manager";
+import { portingRole } from "@/server/services/staff/porting";
+import { recruiterRole } from "@/server/services/staff/recruiter";
 import type { RoleApprovalExecutor, RoleOwnerTool, StaffRoleModule } from "@/server/services/staff/types";
 import type { AgentTool } from "@/server/services/sms-agent/tools";
 
@@ -15,7 +19,7 @@ import type { AgentTool } from "@/server/services/sms-agent/tools";
 export const CORE_APPROVAL_KINDS = new Set(["send_quote", "custom_price", "book_job", "send_reply", "callback", "owner_command"]);
 
 export function staffRoles(): StaffRoleModule[] {
-  return [estimatorRole, bookkeeperRole, dispatcherRole, marketerRole];
+  return [estimatorRole, bookkeeperRole, dispatcherRole, marketerRole, officeManagerRole, importerRole, portingRole, recruiterRole];
 }
 
 /** The roles switched on for one company (a failing activeFor counts as off). */

@@ -40,6 +40,7 @@ const PASSTHROUGH = [/^\/api\/public\/forms\//, /^\/_next\//, /^\/favicon\.ico$/
  * Where a pages-host request should be rewritten to, or null to leave it alone.
  *   pages host + "/acme-snow"  → "/s/acme-snow"
  *   pages host + "/"           → "/s/_"  (the route's neutral 404 — no slug can be "_")
+ *   pages host + "/acme-snow/jobs" (+ "/<job id>") → "/s/acme-snow/jobs…" (the Recruiter's jobs pages)
  *   pages host + "/a/b"        → "/s/_"
  *   any other host             → null
  */
@@ -48,5 +49,7 @@ export function pagesRewritePath(host: string | null, pathname: string, pagesBas
   if (!pagesHost || !host || host.toLowerCase() !== pagesHost) return null;
   if (PASSTHROUGH.some((re) => re.test(pathname))) return null;
   const m = pathname.match(/^\/([a-z0-9-]{1,62})\/?$/);
-  return m ? `/s/${m[1]}` : "/s/_";
+  if (m) return `/s/${m[1]}`;
+  const jobs = pathname.match(/^\/([a-z0-9-]{1,62})\/jobs(\/[0-9a-f-]{36})?\/?$/);
+  return jobs ? `/s/${jobs[1]}/jobs${jobs[2] ?? ""}` : "/s/_";
 }
