@@ -37,10 +37,18 @@ describe("storage-keys", () => {
     expect(localStorage.getItem("empirevu_org_id")).toBe("org-old");
   });
 
-  it("the new key wins when both are present", () => {
-    localStorage.setItem("empirevu_company_id", "co-old");
-    localStorage.setItem("everdoer_company_id", "co-new");
-    expect(readKey(COMPANY_ID_KEY)).toBe("co-new");
+  it("PR 1: the OLD key wins when they disagree (a rolled-back build only updates the old key)", () => {
+    // Roll-forward after a rollback: the old build switched org to C, everdoer_* still says B.
+    localStorage.setItem("empirevu_company_id", "co-C");
+    localStorage.setItem("everdoer_company_id", "co-B");
+    expect(readKey(COMPANY_ID_KEY)).toBe("co-C");
+    expect(localStorage.getItem("everdoer_company_id")).toBe("co-C");
+  });
+
+  it("a value only under the new key is stale in PR 1 (a rolled-back build signed out): dropped", () => {
+    localStorage.setItem("everdoer_org_id", "previous-users-org");
+    expect(readKey(ORG_ID_KEY)).toBeNull();
+    expect(localStorage.getItem("everdoer_org_id")).toBeNull();
   });
 
   it("null when neither is set", () => {

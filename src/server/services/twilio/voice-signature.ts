@@ -9,9 +9,10 @@
  * (REBRAND_PLAN.md §2). Like inbound SMS (sms-signed-urls.ts), voice now tries a short candidate
  * list, each with the SAME path and query:
  *   1. the configured base (TWILIO_WEBHOOK_BASE_URL, else APP_BASE_URL);
- *   2. the host the request arrived on (x-forwarded-host / host, https);
- *   3. the platform's own hosts, old and new (rebrand/platform-hosts.ts);
- *   4. request.url itself, only when no base is configured (the previous behaviour).
+ *   2. the platform's own hosts, old and new (rebrand/platform-hosts.ts);
+ *   3. only when NO base is configured (local dev; the previous behaviour): the host the request
+ *      arrived on (x-forwarded-host / host, https) and request.url itself.
+ * With a base configured, a client-chosen Host never adds a candidate.
  * Nothing else. Every candidate still needs a valid HMAC-SHA1 under TWILIO_AUTH_TOKEN over the
  * URL + the sorted POST params (verifyTwilioSignature, unchanged), so the list never accepts an
  * unsigned or forged request; it only stops a host change from rejecting genuine ones.
@@ -35,11 +36,13 @@ export function twilioVoiceUrlCandidates(request: Request): string[] {
   };
   const base = twilioWebhookBaseUrl();
   if (base) add(`${base}${suffix}`);
-  const arriving = (request.headers.get("x-forwarded-host") ?? request.headers.get("host"))?.split(",")[0]?.trim();
-  if (arriving) add(`https://${arriving}${suffix}`);
   // Rebrand shim (remove in PR 8 once legacy_usage shows no twilio_signature/<old host> for 30 days)
   for (const host of PLATFORM_HOSTS) add(`https://${host}${suffix}`);
-  if (!base) add(request.url);
+  if (!base) {
+    const arriving = (request.headers.get("x-forwarded-host") ?? request.headers.get("host"))?.split(",")[0]?.trim();
+    if (arriving) add(`https://${arriving}${suffix}`);
+    add(request.url);
+  }
   return out;
 }
 

@@ -11,13 +11,18 @@
  * other number that still points at an old host is listed for re-pointing by hand.
  */
 import { flushLegacyUsage } from "@/server/services/rebrand/legacy-usage";
-import { formatRepointPlan, parseRepointArgs, resolveRepointTarget, runTwilioRepoint } from "@/server/services/rebrand/twilio-repoint";
+import { formatRepointPlan, parseRepointArgs, repointApplyBlocker, resolveRepointTarget, runTwilioRepoint } from "@/server/services/rebrand/twilio-repoint";
 import { createTwilioAccountNumbersClient, getTwilioCredentials } from "@/server/services/twilio/provision";
 
 async function main(): Promise<number> {
   const args = parseRepointArgs(process.argv.slice(2));
   const target = resolveRepointTarget(args.to);
   if (!target.known) console.warn(`[twilio-repoint] note: ${target.host} is not one of the known Everdoer hosts.`);
+  const blocker = args.apply ? repointApplyBlocker(target.host) : null;
+  if (blocker) {
+    console.error(`[twilio-repoint] refusing --apply: ${blocker}. (The dry run works any time.)`);
+    return 1;
+  }
   const creds = getTwilioCredentials();
   if (!creds) {
     console.error("[twilio-repoint] TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are required.");

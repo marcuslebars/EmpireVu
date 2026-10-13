@@ -2,9 +2,12 @@
  * Web storage keys (Everdoer rebrand, REBRAND_PLAN.md §5.2). Browser-only helpers; every
  * storage access is wrapped so a private window / blocked storage never throws.
  *
- * PR 1 rule for each key: READ the new everdoer_* key, falling back to the old empirevu_* key
- * (and copying an old-only value to the new key); WRITE BOTH (so a deploy rollback still finds
- * the old key); REMOVE BOTH. Mobile keeps its own keys (separate app release).
+ * PR 1 rule for each key: WRITE BOTH and REMOVE BOTH; READ the OLD empirevu_* key first, then
+ * the new everdoer_* one. Old-first is deliberate: every build (including one we roll back to)
+ * writes the old key, so it is never stale; the new key can be (a rolled-back build changes the
+ * org but leaves everdoer_* behind, and its sign-out doesn't clear it). A value found only under
+ * the new key is therefore stale and is dropped. PR 2 flips the read order (new first) once no
+ * rollback past PR 1 is possible. Mobile keeps its own keys (separate app release).
  *
  * Rebrand shim (remove in PR 8 once the new keys have been written for a full release): drop the
  * `legacy` names. Browser storage can't be counted server-side, so removal is by release age.
@@ -35,22 +38,37 @@ function storageOf(kind: Kind): Storage | null {
   }
 }
 
-/** New key first, then the old one (copied forward to the new key). Null when neither is set. */
+/**
+ * PR 1: the old key decides (never stale, see above); the new key is kept in step with it, and a
+ * new-only value is dropped. Null when the old key isn't set.
+ */
 export function readKey(k: StorageKey, kind: Kind = "local"): string | null {
   const s = storageOf(kind);
   if (!s) return null;
   try {
-    const fresh = s.getItem(k.key);
-    if (fresh !== null) return fresh;
     const old = s.getItem(k.legacy);
+    const fresh = s.getItem(k.key);
     if (old !== null) {
+      if (fresh !== old) {
+        try {
+          s.setItem(k.key, old);
+        } catch {
+          /* quota / blocked: the old key still answers */
+        }
+      }
+      return old;
+    }
+    // PR 1 always writes both, so a value under ONLY the new key was left behind by a build
+    // that doesn't know it (e.g. a rolled-back build's sign-out cleared just the old key): it may
+    // belong to the previous user, so drop it rather than use it.
+    if (fresh !== null) {
       try {
-        s.setItem(k.key, old);
+        s.removeItem(k.key);
       } catch {
-        /* quota / blocked: the old key still answers */
+        /* storage unavailable */
       }
     }
-    return old;
+    return null;
   } catch {
     return null;
   }

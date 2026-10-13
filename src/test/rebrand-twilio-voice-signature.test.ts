@@ -110,9 +110,18 @@ describe("verifyTwilioVoiceSignature", () => {
     expect(await usage.rows()).toEqual([{ kind: "twilio_signature", key: "api.empirevu.com", sample: "/api/twilio/voice/inbound", count: 1 }]);
   });
 
-  it("accepts the arriving host (as SMS does), not counted", async () => {
+  it("with a base configured, a client-chosen Host adds no candidate (a signature for another host is replay-proof)", async () => {
     const sig = sign("https://staging.example.net/api/twilio/voice/inbound", PARAMS);
     const req = arriving("/api/twilio/voice/inbound", PARAMS, sig, { "x-forwarded-host": "staging.example.net" });
+    expect(verifyTwilioVoiceSignature(req, PARAMS, sig, TOKEN)).toBe(false);
+    expect(await usage.rows()).toEqual([]);
+  });
+
+  it("with NO base configured (local dev), the arriving host is accepted as before", async () => {
+    vi.stubEnv("TWILIO_WEBHOOK_BASE_URL", "");
+    vi.stubEnv("APP_BASE_URL", "");
+    const sig = sign("https://dev.example.net/api/twilio/voice/inbound", PARAMS);
+    const req = arriving("/api/twilio/voice/inbound", PARAMS, sig, { "x-forwarded-host": "dev.example.net" });
     expect(verifyTwilioVoiceSignature(req, PARAMS, sig, TOKEN)).toBe(true);
     expect(await usage.rows()).toEqual([]);
   });

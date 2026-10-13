@@ -58,6 +58,7 @@ let warnedSinkFailure = false;
 /** Counts waiting to be written, keyed by kind + key. */
 const pending = new Map<string, { kind: LegacyUsageKind; key: string; sample: string | null; count: number }>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let flushDueAt = 0;
 export const LEGACY_USAGE_FLUSH_MS = 15_000;
 /** Distinct keys that force an early flush (so a burst can't grow the map without bound). */
 const MAX_PENDING = 200;
@@ -128,11 +129,20 @@ export async function flushLegacyUsage(): Promise<void> {
 }
 
 function scheduleFlush(): void {
+  const now = Date.now();
   if (pending.size >= MAX_PENDING) {
     void flushLegacyUsage();
     return;
   }
-  if (flushTimer) return;
+  // A timer can be destroyed under us: Next's Edge sandbox clears every timer when a module
+  // context reloads. If ours is overdue, treat it as dead and flush inline instead.
+  if (flushTimer && now <= flushDueAt + 1_000) return;
+  if (flushTimer) {
+    flushTimer = null;
+    void flushLegacyUsage();
+    return;
+  }
+  flushDueAt = now + LEGACY_USAGE_FLUSH_MS;
   flushTimer = setTimeout(() => {
     flushTimer = null;
     void flushLegacyUsage();
@@ -208,12 +218,35 @@ interface HeaderSource {
   get(name: string): string | null;
 }
 
+export interface HeaderRead {
+  value: string | null;
+  /** The OLD header name when the value came from it, else null. */
+  legacyName: string | null;
+}
+
 /**
- * Read a header by its new x-everdoer-* name, falling back to the old x-empirevu-* name. A
- * fallback hit is counted (kind "header", key = the old name, sample = the path) on EVERY request,
- * per D6. If both are sent, the new one wins and nothing is counted.
+ * Read a header by its new x-everdoer-* name, falling back to the old x-empirevu-* name. Does NOT
+ * count: call noteLegacyHeader(read, sample) only AFTER the secret / signature verified, so an
+ * unauthenticated request can't keep the shim's counter above zero. If both are sent, the new
+ * one wins.
  * Shim removal: once the A1 sites, Retell agents and Telnyx are switched and legacy_usage shows
  * zero 'header' rows for 30 days (PR 8).
+ */
+export function readHeaderWithFallback(headers: HeaderSource, newName: string, oldName: string): HeaderRead {
+  const fresh = headers.get(newName);
+  if (fresh != null && fresh !== "") return { value: fresh, legacyName: null };
+  const old = headers.get(oldName);
+  if (old != null && old !== "") return { value: old, legacyName: oldName.toLowerCase() };
+  return { value: null, legacyName: null };
+}
+
+/** Count a verified request that used an old header name (D6: every such request). */
+export function noteLegacyHeader(read: HeaderRead, sample?: string | null): void {
+  if (read.legacyName) noteLegacyUsage("header", read.legacyName, sample ?? null);
+}
+
+/**
+ * Read + count in one go, for headers that aren't a credential (nothing to verify first).
  */
 export function headerWithFallback(
   headers: HeaderSource,
@@ -221,12 +254,7 @@ export function headerWithFallback(
   oldName: string,
   sample?: string | null,
 ): string | null {
-  const fresh = headers.get(newName);
-  if (fresh != null && fresh !== "") return fresh;
-  const old = headers.get(oldName);
-  if (old != null && old !== "") {
-    noteLegacyUsage("header", oldName.toLowerCase(), sample ?? null);
-    return old;
-  }
-  return null;
+  const read = readHeaderWithFallback(headers, newName, oldName);
+  noteLegacyHeader(read, sample);
+  return read.value;
 }

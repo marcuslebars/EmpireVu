@@ -119,6 +119,12 @@ describe("legacy-host redirect: switched on", () => {
     expect(getUser).not.toHaveBeenCalled();
   });
 
+  it("the 301 is not cacheable (unsetting the switch must be an instant rollback)", async () => {
+    const res = await middleware(req("https://app.empirevu.com/jobs"));
+    expect(res.status).toBe(301);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+
   it("301s HEAD", async () => {
     const res = await middleware(req("https://app.crankleads.com/welcome/crankleads", { method: "HEAD" }));
     expect(res.status).toBe(301);
@@ -155,6 +161,11 @@ describe("legacy-host redirect: switched on", () => {
     ["/assets/index-abc.css", "static asset"],
     ["/manifest.webmanifest", "static file"],
     ["/robots.txt", "static file"],
+    ["/embed", "embed, no trailing slash"],
+    ["/f", "form, no trailing slash"],
+    ["/API/intake", "API, other case"],
+    ["/.well-known/apple-app-site-association", "universal links"],
+    ["/.well-known/acme-challenge/tok", "ACME"],
   ])("never redirects %s (%s)", async (path) => {
     const res = await middleware(req(`https://app.empirevu.com${path}`));
     expect(isRedirect(res)).toBe(false);

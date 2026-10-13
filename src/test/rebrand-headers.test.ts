@@ -91,12 +91,13 @@ describe("Retell function secret (x-everdoer-retell-secret, falls back to x-empi
 describe("Telnyx secret (x-everdoer-telnyx-secret, falls back to x-empirevu-telnyx-secret)", () => {
   const url = "https://api.empirevu.com/api/telnyx/insights";
 
-  it("old accepted + counted; new accepted, not counted; new wins", async () => {
+  it("old accepted + counted; new accepted, not counted; new wins; a REJECTED old header is not counted", async () => {
     expect(verifyTelnyxSecret(post(url, { "x-empirevu-telnyx-secret": "telnyx-secret" }))).toBe(true);
     expect(verifyTelnyxSecret(post(url, { "x-everdoer-telnyx-secret": "telnyx-secret" }))).toBe(true);
     expect(verifyTelnyxSecret(post(url, { "x-everdoer-telnyx-secret": "nope", "x-empirevu-telnyx-secret": "telnyx-secret" }))).toBe(false);
     expect(verifyTelnyxSecret(post(url, { "x-empirevu-telnyx-secret": "nope" }))).toBe(false);
-    expect(await usage.rows()).toEqual([{ kind: "header", key: "x-empirevu-telnyx-secret", sample: "/api/telnyx/insights", count: 2 }]);
+    // Only the one verified old-header request counts: junk can't hold the shim open.
+    expect(await usage.rows()).toEqual([{ kind: "header", key: "x-empirevu-telnyx-secret", sample: "/api/telnyx/insights", count: 1 }]);
   });
 });
 
@@ -147,6 +148,14 @@ describe("/api/intake (x-everdoer-key / -signature, falls back to x-empirevu-*)"
     expect((await intakePOST(post("http://test/api/intake", { "x-everdoer-signature": sig }, body))).status).toBe(200);
     expect((await intakePOST(post("http://test/api/intake", { "x-everdoer-signature": signIntakeBody(body, "nope") }, body))).status).toBe(401);
     expect(handleLeadIntake).toHaveBeenCalledTimes(2);
+  });
+
+  it("an old-header request that FAILS verification is not counted (junk can't hold the shim open)", async () => {
+    process.env.LEAD_INTAKE_SECRET = "legacy-secret";
+    resolveIntakeKey.mockResolvedValue(target);
+    expect((await intakePOST(post("http://test/api/intake", { "x-empirevu-signature": signIntakeBody(body, "nope") }, body))).status).toBe(401);
+    expect((await intakePOST(post("http://test/api/intake", { "x-empirevu-key": KEY, "x-empirevu-signature": "sha256=00" }, body))).status).toBe(401);
+    expect(await usage.rows()).toEqual([]);
   });
 });
 

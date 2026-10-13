@@ -35,10 +35,13 @@ export function isLegacyApiHost(host: string | null | undefined): boolean {
 }
 
 /** Paths that answer in place on an old host: APIs and the embeddable lead form. */
-const PASSTHROUGH_PREFIXES = ["/api/", "/embed/", "/f/"];
+const PASSTHROUGH_SEGMENTS = ["api", "embed", "f", ".well-known"];
 
+/** /api, /embed, /f and /.well-known (with or without more path; any case) answer in place.
+ *  /.well-known is for app-site-association / ACME, which must never move hosts. */
 export function isApiLikePath(pathname: string): boolean {
-  return pathname === "/api" || PASSTHROUGH_PREFIXES.some((p) => pathname.startsWith(p));
+  const first = pathname.split("/")[1]?.toLowerCase() ?? "";
+  return PASSTHROUGH_SEGMENTS.includes(first);
 }
 
 /**

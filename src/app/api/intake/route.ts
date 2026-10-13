@@ -4,7 +4,7 @@ import { verifyIntakeSignature } from "@/server/services/lead-intake/hmac";
 import { resolveIntakeKey } from "@/server/services/lead-intake/intake-keys";
 import { handleLeadIntake } from "@/server/services/lead-intake/intake";
 import { enforceWebhookBackstop } from "@/server/services/rate-limit";
-import { headerWithFallback, sampleFromUrl } from "@/server/services/rebrand/legacy-usage";
+import { noteLegacyHeader, readHeaderWithFallback, sampleFromUrl } from "@/server/services/rebrand/legacy-usage";
 
 export const dynamic = "force-dynamic";
 
@@ -54,10 +54,18 @@ export async function POST(request: Request): Promise<NextResponse> {
   const rawBody = await request.text();
   // Header names (D6): the new x-everdoer-* first, then the old x-empirevu-* (the A1 sites send
   // these). The HMAC covers the raw body only, never a header name, so either name verifies.
+  // Counted (noteLegacyHeaders) only after the signature verifies.
   // Rebrand shim (remove in PR 8 once legacy_usage shows no header/x-empirevu-signature for 30 days)
-  const signature = headerWithFallback(request.headers, "x-everdoer-signature", "x-empirevu-signature", sampleFromUrl(request.url));
+  const signatureRead = readHeaderWithFallback(request.headers, "x-everdoer-signature", "x-empirevu-signature");
   // Rebrand shim (remove in PR 8 once legacy_usage shows no header/x-empirevu-key for 30 days)
-  const keyHeader = headerWithFallback(request.headers, "x-everdoer-key", "x-empirevu-key", sampleFromUrl(request.url));
+  const keyRead = readHeaderWithFallback(request.headers, "x-everdoer-key", "x-empirevu-key");
+  const signature = signatureRead.value;
+  const keyHeader = keyRead.value;
+  const noteLegacyHeaders = () => {
+    const sample = sampleFromUrl(request.url);
+    noteLegacyHeader(signatureRead, sample);
+    noteLegacyHeader(keyRead, sample);
+  };
 
   // Parse may fail; a null parsedBody is still handled (stored raw, never dropped).
   let parsedBody: unknown = null;
@@ -83,6 +91,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!verifyIntakeSignature(rawBody, signature, keyHeader)) {
       return NextResponse.json({ error: "Invalid signature." }, { status: 401 });
     }
+    noteLegacyHeaders();
     try {
       const result = await handleLeadIntake(rawBody, parsedBody, {
         target: { organizationId: resolved.organizationId, companyId: resolved.companyId },
@@ -103,6 +112,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!verifyIntakeSignature(rawBody, signature, secret)) {
     return NextResponse.json({ error: "Invalid signature." }, { status: 401 });
   }
+  noteLegacyHeaders();
   logLegacyAuthUsed(readSourceSite(parsedBody));
 
   try {

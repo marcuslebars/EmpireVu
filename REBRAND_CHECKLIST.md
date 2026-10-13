@@ -19,7 +19,12 @@ Values written as `‹…›` come from a dashboard at the time you do the step 
   - Check: `select count(*) from public.legacy_usage;` returns 0, then grows within a minute or two. The A1 sites still send `x-empirevu-*` headers, so `header` rows should appear.
   - Undo: `supabase/rollback/20261016100000_legacy_usage.down.sql`. The app keeps working without the table; it logs to the console only.
 - [ ] **Watch the deploy logs for 10 minutes.** `[legacy-usage] kind=header key=x-empirevu-…` lines are expected (one per A1 intake / Retell / Telnyx request). Nothing else should change.
-  - There should be no `403` on `/api/twilio/voice/*`. If one shows up, roll back the deploy; that's the only path whose validation logic changed.
+  - Watch for any new `401` / `403` / `503` on the paths whose checks changed:
+    - `/api/twilio/voice/*` (signature candidates)
+    - `/api/intake`, `/api/retell/functions/*`, `/api/telnyx/*` (header names)
+    - `/api/webhooks/stripe` and `/api/webhooks/stripe/connect` (optional second secret)
+
+    If one appears, roll back the deploy.
 
 ### 1.2 New hosts: DNS + Railway
 - [ ] **Railway → project EmpireVu → service EmpireVu (web) → Settings → Networking → Custom domain → add `app.everdoer.com`.** Railway shows a CNAME target `‹target›`.
@@ -52,7 +57,12 @@ Values written as `‹…›` come from a dashboard at the time you do the step 
   - Set it only once Resend shows `in.everdoer.com` verified, together with the `RESEND_WEBHOOK_SECRET` step from the Phase 5 checklist.
 
 ### 1.5 Env: new names alongside the old (no behaviour change)
-For each pair, copy the **current value** of the old variable into the new name. Leave the old variable in place until PR 8 so a rollback still works. The app reads the new name first. Do these on **Railway → project EmpireVu → service EmpireVu (web)** unless noted:
+For each pair, copy the **current value** of the old variable into the new name **on every service where the old variable is set**. Check each service in project EmpireVu, not just web: Railway → service → Variables. The known readers are:
+- `STRIPE_PRICE_*`: EmpireVu (web), billiing-worker and billing-reconcile, which map price → plan.
+- `QUOTE_PUBLIC_BASE_URL_*`: EmpireVu (web) and the worker services.
+- Everything else in the table: EmpireVu (web) only.
+
+If a service is missed, it keeps reading the old name and keeps logging `env/<old name>`, so the 1.8 check will catch it. Leave every old variable in place until PR 8 so a rollback still works. The app reads the new name first.
 
 | New variable | Copy the value from | Notes |
 |---|---|---|
@@ -65,7 +75,7 @@ For each pair, copy the **current value** of the old variable into the new name.
 | `QUOTE_PUBLIC_BASE_URL_EVERDOER` | `QUOTE_PUBLIC_BASE_URL_CRANKLEADS` | only if set |
 
 - **Don't** set `EVERDOER_APP_BASE_URL` yet. It moves done-for-you links to app.everdoer.com and is a PR 2 step.
-- Check: in the deploy logs, `[legacy-usage] kind=env key=CRANKLEADS_…` lines stop appearing for every name you've set.
+- Check: in each service's logs, `[legacy-usage] kind=env key=CRANKLEADS_…` / `STRIPE_PRICE_CL_…` lines stop appearing once its new names are set.
 - Undo: delete the new variable; the old name is read again.
 
 ### 1.6 Turn on new names for writes (after PR 1 has been stable for 48 h)
@@ -112,7 +122,7 @@ A shim is removed only when its `kind/key` has had no rows for 30 days:
 | header | x-empirevu-* | the tenant-repo PRs (A1 sites), `job:retell-repoint`, Telnyx re-point |
 | twilio_signature | app.empirevu.com / api.empirevu.com / app.crankleads.com | `job:twilio-repoint` + A1's numbers re-pointed by hand (PR 4) |
 | twilio_tag | EmpireVu catcher / line | `job:twilio-retag` |
-| env | CRANKLEADS_* / STRIPE_*_CL_* / INBOUND_EMAIL_DOMAIN | step 1.5 on every service, then delete the old vars |
+| env | CRANKLEADS_* / STRIPE_*_CL_* / INBOUND_EMAIL_DOMAIN | step 1.5 on **every** service that had the old var. Delete an old var only once no service logs it. |
 | route | /api/public/crankleads/* | the marketing site posting to the new path (PR 3); 30 days of old stop links |
 | host | app.empirevu.com, app.crankleads.com | redirects are on (PR 2); pages traffic tapers off. **The hosts themselves stay ≥12 months.** |
 | host | app.empirevu.com/api, api.empirevu.com | old mobile builds retired, A1 sites and Retell re-pointed. **Stays until the last old build is gone.** |
@@ -126,7 +136,7 @@ To be filled in with those PRs. They cover `EVERDOER_*` env on the a1marinecare,
 
 ## PR 2: Everdoer for every customer
 To be filled in. It covers:
-- `EVERDOER_APP_BASE_URL=https://app.everdoer.com`, then `EVERDOER_REDIRECT_LEGACY_HOSTS=1`
+- `EVERDOER_APP_BASE_URL=https://app.everdoer.com`, then `EVERDOER_REDIRECT_LEGACY_HOSTS=1`. The 301 is sent with `Cache-Control: no-store`, so unsetting the switch is an instant rollback.
 - the Supabase Site URL
 - sender domain cut-over per company (D7)
 - A2P campaign sample messages updated before the "Everdoer: " SMS prefix goes live
@@ -143,8 +153,16 @@ To be filled in. It covers:
 
 ## PR 4: provider re-point
 To be filled in. It covers:
-- `job:twilio-repoint` (dry run, then `--apply`), plus A1's hand-set numbers
-- `job:retell-repoint`. **It re-pushes each whole receptionist agent** (prompt, tools, analysis fields) from today's company data, not just the URLs, so any prompt edited by hand in Retell is overwritten. Review the dry run first.
+- **Order matters:**
+  1. First switch `TWILIO_WEBHOOK_BASE_URL` (or `APP_BASE_URL`) to `https://app.everdoer.com`. Calls to numbers still on old hosts keep working, because voice signatures accept the old hosts.
+  2. Then run `job:twilio-repoint` (dry run, then `--apply`). `--apply` refuses until that base is on the target host, because provisioning and the porting guards compare number URLs to the base exactly.
+  3. Then re-point A1's hand-set numbers.
+  4. Then update Messaging Service inbound URLs by hand; the job covers phone numbers only.
+- `job:retell-repoint`:
+  - **It re-pushes each whole receptionist agent** (prompt, tools, analysis fields) from today's company data, not just the URLs, so any prompt edited by hand in Retell is overwritten. Review the dry run first.
+  - `--apply` refuses while `APP_BASE_URL` is still an old host.
+  - It skips any company whose live Retell number uses a different agent (such as A1's hand-made Care agent).
+  - Set `RETELL_REPOINT_SKIP_COMPANIES=<A1 Marine Care company id>,<A1 Marine Storage company id>` on the shell you run it from, as a belt-and-braces deny-list.
 - A1's Care agent, by hand
 - Telnyx
 - Stripe endpoint URLs edited in place

@@ -34,6 +34,7 @@ const TWILIO_TOKEN = env("TWILIO_AUTH_TOKEN");
 interface Res {
   status: number;
   location: string | null;
+  cacheControl: string | null;
   body: string;
 }
 
@@ -44,7 +45,14 @@ function send(method: string, host: string, path: string, headers: Record<string
       (res) => {
         let data = "";
         res.on("data", (c) => (data += c));
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, location: (res.headers.location as string) ?? null, body: data }));
+        res.on("end", () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            location: (res.headers.location as string) ?? null,
+            cacheControl: (res.headers["cache-control"] as string) ?? null,
+            body: data,
+          }),
+        );
       },
     );
     req.on("error", reject);
@@ -83,6 +91,7 @@ async function main(): Promise<number> {
   for (const old of ["app.empirevu.com", "app.crankleads.com"]) {
     const r = await send("GET", old, "/settings/billing?tab=plan&x=1");
     check(`${old} page → 301 same path + query`, r.status === 301 && r.location === `${TARGET}/settings/billing?tab=plan&x=1`, `${r.status} ${r.location}`);
+    check(`${old} 301 is not cacheable (instant rollback)`, r.cacheControl === "no-store", `${r.cacheControl}`);
     const head = await send("HEAD", old, "/q/abc123");
     check(`${old} HEAD /q/<token> → 301`, head.status === 301 && head.location === `${TARGET}/q/abc123`, `${head.status} ${head.location}`);
   }
@@ -95,6 +104,8 @@ async function main(): Promise<number> {
     ["GET", "app.empirevu.com", "/?code=abc"],
     ["GET", "app.empirevu.com", "/?token_hash=abc&type=signup"],
     ["GET", "app.empirevu.com", "/favicon.svg"],
+    ["GET", "app.empirevu.com", "/.well-known/apple-app-site-association"],
+    ["GET", "app.empirevu.com", "/embed"],
     ["POST", "app.empirevu.com", "/settings"],
     ["GET", "api.empirevu.com", "/settings"],
     ["GET", "quotes.a1marinecare.ca", "/settings"],
@@ -162,12 +173,24 @@ async function main(): Promise<number> {
   // ── 4. route alias ──────────────────────────────────────────────────────────────────
   const stopOld = await send("GET", "app.empirevu.com", "/api/public/crankleads/setup-reminders?token=not-a-real-token");
   const stopNew = await send("GET", "app.everdoer.com", "/api/public/everdoer/setup-reminders?token=not-a-real-token");
-  check("setup-reminders alias answers like the old path", stopOld.status === stopNew.status && stopNew.status !== 404, `${stopOld.status} vs ${stopNew.status}`);
+  // A bad token is the handler's own answer on both paths (a JSON/HTML body from the route,
+  // not Next's "route not found" page).
+  const nextNotFound = (r: Res) => r.body.includes("This page could not be found");
+  check(
+    "setup-reminders alias answers exactly like the old path",
+    stopOld.status === stopNew.status && stopOld.body === stopNew.body && !nextNotFound(stopNew),
+    `${stopOld.status} vs ${stopNew.status}`,
+  );
 
   // ── 5. legacy_usage ─────────────────────────────────────────────────────────────────
   // The counts are batched in memory (15 s) in each runtime (Edge middleware + Node routes).
   console.log("waiting 20 s for the usage batch to flush…");
   await new Promise((r) => setTimeout(r, 20_000));
+  // Next dev reloads module contexts as routes compile, which clears the Edge sandbox's timers;
+  // the helper then flushes on the next use. One more old-host hit plays that (and production's
+  // steady traffic) and must flush everything pending.
+  await send("GET", "app.empirevu.com", "/api/health");
+  await new Promise((r) => setTimeout(r, 3_000));
   const rows = psql("select kind || '|' || key || '|' || count || '|' || coalesce(sample, '') from public.legacy_usage order by 1")
     .split("\n")
     .filter(Boolean);

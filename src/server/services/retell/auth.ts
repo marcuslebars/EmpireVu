@@ -9,7 +9,7 @@
 
 import crypto from "node:crypto";
 
-import { headerWithFallback, sampleFromUrl } from "@/server/services/rebrand/legacy-usage";
+import { noteLegacyHeader, readHeaderWithFallback, sampleFromUrl } from "@/server/services/rebrand/legacy-usage";
 import { writeNewNames } from "@/server/services/rebrand/write-names";
 
 /** The tool-call secret header (decision D6). Read new first, then the old name. */
@@ -36,18 +36,17 @@ export function verifyRetellFunctionSecret(request: Request): boolean {
   const expected = process.env.RETELL_FUNCTION_SECRET?.trim();
   if (!expected) return false;
 
-  const provided = headerWithFallback(
-    request.headers,
-    RETELL_FUNCTION_SECRET_HEADER,
-    LEGACY_RETELL_FUNCTION_SECRET_HEADER,
-    sampleFromUrl(request.url),
-  )?.trim();
+  const read = readHeaderWithFallback(request.headers, RETELL_FUNCTION_SECRET_HEADER, LEGACY_RETELL_FUNCTION_SECRET_HEADER);
+  const provided = read.value?.trim();
   if (!provided) return false;
 
   const expectedBytes = Buffer.from(expected, "utf8");
   const providedBytes = Buffer.from(provided, "utf8");
   if (expectedBytes.length !== providedBytes.length) return false;
-  return crypto.timingSafeEqual(expectedBytes, providedBytes);
+  if (!crypto.timingSafeEqual(expectedBytes, providedBytes)) return false;
+  // Counted only once verified, so junk requests can't hold the shim open.
+  noteLegacyHeader(read, sampleFromUrl(request.url));
+  return true;
 }
 
 /** True when raw Retell payload logging is switched on for schema discovery. */

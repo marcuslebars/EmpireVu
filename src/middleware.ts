@@ -44,7 +44,7 @@ export async function middleware(request: NextRequest) {
   if (sitePath) {
     if (isLegacyPagesHost(host, process.env.PAGES_BASE_URL, process.env.PAGES_LEGACY_HOSTS)) {
       // Rebrand shim (remove in PR 8 once legacy_usage shows no host/<pages legacy host> for 30 days)
-      noteLegacyUsage("host", host ?? "", legacyPathSample(pathname));
+      noteLegacyUsage("host", (host ?? "").trim().toLowerCase().replace(/:\d+$/, "").replace(/\.$/, ""), legacyPathSample(pathname));
     }
     return NextResponse.rewrite(new URL(sitePath, request.url));
   }
@@ -59,7 +59,12 @@ export async function middleware(request: NextRequest) {
     },
   );
   if (legacyTarget) {
-    return NextResponse.redirect(legacyTarget, 301);
+    // 301 (the move is permanent) but NOT cacheable: browsers cache a bare 301 forever, which
+    // would make unsetting EVERDOER_REDIRECT_LEGACY_HOSTS useless as a rollback. PR 8 may drop
+    // no-store once the move is final.
+    const res = NextResponse.redirect(legacyTarget, 301);
+    res.headers.set("Cache-Control", "no-store");
+    return res;
   }
 
   if (request.nextUrl.pathname.startsWith("/api/")) {
@@ -125,7 +130,7 @@ function noteLegacyHostUse(host: string | null, pathname: string): void {
     return;
   }
   if (!isLegacyAppHost(host)) return;
-  const bare = host.replace(/:\d+$/, "");
+  const bare = host.trim().toLowerCase().replace(/:\d+$/, "").replace(/\.$/, "");
   if (isApiLikePath(pathname)) {
     noteLegacyUsage("host", `${bare}/api`, null);
   } else if (!isNextInternalOrAsset(pathname)) {

@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   envWithFallback,
   flushLegacyUsage,
+  noteLegacyHeader,
+  readHeaderWithFallback,
   headerWithFallback,
   noteLegacyUsage,
   resetLegacyEnvNotes,
@@ -97,6 +99,34 @@ describe("legacy usage counter", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("recovers when the runtime kills the flush timer (Next's Edge sandbox clears timers on reload)", async () => {
+    vi.useFakeTimers();
+    try {
+      noteLegacyUsage("host", "app.empirevu.com", "/a");
+      vi.clearAllTimers(); // what the sandbox does on a module-context reload
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(calls).toEqual([]);
+      // The next use notices the overdue timer and flushes everything inline.
+      noteLegacyUsage("host", "app.empirevu.com", "/b");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(calls).toEqual([["host", "app.empirevu.com", "/b", 2]]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("readHeaderWithFallback reads without counting; noteLegacyHeader counts the old name only", async () => {
+    const old = readHeaderWithFallback(new Headers({ "x-empirevu-key": "k" }), "x-everdoer-key", "x-empirevu-key");
+    expect(old).toEqual({ value: "k", legacyName: "x-empirevu-key" });
+    const fresh = readHeaderWithFallback(new Headers({ "x-everdoer-key": "k" }), "x-everdoer-key", "x-empirevu-key");
+    await flushLegacyUsage();
+    expect(calls).toEqual([]);
+    noteLegacyHeader(fresh, "/api/x");
+    noteLegacyHeader(old, "/api/x");
+    await flushLegacyUsage();
+    expect(calls).toEqual([["header", "x-empirevu-key", "/api/x", 1]]);
   });
 
   it("only writes new names when EVERDOER_WRITE_NEW_NAMES is on", () => {

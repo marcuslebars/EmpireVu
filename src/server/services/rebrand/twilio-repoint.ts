@@ -145,6 +145,26 @@ export interface RepointResult {
   failed: Array<{ phoneNumber: string; error: string }>;
 }
 
+/**
+ * Why --apply must not run yet, or null. Our provisioning and the porting guards compare each
+ * number's URLs EXACTLY against URLs built from TWILIO_WEBHOOK_BASE_URL ?? APP_BASE_URL. If that
+ * base still names an old host, a re-pointed number would be flipped back by the next
+ * re-provision, and a ported line's "Twilio side OK" check would fail. So the base moves first.
+ */
+export function repointApplyBlocker(targetHost: string, env: Record<string, string | undefined> = process.env): string | null {
+  const raw = (env.TWILIO_WEBHOOK_BASE_URL?.trim() || env.APP_BASE_URL?.trim()) ?? "";
+  let host: string | null = null;
+  try {
+    host = raw ? new URL(raw).host : null;
+  } catch {
+    host = null;
+  }
+  if (!host) return "TWILIO_WEBHOOK_BASE_URL / APP_BASE_URL is not set";
+  if (isOldPlatformHost(host)) return `the webhook base (TWILIO_WEBHOOK_BASE_URL ?? APP_BASE_URL) is still ${host}; switch it to ${targetHost} first`;
+  if (host !== targetHost) return `the webhook base host is ${host} but the target is ${targetHost}; they must match`;
+  return null;
+}
+
 /** List, plan, and (with apply) write one update per number with only its changed URL fields. */
 export async function runTwilioRepoint(
   client: TwilioAccountNumbersClient,

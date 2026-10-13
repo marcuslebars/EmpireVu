@@ -160,6 +160,31 @@ export function parseRetellRepointArgs(argv: string[]): RetellRepointArgs {
   return { apply: argv.includes("--apply"), all: argv.includes("--all"), companyId };
 }
 
+/** Companies never to resync (comma list of company ids), e.g. A1's: RETELL_REPOINT_SKIP_COMPANIES. */
+function skipCompanies(env: Record<string, string | undefined>): Set<string> {
+  return new Set((env.RETELL_REPOINT_SKIP_COMPANIES ?? "").split(",").map((x) => x.trim()).filter(Boolean));
+}
+
+/**
+ * Why this company's agent must NOT be resynced, or null. A resync rebinds the company's number and
+ * overwrites voice_numbers.provider_agent_id with the onboarding agent, so if the company's live
+ * Retell number points at a DIFFERENT agent (one swapped in by hand, like A1's Care agent), a
+ * resync would silently replace it. Skip and say so.
+ */
+async function guardReason(db: Db, r: ProvisionedReceptionist, skip: Set<string>): Promise<string | null> {
+  if (skip.has(r.companyId)) return "listed in RETELL_REPOINT_SKIP_COMPANIES";
+  const { data, error } = await db
+    .from("voice_numbers")
+    .select("provider_agent_id")
+    .eq("company_id", r.companyId)
+    .eq("provider", "retell");
+  if (error) return `could not read voice_numbers (${error.message ?? error})`;
+  const others = ((data ?? []) as Array<{ provider_agent_id: string | null }>)
+    .map((v) => v.provider_agent_id)
+    .filter((id): id is string => Boolean(id) && id !== r.agentId);
+  return others.length > 0 ? `the company's live Retell number uses a different agent (${others.join(", ")}): re-point that one by hand` : null;
+}
+
 export interface RetellRepointDeps {
   db: Db;
   reader: RetellReader;
@@ -175,7 +200,7 @@ export interface RetellRepointRow {
   companyId: string | null;
   agentId: string;
   inspection: Inspection;
-  action: "none" | "resynced" | "would_resync" | "skipped_error" | "failed" | "not_provisioned";
+  action: "none" | "resynced" | "would_resync" | "skipped_error" | "skipped_guard" | "failed" | "not_provisioned";
   detail: string | null;
 }
 
@@ -183,6 +208,10 @@ export async function runRetellRepoint(deps: RetellRepointDeps, args: RetellRepo
   const env = deps.env ?? process.env;
   const expected = expectedFromEnv(env);
   const rows: RetellRepointRow[] = [];
+  const skip = skipCompanies(env);
+  if (args.apply && expected.host && isOldPlatformHost(expected.host)) {
+    throw new Error(`APP_BASE_URL is still an old host (${expected.host}); a resync would point agents at it again. Switch APP_BASE_URL first.`);
+  }
   const decide = (inspection: Inspection): "go" | "skip_error" | "clean" => {
     if (inspection.error && !args.all) return "skip_error";
     if (args.all || inspection.stale.length > 0) return "go";
@@ -193,8 +222,12 @@ export async function runRetellRepoint(deps: RetellRepointDeps, args: RetellRepo
     const inspection = await inspectAgent(deps.reader, { agentId: r.agentId, llmId: r.llmId, phoneNumber: r.phoneNumber }, expected);
     const row: RetellRepointRow = { label: `company ${r.companyId}`, companyId: r.companyId, agentId: r.agentId, inspection, action: "none", detail: null };
     const d = decide(inspection);
+    const guard = d === "go" ? await guardReason(deps.db, r, skip) : null;
     if (d === "skip_error") row.action = "skipped_error";
-    else if (d === "go") {
+    else if (guard) {
+      row.action = "skipped_guard";
+      row.detail = guard;
+    } else if (d === "go") {
       if (!args.apply) row.action = "would_resync";
       else {
         try {
@@ -239,7 +272,7 @@ export async function runRetellRepoint(deps: RetellRepointDeps, args: RetellRepo
 export function formatRetellRepoint(rows: RetellRepointRow[], expected: Expected): string {
   const lines = [`Target: host ${expected.host ?? "(APP_BASE_URL unset)"}, tool header ${expected.headerName}`];
   if (expected.host && isOldPlatformHost(expected.host)) {
-    lines.push("WARNING: APP_BASE_URL is still an OLD host; a resync would point agents at it again.");
+    lines.push("WARNING: APP_BASE_URL is still an OLD host; --apply will refuse until it is switched.");
   }
   if (rows.length === 0) lines.push("No provisioned receptionist found.");
   for (const r of rows) {

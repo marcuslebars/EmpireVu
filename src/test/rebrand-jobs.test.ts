@@ -18,6 +18,7 @@ import {
   formatRepointPlan,
   parseRepointArgs,
   planTwilioRepoint,
+  repointApplyBlocker,
   resolveRepointTarget,
   runTwilioRepoint,
   swapOldHost,
@@ -220,8 +221,9 @@ const OLD_TOOLS = (header: string, host = "app.empirevu.com") => ({
   ],
 });
 
-function retellDb() {
+function retellDb(voiceNumbers: Array<Record<string, unknown>> = []) {
   return createFakeDb({
+    voice_numbers: voiceNumbers,
     onboarding_progress: [
       { organization_id: "org-1", company_id: "co-stale", step: "phone", data: { llmId: "llm-stale", agentId: "ag-stale", phoneNumber: "+15550000001" } },
       { organization_id: "org-1", company_id: "co-fresh", step: "phone", data: { llmId: "llm-fresh", agentId: "ag-fresh", phoneNumber: "+15550000002" } },
@@ -332,5 +334,43 @@ describe("job:retell-repoint", () => {
     const rows = await runRetellRepoint(d, { apply: true, all: false, companyId: null });
     expect(rows.find((r) => r.companyId === "co-fresh")?.action).toBe("skipped_error");
     expect(rows.find((r) => r.companyId === "co-stale")).toMatchObject({ action: "failed", detail: "retell down" });
+  });
+
+  it("never resyncs a company whose live Retell number uses a different (hand-made) agent", async () => {
+    const d = deps({
+      db: retellDb([
+        { company_id: "co-stale", provider: "retell", provider_agent_id: "ag-care-by-hand" },
+        { company_id: "co-fresh", provider: "retell", provider_agent_id: "ag-fresh" },
+      ]).client,
+    });
+    const rows = await runRetellRepoint(d, { apply: true, all: true, companyId: null });
+    expect(rows.find((r) => r.companyId === "co-stale")).toMatchObject({ action: "skipped_guard" });
+    expect(rows.find((r) => r.companyId === "co-stale")?.detail).toContain("ag-care-by-hand");
+    expect(vi.mocked(d.resync).mock.calls.map((c) => c[1])).toEqual(["co-fresh"]);
+  });
+
+  it("RETELL_REPOINT_SKIP_COMPANIES is an explicit deny-list, in the dry run too", async () => {
+    const d = deps({}, { ...ENV, RETELL_REPOINT_SKIP_COMPANIES: " co-stale , other " });
+    const dry = await runRetellRepoint(d, { apply: false, all: false, companyId: null });
+    expect(dry.find((r) => r.companyId === "co-stale")?.action).toBe("skipped_guard");
+    await runRetellRepoint(d, { apply: true, all: true, companyId: null });
+    expect(vi.mocked(d.resync).mock.calls.map((c) => c[1])).toEqual(["co-fresh"]);
+  });
+
+  it("--apply refuses while APP_BASE_URL is still an old host", async () => {
+    const d = deps({}, { ...ENV, APP_BASE_URL: "https://app.empirevu.com" });
+    await expect(runRetellRepoint(d, { apply: true, all: false, companyId: null })).rejects.toThrow(/old host/);
+    expect(d.resync).not.toHaveBeenCalled();
+    await expect(runRetellRepoint(d, { apply: false, all: false, companyId: null })).resolves.toBeTruthy();
+  });
+});
+
+describe("job:twilio-repoint --apply ordering", () => {
+  it("refuses until the webhook base itself is on the target host", () => {
+    expect(repointApplyBlocker("app.everdoer.com", {})).toMatch(/not set/);
+    expect(repointApplyBlocker("app.everdoer.com", { APP_BASE_URL: "https://app.empirevu.com" })).toMatch(/still app.empirevu.com/);
+    expect(repointApplyBlocker("app.everdoer.com", { APP_BASE_URL: "https://app.everdoer.com", TWILIO_WEBHOOK_BASE_URL: "https://api.empirevu.com" })).toMatch(/still api.empirevu.com/);
+    expect(repointApplyBlocker("app.everdoer.com", { APP_BASE_URL: "https://api.everdoer.com" })).toMatch(/must match/);
+    expect(repointApplyBlocker("app.everdoer.com", { APP_BASE_URL: "https://app.empirevu.com", TWILIO_WEBHOOK_BASE_URL: "https://app.everdoer.com" })).toBeNull();
   });
 });

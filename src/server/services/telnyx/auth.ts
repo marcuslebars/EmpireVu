@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { headerWithFallback, sampleFromUrl } from "@/server/services/rebrand/legacy-usage";
+import { noteLegacyHeader, readHeaderWithFallback, sampleFromUrl } from "@/server/services/rebrand/legacy-usage";
 
 /** The webhook-tool secret header (decision D6). Read new first, then the old name. */
 export const TELNYX_SECRET_HEADER = "x-everdoer-telnyx-secret";
@@ -19,7 +19,8 @@ export function verifyTelnyxSecret(request: Request): boolean {
     return false;
   }
 
-  const provided = headerWithFallback(request.headers, TELNYX_SECRET_HEADER, LEGACY_TELNYX_SECRET_HEADER, sampleFromUrl(request.url))?.trim();
+  const read = readHeaderWithFallback(request.headers, TELNYX_SECRET_HEADER, LEGACY_TELNYX_SECRET_HEADER);
+  const provided = read.value?.trim();
   if (!provided) {
     return false;
   }
@@ -30,7 +31,12 @@ export function verifyTelnyxSecret(request: Request): boolean {
     return false;
   }
 
-  return crypto.timingSafeEqual(expectedBytes, providedBytes);
+  if (!crypto.timingSafeEqual(expectedBytes, providedBytes)) {
+    return false;
+  }
+  // Counted only once verified, so junk requests can't hold the shim open.
+  noteLegacyHeader(read, sampleFromUrl(request.url));
+  return true;
 }
 
 /** True when payload logging is switched on for schema discovery. */
