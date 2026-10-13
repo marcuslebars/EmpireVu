@@ -12,8 +12,8 @@ export const dynamic = "force-dynamic";
  * Public lead intake (no session — the middleware matcher excludes /api/*). Never drops a
  * lead: an authenticated request always gets 200 with a leadId. Two auth modes (Task 7):
  *
- *   (a) KEY mode — `x-everdoer-key` (or the old `x-empirevu-key`) names a per-tenant intake key. The org+company are
- *       pinned by the KEY ROW (the payload can't choose them); the HMAC body signature is
+ *   (a) KEY mode — `x-everdoer-key` (or the old `x-empirevu-key`) names a per-tenant intake
+ *       key. The org+company are pinned by the KEY ROW (the payload can't choose them); the HMAC body signature is
  *       signed with the key itself. A brand-new tenant works with no env change/deploy.
  *   (b) LEGACY mode — no key header; the HMAC verifies against LEAD_INTAKE_SECRET and the
  *       tenant is resolved from sourceSite (the A1 spokes until cutover). Logged once/hour

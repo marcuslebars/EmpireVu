@@ -35,6 +35,9 @@
     "job:operator-health": "tsx src/server/jobs/operator-health.ts",
     "job:weather-check": "tsx src/server/jobs/weather-check.ts",
     "job:retell-message-agent": "tsx src/server/jobs/retell-message-agent.ts",
+    "job:twilio-repoint": "tsx src/server/jobs/twilio-repoint.ts",
+    "job:twilio-retag": "tsx src/server/jobs/twilio-retag.ts",
+    "job:retell-repoint": "tsx src/server/jobs/retell-repoint.ts",
     "stripe:setup-crankleads": "node scripts/stripe/setup-crankleads.mjs"
   },
   "dependencies": {

@@ -107,12 +107,14 @@ export function twilioErrorCode(body: string): number | null {
   }
 }
 
-/** Real fetch-backed client (Basic auth, form-encoded — same as outbound/sms.ts). */
-export function createTwilioNumbersClient(creds: { accountSid: string; authToken: string }): TwilioNumbersClient {
+type TwilioCall = (method: "GET" | "POST", url: string, form?: Record<string, string>) => Promise<unknown>;
+
+/** Basic-auth, form-encoded Twilio REST caller for one account (same as outbound/sms.ts). */
+function twilioCaller(creds: { accountSid: string; authToken: string }): { call: TwilioCall; account: string } {
   const auth = `Basic ${Buffer.from(`${creds.accountSid}:${creds.authToken}`).toString("base64")}`;
   const account = `${TWILIO_API}/Accounts/${encodeURIComponent(creds.accountSid)}`;
 
-  const call = async (method: "GET" | "POST", url: string, form?: Record<string, string>): Promise<unknown> => {
+  const call: TwilioCall = async (method, url, form) => {
     const response = await fetch(url, {
       method,
       headers: { Authorization: auth, ...(form ? { "Content-Type": "application/x-www-form-urlencoded" } : {}) },
@@ -126,13 +128,18 @@ export function createTwilioNumbersClient(creds: { accountSid: string; authToken
     }
     return response.json().catch(() => ({}));
   };
+  return { call, account };
+}
 
-  const listOf = <T>(payload: unknown, key: string): T[] => {
-    if (!payload || typeof payload !== "object") return [];
-    const value = (payload as Record<string, unknown>)[key];
-    return Array.isArray(value) ? (value as T[]) : [];
-  };
+function listOf<T>(payload: unknown, key: string): T[] {
+  if (!payload || typeof payload !== "object") return [];
+  const value = (payload as Record<string, unknown>)[key];
+  return Array.isArray(value) ? (value as T[]) : [];
+}
 
+/** Real fetch-backed client (Basic auth, form-encoded — same as outbound/sms.ts). */
+export function createTwilioNumbersClient(creds: { accountSid: string; authToken: string }): TwilioNumbersClient {
+  const { call, account } = twilioCaller(creds);
   return {
     async searchAvailableLocal(country, areaCode) {
       const query = new URLSearchParams({ VoiceEnabled: "true", SmsEnabled: "true", PageSize: "5" });
@@ -165,6 +172,58 @@ export function createTwilioNumbersClient(creds: { accountSid: string; authToken
         SmsUrl: input.smsUrl,
         SmsMethod: "POST",
       })) as TwilioIncomingNumber;
+    },
+  };
+}
+
+/**
+ * An account phone number with every webhook URL field, for the rebrand re-point / retag jobs
+ * (src/server/jobs/twilio-repoint.ts, twilio-retag.ts). Twilio's IncomingPhoneNumber resource.
+ */
+export interface TwilioAccountNumber {
+  sid: string;
+  phone_number: string;
+  friendly_name?: string | null;
+  voice_url?: string | null;
+  voice_fallback_url?: string | null;
+  sms_url?: string | null;
+  sms_fallback_url?: string | null;
+  status_callback?: string | null;
+}
+
+/** The writable form field for each URL field above. Nothing else is ever written by the jobs. */
+export const TWILIO_NUMBER_URL_FIELDS = {
+  voice_url: "VoiceUrl",
+  voice_fallback_url: "VoiceFallbackUrl",
+  sms_url: "SmsUrl",
+  sms_fallback_url: "SmsFallbackUrl",
+  status_callback: "StatusCallback",
+} as const;
+export type TwilioNumberUrlField = keyof typeof TWILIO_NUMBER_URL_FIELDS;
+
+/** Listing every number + a partial update; injectable so the jobs' tests never touch Twilio. */
+export interface TwilioAccountNumbersClient {
+  listAll(): Promise<TwilioAccountNumber[]>;
+  /** POST only the given form fields (e.g. { VoiceUrl } or { FriendlyName }); others are untouched. */
+  update(sid: string, fields: Record<string, string>): Promise<void>;
+}
+
+export function createTwilioAccountNumbersClient(creds: { accountSid: string; authToken: string }): TwilioAccountNumbersClient {
+  const { call, account } = twilioCaller(creds);
+  return {
+    async listAll() {
+      const out: TwilioAccountNumber[] = [];
+      let url: string | null = `${account}/IncomingPhoneNumbers.json?PageSize=1000`;
+      for (let page = 0; url && page < 100; page += 1) {
+        const payload = (await call("GET", url)) as { next_page_uri?: string | null };
+        out.push(...listOf<TwilioAccountNumber>(payload, "incoming_phone_numbers"));
+        url = payload?.next_page_uri ? `https://api.twilio.com${payload.next_page_uri}` : null;
+      }
+      return out;
+    },
+    async update(sid, fields) {
+      if (Object.keys(fields).length === 0) return;
+      await call("POST", `${account}/IncomingPhoneNumbers/${encodeURIComponent(sid)}.json`, fields);
     },
   };
 }
