@@ -1689,7 +1689,7 @@ All four tables have RLS on, the composite FK to `companies (id, organization_id
 
 ### Env
 
-- `INBOUND_EMAIL_DOMAIN` (e.g. `in.crankleads.com`) and `RESEND_WEBHOOK_SECRET` (the webhook's `whsec_…` signing secret). Without either, the role is inert: the webhook answers 503, no inbox is made, there are no sweeps or tools, and Settings says so.
+- `INBOUND_EMAIL_DOMAINS` (comma list, e.g. `in.everdoer.com`; the FIRST is used for new inbox addresses, and a recipient on ANY listed domain is matched, so keep an old domain listed while addresses on it are in use; the old single `INBOUND_EMAIL_DOMAIN` is still read for one release) and `RESEND_WEBHOOK_SECRET` (the webhook's `whsec_…` signing secret). Without either, the role is inert: the webhook answers 503, no inbox is made, there are no sweeps or tools, and Settings says so.
 - `RESEND_API_KEY` must be allowed to read received emails (full access), plus `OUTBOUND_FROM_EMAIL` for replies (already set).
 - `AI_MODEL_EMAIL_CLERK` (optional, default `claude-sonnet-5-5`) and `ANTHROPIC_API_KEY`. Without the key, emails are sorted by rules and keywords, and customers get a heads-up text instead of a draft.
 - `TWILIO_FROM_NUMBER` (owner texts) and `CRANKLEADS_APP_BASE_URL` / `APP_BASE_URL` (the app links).
@@ -1698,7 +1698,7 @@ All four tables have RLS on, the composite FK to `companies (id, organization_id
 
 1. Resend dashboard → **Domains** → add `in.crankleads.com` (a **subdomain**, so the main domain's mail is untouched) → turn on **Receiving**, then add the MX record Resend shows at the DNS host (it must be the lowest-priority MX for that subdomain), and wait for "verified".
 2. Resend → **Webhooks** → add `https://app.crankleads.com/api/webhooks/email/inbound` with the event `email.received`, then copy its signing secret.
-3. Set `INBOUND_EMAIL_DOMAIN=in.crankleads.com` and `RESEND_WEBHOOK_SECRET=whsec_…` on the web service and the workers (the sweeps run there). Make sure `RESEND_API_KEY` has full access (receiving reads), then redeploy.
+3. Set `INBOUND_EMAIL_DOMAINS=in.everdoer.com` (old name `INBOUND_EMAIL_DOMAIN` still read for one release) and `RESEND_WEBHOOK_SECRET=whsec_…` on the web service and the workers (the sweeps run there). Make sure `RESEND_API_KEY` has full access (receiving reads), then redeploy.
 4. Check it: open Settings → AI front desk → Email inbox on a CrankLeads test business, send an email to the address shown, and it appears under "Last 7 days" within a minute.
 
 ### Sweeps
