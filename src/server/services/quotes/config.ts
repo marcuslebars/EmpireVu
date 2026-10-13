@@ -2,6 +2,9 @@
 // feature is enabled by default; set STRIPE_QUOTES_ENABLED=0 to disable. No Stripe secrets here yet;
 // Phases 3-4 add the Checkout + invoice flow, reusing the existing billing infrastructure.
 
+import { isDoneForYou } from "@/lib/product-line";
+import { envWithFallback } from "@/server/services/rebrand/legacy-usage";
+
 export interface QuotesConfig {
   enabled: boolean;
   /**
@@ -68,7 +71,8 @@ export function normalizeBaseUrl(raw: string): string {
 /**
  * The quote-link origin for ONE company: its own `quote_public_base_url` when set
  * (e.g. https://quotes.a1marinecare.ca); else, for a CrankLeads org (pass its
- * `platform_brand`), QUOTE_PUBLIC_BASE_URL_CRANKLEADS, else CRANKLEADS_APP_BASE_URL (https://app.crankleads.com)
+ * `platform_brand`), QUOTE_PUBLIC_BASE_URL_EVERDOER (old name QUOTE_PUBLIC_BASE_URL_CRANKLEADS), else
+ * EVERDOER_APP_BASE_URL (old name CRANKLEADS_APP_BASE_URL, e.g. https://app.crankleads.com)
  * — so a CrankLeads business's customers never land on the EmpireVu domain; else the
  * platform-wide publicBaseUrl.
  *
@@ -79,10 +83,13 @@ export function normalizeBaseUrl(raw: string): string {
 export function quotePublicBaseUrlFor(company: { quote_public_base_url?: unknown; platform_brand?: unknown } | null | undefined): string {
   const own = typeof company?.quote_public_base_url === "string" ? company.quote_public_base_url.trim() : "";
   if (own) return normalizeBaseUrl(own);
-  if (company?.platform_brand === "crankleads") {
+  if (isDoneForYou(company?.platform_brand)) {
     // CrankLeads customers' links live on the CrankLeads domain (app.crankleads.com serves the
-    // same public /q and /book pages). QUOTE_PUBLIC_BASE_URL_CRANKLEADS overrides it.
-    const crank = process.env.QUOTE_PUBLIC_BASE_URL_CRANKLEADS?.trim() || process.env.CRANKLEADS_APP_BASE_URL?.trim();
+    // same public /q and /book pages). QUOTE_PUBLIC_BASE_URL_EVERDOER overrides it.
+    // Rebrand shim (remove in PR 8 once legacy_usage shows no env/QUOTE_PUBLIC_BASE_URL_CRANKLEADS or env/CRANKLEADS_APP_BASE_URL for 30 days)
+    const crank =
+      envWithFallback("QUOTE_PUBLIC_BASE_URL_EVERDOER", ["QUOTE_PUBLIC_BASE_URL_CRANKLEADS"]) ||
+      envWithFallback("EVERDOER_APP_BASE_URL", ["CRANKLEADS_APP_BASE_URL"]);
     if (crank) return normalizeBaseUrl(crank);
   }
   return getQuotesConfig().publicBaseUrl;

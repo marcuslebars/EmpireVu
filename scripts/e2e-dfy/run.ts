@@ -30,7 +30,7 @@ const env = (name: string, fallback?: string): string => {
   if (v === undefined) throw new Error(`missing env ${name}`);
   return v;
 };
-const BUYER_APP = env("CRANKLEADS_APP_BASE_URL");
+const BUYER_APP = process.env.EVERDOER_APP_BASE_URL || env("CRANKLEADS_APP_BASE_URL"); // old name still read for one release
 const HOUSE_APP = env("APP_BASE_URL");
 const CAPTURE = env("E2E_CAPTURE_LOG");
 const SHOTS = env("E2E_SHOTS");
