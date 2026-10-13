@@ -15,6 +15,7 @@
  */
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db } from "./db-types";
+import { envWithFallback, noteLegacyUsage } from "@/server/services/rebrand/legacy-usage";
 
 export const SETTINGS_KEY = "email_clerk";
 export const DEFAULT_TIMEZONE = "America/Toronto";
@@ -77,10 +78,43 @@ export function mergeEmailClerkSettings(aiSettings: unknown, patch: EmailClerkSe
   return all;
 }
 
-/** The inbound side is configured on this server (domain + webhook secret). */
-export function inboundDomain(): string | null {
-  const raw = process.env.INBOUND_EMAIL_DOMAIN?.trim().toLowerCase().replace(/^@/, "") ?? "";
-  return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(raw) ? raw : null;
+const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+
+/**
+ * Every inbound domain this server receives for, primary first: INBOUND_EMAIL_DOMAINS (comma
+ * list; the first one is used for NEW addresses), falling back to the single INBOUND_EMAIL_DOMAIN.
+ * Matching an inbound recipient accepts any of them, so moving the primary domain (e.g.
+ * in.crankleads.com → in.everdoer.com) never orphans an address already handed out. Invalid
+ * entries are skipped. PURE apart from the env read.
+ */
+export function inboundDomains(env: Record<string, string | undefined> = process.env): string[] {
+  // Rebrand shim (remove in PR 8 once legacy_usage shows no env/INBOUND_EMAIL_DOMAIN for 30 days)
+  const raw = envWithFallback("INBOUND_EMAIL_DOMAINS", ["INBOUND_EMAIL_DOMAIN"], env) ?? "";
+  const out: string[] = [];
+  for (const part of raw.split(",")) {
+    const domain = part.trim().toLowerCase().replace(/^@/, "");
+    if (DOMAIN_RE.test(domain) && !out.includes(domain)) out.push(domain);
+  }
+  return out;
+}
+
+/** The primary inbound domain (new addresses are made on it), or null when not configured. */
+export function inboundDomain(env: Record<string, string | undefined> = process.env): string | null {
+  return inboundDomains(env)[0] ?? null;
+}
+
+/** The inbound domain `address` is on, if it is one of ours. PURE. */
+export function ourInboundDomainOf(address: string | null | undefined, domains: readonly string[]): string | null {
+  const a = (address ?? "").trim().toLowerCase();
+  return domains.find((d) => a.endsWith(`@${d}`)) ?? null;
+}
+
+/** Count a match on an old-brand inbound domain (empirevu / crankleads in the name). */
+export function noteInboundDomainUse(domain: string | null): void {
+  if (domain && /empirevu|crankleads/.test(domain)) {
+    // Rebrand shim (remove in PR 8 once legacy_usage shows no inbound_email_domain/<domain> for 30 days)
+    noteLegacyUsage("inbound_email_domain", domain, null);
+  }
 }
 
 export function inboundConfigured(): boolean {
