@@ -8,6 +8,7 @@ import {
 } from "@/server/services/crankleads/checkout";
 import { crankleadsSiteOrigins } from "@/server/services/crankleads/config";
 import { enforceRateLimit, trustedClientIp } from "@/server/services/rate-limit";
+import { noteLegacyRoute } from "@/server/services/rebrand/route-alias";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -69,10 +70,12 @@ async function readBodyCapped(request: Request, max: number): Promise<string | n
 }
 
 export async function OPTIONS(request: Request): Promise<NextResponse> {
+  noteLegacyRoute(request, "checkout");
   return new NextResponse(null, { status: 204, headers: corsHeaders(request.headers.get("origin")) });
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
+  noteLegacyRoute(request, "checkout");
   const origin = request.headers.get("origin");
 
   // (1) Body cap — before anything else.

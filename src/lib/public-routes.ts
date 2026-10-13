@@ -19,6 +19,7 @@ const PUBLIC_PATHS: RegExp[] = [
   /^\/f\//, // hosted website lead form (also the /embed/v1.js iframe)
   /^\/invite\//, // team invitation, which prompts sign-in itself when needed
   /^\/welcome\/crankleads\/?$/, // CrankLeads purchase landing — the buyer has no session yet
+  /^\/welcome\/everdoer\/?$/, // the same landing under its Everdoer alias
   /^\/setup\/[^/]+\/?$/, // done-for-you quick setup (texted after purchase) — no login
   /^\/import\/[^/]+\/?$/, // customer import from the owner's texted link — no login
   /^\/forward\//, // done-for-you one-tap call forwarding (from the owner's "last step" text)
