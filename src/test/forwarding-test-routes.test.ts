@@ -44,7 +44,9 @@ vi.mock("@/server/services/twilio/forwarding-test", async (importOriginal) => {
 import { GET as orgGet, POST as orgPost } from "@/app/api/organizations/[organizationId]/missed-call-catcher/forwarding-test/route";
 import { POST as callback } from "@/app/api/twilio/voice/forwarding-test/route";
 import { POST as voiceInbound } from "@/app/api/twilio/voice/inbound/route";
-import { FORWARDING_TEST_LEG_KEY, ForwardingTestRateLimited } from "@/server/services/twilio/forwarding-test";
+// Rebrand PR 1: with EVERDOER_WRITE_NEW_NAMES off the webhook writes the OLD key name; the new
+// name is covered in rebrand-forwarding-test-key.test.ts.
+import { LEGACY_FORWARDING_TEST_LEG_KEY as FORWARDING_TEST_LEG_KEY, ForwardingTestRateLimited } from "@/server/services/twilio/forwarding-test";
 
 const AUTH_TOKEN = "test-auth-token";
 const BASE = "https://app.crankleads.test";

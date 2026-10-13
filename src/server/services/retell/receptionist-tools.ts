@@ -6,9 +6,10 @@
  *
  * Marine companies (A1 and any company on the marine pack / with a shrink_wrap catalog item)
  * get the existing `quote_shrink_wrap` contract unchanged; every other trade gets the generic
- * price-list `quote_services`. Pure.
+ * price-list `quote_services`. Pure apart from the header NAME, which follows
+ * EVERDOER_WRITE_NEW_NAMES (retellFunctionSecretHeaderForWrite).
  */
-import { RETELL_FUNCTION_SECRET_HEADER } from "./auth";
+import { retellFunctionSecretHeaderForWrite } from "./auth";
 
 export interface ReceptionistToolsInput {
   /** Public origin of this app (APP_BASE_URL). */
@@ -42,7 +43,7 @@ function tool(
     description,
     url: `${input.baseUrl.replace(/\/+$/, "")}${RECEPTIONIST_TOOL_PATHS[name]}`,
     method: "POST",
-    headers: { [RETELL_FUNCTION_SECRET_HEADER]: input.functionSecret },
+    headers: { [retellFunctionSecretHeaderForWrite()]: input.functionSecret },
     // Payload: args only stays OFF — the tenant comes from Retell's trusted `call` object.
     args_at_root: false,
     speak_during_execution: Boolean(options.speakDuring),

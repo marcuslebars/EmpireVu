@@ -11,6 +11,7 @@
  *      Revoked (Settings, owner tool stop_sharing), expired, or Compliance switched off → a plain
  *      "this link has expired" page. Every open and revoke is a compliance_events row.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import { randomBytes } from "node:crypto";
 
 import { prettyPhone } from "@/server/services/front-desk/approval-text";
@@ -32,7 +33,7 @@ const LINK_PLACEHOLDER = "[link]";
 const OPEN_URL_TTL_SECONDS = 60;
 
 export function shareLinkFor(platformBrand: string | null, token: string): string {
-  return `${appBaseUrlFor(platformBrand === "crankleads" ? "crankleads" : "empirevu")}/api/public/compliance/doc/${token}`;
+  return `${appBaseUrlFor(isDoneForYou(platformBrand) ? "crankleads" : "empirevu")}/api/public/compliance/doc/${token}`;
 }
 
 /** Kinds a customer may ask for, and what else counts ("WSIB" → a clearance, else the account letter). */

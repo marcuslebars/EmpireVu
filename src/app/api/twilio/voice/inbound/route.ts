@@ -6,13 +6,17 @@ import {
   VOICE_JOB_PROVIDER,
   type CatcherTenant,
 } from "@/server/services/twilio/missed-call";
-import { FORWARDING_TEST_LEG_KEY, findForwardingTestForLeg, isTestCallerId } from "@/server/services/twilio/forwarding-test";
-import { verifyTwilioSignature } from "@/server/services/twilio/signature";
+import {
+  findForwardingTestForLeg,
+  FORWARDING_TEST_LEG_KEYS,
+  forwardingTestLegKeyForWrite,
+  isTestCallerId,
+} from "@/server/services/twilio/forwarding-test";
+import { verifyTwilioVoiceSignature } from "@/server/services/twilio/voice-signature";
 import {
   callbackBaseUrl,
   sayVoice,
   transcriptionEnabled,
-  twilioSignedUrl,
   VOICE_AI_HANDOFF_PATH,
   VOICE_RECORDING_PATH,
   voicemailMaxSecondsSetting,
@@ -40,7 +44,7 @@ export const dynamic = "force-dynamic";
  *      platform verifier; a pure check, so a customer call does no I/O before step 3): look
  *      up a test with caller_id == From and catcher_number == To that started within
  *      TEST_DETECT_WINDOW_MS. A match stamps its id into the job payload
- *      (FORWARDING_TEST_LEG_KEY) — the worker trusts that flag and never re-matches. A lookup
+ *      (forwardingTestLegKeyForWrite) — the worker trusts that flag and never re-matches. A lookup
  *      error just leaves the flag off (the job is still persisted). The business line /
  *      ForwardedFrom are NOT fingerprints: real forwarded customers carry them;
  *   3) DURABLE-FIRST: enqueue the params into inbound_webhook_jobs
@@ -70,7 +74,7 @@ export async function POST(request: Request): Promise<Response> {
   const params = Object.fromEntries(new URLSearchParams(rawBody));
   const signature = request.headers.get("x-twilio-signature");
 
-  if (!verifyTwilioSignature(twilioSignedUrl(request), params, signature, process.env.TWILIO_AUTH_TOKEN)) {
+  if (!verifyTwilioVoiceSignature(request, params, signature, process.env.TWILIO_AUTH_TOKEN)) {
     return new Response("Invalid signature.", { status: 403 });
   }
 
@@ -81,8 +85,9 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const admin = createMissedCallAdminClient();
-  // Our own key is set only by this route, never taken from the request.
-  delete params[FORWARDING_TEST_LEG_KEY];
+  // Our own key is set only by this route, never taken from the request (both its old and new
+  // names are stripped; this runs after the signature check, as before).
+  for (const key of FORWARDING_TEST_LEG_KEYS) delete params[key];
   const from = params.From ?? null;
   const to = params.To ?? params.Called ?? null;
   const fromOurTestCallerId = to !== null && isTestCallerId(from, to);
@@ -94,7 +99,7 @@ export async function POST(request: Request): Promise<Response> {
       console.error("[twilio-voice] forwarding-test lookup failed (leg not flagged):", err instanceof Error ? err.message : err);
     }
   }
-  const payload = forwardingTestId ? { ...params, [FORWARDING_TEST_LEG_KEY]: forwardingTestId } : params;
+  const payload = forwardingTestId ? { ...params, [forwardingTestLegKeyForWrite()]: forwardingTestId } : params;
 
   try {
     await enqueueInboundWebhookJob(admin, { provider: VOICE_JOB_PROVIDER, externalId: callSid, payload });

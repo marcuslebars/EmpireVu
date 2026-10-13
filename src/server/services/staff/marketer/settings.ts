@@ -12,6 +12,7 @@
  *   review_replies.enabled  ON for CrankLeads, OFF for house orgs
  *   google_posts.enabled    ON for CrankLeads, OFF for house orgs
  */
+import { isDoneForYou } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db, SendWindow } from "@/server/services/staff/marketer/db-types";
 import { pageAll } from "@/server/services/staff/marketer/paging";
@@ -176,7 +177,7 @@ export async function loadMarketingCompany(admin: AdminClient, scope: { organiza
   if (error) throw error;
   if (!data) return null;
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", scope.organizationId).maybeSingle();
-  return toMarketingCompany(data as Record<string, unknown>, (org as { platform_brand?: string | null } | null)?.platform_brand === "crankleads");
+  return toMarketingCompany(data as Record<string, unknown>, isDoneForYou((org as { platform_brand?: string | null } | null)?.platform_brand));
 }
 
 /**
@@ -194,7 +195,7 @@ export async function listMarketingCompanies(admin: AdminClient): Promise<Market
     for (const o of (data ?? []) as Array<{ id: string; platform_brand: string | null }>) brands.set(o.id, o.platform_brand);
   }
   return rows
-    .map((row) => toMarketingCompany(row, brands.get(String(row.organization_id)) === "crankleads"))
+    .map((row) => toMarketingCompany(row, isDoneForYou(brands.get(String(row.organization_id)))))
     .filter((c) => c.stage !== "paused" && c.stage !== "archived")
     .filter((c) => c.settings.winBack.enabled || c.settings.reviewReplies.enabled || c.settings.googlePosts.enabled);
 }

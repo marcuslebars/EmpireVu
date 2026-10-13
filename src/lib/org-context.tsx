@@ -13,6 +13,7 @@ import { createContext, useContext, useState, useCallback, useEffect, type React
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { BrandOrgSync } from "@/lib/brand-context";
+import { COMPANY_ID_KEY, ORG_ID_KEY, readKey, removeKey, writeKey } from "@/lib/storage-keys";
 
 export interface ValidOrgContext {
   organizationId: string;
@@ -26,31 +27,18 @@ export interface ValidOrgContext {
 
 const OrgContext = createContext<ValidOrgContext | null>(null);
 
-const ORG_STORAGE_KEY = "empirevu_org_id";
-const COMPANY_STORAGE_KEY = "empirevu_company_id";
-
+// New everdoer_* keys read first, old empirevu_* keys as fallback; both written and cleared
+// (src/lib/storage-keys.ts).
 const STORAGE_KEYS = {
   clearAll: () => {
-    if (typeof window === "undefined") return;
-    localStorage.removeItem(ORG_STORAGE_KEY);
-    localStorage.removeItem(COMPANY_STORAGE_KEY);
+    removeKey(ORG_ID_KEY);
+    removeKey(COMPANY_ID_KEY);
   },
-  getOrgId: (): string | null => {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem(ORG_STORAGE_KEY);
-  },
-  setOrgId: (id: string) => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(ORG_STORAGE_KEY, id);
-  },
-  getCompanyId: (): string | null => {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem(COMPANY_STORAGE_KEY);
-  },
-  setCompanyId: (id: string) => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(COMPANY_STORAGE_KEY, id);
-  },
+  getOrgId: (): string | null => readKey(ORG_ID_KEY),
+  setOrgId: (id: string) => writeKey(ORG_ID_KEY, id),
+  getCompanyId: (): string | null => readKey(COMPANY_ID_KEY),
+  setCompanyId: (id: string) => writeKey(COMPANY_ID_KEY, id),
+  removeCompanyId: () => removeKey(COMPANY_ID_KEY),
 };
 
 export function OrgProvider({ children }: { children: ReactNode }) {
@@ -62,14 +50,14 @@ export function OrgProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (authStatus === "authenticated") {
-      const storedOrg = localStorage.getItem(ORG_STORAGE_KEY);
-      const storedCompany = localStorage.getItem(COMPANY_STORAGE_KEY);
+      const storedOrg = STORAGE_KEYS.getOrgId();
+      const storedCompany = STORAGE_KEYS.getCompanyId();
       // Fall back to the session's org (active org, else first membership) when
       // localStorage is empty, so a user who has an organization server-side (e.g.
       // seeded) lands in the app instead of onboarding on a fresh browser.
       const derivedOrg = storedOrg || session?.activeOrganizationId || session?.organizations?.[0]?.id || "";
       if (derivedOrg && !storedOrg) {
-        localStorage.setItem(ORG_STORAGE_KEY, derivedOrg);
+        STORAGE_KEYS.setOrgId(derivedOrg);
       }
       setOrgState(derivedOrg);
       setCompanyState(storedCompany);
@@ -107,7 +95,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     setOrgState(id);
     setCompanyState(null);
     STORAGE_KEYS.setOrgId(id);
-    localStorage.removeItem(COMPANY_STORAGE_KEY);
+    STORAGE_KEYS.removeCompanyId();
     queryClient.invalidateQueries();
   }, [queryClient]);
 
@@ -116,7 +104,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     if (id !== null) {
       STORAGE_KEYS.setCompanyId(id);
     } else {
-      localStorage.removeItem(COMPANY_STORAGE_KEY);
+      STORAGE_KEYS.removeCompanyId();
     }
     queryClient.invalidateQueries();
   }, [queryClient]);

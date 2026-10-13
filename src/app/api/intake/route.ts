@@ -4,6 +4,7 @@ import { verifyIntakeSignature } from "@/server/services/lead-intake/hmac";
 import { resolveIntakeKey } from "@/server/services/lead-intake/intake-keys";
 import { handleLeadIntake } from "@/server/services/lead-intake/intake";
 import { enforceWebhookBackstop } from "@/server/services/rate-limit";
+import { noteLegacyHeader, readHeaderWithFallback, sampleFromUrl } from "@/server/services/rebrand/legacy-usage";
 
 export const dynamic = "force-dynamic";
 
@@ -11,8 +12,8 @@ export const dynamic = "force-dynamic";
  * Public lead intake (no session — the middleware matcher excludes /api/*). Never drops a
  * lead: an authenticated request always gets 200 with a leadId. Two auth modes (Task 7):
  *
- *   (a) KEY mode — `x-empirevu-key` names a per-tenant intake key. The org+company are
- *       pinned by the KEY ROW (the payload can't choose them); the HMAC body signature is
+ *   (a) KEY mode — `x-everdoer-key` (or the old `x-empirevu-key`) names a per-tenant intake
+ *       key. The org+company are pinned by the KEY ROW (the payload can't choose them); the HMAC body signature is
  *       signed with the key itself. A brand-new tenant works with no env change/deploy.
  *   (b) LEGACY mode — no key header; the HMAC verifies against LEAD_INTAKE_SECRET and the
  *       tenant is resolved from sourceSite (the A1 spokes until cutover). Logged once/hour
@@ -51,8 +52,20 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (backstop) return backstop;
 
   const rawBody = await request.text();
-  const signature = request.headers.get("x-empirevu-signature");
-  const keyHeader = request.headers.get("x-empirevu-key");
+  // Header names (D6): the new x-everdoer-* first, then the old x-empirevu-* (the A1 sites send
+  // these). The HMAC covers the raw body only, never a header name, so either name verifies.
+  // Counted (noteLegacyHeaders) only after the signature verifies.
+  // Rebrand shim (remove in PR 8 once legacy_usage shows no header/x-empirevu-signature for 30 days)
+  const signatureRead = readHeaderWithFallback(request.headers, "x-everdoer-signature", "x-empirevu-signature");
+  // Rebrand shim (remove in PR 8 once legacy_usage shows no header/x-empirevu-key for 30 days)
+  const keyRead = readHeaderWithFallback(request.headers, "x-everdoer-key", "x-empirevu-key");
+  const signature = signatureRead.value;
+  const keyHeader = keyRead.value;
+  const noteLegacyHeaders = () => {
+    const sample = sampleFromUrl(request.url);
+    noteLegacyHeader(signatureRead, sample);
+    noteLegacyHeader(keyRead, sample);
+  };
 
   // Parse may fail; a null parsedBody is still handled (stored raw, never dropped).
   let parsedBody: unknown = null;
@@ -78,6 +91,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!verifyIntakeSignature(rawBody, signature, keyHeader)) {
       return NextResponse.json({ error: "Invalid signature." }, { status: 401 });
     }
+    noteLegacyHeaders();
     try {
       const result = await handleLeadIntake(rawBody, parsedBody, {
         target: { organizationId: resolved.organizationId, companyId: resolved.companyId },
@@ -98,6 +112,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!verifyIntakeSignature(rawBody, signature, secret)) {
     return NextResponse.json({ error: "Invalid signature." }, { status: 401 });
   }
+  noteLegacyHeaders();
   logLegacyAuthUsed(readSourceSite(parsedBody));
 
   try {

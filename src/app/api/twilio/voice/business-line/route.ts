@@ -1,8 +1,8 @@
 import { enforceWebhookBackstop } from "@/server/services/rate-limit";
 import { businessLineResponse, readStage } from "@/server/services/staff/porting/business-line";
 import { createMissedCallAdminClient } from "@/server/services/twilio/missed-call";
-import { verifyTwilioSignature } from "@/server/services/twilio/signature";
-import { callbackBaseUrl, sayVoice, twilioSignedUrl } from "@/server/services/twilio/voice-config";
+import { verifyTwilioVoiceSignature } from "@/server/services/twilio/voice-signature";
+import { callbackBaseUrl, sayVoice } from "@/server/services/twilio/voice-config";
 import { twimlResponse } from "@/server/services/twilio/voice-twiml";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +26,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const rawBody = await request.text();
   const params = Object.fromEntries(new URLSearchParams(rawBody));
-  if (!verifyTwilioSignature(twilioSignedUrl(request), params, request.headers.get("x-twilio-signature"), process.env.TWILIO_AUTH_TOKEN)) {
+  if (!verifyTwilioVoiceSignature(request, params, request.headers.get("x-twilio-signature"), process.env.TWILIO_AUTH_TOKEN)) {
     return new Response("Invalid signature.", { status: 403 });
   }
 

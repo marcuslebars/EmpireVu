@@ -5,8 +5,8 @@ import {
   VOICEMAIL_JOB_PROVIDER,
   voicemailExternalId,
 } from "@/server/services/twilio/missed-call";
-import { verifyTwilioSignature } from "@/server/services/twilio/signature";
-import { sayVoice, twilioSignedUrl } from "@/server/services/twilio/voice-config";
+import { verifyTwilioVoiceSignature } from "@/server/services/twilio/voice-signature";
+import { sayVoice } from "@/server/services/twilio/voice-config";
 import { buildVoicemailDoneTwiml, emptyTwiml, twimlResponse } from "@/server/services/twilio/voice-twiml";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +32,7 @@ export async function POST(request: Request): Promise<Response> {
   const params = Object.fromEntries(new URLSearchParams(rawBody));
   const signature = request.headers.get("x-twilio-signature");
 
-  if (!verifyTwilioSignature(twilioSignedUrl(request), params, signature, process.env.TWILIO_AUTH_TOKEN)) {
+  if (!verifyTwilioVoiceSignature(request, params, signature, process.env.TWILIO_AUTH_TOKEN)) {
     return new Response("Invalid signature.", { status: 403 });
   }
 

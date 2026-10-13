@@ -19,7 +19,7 @@ import { toE164 } from "@/server/services/retell/payload";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { BUSINESS_LINE_MODE } from "@/server/services/staff/porting/db-types";
 import {
-  FORWARDING_TEST_LEG_KEY,
+  readForwardingTestLegId,
   isTestCallerId,
   recordFlaggedForwardedLeg,
   recordPassiveForwardingProof,
@@ -359,7 +359,7 @@ export async function handleMissedCall(payload: unknown, now: number = Date.now(
   //      missed_calls row, no lead, no text-back); a failure here retries the job (it is our
   //      own call — no customer is waiting). NO re-matching: a call without the flag is
   //      always a normal missed call, whatever its From / ForwardedFrom say.
-  const flaggedTestId = readField(payload, FORWARDING_TEST_LEG_KEY);
+  const flaggedTestId = readForwardingTestLegId(payload);
   if (flaggedTestId) {
     const passed = await recordFlaggedForwardedLeg(
       admin,

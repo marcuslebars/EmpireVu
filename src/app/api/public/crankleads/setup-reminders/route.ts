@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { CRANKLEADS_OFFER_NAME } from "@/server/services/crankleads/config";
 import { isStopToken, stopSetupReminders } from "@/server/services/crankleads/setup-followups";
 import { enforceRateLimit, trustedClientIp } from "@/server/services/rate-limit";
+import { noteLegacyRoute } from "@/server/services/rebrand/route-alias";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +46,7 @@ async function limited(request: Request): Promise<NextResponse | null> {
 }
 
 export async function GET(request: Request): Promise<NextResponse> {
+  noteLegacyRoute(request, "setup-reminders");
   const blocked = await limited(request);
   if (blocked) return blocked;
   const token = new URL(request.url).searchParams.get("token");
@@ -57,6 +59,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
+  noteLegacyRoute(request, "setup-reminders");
   const blocked = await limited(request);
   if (blocked) return blocked;
   const token = new URL(request.url).searchParams.get("token");

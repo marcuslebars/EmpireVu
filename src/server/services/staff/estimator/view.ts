@@ -4,6 +4,7 @@
 // caller's RLS client FIRST; only then does this read/write that one company with the service
 // role (companies.ai_settings is not client-writable). Writes merge ONLY ai_settings.estimator.
 // ─────────────────────────────────────────────────────────────────────────────
+import { isDoneForYou } from "@/lib/product-line";
 import { updateAiSettings } from "@/server/services/front-desk/ai-settings-write";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { mergeEstimatorSettings, readEstimatorSettings, type EstimatorSettingsPatch } from "@/server/services/staff/estimator/settings";
@@ -34,7 +35,7 @@ export async function getEstimatorView(admin: AdminClient, organizationId: strin
   const row = company as { id: string; ai_settings: unknown } | null;
   if (!row) return null;
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", organizationId).maybeSingle();
-  const crankleads = (org as { platform_brand: string | null } | null)?.platform_brand === "crankleads";
+  const crankleads = isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand);
   const settings = readEstimatorSettings(row.ai_settings, { crankleads });
   const since = new Date(now.getTime() - 30 * 86_400_000).toISOString();
   const scoped = (table: string) => db.from(table).select("id").eq("organization_id", organizationId).eq("company_id", companyId);

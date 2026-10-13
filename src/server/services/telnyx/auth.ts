@@ -1,6 +1,11 @@
 import crypto from "node:crypto";
 
-export const TELNYX_SECRET_HEADER = "x-empirevu-telnyx-secret";
+import { noteLegacyHeader, readHeaderWithFallback, sampleFromUrl } from "@/server/services/rebrand/legacy-usage";
+
+/** The webhook-tool secret header (decision D6). Read new first, then the old name. */
+export const TELNYX_SECRET_HEADER = "x-everdoer-telnyx-secret";
+// Rebrand shim (remove in PR 8 once legacy_usage shows no header/x-empirevu-telnyx-secret for 30 days)
+export const LEGACY_TELNYX_SECRET_HEADER = "x-empirevu-telnyx-secret";
 
 /**
  * Telnyx does not HMAC-sign these webhook-tool requests, so a shared secret
@@ -14,7 +19,8 @@ export function verifyTelnyxSecret(request: Request): boolean {
     return false;
   }
 
-  const provided = request.headers.get(TELNYX_SECRET_HEADER)?.trim();
+  const read = readHeaderWithFallback(request.headers, TELNYX_SECRET_HEADER, LEGACY_TELNYX_SECRET_HEADER);
+  const provided = read.value?.trim();
   if (!provided) {
     return false;
   }
@@ -25,7 +31,12 @@ export function verifyTelnyxSecret(request: Request): boolean {
     return false;
   }
 
-  return crypto.timingSafeEqual(expectedBytes, providedBytes);
+  if (!crypto.timingSafeEqual(expectedBytes, providedBytes)) {
+    return false;
+  }
+  // Counted only once verified, so junk requests can't hold the shim open.
+  noteLegacyHeader(read, sampleFromUrl(request.url));
+  return true;
 }
 
 /** True when payload logging is switched on for schema discovery. */

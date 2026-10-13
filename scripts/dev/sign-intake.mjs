@@ -8,7 +8,7 @@
  * Usage:
  *   node scripts/dev/sign-intake.mjs --key evk_xxx [--file envelope.json] [--url URL] [--send]
  *
- *   --key   the intake key (or set EMPIREVU_INTAKE_KEY)
+ *   --key   the intake key (or set EVERDOER_INTAKE_KEY; the old EMPIREVU_INTAKE_KEY is still read)
  *   --file  path to a JSON envelope (defaults to a built-in sample)
  *   --url   intake endpoint (default https://app.empirevu.com/api/intake)
  *   --send  actually POST it and print the response
@@ -22,7 +22,7 @@ function arg(name, fallback) {
 }
 const has = (name) => process.argv.includes(`--${name}`);
 
-const key = arg("key", process.env.EMPIREVU_INTAKE_KEY);
+const key = arg("key", process.env.EVERDOER_INTAKE_KEY || process.env.EMPIREVU_INTAKE_KEY);
 if (!key) {
   console.error(
     "Usage: node scripts/dev/sign-intake.mjs --key <intake key> [--file envelope.json] [--url URL] [--send]",

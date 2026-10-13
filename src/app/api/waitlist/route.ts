@@ -20,7 +20,8 @@ export const dynamic = "force-dynamic";
  * no-op success, never an error the visitor sees.
  */
 
-const DEFAULT_ALLOWED = "https://empirevu.com,https://www.empirevu.com";
+// Everdoer rebrand: everdoer.com (the new marketing site) is allowed alongside empirevu.com.
+const DEFAULT_ALLOWED = "https://empirevu.com,https://www.empirevu.com,https://everdoer.com,https://www.everdoer.com";
 
 function allowedOrigins(): Set<string> {
   const raw = process.env.WAITLIST_ALLOWED_ORIGINS ?? DEFAULT_ALLOWED;

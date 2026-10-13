@@ -26,6 +26,7 @@ import {
   packRecipesForTier,
   type CrankleadsTier,
 } from "@/server/services/crankleads/config";
+import { isDoneForYouStripeSource } from "@/server/services/crankleads/stripe-source";
 import {
   renderOperatorFailureEmail,
   renderOperatorNewPurchaseEmail,
@@ -98,9 +99,13 @@ function idOf(value: unknown): string | null {
 
 // ── Stripe object helpers ─────────────────────────────────────────────────────
 
-/** Is this Checkout Session (or subscription/invoice) a CrankLeads purchase? */
+/**
+ * Is this Checkout Session (or subscription/invoice) a CrankLeads purchase? `metadata.source` is
+ * "crankleads" on every live object and "everdoer" on new ones once EVERDOER_WRITE_NEW_NAMES is
+ * on; both count (crankleads/stripe-source.ts).
+ */
 export function isCrankleadsObject(object: StripeObject | null | undefined): boolean {
-  return crankleadsMetadataOf(object)?.source === CRANKLEADS_SOURCE;
+  return crankleadsMetadataOf(object) !== null;
 }
 
 /** The CrankLeads metadata on a session, subscription, or invoice (via its subscription details). */
@@ -112,7 +117,7 @@ function crankleadsMetadataOf(object: StripeObject | null | undefined): Record<s
     object.subscription_details?.metadata,
   ];
   for (const candidate of candidates) {
-    if (candidate && typeof candidate === "object" && candidate.source === CRANKLEADS_SOURCE) {
+    if (candidate && typeof candidate === "object" && isDoneForYouStripeSource(candidate.source)) {
       return candidate as Record<string, unknown>;
     }
   }

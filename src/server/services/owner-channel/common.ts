@@ -6,6 +6,7 @@
  * phone in this schema). Everything the owner channel reads or changes is scoped to the
  * companies that phone owns — never to an id that arrived in a text.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import { platformNumber } from "@/server/outbound/platform-number";
 import type { Tables } from "@/server/db/database.types";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
@@ -178,7 +179,7 @@ const MAX_OWNER_SMS = 700;
 
 /** "CrankLeads: " for CrankLeads orgs; nothing otherwise (never "EmpireVu"). */
 export function signaturePrefix(platformBrand: string | null | undefined): string {
-  return platformBrand === "crankleads" ? "CrankLeads: " : "";
+  return isDoneForYou(platformBrand) ? "CrankLeads: " : "";
 }
 
 export interface OwnerSmsInput {

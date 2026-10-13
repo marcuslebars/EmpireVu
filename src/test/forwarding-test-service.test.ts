@@ -51,7 +51,8 @@ import { TooManyRequestsError, ValidationError } from "@/server/organizations/co
 import { TwilioApiError, type CreateTestCallInput, type TwilioCallsClient } from "@/server/services/twilio/calls";
 import {
   findForwardingTestForLeg,
-  FORWARDING_TEST_LEG_KEY,
+  // Rebrand PR 1: flag off, the old key name is what the webhook writes.
+  LEGACY_FORWARDING_TEST_LEG_KEY as FORWARDING_TEST_LEG_KEY,
   getForwardingVerificationStatus,
   handleForwardingTestJob,
   isTestCallerId,

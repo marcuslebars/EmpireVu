@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getPublicPurchaseStatus, isCheckoutSessionId } from "@/server/services/crankleads/checkout";
 import { enforceRateLimit, trustedClientIp } from "@/server/services/rate-limit";
+import { noteLegacyRoute } from "@/server/services/rebrand/route-alias";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ interface RouteContext {
  * Same-origin (the app's own page), so no CORS.
  */
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
+  noteLegacyRoute(request, "checkout/[sessionId]");
   const headers = { "Cache-Control": "no-store" };
   const limited = await enforceRateLimit(request, {
     scope: "crankleads_status",

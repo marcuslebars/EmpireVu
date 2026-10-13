@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db, EmailInboxRow } from "./db-types";
 import { normalizeAddress } from "./parse";
-import { inboundDomain } from "./settings";
+import { inboundDomain, inboundDomains, noteInboundDomainUse, ourInboundDomainOf } from "./settings";
 
 const ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
 
@@ -84,16 +84,17 @@ export async function ensureInbox(
 /**
  * The inbox an email was for: the first of the given addresses that is one of ours (the caller
  * passes the envelope recipients — Resend's received_for — and falls back to To / Cc / Bcc only
- * when those are missing). Unknown → null.
+ * when those are missing). "Ours" means on ANY configured inbound domain (INBOUND_EMAIL_DOMAINS).
+ * Unknown → null. A match on an old-brand domain is counted (inbound_email_domain).
  */
 export async function findInboxFor(admin: AdminClient, candidates: Array<string | null | undefined>): Promise<EmailInboxRow | null> {
-  const domain = inboundDomain();
-  if (!domain) return null;
+  const domains = inboundDomains();
+  if (domains.length === 0) return null;
   const ours: string[] = [];
   for (const raw of candidates) {
     for (const part of (raw ?? "").split(",")) {
       const a = normalizeAddress(part);
-      if (a && a.endsWith(`@${domain}`) && !ours.includes(a)) ours.push(a);
+      if (a && ourInboundDomainOf(a, domains) && !ours.includes(a)) ours.push(a);
     }
   }
   if (ours.length === 0) return null;
@@ -102,7 +103,10 @@ export async function findInboxFor(admin: AdminClient, candidates: Array<string 
   const rows = (data ?? []) as EmailInboxRow[];
   for (const a of ours) {
     const hit = rows.find((r) => r.address === a);
-    if (hit) return hit;
+    if (hit) {
+      noteInboundDomainUse(ourInboundDomainOf(a, domains));
+      return hit;
+    }
   }
   return null;
 }

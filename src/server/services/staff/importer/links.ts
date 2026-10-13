@@ -5,6 +5,7 @@
  * only; no client can read a token). A link works for 14 days after it was last sent; an expired
  * one gets a fresh token when it's sent again.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import { randomBytes } from "node:crypto";
 
 import type { AdminClient } from "@/server/services/front-desk/contracts";
@@ -25,7 +26,7 @@ export function isImportToken(value: unknown): value is string {
 }
 
 export function importUrlFor(platformBrand: string | null, token: string): string {
-  return `${appBaseUrlFor(platformBrand === "crankleads" ? "crankleads" : "empirevu")}/import/${token}`;
+  return `${appBaseUrlFor(isDoneForYou(platformBrand) ? "crankleads" : "empirevu")}/import/${token}`;
 }
 
 /** The company's link, made (or refreshed: 14 more days; a new token if it had expired). */

@@ -21,6 +21,7 @@
  * Idempotent: quote_follow_ups (unique quote_id) is the claim — nudges_sent moves n → n+1 with
  * a conditional update before the text is sent, so overlapping workers send each nudge once.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { quoteLinkForCompanyId } from "@/server/services/quotes/public-url";
 import { effectiveState, findConversation } from "@/server/services/sms-agent/conversation";
@@ -192,7 +193,7 @@ async function companyContext(admin: AdminClient, deps: EstimatorDeps, companyId
   const c = company as { id: string; organization_id: string; timezone: string | null; ai_settings: unknown } | null;
   if (!c) return null;
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", c.organization_id).maybeSingle();
-  const settings = readEstimatorSettings(c.ai_settings, { crankleads: (org as { platform_brand: string | null } | null)?.platform_brand === "crankleads" });
+  const settings = readEstimatorSettings(c.ai_settings, { crankleads: isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand) });
   if (!followUpsActive(settings)) return null;
   const { data: workflows } = await db
     .from("workflows")

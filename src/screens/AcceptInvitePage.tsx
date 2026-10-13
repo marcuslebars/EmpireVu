@@ -4,8 +4,7 @@ import { Loader2, CheckCircle2, AlertTriangle, Building2, LogIn } from "lucide-r
 
 import { useAuth } from "@/lib/auth-context";
 import { useInvitationPreview, useAcceptInvitation } from "@/lib/api-hooks";
-
-const ORG_STORAGE_KEY = "empirevu_org_id";
+import { ORG_ID_KEY, writeKey } from "@/lib/storage-keys";
 
 const roleLabel: Record<string, string> = {
   owner: "an owner",
@@ -30,11 +29,8 @@ export default function AcceptInvitePage() {
   const handleAccept = () => {
     accept.mutate(token, {
       onSuccess: (res) => {
-        try {
-          localStorage.setItem(ORG_STORAGE_KEY, res.organizationId);
-        } catch {
-          /* storage unavailable — the app will still resolve the org from the session */
-        }
+        // Storage unavailable is fine: the app will still resolve the org from the session.
+        writeKey(ORG_ID_KEY, res.organizationId);
         // Full reload so the app re-bootstraps with the freshly-created membership.
         window.location.href = "/";
       },

@@ -4789,6 +4789,14 @@ export interface Database {
         };
         Returns: string;
       };
+      note_legacy_usage: {
+        Args: {
+          p_kind: string;
+          p_key: string;
+          p_sample?: string | null;
+        };
+        Returns: undefined;
+      };
       next_invoice_number: {
         Args: {
           p_company_id: string;

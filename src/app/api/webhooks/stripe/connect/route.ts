@@ -10,7 +10,8 @@
  * connected accounts"; its signing secret is STRIPE_CONNECT_WEBHOOK_SECRET,
  * distinct from the platform-own endpoint's secret.
  *
- * Verification happens against that one secret BEFORE any payload field is read.
+ * Verification happens against that secret (then the optional STRIPE_CONNECT_WEBHOOK_SECRET_2,
+ * billing/webhook-secrets.ts) BEFORE any payload field is read.
  * `event.account` is then trusted only because the signature already proved
  * Stripe sent it.
  */
@@ -24,6 +25,7 @@ import {
   handleInvoicePaymentIntentFailed,
   type WebhookOutcome,
 } from "@/server/services/invoices/public";
+import { constructStripeEvent, secondaryWebhookSecret } from "@/server/services/billing/webhook-secrets";
 import { handleDepositCheckoutCompleted } from "@/server/services/quotes/checkout";
 import { getQuotesConfig } from "@/server/services/quotes/config";
 import { getPlatformStripe } from "@/server/services/quotes/company-stripe";
@@ -54,7 +56,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   let event: Stripe.Event;
   try {
-    event = getPlatformStripe().webhooks.constructEvent(payload, signature, secret);
+    event = constructStripeEvent(getPlatformStripe().webhooks, payload, signature, secret, secondaryWebhookSecret("STRIPE_CONNECT_WEBHOOK_SECRET"));
   } catch (err) {
     // Never log the payload or signature — a failed verification is exactly when
     // the body may be hostile.

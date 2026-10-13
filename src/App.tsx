@@ -63,6 +63,7 @@ import { Loader2, AlertTriangle, Bug, ChevronDown, ChevronRight } from "lucide-r
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ORG_ID_KEY, readKey } from "@/lib/storage-keys";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -82,7 +83,6 @@ function LoadingScreen({ message = "Loading…" }: { message?: string }) {
   );
 }
 
-const ORG_STORAGE_KEY = "empirevu_org_id";
 
 function getEffectiveOrgId(session: { activeOrganizationId: string | null; organizations: Array<{ id: string }> } | null): string {
   if (!session) return "";
@@ -102,7 +102,7 @@ function BootstrapDiagnostics({
 }) {
   const [expanded, setExpanded] = useState(false);
   const effectiveOrgId = getEffectiveOrgId(session);
-  const storedOrgId = typeof window !== "undefined" ? localStorage.getItem(ORG_STORAGE_KEY) : null;
+  const storedOrgId = readKey(ORG_ID_KEY);
 
   const canProceedToApp = authStatus === "authenticated" && effectiveOrgId !== "";
 
@@ -234,7 +234,7 @@ function AppBootstrapInner({ children }: { children?: React.ReactNode }) {
     hasSession: Boolean(session),
     activeOrgId: session?.activeOrganizationId,
     orgCount: session?.organizations?.length,
-    storedOrgId: typeof window !== "undefined" ? localStorage.getItem(ORG_STORAGE_KEY) : null,
+    storedOrgId: readKey(ORG_ID_KEY),
     sessionData: session ? {
       hasOrgId: Boolean(session.activeOrganizationId),
       orgCount: session.organizations?.length ?? 0,
@@ -344,6 +344,8 @@ function AppRoutes() {
       <Route path="/invite/:token" element={<AcceptInvitePage />} />
       {/* CrankLeads purchase landing (Stripe success_url). Public: the Checkout Session id is the credential. */}
       <Route path="/welcome/crankleads" element={<CrankleadsWelcomePage />} />
+      {/* Everdoer rebrand alias of the same page (the old route stays; old-host use is counted server-side). */}
+      <Route path="/welcome/everdoer" element={<CrankleadsWelcomePage />} />
       {/* Done-for-you quick setup (texted after purchase). Public: the token is the credential. */}
       <Route path="/setup/:token" element={<SetupIntakePage />} />
       {/* Customer import from the texted link (docs/ai-staff.md → "Customer import"). No login. */}

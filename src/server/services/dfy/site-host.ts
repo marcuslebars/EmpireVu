@@ -6,8 +6,16 @@
  * (the public lead-form API, Next internals, static files) passes through untouched. Any other
  * path on the pages host gets the neutral not-found page, never the app.
  *
- * Imported by src/middleware.ts (edge runtime) — keep this file free of Node APIs and imports.
+ * PAGES_LEGACY_HOSTS (comma list of hosts or origins) names earlier pages hosts that keep
+ * serving the same way after PAGES_BASE_URL moves (e.g. pages.crankleads.com → pages.everdoer.com),
+ * so links already sent never break. The platform's own app/API hosts are never treated as a
+ * pages host, even if listed by mistake.
+ *
+ * Imported by src/middleware.ts (edge runtime) — keep this file free of Node APIs; it imports
+ * only the pure host list in rebrand/platform-hosts.ts.
  */
+
+import { isNewPlatformHost, isOldPlatformHost } from "@/server/services/rebrand/platform-hosts";
 
 /** Lower-cased host (with port) of PAGES_BASE_URL, or null when unset/invalid. */
 export function pagesHostOf(pagesBaseUrl: string | null | undefined): string | null {
@@ -18,6 +26,39 @@ export function pagesHostOf(pagesBaseUrl: string | null | undefined): string | n
   } catch {
     return null;
   }
+}
+
+/** Lower-cased hosts (with port) listed in PAGES_LEGACY_HOSTS ("host" or "https://host"). PURE. */
+export function pagesLegacyHostsOf(legacyHosts: string | null | undefined): string[] {
+  return (legacyHosts ?? "")
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean)
+    .map((entry) => {
+      if (!entry.includes("://")) return entry.replace(/\/+$/, "");
+      try {
+        return new URL(entry).host.toLowerCase();
+      } catch {
+        return "";
+      }
+    })
+    .filter((host) => host && !isOldPlatformHost(host) && !isNewPlatformHost(host));
+}
+
+/**
+ * Is `host` one of PAGES_LEGACY_HOSTS (and not the current PAGES_BASE_URL host)? The middleware
+ * counts those requests as legacy host use. PURE.
+ */
+export function isLegacyPagesHost(
+  host: string | null,
+  pagesBaseUrl: string | null | undefined,
+  legacyHosts: string | null | undefined,
+): boolean {
+  if (!host) return false;
+  const h = host.toLowerCase();
+  if (h === pagesHostOf(pagesBaseUrl)) return false;
+  // Rebrand shim (remove in PR 8 once legacy_usage shows no host/<pages legacy host> for 30 days)
+  return pagesLegacyHostsOf(legacyHosts).includes(h);
 }
 
 /**
@@ -44,10 +85,19 @@ const PASSTHROUGH = [/^\/api\/public\/forms\//, /^\/_next\//, /^\/favicon\.ico$/
  *   pages host + "/acme-snow/plans" (+ "/<plan id>" | "/renew/<token>") → "/s/acme-snow/plans…" (Service plans)
  *   pages host + "/a/b"        → "/s/_"
  *   any other host             → null
+ * A host in PAGES_LEGACY_HOSTS is served exactly like the PAGES_BASE_URL host.
  */
-export function pagesRewritePath(host: string | null, pathname: string, pagesBaseUrl: string | null | undefined): string | null {
+export function pagesRewritePath(
+  host: string | null,
+  pathname: string,
+  pagesBaseUrl: string | null | undefined,
+  legacyHosts?: string | null,
+): string | null {
+  if (!host) return null;
+  const h = host.toLowerCase();
   const pagesHost = pagesHostOf(pagesBaseUrl);
-  if (!pagesHost || !host || host.toLowerCase() !== pagesHost) return null;
+  const onPagesHost = (pagesHost !== null && h === pagesHost) || isLegacyPagesHost(h, pagesBaseUrl, legacyHosts);
+  if (!onPagesHost) return null;
   if (PASSTHROUGH.some((re) => re.test(pathname))) return null;
   const m = pathname.match(/^\/([a-z0-9-]{1,62})\/?$/);
   if (m) return `/s/${m[1]}`;

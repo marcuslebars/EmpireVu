@@ -19,6 +19,7 @@ import {
   type AdminClient,
   type CrankleadsPurchase,
 } from "@/server/services/crankleads/purchases";
+import { isDoneForYouStripeSource } from "@/server/services/crankleads/stripe-source";
 
 export interface ProvisionJobArgs {
   sessionId: string | null;
@@ -83,7 +84,7 @@ export async function runCrankleadsProvisionJob(
   if (!purchase || purchase.status === "checkout_created") {
     const stripe = options.stripe ?? getStripeClient();
     const session = await stripe.checkout.sessions.retrieve(args.sessionId);
-    if (session.metadata?.source !== "crankleads") {
+    if (!isDoneForYouStripeSource(session.metadata?.source)) {
       return { outcome: "not_found", organizationId: null, detail: "not a CrankLeads Checkout Session" };
     }
     if (!isProvisionablePaymentStatus(session.payment_status)) {

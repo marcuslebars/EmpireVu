@@ -5,6 +5,7 @@
  * (`ownerAlertGate`: past it, one "lots going on" summary, then dropped — it's all in the app).
  * A forwarding confirmation goes any time: the owner is setting forwarding up right then.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import { appBaseUrlFor } from "@/server/services/platform-brand";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { isQuietHours, OWNER_ALERTS_SUMMARY, ownerAlertGate, sendOwnerSms } from "@/server/services/owner-channel/common";
@@ -14,11 +15,11 @@ import type { EmailClerkCompany } from "./settings";
 import { localDateOf } from "./time";
 
 export function inboxLink(company: Pick<EmailClerkCompany, "platformBrand">): string {
-  return `${appBaseUrlFor(company.platformBrand === "crankleads" ? "crankleads" : "empirevu")}/inbox`;
+  return `${appBaseUrlFor(isDoneForYou(company.platformBrand) ? "crankleads" : "empirevu")}/inbox`;
 }
 
 export function fullDraftLink(company: Pick<EmailClerkCompany, "platformBrand">, inboundEmailId: string): string {
-  return `${appBaseUrlFor(company.platformBrand === "crankleads" ? "crankleads" : "empirevu")}/settings?section=front-desk&email=${inboundEmailId}`;
+  return `${appBaseUrlFor(isDoneForYou(company.platformBrand) ? "crankleads" : "empirevu")}/settings?section=front-desk&email=${inboundEmailId}`;
 }
 
 /** Send one owner text now, if the hour and the budget allow. */

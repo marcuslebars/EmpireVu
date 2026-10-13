@@ -5,6 +5,7 @@
  * an apply form) and texts the owner copy to paste into Indeed or Facebook. close_job takes it
  * down. One job post waits on the owner at a time: a new start_hiring withdraws the old draft.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } from "@/server/services/front-desk/contracts";
 import { prettyPhone } from "@/server/services/front-desk/approval-text";
 import { sendOwnerSms } from "@/server/services/owner-channel/common";
@@ -72,7 +73,7 @@ export async function publishedSiteSlug(admin: AdminClient, scope: { organizatio
 }
 
 export function jobUrl(slug: string, jobId: string, brand: string | null): string {
-  return `${siteUrl(slug, brand === "crankleads" ? "crankleads" : "empirevu")}/jobs/${jobId}`;
+  return `${siteUrl(slug, isDoneForYou(brand) ? "crankleads" : "empirevu")}/jobs/${jobId}`;
 }
 
 export async function jobUrlFor(admin: AdminClient, company: RecruiterCompany, jobId: string): Promise<string | null> {

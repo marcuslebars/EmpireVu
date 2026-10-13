@@ -158,6 +158,14 @@ describe("POST /api/public/crankleads/checkout", () => {
     expect(options).toEqual({ idempotencyKey: `crankleads-checkout-${row.id}` });
   });
 
+  it("lands on /welcome/everdoer and writes source everdoer once EVERDOER_WRITE_NEW_NAMES is on", async () => {
+    vi.stubEnv("EVERDOER_WRITE_NEW_NAMES", "1");
+    await POST(post(validBody));
+    const params = sessionsCreate.mock.calls[0][0];
+    expect(params.success_url).toBe("https://app.crankleads.test/welcome/everdoer?session_id={CHECKOUT_SESSION_ID}");
+    expect(params.metadata.source).toBe("everdoer");
+  });
+
   it("brands the payment page as CrankLeads, overridable by env (bad values fall back)", async () => {
     vi.stubEnv("CRANKLEADS_CHECKOUT_DISPLAY_NAME", "CrankLeads Ontario");
     vi.stubEnv("CRANKLEADS_CHECKOUT_LOGO_URL", "https://cdn.example/cl.png");

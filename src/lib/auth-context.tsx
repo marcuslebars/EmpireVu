@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase, getSupabaseConfigDiagnostic } from "@/lib/supabase";
 import { isPublicPath, takePostAuthPath } from "@/lib/public-routes";
+import { clearAppLocalStorage, ORG_ID_KEY, writeKey } from "@/lib/storage-keys";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
@@ -56,26 +57,9 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const ORG_STORAGE_KEY = "empirevu_org_id";
-const COMPANY_STORAGE_KEY = "empirevu_company_id";
-
-function getAllEmpireVuStorageKeys(): string[] {
-  if (typeof window === "undefined") return [];
-  const keys: string[] = [ORG_STORAGE_KEY, COMPANY_STORAGE_KEY];
-  keys.push("empirevu.activeOrganizationId");
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && key.startsWith("empirevu.activeCompanyId.")) {
-      keys.push(key);
-    }
-  }
-  return keys;
-}
-
+/** Sign-out: every app-owned localStorage key, new (everdoer_*) and old (empirevu_*). */
 function clearAllAppStorage(): void {
-  if (typeof window === "undefined") return;
-  const keys = getAllEmpireVuStorageKeys();
-  keys.forEach((key) => localStorage.removeItem(key));
+  clearAppLocalStorage();
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -97,9 +81,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (typeof window === "undefined") return;
 
     if (context.activeOrganizationId) {
-      localStorage.setItem(ORG_STORAGE_KEY, context.activeOrganizationId);
+      writeKey(ORG_ID_KEY, context.activeOrganizationId);
     } else if (context.organizations.length > 0) {
-      localStorage.setItem(ORG_STORAGE_KEY, context.organizations[0].id);
+      writeKey(ORG_ID_KEY, context.organizations[0].id);
     }
   }, []);
 

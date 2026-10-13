@@ -10,7 +10,7 @@
  * setup is reproducible instead of hand-clicked. Pure except ensureMessageAgent.
  */
 import type { RetellClient } from "@/server/services/retell/provision";
-import { RETELL_FUNCTION_SECRET_HEADER } from "@/server/services/retell/auth";
+import { retellFunctionSecretHeaderForWrite } from "@/server/services/retell/auth";
 
 export const MESSAGE_AGENT_NAME = "AI front desk — message taking";
 
@@ -106,7 +106,7 @@ export function buildMessageAgentConfig(input: MessageAgentConfigInput): { llm: 
             "Alert the business owner RIGHT NOW about an emergency or urgent job while the caller is still on the line. Call it once, as soon as you know it's urgent.",
           url: `${base}/api/retell/functions/urgent-alert`,
           method: "POST",
-          headers: { [RETELL_FUNCTION_SECRET_HEADER]: input.functionSecret },
+          headers: { [retellFunctionSecretHeaderForWrite()]: input.functionSecret },
           speak_during_execution: true,
           execution_message_description: "Tell the caller you're alerting the team right now.",
           speak_after_execution: true,

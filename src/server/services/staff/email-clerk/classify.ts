@@ -28,6 +28,8 @@ export interface EmailFacts {
 export interface ClassifyContext {
   inboxAddress: string;
   inboundDomain: string | null;
+  /** Every inbound domain we receive on (INBOUND_EMAIL_DOMAINS); `inboundDomain` is the primary. */
+  inboundDomains?: readonly string[];
   /** The address our outbound mail is sent from (OUTBOUND_FROM_EMAIL), to catch loops. */
   outboundFrom: string | null;
   ownerEmail: string | null;
@@ -166,7 +168,8 @@ export function classifyByRules(f: EmailFacts, ctx: ClassifyContext): Classifica
   if (isSpamFlagged(f)) return done({ category: "spam", detail: { reason: "flagged as spam" } });
   // Our own mail looping back (a reply we sent, bounced through someone's forwarding).
   const outbound = normalizeAddress(ctx.outboundFrom);
-  if (from && (from === ctx.inboxAddress || (ctx.inboundDomain && from.endsWith(`@${ctx.inboundDomain}`)) || (outbound && from === outbound))) {
+  const ourDomains = [...(ctx.inboundDomains ?? []), ...(ctx.inboundDomain ? [ctx.inboundDomain] : [])];
+  if (from && (from === ctx.inboxAddress || ourDomains.some((d) => from.endsWith(`@${d}`)) || (outbound && from === outbound))) {
     return done({ category: "no_reply", detail: { reason: "our own mail" } });
   }
   if (from && ctx.ownerEmail && from === normalizeAddress(ctx.ownerEmail)) return done({ category: "other", detail: { reason: "from you" } });

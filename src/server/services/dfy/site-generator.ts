@@ -7,6 +7,7 @@
 // Each write is filtered by company_id (and organization_id where we have it).
 // docs/done-for-you.md → "Generated sites".
 // ─────────────────────────────────────────────────────────────────────────────
+import { isDoneForYou } from "@/lib/product-line";
 import type { Json, Tables } from "@/server/db/database.types";
 import { writeSiteCopy as defaultWriteSiteCopy, type SiteCopyResult } from "@/server/ai/site-copy";
 import { isAIConfigured } from "@/server/ai/claude";
@@ -357,7 +358,7 @@ async function activeCrankleadsOrgs(admin: AdminClient, orgIds: string[]): Promi
   if (error) throw new Error(`org read failed: ${error.message}`);
   return new Set(
     ((data ?? []) as Array<{ id: string; subscription_status: string | null; platform_brand: string | null }>)
-      .filter((o) => o.platform_brand === "crankleads" && o.subscription_status !== "canceled")
+      .filter((o) => isDoneForYou(o.platform_brand) && o.subscription_status !== "canceled")
       .map((o) => o.id),
   );
 }

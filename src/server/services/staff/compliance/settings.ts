@@ -11,6 +11,7 @@
  * `enabled` defaults ON for CrankLeads orgs (passive until a document exists) and OFF for house
  * orgs (A1 etc.). `reminders` and `sharing` default on and only matter while `enabled`.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db } from "./db-types";
 
@@ -99,7 +100,7 @@ function toCompany(row: CompanyRow, platformBrand: string | null): ComplianceCom
     ownerEmail: row.owner_email?.trim() || null,
     platformBrand,
     active: !row.stage || !["paused", "archived"].includes(row.stage),
-    settings: readComplianceSettings(row.ai_settings, { crankleads: platformBrand === "crankleads" }),
+    settings: readComplianceSettings(row.ai_settings, { crankleads: isDoneForYou(platformBrand) }),
     aiSettings: row.ai_settings,
   };
 }
