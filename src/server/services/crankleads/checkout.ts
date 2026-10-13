@@ -13,7 +13,6 @@ import { z } from "zod";
 import { appBaseUrlFor } from "@/server/services/platform-brand";
 import { getStripeClient } from "@/server/services/billing/stripe";
 import {
-  CRANKLEADS_SOURCE,
   CRANKLEADS_TIER_PLAN,
   CRANKLEADS_TIERS,
   crankleadsAutomaticTax,
@@ -23,6 +22,7 @@ import {
   crankleadsMonthlyPriceId,
   crankleadsSetupPriceId,
 } from "@/server/services/crankleads/config";
+import { stripeSourceForWrite } from "@/server/services/crankleads/stripe-source";
 import {
   findPurchaseBySession,
   insertPurchase,
@@ -123,7 +123,8 @@ export function buildCrankleadsSessionParams(
   }
 
   const metadata: Record<string, string> = {
-    source: CRANKLEADS_SOURCE,
+    // "crankleads" until EVERDOER_WRITE_NEW_NAMES is on, then "everdoer" (readers accept both).
+    source: stripeSourceForWrite(),
     purchaseId: purchase.id,
     tier: input.tier,
     plan: CRANKLEADS_TIER_PLAN[input.tier],

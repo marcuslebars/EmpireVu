@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { recordBillingEvent } from "@/server/services/billing/events";
 import { getStripeClient } from "@/server/services/billing/stripe";
+import { constructStripeEvent, secondaryWebhookSecret } from "@/server/services/billing/webhook-secrets";
 import { enforceWebhookBackstop } from "@/server/services/rate-limit";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
@@ -36,13 +37,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Missing Stripe signature." }, { status: 400 });
   }
 
-  // Verify over the exact bytes. A bad signature is rejected before any write.
+  // Verify over the exact bytes. A bad signature is rejected before any write. The optional
+  // STRIPE_WEBHOOK_SECRET_2 is tried only after the primary fails (webhook-secrets.ts).
   let event;
   try {
-    event = getStripeClient().webhooks.constructEvent(
+    event = constructStripeEvent(
+      getStripeClient().webhooks,
       rawBody,
       signature,
       process.env.STRIPE_WEBHOOK_SECRET,
+      secondaryWebhookSecret("STRIPE_WEBHOOK_SECRET"),
     );
   } catch (err) {
     console.error(
