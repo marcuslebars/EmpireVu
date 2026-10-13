@@ -2,12 +2,22 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 import { corsHeadersFor } from "@/server/api/cors";
-import { pagesRewritePath, requestHost } from "@/server/services/dfy/site-host";
+import { isLegacyPagesHost, pagesRewritePath, requestHost } from "@/server/services/dfy/site-host";
+import {
+  isApiLikePath,
+  isLegacyApiHost,
+  isLegacyAppHost,
+  isNextInternalOrAsset,
+  LEGACY_API_HOST,
+  legacyHostRedirect,
+  legacyPathSample,
+} from "@/server/services/rebrand/legacy-hosts";
+import { noteLegacyUsage } from "@/server/services/rebrand/legacy-usage";
 
 /**
  * Session-refresh middleware, plus CORS for the native mobile app.
  *
- * It keeps the Supabase auth cookie fresh and does NOT redirect. Route protection is
+ * It keeps the Supabase auth cookie fresh and does NOT redirect for auth. Route protection is
  * enforced server-side by each API route (`requireOrganizationContext` -> 401/403,
  * `getAuthenticatedUser` -> 401) and, for UX only, by the SPA's client-side
  * `ProtectedRoute`. The client guard is cosmetic — the real boundary is the API layer,
@@ -17,14 +27,41 @@ import { pagesRewritePath, requestHost } from "@/server/services/dfy/site-host";
  * every API route — including the public HMAC lead-intake webhook (Phase 2) — is never
  * subjected to session auth here; those routes authenticate themselves (org membership,
  * a Bearer token from the mobile app, or the shared intake secret).
+ *
+ * Everdoer rebrand: requests on the old platform hosts are counted (legacy_usage), and page
+ * views on the old APP hosts 301 to EVERDOER_APP_BASE_URL once EVERDOER_REDIRECT_LEGACY_HOSTS=1
+ * is also set (dormant by default; see src/server/services/rebrand/legacy-hosts.ts for what
+ * never redirects). That is the only redirect this middleware issues.
  */
 export async function middleware(request: NextRequest) {
-  // Generated sites on the pages host (PAGES_BASE_URL): /<slug> → the /s/<slug> route.
-  // Checked first so nothing else on that host (app, API) is reachable except the lead form.
-  const sitePath = pagesRewritePath(requestHost(request.headers), request.nextUrl.pathname, process.env.PAGES_BASE_URL);
+  const host = requestHost(request.headers);
+  const { pathname, search } = request.nextUrl;
+
+  // Generated sites on the pages host (PAGES_BASE_URL, plus any PAGES_LEGACY_HOSTS): /<slug> →
+  // the /s/<slug> route. Checked first so nothing else on that host (app, API) is reachable
+  // except the lead form.
+  const sitePath = pagesRewritePath(host, pathname, process.env.PAGES_BASE_URL, process.env.PAGES_LEGACY_HOSTS);
   if (sitePath) {
+    if (isLegacyPagesHost(host, process.env.PAGES_BASE_URL, process.env.PAGES_LEGACY_HOSTS)) {
+      // Rebrand shim (remove in PR 8 once legacy_usage shows no host/<pages legacy host> for 30 days)
+      noteLegacyUsage("host", host ?? "", legacyPathSample(pathname));
+    }
     return NextResponse.rewrite(new URL(sitePath, request.url));
   }
+
+  // Rebrand shim (remove in PR 8 once legacy_usage shows no host/<old host> for 30 days)
+  noteLegacyHostUse(host, pathname);
+  const legacyTarget = legacyHostRedirect(
+    { host, method: request.method, pathname, search, searchParams: request.nextUrl.searchParams },
+    {
+      EVERDOER_REDIRECT_LEGACY_HOSTS: process.env.EVERDOER_REDIRECT_LEGACY_HOSTS,
+      EVERDOER_APP_BASE_URL: process.env.EVERDOER_APP_BASE_URL,
+    },
+  );
+  if (legacyTarget) {
+    return NextResponse.redirect(legacyTarget, 301);
+  }
+
   if (request.nextUrl.pathname.startsWith("/api/")) {
     return withApiCors(request);
   }
@@ -72,6 +109,28 @@ export async function middleware(request: NextRequest) {
   }
 
   return response;
+}
+
+/**
+ * Count use of the old platform hosts, whether or not the redirect is on (we want the evidence
+ * before switching it on). Batched in memory by noteLegacyUsage, so this costs no I/O per request.
+ *   api.empirevu.com, any path          → host "api.empirevu.com" (sample: the path, ids masked)
+ *   old app host, /api|/embed|/f paths  → host "<host>/api"
+ *   old app host, page                  → host "<host>" (sample: the path, ids masked)
+ */
+function noteLegacyHostUse(host: string | null, pathname: string): void {
+  if (!host) return;
+  if (isLegacyApiHost(host)) {
+    noteLegacyUsage("host", LEGACY_API_HOST, legacyPathSample(pathname));
+    return;
+  }
+  if (!isLegacyAppHost(host)) return;
+  const bare = host.replace(/:\d+$/, "");
+  if (isApiLikePath(pathname)) {
+    noteLegacyUsage("host", `${bare}/api`, null);
+  } else if (!isNextInternalOrAsset(pathname)) {
+    noteLegacyUsage("host", bare, legacyPathSample(pathname));
+  }
 }
 
 function withApiCors(request: NextRequest): NextResponse {
