@@ -1,7 +1,8 @@
 /**
- * BrandProvider (docs/crankleads-branding.md): signed out, the hostname picks the brand;
- * signed in, the active org's platform_brand does. A CrankLeads org's sidebar and sign-in
- * page show CrankLeads (logo, favicon, theme) and never "EmpireVu".
+ * BrandProvider, Everdoer rebrand PR 2: every host and every org shows Everdoer (logo, favicon,
+ * title; one theme, no data-brand) and never "EmpireVu" or "CrankLeads". The product line still
+ * follows the host (signed out) or the active org (signed in), and product-line copy
+ * (receptionistCopy) still differs.
  */
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -29,15 +30,24 @@ vi.mock("@/lib/supabase", () => ({ getSupabaseConfigDiagnostic: () => ({ isConfi
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { BrandProvider, useBrand } from "@/lib/brand-context";
 import SignInPage from "@/screens/SignInPage";
-import { PLATFORM_BRANDS } from "@/lib/platform-brand";
+import { EVERDOER_BRAND, receptionistCopy } from "@/lib/platform-brand";
 
 function withHost(hostname: string) {
   vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, hostname } as Location);
 }
 
 function Probe() {
-  return <span data-testid="brand-name">{useBrand().name}</span>;
+  const brand = useBrand();
+  return (
+    <>
+      <span data-testid="brand-name">{brand.name}</span>
+      <span data-testid="product-line">{brand.productLine}</span>
+      <span data-testid="receptionist">{receptionistCopy("Call with Marina", brand)}</span>
+    </>
+  );
 }
+
+const OLD_NAMES = /empire\s*vu|crank\s*leads/i;
 
 function renderApp(ui: React.ReactNode, path = "/") {
   return render(
@@ -68,30 +78,30 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("signed out: brand from the hostname", () => {
-  it("app.crankleads.com → CrankLeads sign-in (logo, title, favicon, theme)", () => {
-    withHost("app.crankleads.com");
+describe("signed out: Everdoer on every host", () => {
+  it.each([
+    ["app.crankleads.com", "done_for_you"],
+    ["app.everdoer.com", "done_for_you"],
+    ["app.empirevu.com", "standard"],
+    ["localhost", "standard"],
+  ])("%s → Everdoer sign-in (logo, title, favicon); product line %s", (host, line) => {
+    withHost(host);
     renderApp(<SignInPage />, "/signin");
-    const logo = screen.getByRole("img", { name: "CrankLeads" });
-    expect(logo).toHaveAttribute("src", PLATFORM_BRANDS.crankleads.logoSrc);
-    expect(document.title).toBe("CrankLeads");
-    expect(iconHrefs().every((h) => h.startsWith("/brand/crankleads-favicon"))).toBe(true);
-    expect(document.documentElement.getAttribute("data-brand")).toBe("crankleads");
-    expect(document.body.textContent ?? "").not.toMatch(/EmpireVu/);
-  });
-
-  it("any other host → EmpireVu sign-in (unchanged)", () => {
-    withHost("app.empirevu.com");
-    renderApp(<SignInPage />, "/signin");
-    expect(screen.getByRole("img", { name: "EmpireVu" })).toHaveAttribute("src", "/empirevu-logo.png");
-    expect(document.title).toBe("EmpireVu");
-    expect(iconHrefs()[0]).toBe("/empirevu-favicon.svg");
+    const logo = screen.getByRole("img", { name: "Everdoer" });
+    expect(logo).toHaveAttribute("src", "/brand/everdoer/everdoer-logo-on-dark.svg");
+    expect(logo).toHaveAttribute("width", String(EVERDOER_BRAND.logoWidth));
+    expect(logo).toHaveAttribute("height", String(EVERDOER_BRAND.logoHeight));
+    expect(document.title).toBe("Everdoer");
+    expect(iconHrefs().every((h) => h === "/favicon.svg")).toBe(true);
+    expect(document.head.querySelector('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/apple-touch-icon.png");
     expect(document.documentElement.hasAttribute("data-brand")).toBe(false);
+    expect(screen.getByTestId("product-line")).toHaveTextContent(line);
+    expect(document.body.textContent ?? "").not.toMatch(OLD_NAMES);
   });
 });
 
-describe("signed in: brand from the active org", () => {
-  it("a CrankLeads org's sidebar shows CrankLeads — even on the EmpireVu host", () => {
+describe("signed in: Everdoer for every org; the product line follows the active org", () => {
+  it("a done-for-you org: Everdoer sidebar, AI receptionist copy — on any host", () => {
     withHost("app.empirevu.com");
     auth.status = "authenticated";
     auth.session = {
@@ -99,15 +109,16 @@ describe("signed in: brand from the active org", () => {
       organizations: [{ id: "org-cl", name: "Jane's Roofing", slug: "jr", membershipRole: "owner", platformBrand: "crankleads" }],
     };
     renderApp(<AppSidebar />);
-    expect(screen.getByTestId("brand-name")).toHaveTextContent("CrankLeads");
-    const logos = screen.getAllByRole("img", { name: "CrankLeads" });
-    expect(logos.length).toBeGreaterThan(0);
-    expect(screen.queryAllByRole("img", { name: "EmpireVu" })).toHaveLength(0);
-    expect(document.title).toBe("CrankLeads");
-    expect(document.documentElement.getAttribute("data-brand")).toBe("crankleads");
+    expect(screen.getByTestId("brand-name")).toHaveTextContent("Everdoer");
+    expect(screen.getAllByRole("img", { name: "Everdoer" }).length).toBeGreaterThan(0);
+    expect(screen.getByTestId("product-line")).toHaveTextContent("done_for_you");
+    expect(screen.getByTestId("receptionist")).toHaveTextContent("Call with the AI receptionist");
+    expect(document.title).toBe("Everdoer");
+    expect(document.documentElement.hasAttribute("data-brand")).toBe(false);
+    expect(document.body.textContent ?? "").not.toMatch(OLD_NAMES);
   });
 
-  it("a house org stays EmpireVu, even on the CrankLeads host", () => {
+  it("a house org (A1 etc.): Everdoer sidebar, still Marina — even on the done-for-you host", () => {
     withHost("app.crankleads.com");
     auth.status = "authenticated";
     auth.session = {
@@ -115,8 +126,21 @@ describe("signed in: brand from the active org", () => {
       organizations: [{ id: "org-a1", name: "A1 Marine", slug: "a1", membershipRole: "owner", platformBrand: "empirevu" }],
     };
     renderApp(<AppSidebar />);
-    expect(screen.getByTestId("brand-name")).toHaveTextContent("EmpireVu");
+    expect(screen.getByTestId("brand-name")).toHaveTextContent("Everdoer");
+    expect(screen.getByTestId("product-line")).toHaveTextContent("standard");
+    expect(screen.getByTestId("receptionist")).toHaveTextContent("Call with Marina");
     expect(document.documentElement.hasAttribute("data-brand")).toBe(false);
+    expect(document.body.textContent ?? "").not.toMatch(OLD_NAMES);
+  });
+
+  it("a Phase 3 platform_brand value is understood", () => {
+    auth.status = "authenticated";
+    auth.session = {
+      activeOrganizationId: "org-x",
+      organizations: [{ id: "org-x", name: "X", slug: "x", membershipRole: "owner", platformBrand: "done_for_you" }],
+    };
+    renderApp(<div />);
+    expect(screen.getByTestId("product-line")).toHaveTextContent("done_for_you");
   });
 });
 
@@ -125,7 +149,7 @@ describe("customer-facing pages", () => {
     withHost("app.crankleads.com");
     renderApp(<div>form</div>, "/f/evpk_x");
     expect(iconHrefs().every((h) => h === "/brand/neutral-favicon.svg")).toBe(true);
-    expect(document.title).not.toMatch(/EmpireVu|CrankLeads/);
+    expect(document.title).not.toMatch(/Everdoer|EmpireVu|CrankLeads/);
     expect(document.documentElement.hasAttribute("data-brand")).toBe(false);
   });
 });

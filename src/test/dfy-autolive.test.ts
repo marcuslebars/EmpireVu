@@ -690,7 +690,7 @@ describe("one-tap forwarding page", () => {
     const view = await pollForwardPage(db.client, TOKEN);
     expect(view).toMatchObject({
       businessName: "Jane's Roofing",
-      brandName: "CrankLeads",
+      brandName: "Everdoer",
       phonePath: "missed_call_catcher",
       status: "ready",
       businessLinePretty: "(416) 555-0101",

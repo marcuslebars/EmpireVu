@@ -141,10 +141,10 @@ describe("POST /api/public/crankleads/checkout", () => {
       automatic_tax: { enabled: false },
       managed_payments: { enabled: false },
       branding_settings: {
-        display_name: "CrankLeads",
-        logo: { type: "url", url: "https://crankleads.com/brand/crankleads-logo.png" },
-        background_color: "#0c0f13",
-        button_color: "#a6ee2b",
+        display_name: "Everdoer",
+        logo: { type: "url", url: "https://app.crankleads.test/brand/everdoer/everdoer-logo-dark.png" },
+        background_color: "#0C0E12",
+        button_color: "#A6EE2B",
         font_family: "inter",
         border_style: "rounded",
       },
@@ -166,7 +166,7 @@ describe("POST /api/public/crankleads/checkout", () => {
     expect(params.metadata.source).toBe("everdoer");
   });
 
-  it("brands the payment page as CrankLeads, overridable by env (bad values fall back)", async () => {
+  it("brands the payment page as Everdoer, overridable by env (bad values fall back)", async () => {
     vi.stubEnv("CRANKLEADS_CHECKOUT_DISPLAY_NAME", "CrankLeads Ontario");
     vi.stubEnv("CRANKLEADS_CHECKOUT_LOGO_URL", "https://cdn.example/cl.png");
     vi.stubEnv("CRANKLEADS_CHECKOUT_BACKGROUND_COLOR", "#ffffff");
@@ -176,7 +176,7 @@ describe("POST /api/public/crankleads/checkout", () => {
       display_name: "CrankLeads Ontario",
       logo: { type: "url", url: "https://cdn.example/cl.png" },
       background_color: "#ffffff",
-      button_color: "#a6ee2b",
+      button_color: "#A6EE2B",
       font_family: "inter",
       border_style: "rounded",
     });
@@ -187,7 +187,7 @@ describe("POST /api/public/crankleads/checkout", () => {
     await POST(post(validBody));
     expect(sessionsCreate.mock.calls[0][0].branding_settings.logo).toEqual({
       type: "url",
-      url: "https://crankleads.com/brand/crankleads-logo.png",
+      url: "https://app.crankleads.test/brand/everdoer/everdoer-logo-dark.png",
     });
   });
 

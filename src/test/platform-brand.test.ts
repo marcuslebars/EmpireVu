@@ -3,6 +3,9 @@
  * resolution, the server's per-brand app origin, and the owner-facing copy that now follows
  * the org's brand.
  */
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { brandHelpArticle, HELP_ARTICLES } from "@/content/help/articles";
@@ -58,13 +61,41 @@ describe("brandForOrg", () => {
     expect(brandForOrg(undefined).key).toBe("empirevu");
   });
 
-  it("CrankLeads config uses CrankLeads assets only", () => {
-    const c = PLATFORM_BRANDS.crankleads;
-    expect(c.name).toBe("CrankLeads");
-    for (const v of [c.logoSrc, c.markSrc, c.faviconHref, c.faviconPngHref, c.appleTouchIconHref, c.supportEmail]) {
-      expect(v).not.toMatch(EMPIRE);
+  it("PR 2: both entries are the one Everdoer config; only key / productLine differ", () => {
+    for (const c of [PLATFORM_BRANDS.crankleads, PLATFORM_BRANDS.empirevu]) {
+      expect(c.name).toBe("Everdoer");
+      expect(c).toMatchObject({
+        logoSrc: "/brand/everdoer/everdoer-logo-on-dark.svg",
+        logoWidth: 892,
+        logoHeight: 265,
+        markSrc: "/brand/everdoer/everdoer-icon.svg",
+        faviconHref: "/favicon.svg",
+        faviconType: "image/svg+xml",
+        appleTouchIconHref: "/apple-touch-icon.png",
+        supportEmail: "hello@everdoer.com",
+        theme: { accentHex: "#A6EE2B", onAccentHex: "#0C0E12", backgroundHex: "#0C0E12" },
+      });
+      for (const v of [c.logoSrc, c.markSrc, c.faviconHref, c.faviconPngHref, c.appleTouchIconHref, c.supportEmail]) {
+        expect(v).not.toMatch(EMPIRE);
+        expect(v).not.toMatch(/crank\s*leads/i);
+      }
+      expect(withProductName("Set up {{product}} — {{product}}", c)).toBe("Set up Everdoer — Everdoer");
     }
-    expect(withProductName("Set up {{product}} — {{product}}", c)).toBe("Set up CrankLeads — CrankLeads");
+    expect(PLATFORM_BRANDS.crankleads.productLine).toBe("done_for_you");
+    expect(PLATFORM_BRANDS.empirevu.productLine).toBe("standard");
+    const { key: _a, productLine: _b, ...dfy } = PLATFORM_BRANDS.crankleads;
+    const { key: _c, productLine: _d, ...std } = PLATFORM_BRANDS.empirevu;
+    expect(dfy).toEqual(std);
+  });
+
+  it("the logo size matches the SVG's viewBox", () => {
+    const svg = readFileSync(resolve(__dirname, "../../public", PLATFORM_BRANDS.empirevu.logoSrc.slice(1)), "utf8");
+    const [, , w, h] = (svg.match(/viewBox="([^"]+)"/)?.[1] ?? "").split(/\s+/).map(Number);
+    expect(Math.round(w)).toBe(PLATFORM_BRANDS.empirevu.logoWidth);
+    expect(Math.round(h)).toBe(PLATFORM_BRANDS.empirevu.logoHeight);
+    for (const asset of ["logoSrc", "markSrc", "faviconHref", "faviconPngHref", "appleTouchIconHref"] as const) {
+      expect(existsSync(resolve(__dirname, "../../public", PLATFORM_BRANDS.empirevu[asset].slice(1))), asset).toBe(true);
+    }
   });
 });
 
@@ -105,7 +136,7 @@ describe("appBaseUrlFor", () => {
       servicesNeedingPrices: 0,
     });
     // The host printed is the link's real host — no dead app.crankleads.com.
-    expect(email.body).toContain("log in to CrankLeads at app.empirevu.test");
+    expect(email.body).toContain("log in to Everdoer at app.empirevu.test");
     expect(email.body).not.toContain("crankleads.com");
     // Until the domain is live the link host is the EmpireVu one; the product name never is.
     expect(`${email.subject}${email.body}`.split("app.empirevu.test").join("")).not.toMatch(EMPIRE);
@@ -121,11 +152,12 @@ describe("owner-facing copy follows the org's brand", () => {
     const url = invitationUrl("tok", cl);
     expect(url).toBe("https://app.crankleads.test/invite/tok");
     const mail = renderInvitationEmail({ brand: cl, role: "member", inviteUrl: url });
-    expect(mail.subject).toBe("You've been invited to join a team on CrankLeads");
-    expect(mail.fromName).toBe("CrankLeads");
+    expect(mail.subject).toBe("You've been invited to join a team on Everdoer");
+    expect(mail.fromName).toBe("Everdoer");
     expect(`${mail.subject}${mail.body}`).not.toMatch(EMPIRE);
+    expect(`${mail.subject}${mail.body}`.split("app.crankleads.test").join("")).not.toMatch(/crank\s*leads/i);
     expect(invitationUrl("tok")).toBe("https://app.empirevu.test/invite/tok");
-    expect(renderInvitationEmail({ brand: PLATFORM_BRANDS.empirevu, role: "admin", inviteUrl: "x" }).subject).toContain("EmpireVu");
+    expect(renderInvitationEmail({ brand: PLATFORM_BRANDS.empirevu, role: "admin", inviteUrl: "x" }).subject).toContain("Everdoer");
   });
 
   it("voicemail email", () => {
@@ -150,15 +182,15 @@ describe("owner-facing copy follows the org's brand", () => {
   it("monthly scorecard brand: per org, env override only for EmpireVu", () => {
     vi.stubEnv("PLATFORM_BRAND_NAME", "Acme Leads");
     expect(scorecardPlatformBrandName()).toBe("Acme Leads");
-    expect(scorecardPlatformBrandName(cl)).toBe("CrankLeads");
+    expect(scorecardPlatformBrandName(cl)).toBe("Everdoer");
   });
 
   it("help assistant: system prompt, canned reply, articles and support email", () => {
     expect(helpSystemPrompt("CrankLeads")).toContain("Help assistant inside CrankLeads");
     expect(helpSystemPrompt("CrankLeads")).not.toMatch(EMPIRE);
     expect(HELP_SYSTEM_PROMPT).toContain("inside EmpireVu");
-    expect(handoffAnswer(cl)).toBe("Sure — click Contact support below and the CrankLeads team will reply by email.");
-    expect(HANDOFF_ANSWER).toContain("EmpireVu team");
+    expect(handoffAnswer(cl)).toBe("Sure — click Contact support below and the Everdoer team will reply by email.");
+    expect(HANDOFF_ANSWER).toContain("Everdoer team");
     for (const article of HELP_ARTICLES) {
       const branded = brandHelpArticle(article, cl);
       expect(JSON.stringify(branded), article.id).not.toMatch(EMPIRE);
@@ -175,7 +207,7 @@ describe("owner-facing copy follows the org's brand", () => {
       reason: "user_requested",
       appBaseUrl: null,
     });
-    expect(support.subject).toMatch(/^\[CrankLeads Help\]/);
+    expect(support.subject).toMatch(/^\[Everdoer Help\]/);
   });
 
   it("accounting memos", () => {
@@ -190,9 +222,9 @@ describe("owner-facing copy follows the org's brand", () => {
     ).toBe("Paid by the business · from CrankLeads");
   });
 
-  it("Stripe Checkout branding for CrankLeads orgs only", () => {
-    expect(checkoutBrandingFor(PLATFORM_BRANDS.empirevu)).toBeUndefined();
-    expect(checkoutBrandingFor(cl)).toMatchObject({ display_name: "CrankLeads", button_color: "#a6ee2b" });
+  it("Stripe Checkout branding is Everdoer for every org", () => {
+    expect(checkoutBrandingFor(PLATFORM_BRANDS.empirevu)).toMatchObject({ display_name: "Everdoer", button_color: "#A6EE2B", background_color: "#0C0E12" });
+    expect(checkoutBrandingFor(cl)).toMatchObject({ display_name: "Everdoer", button_color: "#A6EE2B" });
   });
 
   it("setup follow-ups never say EmpireVu", () => {

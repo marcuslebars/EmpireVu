@@ -298,7 +298,7 @@ describe("checkout.session.completed (CrankLeads) → provisioned account", () =
       "https://app.crankleads.test/update-password?token_hash=hashed_tok_123&type=recovery&next=%2Fonboarding%3Fstep%3Dresume",
     );
     expect(welcome?.body).toContain(`https://app.crankleads.test/f/${formKey}`);
-    expect(welcome?.body).toContain("You can still log in to CrankLeads at app.crankleads.test");
+    expect(welcome?.body).toContain("You can still log in to Everdoer at app.crankleads.test");
 
     // Done for you: one quick-setup intake, its link in the welcome email AND texted to the
     // owner from the platform number (docs/done-for-you.md).
@@ -313,7 +313,7 @@ describe("checkout.session.completed (CrankLeads) → provisioned account", () =
     expect(sendSms).toHaveBeenCalledTimes(1);
     expect(sendSms.mock.calls[0][0]).toMatchObject({ to: "+17055550101" });
     expect(sendSms.mock.calls[0][0].from).toBeUndefined(); // TWILIO_FROM_NUMBER, not a company number
-    expect(sendSms.mock.calls[0][0].body).toBe(`CrankLeads: you're in. 60 seconds and we'll set the rest up for you: ${setupUrl}`);
+    expect(sendSms.mock.calls[0][0].body).toBe(`Everdoer: you're in. 60 seconds and we'll set the rest up for you: ${setupUrl}`);
     // Nothing a buyer reads names the platform, and no link points at the EmpireVu host.
     expect(`${welcome?.subject}\n${welcome?.body}\n${welcome?.html}`).not.toMatch(/empire\s*vu/i);
     // The recovery link Supabase builds redirects to the CrankLeads host too.

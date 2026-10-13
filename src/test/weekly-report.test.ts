@@ -425,14 +425,14 @@ describe("runWeeklyReports — Monday 08:30 Toronto", () => {
     const sms = sendSms.mock.calls[0][0] as { to: string; body: string; from?: string };
     expect(sms.to).toBe("+17055550100");
     expect(sms.from).toBeUndefined(); // platform number (TWILIO_FROM_NUMBER), never the company line
-    expect(sms.body).toContain("CrankLeads weekly report for Northshore Lawn & Snow, Oct 5-11:");
+    expect(sms.body).toContain("Everdoer weekly report for Northshore Lawn & Snow, Oct 5-11:");
     expect(sms.body).toContain("https://app.crankleads.test/reports/weekly?week=2026-10-05");
     expect(smsSegments(sms.body).segments).toBeLessThanOrEqual(2);
 
     expect(sendEmail).toHaveBeenCalledTimes(1);
     const mail = sendEmail.mock.calls[0][0] as { to: string; subject: string; fromName: string; html: string; body: string };
     expect(mail.to).toBe("owner@northshore.test");
-    expect(mail.fromName).toBe("CrankLeads");
+    expect(mail.fromName).toBe("Everdoer");
     expect(`${mail.subject} ${mail.html} ${mail.body}`).not.toMatch(/empirevu/i);
     expect(mail.subject).toBe("Your front desk last week: 1 call answered, 2 text conversations");
 
@@ -663,7 +663,7 @@ describe("in-app view + test send", () => {
     ]);
     expect(view.weeks[1].metrics.textConversations).toBe(2);
     expect(view.weeks[1].send).toMatchObject({ status: "sent", channels: ["sms", "email"] });
-    expect(view).toMatchObject({ isCrankleads: true, brandName: "CrankLeads", settings: { enabled: true, channels: ["sms", "email"] } });
+    expect(view).toMatchObject({ isCrankleads: true, brandName: "Everdoer", settings: { enabled: true, channels: ["sms", "email"] } });
   });
 
   it("'send a test to me' emails the requester and doesn't use up the week", async () => {

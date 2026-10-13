@@ -118,9 +118,9 @@ describe("createAndSendSetupIntake", () => {
 
     const sms = deliver.mock.calls.find(([m]) => m.channel === "sms")?.[0];
     expect(sms).toMatchObject({ to: "+17055550101", smsFrom: "platform", companyId: COMPANY, contactId: null, consentContact: null });
-    expect(sms?.body).toBe(`CrankLeads: you're in. 60 seconds and we'll set the rest up for you: ${url}`);
+    expect(sms?.body).toBe(`Everdoer: you're in. 60 seconds and we'll set the rest up for you: ${url}`);
     const email = deliver.mock.calls.find(([m]) => m.channel === "email")?.[0];
-    expect(email).toMatchObject({ to: "jane@roofco.example", fromName: "CrankLeads", subject: "Your 60-second setup link" });
+    expect(email).toMatchObject({ to: "jane@roofco.example", fromName: "Everdoer", subject: "Your 60-second setup link" });
     expect(email?.body).toContain(url);
     expect(`${sms?.body}${email?.body}${email?.html}`).not.toMatch(/empire\s*vu/i);
   });

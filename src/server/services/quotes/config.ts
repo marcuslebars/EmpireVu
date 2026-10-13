@@ -79,6 +79,11 @@ export function normalizeBaseUrl(raw: string): string {
  * Several brands share one EmpireVu deployment, so a single env origin would put
  * every brand's customer links on one brand's domain. Tolerates a company row from
  * before the column existed (undefined → the platform default).
+ *
+ * Everdoer rebrand PR 2: a standard org's customer links deliberately do NOT follow
+ * EVERDOER_APP_BASE_URL. QUOTE_PUBLIC_BASE_URL may be a tenant domain
+ * (quotes.a1marinestorage.ca), and customer pages are company-branded; a standard company
+ * moves only via its own quote_public_base_url (the PR 2 values migration) or the owner's env.
  */
 export function quotePublicBaseUrlFor(company: { quote_public_base_url?: unknown; platform_brand?: unknown } | null | undefined): string {
   const own = typeof company?.quote_public_base_url === "string" ? company.quote_public_base_url.trim() : "";

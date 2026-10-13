@@ -134,27 +134,48 @@ describe("createCheckoutSession", () => {
     expect(sessionsCreate.mock.calls[0][0].customer).toBe("cus_existing");
   });
 
-  it("an EmpireVu org keeps the account branding and APP_BASE_URL return links", async () => {
-    const { client } = makeSupabase(org());
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await createCheckoutSession(client as any, { organizationId: "org-1", plan: "launch" });
-    const params = sessionsCreate.mock.calls[0][0];
-    expect(params.branding_settings).toBeUndefined();
-    expect(params.success_url).toBe("https://app.test/settings/billing?checkout=success");
+  it("a standard org gets Everdoer Checkout branding and keeps APP_BASE_URL return links", async () => {
+    process.env.CRANKLEADS_APP_BASE_URL = "https://app.crankleads.test";
+    try {
+      const { client } = makeSupabase(org());
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await createCheckoutSession(client as any, { organizationId: "org-1", plan: "launch" });
+      const params = sessionsCreate.mock.calls[0][0];
+      expect(params.branding_settings).toMatchObject({ display_name: "Everdoer", button_color: "#A6EE2B", background_color: "#0C0E12" });
+      // The old done-for-you origin never applies to a standard org.
+      expect(params.success_url).toBe("https://app.test/settings/billing?checkout=success");
+    } finally {
+      delete process.env.CRANKLEADS_APP_BASE_URL;
+    }
   });
 
-  it("a CrankLeads org gets CrankLeads Checkout branding and returns to the CrankLeads host", async () => {
+  it("a done-for-you org gets the same Everdoer branding and returns to its configured host", async () => {
     process.env.CRANKLEADS_APP_BASE_URL = "https://app.crankleads.test";
     try {
       const { client } = makeSupabase(org({ platform_brand: "crankleads", crankleads_tier: "catch" }));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await createCheckoutSession(client as any, { organizationId: "org-1", plan: "launch" });
       const params = sessionsCreate.mock.calls[0][0];
-      expect(params.branding_settings).toMatchObject({ display_name: "CrankLeads", button_color: "#a6ee2b" });
+      expect(params.branding_settings).toMatchObject({ display_name: "Everdoer", button_color: "#A6EE2B" });
       expect(params.success_url).toBe("https://app.crankleads.test/settings/billing?checkout=success");
       expect(params.cancel_url).toBe("https://app.crankleads.test/settings/billing?checkout=cancelled");
     } finally {
       delete process.env.CRANKLEADS_APP_BASE_URL;
+    }
+  });
+
+  it("EVERDOER_APP_BASE_URL moves every org's return links", async () => {
+    process.env.EVERDOER_APP_BASE_URL = "https://app.everdoer.test/";
+    try {
+      for (const row of [org(), org({ platform_brand: "crankleads", crankleads_tier: "catch" })]) {
+        sessionsCreate.mockClear();
+        const { client } = makeSupabase(row);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await createCheckoutSession(client as any, { organizationId: "org-1", plan: "launch" });
+        expect(sessionsCreate.mock.calls[0][0].success_url).toBe("https://app.everdoer.test/settings/billing?checkout=success");
+      }
+    } finally {
+      delete process.env.EVERDOER_APP_BASE_URL;
     }
   });
 });

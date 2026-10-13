@@ -109,16 +109,21 @@ describe("crankleads/config.ts env renames", () => {
     expect(await envRows()).toEqual([]);
   });
 
-  it("defaults are unchanged when nothing is set (plus the everdoer.com origins)", async () => {
+  it("defaults when nothing is set: Everdoer checkout branding (plus the everdoer.com origins)", async () => {
     expect(crankleadsMonthlyPriceId("close")).toBeNull();
     expect(crankleadsFoundingCouponId()).toBeNull();
     expect(crankleadsCancelUrl()).toBe("https://crankleads.com/#pricing");
+    // No https app origin (local dev): Stripe needs an https logo, so the old hosted image.
     expect(crankleadsCheckoutBranding()).toEqual({
-      displayName: "CrankLeads",
+      displayName: "Everdoer",
       logoUrl: "https://crankleads.com/brand/crankleads-logo.png",
-      backgroundColor: "#0c0f13",
-      buttonColor: "#a6ee2b",
+      backgroundColor: "#0C0E12",
+      buttonColor: "#A6EE2B",
     });
+    vi.stubEnv("APP_BASE_URL", "https://app.empirevu.com/");
+    expect(crankleadsCheckoutBranding().logoUrl).toBe("https://app.empirevu.com/brand/everdoer/everdoer-logo-dark.png");
+    vi.stubEnv("EVERDOER_APP_BASE_URL", "https://app.everdoer.com");
+    expect(crankleadsCheckoutBranding().logoUrl).toBe("https://app.everdoer.com/brand/everdoer/everdoer-logo-dark.png");
     expect([...crankleadsSiteOrigins()].sort()).toEqual(
       ["https://crankleads.com", "https://www.crankleads.com", "https://everdoer.com", "https://www.everdoer.com"].sort(),
     );
@@ -134,22 +139,34 @@ describe("crankleads/config.ts env renames", () => {
   });
 });
 
-describe("appBaseUrlFor: EVERDOER_APP_BASE_URL ← CRANKLEADS_APP_BASE_URL (done for you only)", () => {
-  it("done-for-you uses the new name, then the old, then APP_BASE_URL; EmpireVu keeps APP_BASE_URL", async () => {
+describe("appBaseUrlFor: EVERDOER_APP_BASE_URL for every org (PR 2)", () => {
+  it("done-for-you: the new name, then the old, then APP_BASE_URL; standard: the new name, then APP_BASE_URL", async () => {
     vi.stubEnv("APP_BASE_URL", "https://app.empirevu.com");
     expect(appBaseUrlFor("crankleads")).toBe("https://app.empirevu.com");
     vi.stubEnv("CRANKLEADS_APP_BASE_URL", "https://app.crankleads.com/");
     expect(appBaseUrlFor("crankleads")).toBe("https://app.crankleads.com");
     expect(configuredAppBaseUrlFor("crankleads")).toBe("https://app.crankleads.com");
-    expect(await envRows()).toEqual(["CRANKLEADS_APP_BASE_URL"]);
-    vi.stubEnv("EVERDOER_APP_BASE_URL", "https://app.everdoer.com");
-    expect(appBaseUrlFor("crankleads")).toBe("https://app.everdoer.com");
+    // Until EVERDOER_APP_BASE_URL is set, a standard org (A1 etc.) is unchanged: never the old
+    // done-for-you origin.
     expect(appBaseUrlFor("empirevu")).toBe("https://app.empirevu.com");
-    expect(configuredAppBaseUrlFor("empirevu")).toBe("https://app.empirevu.com");
+    expect(appBaseUrlFor("standard")).toBe("https://app.empirevu.com");
+    expect(await envRows()).toEqual(["CRANKLEADS_APP_BASE_URL"]);
+    vi.stubEnv("EVERDOER_APP_BASE_URL", "https://app.everdoer.com/");
+    expect(appBaseUrlFor("crankleads")).toBe("https://app.everdoer.com");
+    expect(appBaseUrlFor("done_for_you")).toBe("https://app.everdoer.com");
+    expect(appBaseUrlFor("empirevu")).toBe("https://app.everdoer.com");
+    expect(appBaseUrlFor(null)).toBe("https://app.everdoer.com");
+    expect(configuredAppBaseUrlFor("empirevu")).toBe("https://app.everdoer.com");
+  });
+
+  it("standard orgs: EVERDOER_APP_BASE_URL alone is enough (no APP_BASE_URL)", () => {
+    vi.stubEnv("EVERDOER_APP_BASE_URL", "https://app.everdoer.com");
+    expect(configuredAppBaseUrlFor("empirevu")).toBe("https://app.everdoer.com");
   });
 
   it("configuredAppBaseUrlFor is null with nothing set", () => {
     expect(configuredAppBaseUrlFor("crankleads")).toBeNull();
+    expect(configuredAppBaseUrlFor("empirevu")).toBeNull();
   });
 });
 
@@ -170,6 +187,19 @@ describe("quotePublicBaseUrlFor", () => {
       "https://quotes.a1marinecare.ca",
     );
     expect((await envRows()).sort()).toEqual(["CRANKLEADS_APP_BASE_URL", "QUOTE_PUBLIC_BASE_URL_CRANKLEADS"]);
+  });
+
+  it("PR 2: EVERDOER_APP_BASE_URL never moves a standard org's customer links off QUOTE_PUBLIC_BASE_URL", () => {
+    // Customer links (quotes, invoices, portal) are company-branded; the platform-wide quote origin
+    // may be a tenant domain (docs/empirevu-hub-setup.md), so only a company's own column or the
+    // owner's env changes it.
+    vi.stubEnv("QUOTE_PUBLIC_BASE_URL", "https://quotes.a1marinestorage.ca");
+    vi.stubEnv("EVERDOER_APP_BASE_URL", "https://app.everdoer.com");
+    expect(quotePublicBaseUrlFor({ platform_brand: "empirevu" })).toBe("https://quotes.a1marinestorage.ca");
+    expect(quotePublicBaseUrlFor({ platform_brand: "empirevu", quote_public_base_url: "https://quotes.a1marinecare.ca" })).toBe(
+      "https://quotes.a1marinecare.ca",
+    );
+    expect(quotePublicBaseUrlFor({ platform_brand: "crankleads" })).toBe("https://app.everdoer.com");
   });
 });
 

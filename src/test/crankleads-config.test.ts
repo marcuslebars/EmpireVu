@@ -118,11 +118,11 @@ describe("welcome email", () => {
     servicesNeedingPrices: 7,
   };
 
-  it("names CrankLeads as the purchase AND the app; done-for-you copy (setup link, no DIY steps); no prices", () => {
+  it("names CrankLeads as the purchase and Everdoer as the app; done-for-you copy (setup link, no DIY steps); no prices", () => {
     const setupUrl = "https://app.test/setup/abcdefghijklmnopqrstuvwxyz012345";
     const email = renderWelcomeEmail({ ...base, tier: "catch", setupUrl });
     expect(email.subject).toBe("You're in — we're setting up CrankLeads for you");
-    expect(email.body).toContain("You can still log in to CrankLeads at app.test any time");
+    expect(email.body).toContain("You can still log in to Everdoer at app.test any time");
     for (const tier of ["catch", "close", "front_desk"] as const) {
       for (const setPasswordUrl of [base.setPasswordUrl, null]) {
         const e = renderWelcomeEmail({ ...base, tier, setPasswordUrl, setupUrl });
