@@ -57,6 +57,14 @@ Values written as `‹…›` come from a dashboard at the time you do the step 
   - Set it only once Resend shows `in.everdoer.com` verified, together with the `RESEND_WEBHOOK_SECRET` step from the Phase 5 checklist.
 
 ### 1.5 Env: new names alongside the old (no behaviour change)
+**✅ Done 2026-10-13** (set without a redeploy, so they take effect with the PR 1 deploy). Each new variable is a Railway same-service **reference** to its old one (`STRIPE_PRICE_EVERDOER_CATCH = ${{STRIPE_PRICE_CL_CATCH}}`, …), so the values are identical by construction:
+- EmpireVu (web): `STRIPE_PRICE_EVERDOER_{CATCH,CLOSE,FRONT_DESK}`, `STRIPE_SETUP_FEE_EVERDOER_{CATCH,CLOSE,FRONT_DESK}`, `STRIPE_COUPON_EVERDOER_FOUNDING`
+- billiing-worker and crankleads-sweep: `STRIPE_PRICE_EVERDOER_*` and `STRIPE_SETUP_FEE_EVERDOER_*`
+- billing-reconcile: `STRIPE_PRICE_EVERDOER_*`
+- Nothing to copy: `CRANKLEADS_SITE_ORIGINS`, `_CANCEL_URL`, `_CHECKOUT_*` and `QUOTE_PUBLIC_BASE_URL_CRANKLEADS` aren't set on any service (the defaults apply), and `CRANKLEADS_APP_BASE_URL` → `EVERDOER_APP_BASE_URL` is deliberately left for PR 2.
+- ⚠️ **PR 8: before deleting any old `STRIPE_*_CL_*` variable, replace the reference with the literal value** (Railway → service → Variables → the new variable shows the resolved value → paste it in place of `${{…}}`). Deleting the old variable first would leave the new one empty.
+
+The original instructions, for reference:
 For each pair, copy the **current value** of the old variable into the new name **on every service where the old variable is set**. Check each service in project EmpireVu, not just web: Railway → service → Variables. The known readers are:
 - `STRIPE_PRICE_*`: EmpireVu (web), billiing-worker and billing-reconcile, which map price → plan.
 - `QUOTE_PUBLIC_BASE_URL_*`: EmpireVu (web) and the worker services.
@@ -122,7 +130,7 @@ A shim is removed only when its `kind/key` has had no rows for 30 days:
 | header | x-empirevu-* | the tenant-repo PRs (A1 sites), `job:retell-repoint`, Telnyx re-point |
 | twilio_signature | app.empirevu.com / api.empirevu.com / app.crankleads.com | `job:twilio-repoint` + A1's numbers re-pointed by hand (PR 4) |
 | twilio_tag | EmpireVu catcher / line | `job:twilio-retag` |
-| env | CRANKLEADS_* / STRIPE_*_CL_* / INBOUND_EMAIL_DOMAIN | step 1.5 on **every** service that had the old var. Delete an old var only once no service logs it. |
+| env | CRANKLEADS_* / STRIPE_*_CL_* / INBOUND_EMAIL_DOMAIN | step 1.5 on **every** service that had the old var. Delete an old var only once no service logs it, and only **after** turning the new var's `${{…}}` reference into a literal value. |
 | route | /api/public/crankleads/* | the marketing site posting to the new path (PR 3); 30 days of old stop links |
 | host | app.empirevu.com, app.crankleads.com | redirects are on (PR 2); pages traffic tapers off. **The hosts themselves stay ≥12 months.** |
 | host | app.empirevu.com/api, api.empirevu.com | old mobile builds retired, A1 sites and Retell re-pointed. **Stays until the last old build is gone.** |
