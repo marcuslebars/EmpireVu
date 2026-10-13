@@ -5,69 +5,17 @@
  @tailwind utilities;
 
 @layer base {
-  :root {
-    --background: 222 20% 6%;
-    --foreground: 220 10% 93%;
-
-    --card: 222 18% 9.5%;
-    --card-foreground: 220 10% 93%;
-
-    --popover: 222 18% 9.5%;
-    --popover-foreground: 220 10% 93%;
-
-    --primary: 215 100% 55%;
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 222 16% 13%;
-    --secondary-foreground: 220 10% 80%;
-
-    --muted: 222 14% 13%;
-    --muted-foreground: 220 10% 48%;
-
-    --accent: 252 80% 62%;
-    --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 222 14% 14%;
-    --input: 222 14% 14%;
-    --ring: 215 100% 55%;
-
-    --radius: 0.5rem;
-
-    --sidebar-background: 222 20% 4.5%;
-    --sidebar-foreground: 220 10% 70%;
-    --sidebar-primary: 215 100% 55%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 16% 11%;
-    --sidebar-accent-foreground: 220 10% 93%;
-    --sidebar-border: 222 14% 11%;
-    --sidebar-ring: 215 100% 55%;
-
-    /* Custom tokens */
-    --surface-1: 222 18% 9.5%;
-    --surface-2: 222 16% 12%;
-    --surface-3: 222 16% 15%;
-    --text-primary: 220 10% 93%;
-    --text-secondary: 220 10% 60%;
-    --text-tertiary: 220 10% 38%;
-    --accent-blue: 215 100% 55%;
-    --accent-violet: 252 80% 62%;
-    --success: 152 60% 48%;
-    --warning: 38 92% 55%;
-    --urgent: 0 72% 51%;
-    --card-elevated: 222 18% 11%;
-  }
-
   /*
-   * CrankLeads accounts (src/lib/platform-brand.ts → BrandProvider sets data-brand on <html>).
-   * Same dark UI, re-tuned to crankleads.com: near-black #0C0E12 surfaces, #21242C edges,
-   * lime #A6EE2B accent, off-white #F4F4F1 text. Lime is light, so anything that sits ON
-   * the primary colour uses dark ink (#0C0E12) — white on lime fails contrast.
-   * Status colours (--accent-blue/--success/--warning/--urgent) keep their meaning.
+   * Everdoer theme — ONE theme for every tenant (REBRAND_PLAN.md D3). Near-black #0C0E12
+   * surfaces, #21242C-ish edges, lime #A6EE2B accent, off-white #F4F4F1 text, Inter.
+   * Lime is light, so anything that sits ON the primary colour uses dark ink (#0C0E12) — white on
+   * lime fails contrast. On WHITE surfaces use deep lime #4F8A00 (--primary-on-light) instead of
+   * lime: lime on white is unreadable. Status colours (--accent-blue/--success/--warning/--urgent)
+   * keep their meaning.
+   * (Pre-PR 2 this was the `:root[data-brand="crankleads"]` override on a blue default; nothing
+   * sets data-brand any more.)
    */
-  :root[data-brand="crankleads"] {
+  :root {
     --background: 220 20% 5.9%;
     --foreground: 60 12% 95%;
 
@@ -80,6 +28,9 @@
     --primary: 82 85% 55%;
     --primary-foreground: 220 20% 6%;
 
+    /* Deep lime #4F8A00: the primary colour for text / marks on white or light surfaces. */
+    --primary-on-light: 86 100% 27%;
+
     --secondary: 224 14% 12%;
     --secondary-foreground: 60 6% 82%;
 
@@ -89,9 +40,14 @@
     --accent: 224 14% 15%;
     --accent-foreground: 60 12% 95%;
 
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
     --border: 224 14% 15%;
     --input: 224 14% 15%;
     --ring: 82 85% 55%;
+
+    --radius: 0.5rem;
 
     --sidebar-background: 220 20% 4.5%;
     --sidebar-foreground: 60 6% 72%;
@@ -102,13 +58,31 @@
     --sidebar-border: 224 14% 12%;
     --sidebar-ring: 82 85% 55%;
 
+    /* Custom tokens */
     --surface-1: 222 18% 8.5%;
     --surface-2: 224 14% 11%;
     --surface-3: 224 14% 14%;
     --text-primary: 60 12% 95%;
     --text-secondary: 60 4% 64%;
     --text-tertiary: 220 8% 42%;
+    --accent-blue: 215 100% 55%;
+    --accent-violet: 252 80% 62%;
+    --success: 152 60% 48%;
+    --warning: 38 92% 55%;
+    --urgent: 0 72% 51%;
     --card-elevated: 222 18% 10%;
+  }
+
+  /*
+   * Printing drops the dark backgrounds, which would leave lime text on white paper: print the
+   * accent in deep lime instead.
+   */
+  @media print {
+    :root {
+      --primary: 86 100% 27%;
+      --ring: 86 100% 27%;
+      --sidebar-primary: 86 100% 27%;
+    }
   }
 }
 

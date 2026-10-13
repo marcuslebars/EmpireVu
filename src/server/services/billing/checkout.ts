@@ -4,7 +4,6 @@ import type { Tables } from "@/server/db/database.types";
 import { UserFacingError } from "@/server/errors";
 import type { PurchasablePlan } from "@/server/services/billing/config";
 import {
-  getAppBaseUrl,
   getStripePriceId,
   getStripeSetupFeePriceId,
 } from "@/server/services/billing/env";
@@ -32,19 +31,23 @@ async function loadOrganization(
 }
 
 /**
- * Where Stripe sends the org's people back: the CrankLeads host for a CrankLeads org; the
- * existing APP_BASE_URL behaviour (getAppBaseUrl) for everyone else.
+ * Where Stripe sends the org's people back: appBaseUrlFor (EVERDOER_APP_BASE_URL once set; until
+ * then APP_BASE_URL — getAppBaseUrl's value — for standard orgs and the PR 1 chain for
+ * done-for-you orgs).
  */
 function billingBaseUrl(brand: PlatformBrand): string {
-  return brand.key === "empirevu" ? getAppBaseUrl() : appBaseUrlFor(brand);
+  return appBaseUrlFor(brand);
 }
 
 /**
- * Checkout branding for a CrankLeads org — the same CrankLeads look as the crankleads.com
- * purchase checkout (crankleadsCheckoutBranding). EmpireVu orgs keep the account default.
+ * Checkout branding: Everdoer for EVERY org (one platform brand, D3), the same look as the
+ * everdoer.com purchase checkout (crankleadsCheckoutBranding). Before PR 2 only done-for-you orgs
+ * got it and standard orgs saw the Stripe account's own (EmpireVu) name and logo.
  */
-export function checkoutBrandingFor(brand: PlatformBrand): Stripe.Checkout.SessionCreateParams["branding_settings"] | undefined {
-  if (brand.key !== "crankleads") return undefined;
+export function checkoutBrandingFor(
+  brand?: PlatformBrand,
+): Stripe.Checkout.SessionCreateParams["branding_settings"] | undefined {
+  void brand; // same for every product line
   const b = crankleadsCheckoutBranding();
   return {
     display_name: b.displayName,

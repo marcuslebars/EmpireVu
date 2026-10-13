@@ -2,11 +2,12 @@ import { useBrand } from "@/lib/brand-context";
 import { cn } from "@/lib/utils";
 
 /**
- * Platform brand lockup — EmpireVu or CrankLeads, whichever the current account sees
- * (src/lib/platform-brand.ts, BrandProvider in src/lib/brand-context.tsx).
+ * Platform brand lockup — Everdoer for every account (src/lib/platform-brand.ts, BrandProvider in
+ * src/lib/brand-context.tsx).
  *
- * Both wordmarks are made for the app's dark surfaces. If a light-background lockup is ever
- * needed (invoices, PDFs), use a dark variant rather than these files.
+ * The wordmark is the on-dark variant, made for the app's dark surfaces. If a light-background
+ * lockup is ever needed (invoices, PDFs), use /brand/everdoer/everdoer-logo-on-light.svg (deep
+ * lime #4F8A00) rather than this file.
  */
 
 /** Full wordmark. Set the height; width follows the file's aspect. */

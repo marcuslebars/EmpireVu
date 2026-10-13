@@ -12,6 +12,7 @@ import { platformBrand, type PlatformBrand } from "@/lib/platform-brand";
 export const DEFAULT_PLATFORM_BRAND_NAME = "EmpireVu";
 
 export function scorecardPlatformBrandName(brand: PlatformBrand = platformBrand(null)): string {
-  if (brand.key !== "empirevu") return brand.name;
+  // Product line, not brand: the env override has only ever applied to standard orgs.
+  if (brand.productLine !== "standard") return brand.name;
   return process.env.PLATFORM_BRAND_NAME?.trim() || DEFAULT_PLATFORM_BRAND_NAME;
 }

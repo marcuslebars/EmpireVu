@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, X, Sparkles, Variable } from "lucide-react";
-import { receptionistCopy } from "@/lib/platform-brand";
+import { isDoneForYouBrand, receptionistCopy } from "@/lib/platform-brand";
 
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/sonner";
@@ -161,7 +161,7 @@ export function VoiceSettings() {
       <div className="space-y-6">
         <div>
           <h2 className="text-lg font-semibold text-foreground">{receptionistCopy("Voice (Marina)", brand)}</h2>
-          <p className="text-sm text-muted-foreground mt-1">{brand.key === "crankleads" ? "AI voice reception isn't in your current plan." : "Marina's AI voice reception isn't in your current plan."}</p>
+          <p className="text-sm text-muted-foreground mt-1">{isDoneForYouBrand(brand) ? "AI voice reception isn't in your current plan." : "Marina's AI voice reception isn't in your current plan."}</p>
         </div>
         <UpgradeNudge
           title={receptionistCopy("Marina voice reception isn't in your plan", brand)}

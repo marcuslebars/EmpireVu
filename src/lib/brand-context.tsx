@@ -1,16 +1,16 @@
 /**
- * BrandProvider — which platform brand (EmpireVu or CrankLeads) the signed-in person's OWN
- * app chrome shows: logo, product name in copy, tab title, favicon and theme
- * (docs/crankleads-branding.md; configs in src/lib/platform-brand.ts).
+ * BrandProvider — the platform brand the signed-in person's OWN app chrome shows: logo, product
+ * name in copy, tab title and favicon (configs in src/lib/platform-brand.ts).
  *
- *  - Signed out (sign-in, sign-up, password reset): from the hostname — app.crankleads.com
- *    (and crankleads.localhost in dev) is CrankLeads, everything else EmpireVu.
+ * Everdoer rebrand PR 2: every org and every host DISPLAYS Everdoer, with one theme (index.css
+ * :root; no `data-brand` any more). The brand entry still carries the org's PRODUCT LINE
+ * (`brand.productLine`), which some copy follows (receptionistCopy):
+ *  - Signed out (sign-in, sign-up, password reset): from the hostname (brandForHost).
  *  - Signed in: from the ACTIVE org's platform_brand (session context), so a person in both
- *    a house org and a CrankLeads org sees the brand of the org they're working in.
+ *    a standard org and a done-for-you org gets the product line of the org they're working in.
  *
- * Applies itself to the document: `data-brand` on <html> (index.css swaps the colour
- * tokens), the default tab title and the favicon. Customer-facing public pages
- * (/q, /i, /p, /v, /f, /book) are skipped — they brand from the company, never the platform.
+ * Applies itself to the document: the default tab title and the favicon. Customer-facing public
+ * pages (/q, /i, /p, /v, /f, /book) are skipped — they brand from the company, never the platform.
  */
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
@@ -110,6 +110,9 @@ export function useCustomerFavicon(href: string | null | undefined): void {
 
 const MANAGED_ATTR = "data-platform-brand-icon";
 
+/** Tab titles earlier builds used for the platform (replaced, never kept, like today's name). */
+const LEGACY_PLATFORM_TITLES = ["EmpireVu", "CrankLeads"];
+
 function setIcons(href: string, type: string | null, touchHref: string | null): void {
   const head = document.head;
   // Every rel~=icon link points at the same icon: browsers pick among several, and a
@@ -148,16 +151,13 @@ function iconType(href: string): string | null {
 function useApplyBrandToDocument(brand: PlatformBrand, customerIcon: string | null): void {
   useEffect(() => {
     if (typeof document === "undefined") return;
-    const root = document.documentElement;
-    const platformTitles = Object.values(PLATFORM_BRANDS).map((b) => b.name);
+    // Today's name plus the pre-PR 2 names (a tab title set by an older index.html / build).
+    const platformTitles = [...new Set(Object.values(PLATFORM_BRANDS).map((b) => b.name)), ...LEGACY_PLATFORM_TITLES];
     if (customerIcon) {
-      root.removeAttribute("data-brand");
       setIcons(customerIcon, iconType(customerIcon), null);
       if (platformTitles.includes(document.title)) document.title = "";
       return;
     }
-    if (brand.key === "empirevu") root.removeAttribute("data-brand");
-    else root.setAttribute("data-brand", brand.key);
     setIcons(brand.faviconHref, brand.faviconType, brand.appleTouchIconHref);
     // Only replace a platform default title — a page that set its own keeps it.
     if (!document.title || platformTitles.includes(document.title)) document.title = brand.name;

@@ -13,7 +13,7 @@ import {
   weekKeyInTimeZone,
   weekRangeForKey,
 } from "@/server/services/monthly-scorecard/weeks";
-import { appBaseUrlFor, brandForOrg, platformBrand, type PlatformBrand } from "@/server/services/platform-brand";
+import { appBaseUrlFor, brandForOrg, isDoneForYouBrand, platformBrand, type PlatformBrand } from "@/server/services/platform-brand";
 import {
   computeWeekForCompany,
   hadActivityInLast30Days,
@@ -321,7 +321,7 @@ async function processCompany(
   const timeZone = companyTimeZone(company);
   const week = options.week ?? defaultReportWeek(timeZone, options.nowMs);
   const base = { companyId: company.id, companyName: company.name, week };
-  const isCrankleads = org.brand.key === "crankleads";
+  const isCrankleads = isDoneForYouBrand(org.brand);
   const settings = parseWeeklyReportSettings(company.ai_settings, isCrankleads);
   const context = ctxFor(admin, company.organization_id);
   const skip = weeklySkipReason({ company, settings, orgSubscriptionStatus: org.subscriptionStatus, live, week, timeZone, nowMs: options.nowMs });
@@ -554,7 +554,7 @@ export async function sendTestWeeklyReport(
     subscriptionStatus: null,
     brand: platformBrand(null),
   };
-  const isCrankleads = org.brand.key === "crankleads";
+  const isCrankleads = isDoneForYouBrand(org.brand);
   const settings = parseWeeklyReportSettings(company.ai_settings, isCrankleads);
   const timeZone = companyTimeZone(company);
   const week = defaultReportWeek(timeZone, nowMs);

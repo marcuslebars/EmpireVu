@@ -16,7 +16,7 @@ import type { AdminClient } from "@/server/services/crankleads/purchases";
 import { generatePublicFormKey } from "@/server/services/lead-intake/public-form-keys";
 import { getPack } from "@/server/services/packs";
 import { parseAppliedIndustryPack } from "@/server/services/packs/types";
-import { appBaseUrlFor, brandForOrg } from "@/server/services/platform-brand";
+import { appBaseUrlFor, brandForOrg, isDoneForYouBrand } from "@/server/services/platform-brand";
 import { parseOnlineBookingSettings } from "@/server/services/scheduling/rules";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { recordAiUsageSafe } from "@/server/services/usage";
@@ -93,7 +93,7 @@ async function loadOrgBrand(admin: AdminClient, organizationId: string): Promise
     .eq("id", organizationId)
     .maybeSingle();
   if (error) throw new Error(`organization read failed: ${error.message}`);
-  return brandForOrg(data as { platform_brand: string | null; crankleads_tier: string | null } | null).key === "crankleads" ? "crankleads" : "empirevu";
+  return isDoneForYouBrand(brandForOrg(data as { platform_brand: string | null; crankleads_tier: string | null } | null)) ? "crankleads" : "empirevu";
 }
 
 async function loadCatalog(admin: AdminClient, company: CompanyRow): Promise<CatalogItemFacts[]> {

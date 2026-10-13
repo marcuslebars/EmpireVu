@@ -11,6 +11,8 @@
  * rebrands the app.
  */
 import type { PurchasablePlan } from "@/server/services/billing/config";
+import { EVERDOER_BRAND, EVERDOER_COLORS } from "@/lib/platform-brand";
+import { appBaseUrlFor } from "@/server/services/platform-brand";
 import { envWithFallback } from "@/server/services/rebrand/legacy-usage";
 
 export const CRANKLEADS_TIERS = ["catch", "close", "front_desk"] as const;
@@ -146,11 +148,13 @@ export function crankleadsAutomaticTax(): boolean {
 // ── Checkout branding ─────────────────────────────────────────────────────────
 
 /**
- * Per-session Stripe Checkout branding, so a CrankLeads buyer sees CrankLeads (not the
- * Stripe account's own EmpireVu name/logo) at the top of the payment page. The account's
- * legal business name still appears in Stripe's terms text, receipts and the card
- * statement descriptor — Stripe does not allow overriding those per session.
- * The images are hosted by crankleads.com (public/brand/ in that repo).
+ * Per-session Stripe Checkout branding, so a buyer (and, since PR 2, every org's billing
+ * checkout) sees Everdoer — not the Stripe account's own EmpireVu name/logo — at the top of the
+ * payment page. The account's legal business name still appears in Stripe's terms text, receipts
+ * and the card statement descriptor — Stripe does not allow overriding those per session.
+ * The default logo is the app's own copy of the brand kit PNG
+ * (`<app origin>/brand/everdoer/everdoer-logo-dark.png`); Stripe needs an https URL, so a
+ * non-https origin (local dev) falls back to the old crankleads.com image.
  */
 export interface CrankleadsCheckoutBranding {
   displayName: string;
@@ -159,11 +163,18 @@ export interface CrankleadsCheckoutBranding {
   buttonColor: string;
 }
 
-const DEFAULT_CHECKOUT_DISPLAY_NAME = CRANKLEADS_OFFER_NAME;
-const DEFAULT_CHECKOUT_LOGO_URL = "https://crankleads.com/brand/crankleads-logo.png";
-/** CrankLeads site background + accent (crankleads.com theme). */
-const DEFAULT_CHECKOUT_BACKGROUND = "#0c0f13";
-const DEFAULT_CHECKOUT_BUTTON = "#a6ee2b";
+const DEFAULT_CHECKOUT_DISPLAY_NAME = EVERDOER_BRAND.name;
+/** Last resort when the app origin isn't https (local dev): Stripe rejects non-https logo URLs. */
+const LEGACY_CHECKOUT_LOGO_URL = "https://crankleads.com/brand/crankleads-logo.png";
+/** Everdoer background + accent (brand kit). */
+const DEFAULT_CHECKOUT_BACKGROUND = EVERDOER_COLORS.nearBlack;
+const DEFAULT_CHECKOUT_BUTTON = EVERDOER_COLORS.lime;
+
+/** The brand-kit logo served by the app itself, when the app origin is https. */
+function defaultCheckoutLogoUrl(): string {
+  const base = appBaseUrlFor("done_for_you");
+  return base.startsWith("https://") ? `${base}/brand/everdoer/everdoer-logo-dark.png` : LEGACY_CHECKOUT_LOGO_URL;
+}
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
@@ -180,7 +191,7 @@ function httpsUrlOr(name: RenamedEnv, fallback: string): string {
 export function crankleadsCheckoutBranding(): CrankleadsCheckoutBranding {
   return {
     displayName: envValue("EVERDOER_CHECKOUT_DISPLAY_NAME") ?? DEFAULT_CHECKOUT_DISPLAY_NAME,
-    logoUrl: httpsUrlOr("EVERDOER_CHECKOUT_LOGO_URL", DEFAULT_CHECKOUT_LOGO_URL),
+    logoUrl: httpsUrlOr("EVERDOER_CHECKOUT_LOGO_URL", defaultCheckoutLogoUrl()),
     backgroundColor: hexOr("EVERDOER_CHECKOUT_BACKGROUND_COLOR", DEFAULT_CHECKOUT_BACKGROUND),
     buttonColor: hexOr("EVERDOER_CHECKOUT_BUTTON_COLOR", DEFAULT_CHECKOUT_BUTTON),
   };
