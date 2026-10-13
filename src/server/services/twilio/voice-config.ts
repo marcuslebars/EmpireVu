@@ -30,16 +30,8 @@ export function callbackBaseUrl(request: Request): string {
   return twilioWebhookBaseUrl() ?? new URL(request.url).origin;
 }
 
-/**
- * The exact URL Twilio signed. Twilio signs the URL it requested (configured on the number,
- * or the callback URL we put in TwiML — always built from the same base). Behind a proxy
- * that is not request.url, so rebuild it from the configured base + path + query.
- */
-export function twilioSignedUrl(request: Request): string {
-  const url = new URL(request.url);
-  const base = twilioWebhookBaseUrl();
-  return base ? `${base}${url.pathname}${url.search}` : request.url;
-}
+// The URLs Twilio may have signed for a voice webhook: twilio/voice-signature.ts
+// (twilioVoiceUrlCandidates / verifyTwilioVoiceSignature).
 
 export function textBackWindowMinutes(): number {
   const raw = Number.parseInt(trimmed("MISSED_CALL_TEXTBACK_WINDOW_MINUTES") ?? "", 10);

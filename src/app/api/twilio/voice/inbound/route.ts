@@ -7,12 +7,11 @@ import {
   type CatcherTenant,
 } from "@/server/services/twilio/missed-call";
 import { FORWARDING_TEST_LEG_KEY, findForwardingTestForLeg, isTestCallerId } from "@/server/services/twilio/forwarding-test";
-import { verifyTwilioSignature } from "@/server/services/twilio/signature";
+import { verifyTwilioVoiceSignature } from "@/server/services/twilio/voice-signature";
 import {
   callbackBaseUrl,
   sayVoice,
   transcriptionEnabled,
-  twilioSignedUrl,
   VOICE_AI_HANDOFF_PATH,
   VOICE_RECORDING_PATH,
   voicemailMaxSecondsSetting,
@@ -70,7 +69,7 @@ export async function POST(request: Request): Promise<Response> {
   const params = Object.fromEntries(new URLSearchParams(rawBody));
   const signature = request.headers.get("x-twilio-signature");
 
-  if (!verifyTwilioSignature(twilioSignedUrl(request), params, signature, process.env.TWILIO_AUTH_TOKEN)) {
+  if (!verifyTwilioVoiceSignature(request, params, signature, process.env.TWILIO_AUTH_TOKEN)) {
     return new Response("Invalid signature.", { status: 403 });
   }
 
