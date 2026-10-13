@@ -374,3 +374,22 @@ describe("job:twilio-repoint --apply ordering", () => {
     expect(repointApplyBlocker("app.everdoer.com", { APP_BASE_URL: "https://app.empirevu.com", TWILIO_WEBHOOK_BASE_URL: "https://app.everdoer.com" })).toBeNull();
   });
 });
+
+describe("job:retell-repoint live-binding guard", () => {
+  it("skips a company whose Retell number is bound (in Retell) to another agent, even if our DB says otherwise", async () => {
+    const reader = {
+      getAgent: vi.fn(() => Promise.resolve({ webhook_url: "https://app.empirevu.com/api/retell/webhook", response_engine: { llm_id: "llm-stale" } })),
+      getLlm: vi.fn(() => Promise.resolve({ general_tools: [] })),
+      getPhoneNumber: vi.fn(() => Promise.resolve({ inbound_webhook_url: "https://app.empirevu.com/api/retell/inbound", inbound_agent_id: "ag-hand-bound" })),
+    } as unknown as RetellReader;
+    const resync = vi.fn();
+    const rows = await runRetellRepoint(
+      { db: retellDb().client, reader, resync, ensureMessage: null, env: ENV },
+      { apply: true, all: true, companyId: "co-stale" },
+    );
+    expect(rows[0]).toMatchObject({ action: "skipped_guard" });
+    expect(rows[0].detail).toContain("ag-hand-bound");
+    expect(resync).not.toHaveBeenCalled();
+  });
+});
+

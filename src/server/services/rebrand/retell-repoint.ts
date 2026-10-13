@@ -76,6 +76,8 @@ export interface Inspection {
   agentName: string | null;
   stale: string[];
   error: string | null;
+  /** The agent the company's Retell number is LIVE-bound to (Retell's inbound_agent_id), if read. */
+  boundAgentId?: string | null;
 }
 
 interface Tool {
@@ -144,6 +146,8 @@ export async function inspectAgent(
     if ("error" in num) return { agentName, stale, error: `number: ${String(num.error)}` };
     const inbound = urlStale("inbound webhook", num.inbound_webhook_url as string | null, expected);
     if (inbound) stale.push(inbound);
+    const bound = typeof num.inbound_agent_id === "string" && num.inbound_agent_id.trim() ? num.inbound_agent_id.trim() : null;
+    return { agentName, stale, error: null, boundAgentId: bound };
   }
   return { agentName, stale, error: null };
 }
@@ -171,8 +175,12 @@ function skipCompanies(env: Record<string, string | undefined>): Set<string> {
  * Retell number points at a DIFFERENT agent (one swapped in by hand, like A1's Care agent), a
  * resync would silently replace it. Skip and say so.
  */
-async function guardReason(db: Db, r: ProvisionedReceptionist, skip: Set<string>): Promise<string | null> {
+async function guardReason(db: Db, r: ProvisionedReceptionist, skip: Set<string>, inspection: Inspection): Promise<string | null> {
   if (skip.has(r.companyId)) return "listed in RETELL_REPOINT_SKIP_COMPANIES";
+  // Retell's own live binding beats our DB row (catches a number re-bound by hand in Retell).
+  if (inspection.boundAgentId && inspection.boundAgentId !== r.agentId) {
+    return `its Retell number ${r.phoneNumber} is bound to a different agent (${inspection.boundAgentId}) in Retell: re-point that one by hand`;
+  }
   const { data, error } = await db
     .from("voice_numbers")
     .select("provider_agent_id")
@@ -222,7 +230,7 @@ export async function runRetellRepoint(deps: RetellRepointDeps, args: RetellRepo
     const inspection = await inspectAgent(deps.reader, { agentId: r.agentId, llmId: r.llmId, phoneNumber: r.phoneNumber }, expected);
     const row: RetellRepointRow = { label: `company ${r.companyId}`, companyId: r.companyId, agentId: r.agentId, inspection, action: "none", detail: null };
     const d = decide(inspection);
-    const guard = d === "go" ? await guardReason(deps.db, r, skip) : null;
+    const guard = d === "go" ? await guardReason(deps.db, r, skip, inspection) : null;
     if (d === "skip_error") row.action = "skipped_error";
     else if (guard) {
       row.action = "skipped_guard";
