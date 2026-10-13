@@ -9,9 +9,12 @@
  *   select kind, key, max(day) as last_day, sum(count) from public.legacy_usage
  *    where day > current_date - 30 group by 1, 2 order by 1, 2;
  *
- * Fire-and-forget: never throws, never awaits on the request path, and keeps working (console
- * only) when the table isn't there yet or the Supabase env is missing. Uses a bare fetch to
- * PostgREST so it runs in the Edge middleware as well as in Node routes and workers.
+ * Counts are batched in memory per process and flushed every ~15 s (or at 200 distinct keys), so
+ * old-host API traffic costs no extra DB round trip per request; a restart may drop the last
+ * ~15 s of counts, which is fine for "is anyone still using this?". Never throws, never awaits
+ * on the request path, and keeps working (console only) when the table isn't there yet or the
+ * Supabase env is missing. Uses a bare fetch to PostgREST, so it runs in the Edge middleware as
+ * well as in Node routes and workers. One-shot jobs call flushLegacyUsage() before exiting.
  *
  * Never pass a secret, header VALUE, body or query string as `key` or `sample`; pass the old
  * NAME as key and, at most, a path or host as the sample. sampleFromUrl() strips the query.
@@ -29,10 +32,10 @@ export type LegacyUsageKind =
   | "product_value"
   | "inbound_email_domain";
 
-export type LegacyUsageSink = (kind: LegacyUsageKind, key: string, sample: string | null) => Promise<void> | void;
+export type LegacyUsageSink = (kind: LegacyUsageKind, key: string, sample: string | null, count: number) => Promise<void> | void;
 
 /** Default sink: POST /rest/v1/rpc/note_legacy_usage with the service role key. */
-const postgrestSink: LegacyUsageSink = async (kind, key, sample) => {
+const postgrestSink: LegacyUsageSink = async (kind, key, sample, count) => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!url || !serviceKey) return;
@@ -43,22 +46,46 @@ const postgrestSink: LegacyUsageSink = async (kind, key, sample) => {
       Authorization: `Bearer ${serviceKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ p_kind: kind, p_key: key, p_sample: sample }),
+    body: JSON.stringify({ p_kind: kind, p_key: key, p_sample: sample, p_count: count }),
     cache: "no-store",
   });
-  if (!res.ok && !warnedSinkFailure) {
-    warnedSinkFailure = true;
-    console.warn(`[legacy-usage] could not record counts (HTTP ${res.status}); console only until restart. Is migration 20261016100000 applied?`);
-  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 };
 
 let sink: LegacyUsageSink = postgrestSink;
 let warnedSinkFailure = false;
 
-/** Tests swap the sink; pass null to restore the PostgREST sink. */
+/** Counts waiting to be written, keyed by kind + key. */
+const pending = new Map<string, { kind: LegacyUsageKind; key: string; sample: string | null; count: number }>();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+export const LEGACY_USAGE_FLUSH_MS = 15_000;
+/** Distinct keys that force an early flush (so a burst can't grow the map without bound). */
+const MAX_PENDING = 200;
+
+/** Kinds whose every use is console-logged (D6: every request with an old header). Hosts are
+ *  high-volume (old mobile builds), so they log at most once a minute per host; the DB count
+ *  is still exact. */
+const LOG_EVERY_USE: ReadonlySet<LegacyUsageKind> = new Set<LegacyUsageKind>([
+  "header",
+  "env",
+  "route",
+  "stripe_metadata",
+  "twilio_tag",
+  "twilio_signature",
+  "payload_key",
+  "product_value",
+  "inbound_email_domain",
+]);
+const lastConsoleAt = new Map<string, number>();
+
+/** Tests swap the sink; pass null to restore the PostgREST sink. Clears anything pending. */
 export function setLegacyUsageSink(next: LegacyUsageSink | null): void {
   sink = next ?? postgrestSink;
   warnedSinkFailure = false;
+  pending.clear();
+  lastConsoleAt.clear();
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = null;
 }
 
 function clip(value: string, max: number): string {
@@ -76,24 +103,71 @@ export function sampleFromUrl(url: string | URL | null | undefined): string | nu
   }
 }
 
-/**
- * Count one use of an old name. Returns the (possibly ignored) write so a caller that can
- * (Edge middleware's event.waitUntil) may keep the runtime alive for it; others ignore it.
- */
-export function noteLegacyUsage(kind: LegacyUsageKind, key: string, sample?: string | null): Promise<void> {
-  const k = clip(String(key ?? "").trim(), 120);
-  if (!k) return Promise.resolve();
-  const s = sample ? clip(String(sample), 200) : null;
-  console.info(`[legacy-usage] kind=${kind} key=${k}${s ? ` at=${s}` : ""}`);
-  try {
-    return Promise.resolve(sink(kind, k, s)).catch((err) => {
-      if (!warnedSinkFailure) {
-        warnedSinkFailure = true;
-        console.warn("[legacy-usage] could not record counts:", err instanceof Error ? err.message : err);
+/** Write every pending count now. Never throws. Jobs call it before exiting. */
+export async function flushLegacyUsage(): Promise<void> {
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = null;
+  if (pending.size === 0) return;
+  const batch = [...pending.values()];
+  pending.clear();
+  await Promise.all(
+    batch.map(async (row) => {
+      try {
+        await sink(row.kind, row.key, row.sample, row.count);
+      } catch (err) {
+        if (!warnedSinkFailure) {
+          warnedSinkFailure = true;
+          console.warn(
+            "[legacy-usage] could not record counts (console only until restart; is migration 20261016100000 applied?):",
+            err instanceof Error ? err.message : err,
+          );
+        }
       }
-    });
+    }),
+  );
+}
+
+function scheduleFlush(): void {
+  if (pending.size >= MAX_PENDING) {
+    void flushLegacyUsage();
+    return;
+  }
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    void flushLegacyUsage();
+  }, LEGACY_USAGE_FLUSH_MS);
+  (flushTimer as { unref?: () => void }).unref?.();
+}
+
+/**
+ * Count one use of an old name (buffered; written within ~15 s). Never throws, never blocks.
+ */
+export function noteLegacyUsage(kind: LegacyUsageKind, key: string, sample?: string | null): void {
+  try {
+    const k = clip(String(key ?? "").trim(), 120);
+    if (!k) return;
+    const s = sample ? clip(String(sample), 200) : null;
+    const id = `${kind}\u0000${k}`;
+    if (LOG_EVERY_USE.has(kind)) {
+      console.info(`[legacy-usage] kind=${kind} key=${k}${s ? ` at=${s}` : ""}`);
+    } else {
+      const now = Date.now();
+      if ((lastConsoleAt.get(id) ?? 0) + 60_000 <= now) {
+        lastConsoleAt.set(id, now);
+        console.info(`[legacy-usage] kind=${kind} key=${k}${s ? ` at=${s}` : ""} (logged at most once a minute; counted every time)`);
+      }
+    }
+    const row = pending.get(id);
+    if (row) {
+      row.count += 1;
+      if (s) row.sample = s;
+    } else {
+      pending.set(id, { kind, key: k, sample: s, count: 1 });
+    }
+    scheduleFlush();
   } catch {
-    return Promise.resolve();
+    /* never let counting break a request */
   }
 }
 
@@ -115,7 +189,7 @@ export function envWithFallback(newName: string, oldNames: readonly string[], en
     if (value) {
       if (!notedEnv.has(old)) {
         notedEnv.add(old);
-        void noteLegacyUsage("env", old, `instead of ${newName}`);
+        noteLegacyUsage("env", old, `instead of ${newName}`);
       }
       return value;
     }
@@ -151,7 +225,7 @@ export function headerWithFallback(
   if (fresh != null && fresh !== "") return fresh;
   const old = headers.get(oldName);
   if (old != null && old !== "") {
-    void noteLegacyUsage("header", oldName.toLowerCase(), sample ?? null);
+    noteLegacyUsage("header", oldName.toLowerCase(), sample ?? null);
     return old;
   }
   return null;

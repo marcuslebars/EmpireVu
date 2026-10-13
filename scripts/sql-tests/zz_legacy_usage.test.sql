@@ -23,11 +23,11 @@ begin
         raise exception 'FAIL % has % on legacy_usage', r, p;
       end if;
     end loop;
-    if has_function_privilege(r, 'public.note_legacy_usage(text, text, text)', 'EXECUTE') then
+    if has_function_privilege(r, 'public.note_legacy_usage(text, text, text, integer)', 'EXECUTE') then
       raise exception 'FAIL % can execute note_legacy_usage', r;
     end if;
   end loop;
-  if not has_function_privilege('service_role', 'public.note_legacy_usage(text, text, text)', 'EXECUTE') then
+  if not has_function_privilege('service_role', 'public.note_legacy_usage(text, text, text, integer)', 'EXECUTE') then
     raise exception 'FAIL service_role cannot execute note_legacy_usage';
   end if;
   if not has_table_privilege('service_role', 'public.legacy_usage', 'SELECT') then
@@ -43,6 +43,10 @@ begin
   if n <> 3 then raise exception 'FAIL expected count 3, got %', n; end if;
   if s is distinct from '/api/other' then raise exception 'FAIL expected latest non-null sample, got %', s; end if;
   if (select count(*) from public.legacy_usage) <> 2 then raise exception 'FAIL expected 2 rows'; end if;
+  perform public.note_legacy_usage('header', 'x-empirevu-key', null, 40);
+  perform public.note_legacy_usage('header', 'x-empirevu-key', null, -5);
+  select count into n from public.legacy_usage where kind = 'header' and key = 'x-empirevu-key';
+  if n <> 44 then raise exception 'FAIL batched count: expected 44, got %', n; end if;
 
   perform public.note_legacy_usage('env', repeat('K', 300), repeat('s', 500));
   if (select length(key) from public.legacy_usage where kind = 'env') <> 120 then raise exception 'FAIL key not truncated'; end if;
