@@ -17,6 +17,7 @@
  * so when Retell is down/slow (registration fails, the SIP leg doesn't answer) the caller
  * falls straight back to the existing greeting + voicemail + text-back.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import crypto from "node:crypto";
 
 import type { Tables } from "@/server/db/database.types";
@@ -417,7 +418,7 @@ export async function loadAnsweringState(admin: AdminClient, organizationId: str
   return {
     company: companyRow,
     org: orgRow,
-    settings: readCallAnsweringSettings(companyRow.ai_settings, { crankleads: orgRow.platform_brand === "crankleads" }),
+    settings: readCallAnsweringSettings(companyRow.ai_settings, { crankleads: isDoneForYou(orgRow.platform_brand) }),
   };
 }
 
@@ -480,7 +481,7 @@ export async function decideCallAnswering(admin: AdminClient, input: DecideInput
       agentKind: ownAgent ? "receptionist" : "message",
       allowance,
       timeLimitSeconds: aiCallTimeLimitSeconds(remaining),
-      dynamicVariables: buildAnswerDynamicVariables(state.company, input.companyName, state.org.platform_brand === "crankleads" || state.org.crankleads_tier ? "crankleads" : state.org.platform_brand),
+      dynamicVariables: buildAnswerDynamicVariables(state.company, input.companyName, isDoneForYou(state.org.platform_brand) || state.org.crankleads_tier ? "crankleads" : state.org.platform_brand),
       timeZone,
     };
   } catch (err) {

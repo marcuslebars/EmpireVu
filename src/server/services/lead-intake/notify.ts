@@ -8,6 +8,7 @@
  * The sender name is the company's own brand, never "EmpireVu".
  */
 
+import { isDoneForYou } from "@/lib/product-line";
 import type { LeadLineItem } from "./envelope";
 
 export interface ReturningInfo {
@@ -76,7 +77,7 @@ export type LeadNotifyAudience = "operator" | "none";
 export function leadNotifyAudience(org: { platform_brand: string | null; crankleads_tier: string | null } | null, routed: boolean): LeadNotifyAudience {
   if (!routed) return "operator";
   if (!org) return "none"; // unknown org → fail closed (never leak a tenant's lead)
-  if (org.platform_brand === "crankleads" || org.crankleads_tier) return "none";
+  if (isDoneForYou(org.platform_brand) || org.crankleads_tier) return "none";
   return "operator";
 }
 

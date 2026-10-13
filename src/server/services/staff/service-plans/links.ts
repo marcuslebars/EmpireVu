@@ -3,6 +3,7 @@
  * site (/s/<slug>/plans…, or <PAGES_BASE_URL>/<slug>/plans… on the pages host). No published site →
  * no link (the callers say so / fall back).
  */
+import { isDoneForYou } from "@/lib/product-line";
 import { siteUrl } from "@/server/services/dfy/site-url";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db } from "./db-types";
@@ -20,7 +21,7 @@ export async function publishedSlug(admin: AdminClient, scope: { organizationId:
 }
 
 function base(slug: string, company: Pick<PlanCompany, "platformBrand">): string {
-  return siteUrl(slug, company.platformBrand === "crankleads" ? "crankleads" : "empirevu");
+  return siteUrl(slug, isDoneForYou(company.platformBrand) ? "crankleads" : "empirevu");
 }
 
 export function plansUrlFor(slug: string, company: Pick<PlanCompany, "platformBrand">): string {

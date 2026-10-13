@@ -13,6 +13,7 @@
  * The server side: INBOUND_EMAIL_DOMAIN + RESEND_WEBHOOK_SECRET. Without either the role is inert
  * (no inbox address, no sweeps, no tools) and Settings says it isn't set up on this server yet.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db } from "./db-types";
 import { envWithFallback, noteLegacyUsage } from "@/server/services/rebrand/legacy-usage";
@@ -167,7 +168,7 @@ interface CompanyRow {
 }
 
 function toCompany(row: CompanyRow, platformBrand: string | null): EmailClerkCompany {
-  const crankleads = platformBrand === "crankleads";
+  const crankleads = isDoneForYou(platformBrand);
   return {
     organizationId: row.organization_id,
     companyId: row.id,

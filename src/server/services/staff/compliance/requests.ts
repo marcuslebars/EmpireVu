@@ -13,6 +13,7 @@
  *      new WSIB clearance (expires Jan 9)" (owner hours 08:00–21:00; otherwise the outbox sweep
  *      tells them in the morning).
  */
+import { isDoneForYou } from "@/lib/product-line";
 import { randomBytes } from "node:crypto";
 
 import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } from "@/server/services/front-desk/contracts";
@@ -42,7 +43,7 @@ export function isLinkToken(value: unknown): value is string {
 }
 
 export function uploadLinkFor(platformBrand: string | null, token: string): string {
-  return `${appBaseUrlFor(platformBrand === "crankleads" ? "crankleads" : "empirevu")}/compliance/upload/${token}`;
+  return `${appBaseUrlFor(isDoneForYou(platformBrand) ? "crankleads" : "empirevu")}/compliance/upload/${token}`;
 }
 
 export async function loadSub(admin: AdminClient, scope: { organizationId: string; companyId: string }, id: string): Promise<SubcontractorRow | null> {

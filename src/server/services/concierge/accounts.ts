@@ -7,6 +7,7 @@
 // company that belongs to it, resolved here — never trusted from input without checking it
 // belongs to the org). Listed in docs/done-for-you.md → "Concierge console".
 // ─────────────────────────────────────────────────────────────────────────────
+import { isDoneForYou, PRODUCT_LINE_DB_VALUES } from "@/lib/product-line";
 import { buildForwardingInstructions, prettyPhone } from "@/lib/carrier-forwarding";
 import {
   carrierLabel,
@@ -205,7 +206,7 @@ export function summarizeAccount(input: SummarizeInput): ConciergeAccountSummary
     site: input.site
       ? {
           slug: input.site.slug,
-          url: siteUrl(input.site.slug, org.platform_brand === "crankleads" ? "crankleads" : "empirevu"),
+          url: siteUrl(input.site.slug, isDoneForYou(org.platform_brand) ? "crankleads" : "empirevu"),
           status: input.site.status,
           mode: input.site.mode,
           publishedAt: input.site.published_at,
@@ -406,7 +407,7 @@ export async function listConciergeAccounts(admin: AdminClient, options: ListOpt
   const { data: orgData, error: orgError } = await admin
     .from("organizations")
     .select(ORG_FIELDS)
-    .eq("platform_brand", "crankleads")
+    .in("platform_brand", [...PRODUCT_LINE_DB_VALUES.done_for_you])
     .order("created_at", { ascending: false })
     .limit(options.limit ?? CONCIERGE_LIST_LIMIT);
   fail("organizations lookup", orgError);

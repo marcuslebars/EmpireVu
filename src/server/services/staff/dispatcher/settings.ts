@@ -15,6 +15,7 @@
  * owner turns it on. Weather sensitivity defaults by trade: outdoor trades → all jobs, indoor
  * trades and snow removal → none.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { parseAppliedIndustryPack } from "@/server/services/packs/types";
 
@@ -249,7 +250,7 @@ export async function dispatcherActiveFor(admin: AdminClient, scope: { organizat
       .maybeSingle();
     if (!company) return false;
     const { data: org } = await db.from("organizations").select("platform_brand").eq("id", scope.organizationId).maybeSingle();
-    const crankleads = (org as { platform_brand: string | null } | null)?.platform_brand === "crankleads";
+    const crankleads = isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand);
     const c = company as { name: string; ai_settings: unknown; industry_pack: unknown };
     return dispatcherAnyOn(readDispatchSettings(c.ai_settings, { crankleads, industryPack: c.industry_pack, hints: [c.name] }));
   } catch {

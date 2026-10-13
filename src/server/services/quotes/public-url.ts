@@ -1,4 +1,5 @@
 // SERVER-ONLY. Resolves a company's customer-facing quote origin by id.
+import { isDoneForYou } from "@/lib/product-line";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { getQuotesConfig, quotePublicBaseUrlFor } from "@/server/services/quotes/config";
 
@@ -38,7 +39,7 @@ export async function withPlatformBrand<T extends { organization_id?: unknown } 
   try {
     const { data: org } = await db.from("organizations").select("platform_brand, crankleads_tier").eq("id", company.organization_id).maybeSingle();
     const o = org as { platform_brand?: string | null; crankleads_tier?: string | null } | null;
-    const brand = o?.platform_brand === "crankleads" || o?.crankleads_tier ? "crankleads" : o?.platform_brand ?? null;
+    const brand = isDoneForYou(o?.platform_brand) || o?.crankleads_tier ? "crankleads" : o?.platform_brand ?? null;
     return { ...company, platform_brand: brand };
   } catch {
     return company;

@@ -13,6 +13,7 @@
  * Every write is filtered by organization_id + company_id (or the token's row). The account number
  * and PIN are only ever written encrypted (crypto.ts) and never logged, texted or summarised.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 
@@ -73,7 +74,7 @@ export function isPortToken(value: unknown): value is string {
 }
 
 export function portLinkFor(platformBrand: string | null, token: string): string {
-  return `${appBaseUrlFor(platformBrand === "crankleads" ? "crankleads" : "empirevu")}/port/${token}`;
+  return `${appBaseUrlFor(isDoneForYou(platformBrand) ? "crankleads" : "empirevu")}/port/${token}`;
 }
 
 /** NANP numbers only (Twilio's US/Canada port-in). */
@@ -221,7 +222,7 @@ export function ownerTextContext(company: PortingCompany, port: Pick<NumberPortR
     link: portLinkFor(company.platformBrand, port.token),
     ringEnabled: company.settings.ring.enabled,
     ringSeconds: company.settings.ring.seconds,
-    answering: readCallAnsweringSettings(company.aiSettings, { crankleads: company.platformBrand === "crankleads" }).mode,
+    answering: readCallAnsweringSettings(company.aiSettings, { crankleads: isDoneForYou(company.platformBrand) }).mode,
   };
 }
 

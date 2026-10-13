@@ -7,6 +7,7 @@
  *
  * PURE apart from loadImportCompany / importerActiveFor.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db } from "./db-types";
 
@@ -73,7 +74,7 @@ export async function loadImportCompany(admin: AdminClient, organizationId: stri
   const c = data as Record<string, unknown>;
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", organizationId).maybeSingle();
   const platformBrand = str(record(org).platform_brand) ?? "empirevu";
-  const crankleads = platformBrand === "crankleads";
+  const crankleads = isDoneForYou(platformBrand);
   return {
     organizationId,
     companyId,

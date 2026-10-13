@@ -15,6 +15,7 @@
  * `enabled` defaults ON for CrankLeads orgs and OFF for house orgs (A1 etc.). The ring settings
  * only ever matter for a company with a ported business line, so they default on everywhere.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 
 export interface RingSettings {
@@ -138,7 +139,7 @@ export async function loadPortingCompany(admin: AdminClient, scope: { organizati
     businessPhoneKind: c.business_phone_kind,
     businessPhoneCarrier: c.business_phone_carrier,
     platformBrand,
-    settings: readPortingSettings(c.ai_settings, { crankleads: platformBrand === "crankleads" }),
+    settings: readPortingSettings(c.ai_settings, { crankleads: isDoneForYou(platformBrand) }),
     aiSettings: c.ai_settings,
   };
 }
