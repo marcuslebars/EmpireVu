@@ -205,7 +205,7 @@ export function AppDiagnosticsPage() {
                 const keys: Array<{ key: string; value: string }> = [];
                 for (let i = 0; i < localStorage.length; i++) {
                   const key = localStorage.key(i);
-                  if (key && key.startsWith("empirevu")) {
+                  if (key && (key.startsWith("empirevu") || key.startsWith("everdoer"))) {
                     keys.push({ key, value: localStorage.getItem(key) || "" });
                   }
                 }
