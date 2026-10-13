@@ -69,6 +69,8 @@ import { forwardPageUrl } from "@/server/services/dfy/links";
 import { loadOwnerTextBlock } from "@/server/services/dfy/eligibility";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { configuredAppBaseUrlFor, loadOrganizationBrand } from "@/server/services/platform-brand";
+import { noteLegacyUsage } from "@/server/services/rebrand/legacy-usage";
+import { writeNewNames } from "@/server/services/rebrand/write-names";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 type ForwardingTestRow = Tables<"forwarding_tests">;
@@ -82,8 +84,38 @@ export const FORWARDING_TEST_JOB_PROVIDER = "twilio_forwarding_test";
  * forwarded leg of a forwarding test (value: forwarding_tests.id). Not a Twilio parameter —
  * the webhook strips any incoming copy before deciding. The worker trusts it and never
  * re-matches; a payload without it is always handled as a normal missed call.
+ *
+ * Everdoer rebrand: the key is EverdoerForwardingTestId, written only when
+ * EVERDOER_WRITE_NEW_NAMES is on (so a job queued by a new deploy is still read by a rolled-back
+ * one); until then the old EmpireVuForwardingTestId is written. The worker reads both (new
+ * first) and the webhook strips both from what Twilio sent. The key never travels to Twilio: it
+ * is stamped by our webhook AFTER the signature check, into our own inbound_webhook_jobs row.
  */
-export const FORWARDING_TEST_LEG_KEY = "EmpireVuForwardingTestId";
+export const FORWARDING_TEST_LEG_KEY = "EverdoerForwardingTestId";
+// Rebrand shim (remove in PR 8 once legacy_usage shows no payload_key/EmpireVuForwardingTestId for 30 days)
+export const LEGACY_FORWARDING_TEST_LEG_KEY = "EmpireVuForwardingTestId";
+/** Every name of the key; the webhook deletes each from Twilio's params before deciding. */
+export const FORWARDING_TEST_LEG_KEYS = [FORWARDING_TEST_LEG_KEY, LEGACY_FORWARDING_TEST_LEG_KEY] as const;
+
+/** The key name the webhook WRITES (old until EVERDOER_WRITE_NEW_NAMES is on). */
+export function forwardingTestLegKeyForWrite(env: Record<string, string | undefined> = process.env): string {
+  return writeNewNames(env) ? FORWARDING_TEST_LEG_KEY : LEGACY_FORWARDING_TEST_LEG_KEY;
+}
+
+/** The flagged forwarding-test id in a 'twilio_voice' job payload (new key first), or null. */
+export function readForwardingTestLegId(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const record = payload as Record<string, unknown>;
+  const pick = (key: string): string | null => {
+    const value = record[key];
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  };
+  const fresh = pick(FORWARDING_TEST_LEG_KEY);
+  if (fresh) return fresh;
+  const old = pick(LEGACY_FORWARDING_TEST_LEG_KEY);
+  if (old) noteLegacyUsage("payload_key", LEGACY_FORWARDING_TEST_LEG_KEY, null);
+  return old;
+}
 const CATCHER_MODE = "missed_call_catcher";
 const COMPANY_FIELDS = "id, organization_id, name, timezone, brand_reply_phone, owner_phone_e164, owner_email";
 
