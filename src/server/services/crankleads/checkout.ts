@@ -23,6 +23,7 @@ import {
   crankleadsSetupPriceId,
 } from "@/server/services/crankleads/config";
 import { stripeSourceForWrite } from "@/server/services/crankleads/stripe-source";
+import { writeNewNames } from "@/server/services/rebrand/write-names";
 import {
   findPurchaseBySession,
   insertPurchase,
@@ -118,7 +119,7 @@ export function buildCrankleadsSessionParams(
   const setup = crankleadsSetupPriceId(input.tier);
   if (!monthly || !setup) {
     throw new CrankleadsCheckoutUnavailableError(
-      `CrankLeads ${input.tier} prices are not configured (STRIPE_PRICE_CL_* / STRIPE_SETUP_FEE_CL_*).`,
+      `CrankLeads ${input.tier} prices are not configured (STRIPE_PRICE_EVERDOER_* / STRIPE_SETUP_FEE_EVERDOER_*, or the old STRIPE_PRICE_CL_* / STRIPE_SETUP_FEE_CL_*).`,
     );
   }
 
@@ -171,7 +172,8 @@ export function buildCrankleadsSessionParams(
     ...(coupon ? { discounts: [{ coupon }] } : { allow_promotion_codes: false }),
     metadata,
     subscription_data: { metadata },
-    success_url: `${base}/welcome/crankleads?session_id={CHECKOUT_SESSION_ID}`,
+    // Rebrand: the /welcome/everdoer twin exists from PR 1; we link to it only once writers switch.
+    success_url: `${base}/welcome/${writeNewNames() ? "everdoer" : "crankleads"}?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: crankleadsCancelUrl(),
   };
 }
