@@ -18,6 +18,7 @@
  * HST reminders only run for a registrant (default: companies.tax_registration_number is set).
  * Defaults: quarterly, fiscal year ending Dec 31, corporation.
  */
+import { isDoneForYou, PRODUCT_LINE_DB_VALUES } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db, FilerType, HstFrequency } from "./db-types";
 
@@ -174,7 +175,7 @@ interface CompanyRow {
 }
 
 function toCompany(row: CompanyRow, platformBrand: string | null): TaxClerkCompany {
-  const crankleads = platformBrand === "crankleads";
+  const crankleads = isDoneForYou(platformBrand);
   const hstNumber = row.tax_registration_number?.trim() || null;
   return {
     organizationId: row.organization_id,
@@ -238,7 +239,7 @@ async function readAll<T>(make: (from: number, to: number) => PromiseLike<{ data
 export async function loadTaxClerkCompanies(admin: AdminClient): Promise<TaxClerkCompany[]> {
   const db = admin as Db;
   const orgs = await readAll<{ id: string; platform_brand: string | null }>((from, to) =>
-    db.from("organizations").select("id, platform_brand").eq("platform_brand", "crankleads").order("id", { ascending: true }).range(from, to),
+    db.from("organizations").select("id, platform_brand").in("platform_brand", [...PRODUCT_LINE_DB_VALUES.done_for_you]).order("id", { ascending: true }).range(from, to),
   );
   const brands = new Map(orgs.map((o) => [o.id, o.platform_brand]));
   const rows = new Map<string, CompanyRow>();

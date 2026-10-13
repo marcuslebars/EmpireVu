@@ -100,8 +100,8 @@ Traced from the code, not assumed. Legend: ✅ required · ➕ recommended · �
 | `STRIPE_PRICE_LAUNCH` / `_OPERATE` / `_FRONT_DESK` | ✅ | ✅ | ➕ | — |
 | `STRIPE_SETUP_FEE_*` | ○ | — | — | — |
 | `BILLING_PAST_DUE_GRACE_DAYS` (def 7) | ○ | — | — | — |
-| `STRIPE_PRICE_CL_CATCH` / `_CLOSE` / `_FRONT_DESK` | ✅ (CrankLeads) | ✅ (CrankLeads) | ➕ | — |
-| `STRIPE_SETUP_FEE_CL_*`, `STRIPE_COUPON_CL_FOUNDING`, `CRANKLEADS_SITE_ORIGINS`, `CRANKLEADS_CANCEL_URL`, `STRIPE_AUTOMATIC_TAX` | ✅/○ (CrankLeads) | — | — | — |
+| `STRIPE_PRICE_EVERDOER_CATCH` / `_CLOSE` / `_FRONT_DESK` (old `STRIPE_PRICE_CL_*` still read for one release) | ✅ (CrankLeads) | ✅ (CrankLeads) | ➕ | — |
+| `STRIPE_SETUP_FEE_EVERDOER_*`, `STRIPE_COUPON_EVERDOER_FOUNDING`, `EVERDOER_SITE_ORIGINS`, `EVERDOER_CANCEL_URL` (old `STRIPE_SETUP_FEE_CL_*` / `STRIPE_COUPON_CL_FOUNDING` / `CRANKLEADS_*` names still read for one release), `STRIPE_AUTOMATIC_TAX` | ✅/○ (CrankLeads) | — | — | — |
 | `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`, `OWNER_EMAIL`, `TWILIO_*` | ✅ | ✅ (CrankLeads provisioning) | — | ✅ |
 | `BILLING_EVENT_WORKER_ID` / `_BATCH_SIZE` / `_POLL_MS` / `_STALE_AFTER_SECONDS` | — | ○ | — | — |
 | `NEXT_PUBLIC_SUPABASE_URL` | ✅ | ✅ | ✅ | ✅ |

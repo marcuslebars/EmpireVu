@@ -11,6 +11,7 @@
  * The role only works for a company once it has an active plan (servicePlansActiveFor): until
  * the owner creates one, nothing is offered to the SMS agent or the owner agent.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db } from "./db-types";
 
@@ -110,7 +111,7 @@ interface CompanyRow {
 }
 
 export function toPlanCompany(row: CompanyRow, platformBrand: string | null): PlanCompany {
-  const crankleads = platformBrand === "crankleads";
+  const crankleads = isDoneForYou(platformBrand);
   return {
     organizationId: row.organization_id,
     companyId: row.id,

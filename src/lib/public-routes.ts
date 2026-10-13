@@ -1,3 +1,5 @@
+import { POST_AUTH_PATH_KEY, takeKey, writeKey } from "@/lib/storage-keys";
+
 /**
  * Routes a signed-out visitor is SUPPOSED to reach.
  *
@@ -19,6 +21,7 @@ const PUBLIC_PATHS: RegExp[] = [
   /^\/f\//, // hosted website lead form (also the /embed/v1.js iframe)
   /^\/invite\//, // team invitation, which prompts sign-in itself when needed
   /^\/welcome\/crankleads\/?$/, // CrankLeads purchase landing — the buyer has no session yet
+  /^\/welcome\/everdoer\/?$/, // the same landing under its Everdoer alias
   /^\/setup\/[^/]+\/?$/, // done-for-you quick setup (texted after purchase) — no login
   /^\/import\/[^/]+\/?$/, // customer import from the owner's texted link — no login
   /^\/forward\//, // done-for-you one-tap call forwarding (from the owner's "last step" text)
@@ -43,7 +46,7 @@ export function safeNextPath(value: string | null): string | null {
   return value;
 }
 
-const POST_AUTH_KEY = "empirevu_post_auth_path";
+// everdoer_post_auth_path, old empirevu_post_auth_path still read (src/lib/storage-keys.ts).
 
 /**
  * Remember where a signed-out visitor was going (e.g. a setup reminder's
@@ -53,21 +56,12 @@ const POST_AUTH_KEY = "empirevu_post_auth_path";
 export function rememberPostAuthPath(path: string): void {
   const safe = safeNextPath(path);
   if (!safe || typeof window === "undefined") return;
-  try {
-    window.sessionStorage.setItem(POST_AUTH_KEY, safe);
-  } catch {
-    /* storage unavailable — the user just lands on the dashboard */
-  }
+  // Storage unavailable is fine: the user just lands on the dashboard.
+  writeKey(POST_AUTH_PATH_KEY, safe, "session");
 }
 
 /** The remembered path (once — it is cleared), or null. */
 export function takePostAuthPath(): string | null {
   if (typeof window === "undefined") return null;
-  try {
-    const value = window.sessionStorage.getItem(POST_AUTH_KEY);
-    window.sessionStorage.removeItem(POST_AUTH_KEY);
-    return safeNextPath(value);
-  } catch {
-    return null;
-  }
+  return safeNextPath(takeKey(POST_AUTH_PATH_KEY, "session"));
 }

@@ -27,7 +27,7 @@ import { forwardingText } from "./format";
 import { fetchContent } from "./intake";
 import { loadInboxById } from "./inboxes";
 import { clean, firstAsk, normalizeAddress, poNumbersIn } from "./parse";
-import { emailClerkOn, inboundConfigured, inboundDomain, loadEmailClerkCompany, type EmailClerkCompany } from "./settings";
+import { emailClerkOn, inboundConfigured, inboundDomain, inboundDomains, loadEmailClerkCompany, type EmailClerkCompany } from "./settings";
 import { attachmentPathFor, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS, normalizeAttachmentType } from "./storage";
 import { localDateOf } from "./time";
 
@@ -98,7 +98,7 @@ async function classifyContext(admin: AdminClient, company: EmailClerkCompany, r
   const known = row.from_address ? Boolean(await findContactByEmail(admin, company, row.from_address)) : false;
   // Our sending address (outbound/email.ts readEmailConfig's), to spot our own mail looping back.
   const outbound = process.env.OUTBOUND_FROM_EMAIL || process.env.LEAD_FROM_EMAIL || null;
-  return { inboxAddress: inbox.address, inboundDomain: inboundDomain(), outboundFrom: outbound, ownerEmail: company.ownerEmail, forwardedFrom: inbox.forwarded_from, suppliers, purchaseOrders, knownContact: known };
+  return { inboxAddress: inbox.address, inboundDomain: inboundDomain(), inboundDomains: inboundDomains(), outboundFrom: outbound, ownerEmail: company.ownerEmail, forwardedFrom: inbox.forwarded_from, suppliers, purchaseOrders, knownContact: known };
 }
 
 interface Decided {
@@ -251,9 +251,10 @@ function addressesIn(raw: string | null | undefined): string[] {
 export function forwardedVia(
   row: Pick<InboundEmailRow, "to_addresses" | "cc_addresses" | "headers">,
   inbox: Pick<EmailInboxRow, "address" | "forwarded_from">,
-  ourDomain: string | null,
+  ourDomain: string | null | readonly string[],
 ): { from: string | null } | null {
-  const ours = (a: string) => a === inbox.address || Boolean(ourDomain && a.endsWith(`@${ourDomain}`));
+  const domains = typeof ourDomain === "string" ? [ourDomain] : ourDomain ?? [];
+  const ours = (a: string) => a === inbox.address || domains.some((d) => a.endsWith(`@${d}`));
   const recipients = [...(row.to_addresses ?? []), ...(row.cc_addresses ?? [])].map((a) => normalizeAddress(a)).filter((a): a is string => Boolean(a));
   const h = row.headers ?? {};
   const envelope = [h["x-forwarded-for"], h["x-forwarded-to"], h["x-original-to"], h["delivered-to"]].flatMap(addressesIn).filter((a) => !ours(a));
@@ -309,7 +310,7 @@ export async function processEmail(admin: AdminClient, company: EmailClerkCompan
 
   // Real mail that came through the owner's forwarding: forwarding works.
   if (!inbox.forwarding_confirmed_at && row.category && !NOT_FORWARD_EVIDENCE.includes(row.category)) {
-    const via = forwardedVia(row, inbox, inboundDomain());
+    const via = forwardedVia(row, inbox, inboundDomains());
     if (via) {
       await db
         .from("email_inboxes")

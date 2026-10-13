@@ -10,6 +10,7 @@
  * that is NOT in tierAllowedRecipeSlugs(tier, pack recipes) is set to draft. Custom workflows
  * (slugs not in the recipe catalog) are never touched; allowed ones are never turned on here.
  */
+import { PRODUCT_LINE_DB_VALUES } from "@/lib/product-line";
 import type { Tables } from "@/server/db/database.types";
 import { tierAllowedRecipeSlugs, type CrankleadsTier } from "@/server/services/crankleads/config";
 import { getPack } from "@/server/services/packs";
@@ -106,7 +107,7 @@ export async function repairTierAutomations(
     const { data, error } = await admin
       .from("organizations")
       .select("id, crankleads_tier")
-      .eq("platform_brand", "crankleads")
+      .in("platform_brand", [...PRODUCT_LINE_DB_VALUES.done_for_you])
       .not("crankleads_tier", "is", null)
       .order("id", { ascending: true })
       .range(page * pageSize, page * pageSize + pageSize - 1);

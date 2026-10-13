@@ -12,6 +12,7 @@ import { randomBytes } from "node:crypto";
 import type { Tables } from "@/server/db/database.types";
 import { sendEmail as defaultSendEmail, type SendEmailInput, type SendEmailResult } from "@/server/outbound/email";
 import { isCrankleadsTier, type CrankleadsTier } from "@/server/services/crankleads/config";
+import { publicDoneForYouApiPrefix } from "@/server/services/rebrand/route-alias";
 import {
   renderLiveEmail,
   renderLiveSms,
@@ -101,9 +102,13 @@ function errorMessage(err: unknown): string {
   return String(err);
 }
 
-/** The public "stop these reminders" link for a purchase's token. */
+/**
+ * The public "stop these reminders" link for a purchase's token. The old
+ * /api/public/crankleads/ path until EVERDOER_WRITE_NEW_NAMES is on, then the
+ * /api/public/everdoer/ alias (both answer; old links keep working).
+ */
 export function stopRemindersUrl(base: string, token: string): string {
-  return `${base}/api/public/crankleads/setup-reminders?token=${encodeURIComponent(token)}`;
+  return `${base}${publicDoneForYouApiPrefix()}setup-reminders?token=${encodeURIComponent(token)}`;
 }
 
 // ── Loading ──────────────────────────────────────────────────────────────────

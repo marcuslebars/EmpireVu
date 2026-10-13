@@ -14,6 +14,8 @@
  * base URL per brand, from env) live in src/server/services/platform-brand.ts.
  */
 
+import { productLineForOrg } from "./product-line";
+
 export const PLATFORM_BRAND_KEYS = ["empirevu", "crankleads"] as const;
 export type PlatformBrandKey = (typeof PLATFORM_BRAND_KEYS)[number];
 
@@ -124,20 +126,19 @@ export function platformBrand(key: unknown): PlatformBrand {
  * select) is still CrankLeads, so a buyer never sees "EmpireVu".
  */
 export function brandForOrg(
-  org: { platform_brand?: string | null; crankleads_tier?: string | null } | null | undefined,
+  org: Parameters<typeof productLineForOrg>[0],
 ): PlatformBrand {
-  if (!org) return PLATFORM_BRANDS[DEFAULT_PLATFORM_BRAND];
-  if (isPlatformBrandKey(org.platform_brand) && org.platform_brand !== DEFAULT_PLATFORM_BRAND) {
-    return PLATFORM_BRANDS[org.platform_brand];
-  }
-  if (org.crankleads_tier) return PLATFORM_BRANDS.crankleads;
-  return platformBrand(org.platform_brand);
+  // Product-line shim (src/lib/product-line.ts): the stored value may be old ('crankleads' /
+  // 'empirevu') or the Phase 3 value ('done_for_you' / 'standard').
+  return productLineForOrg(org) === "done_for_you" ? PLATFORM_BRANDS.crankleads : PLATFORM_BRANDS[DEFAULT_PLATFORM_BRAND];
 }
 
 /**
  * The brand for a hostname BEFORE anyone signs in (sign-in, sign-up, password reset):
  * app.crankleads.com, any *.crankleads.com and crankleads.localhost (local dev) → CrankLeads;
- * everything else → EmpireVu.
+ * everdoer.com, any *.everdoer.com and everdoer.localhost also → CrankLeads (the lime brand)
+ * until PR 2 replaces both brands with Everdoer; everything else → EmpireVu.
+ * Keep in sync with the inline host script in index.html (src/test/rebrand-brand-host.test.ts).
  */
 export function brandForHost(hostname: string | null | undefined): PlatformBrand {
   const host = (hostname ?? "").trim().toLowerCase().replace(/\.$/, "").replace(/:\d+$/, "");
@@ -145,7 +146,11 @@ export function brandForHost(hostname: string | null | undefined): PlatformBrand
     host === "crankleads.com" ||
     host.endsWith(".crankleads.com") ||
     host === "crankleads.localhost" ||
-    host.endsWith(".crankleads.localhost")
+    host.endsWith(".crankleads.localhost") ||
+    host === "everdoer.com" ||
+    host.endsWith(".everdoer.com") ||
+    host === "everdoer.localhost" ||
+    host.endsWith(".everdoer.localhost")
   ) {
     return PLATFORM_BRANDS.crankleads;
   }

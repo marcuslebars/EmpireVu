@@ -2,6 +2,7 @@
  * The companies the Dispatcher works for, with their settings resolved (one batch read per
  * sweep). Service role; every later query is scoped by organization_id + company_id.
  */
+import { isDoneForYou, PRODUCT_LINE_DB_VALUES } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { quotePublicBaseUrlFor } from "@/server/services/quotes/config";
 import type { Db } from "./db-types";
@@ -71,14 +72,14 @@ async function build(admin: AdminClient, rows: CompanyRow[]): Promise<DispatchCo
   const orgs = await selectIn<{ id: string; platform_brand: string | null }>(admin, "organizations", "id, platform_brand", "id", orgIds);
   const brandOf = new Map(orgs.map((o) => [o.id, o.platform_brand ?? "empirevu"]));
   // The CrankLeads business type is only a hint for companies without an industry pack.
-  const needType = rows.filter((r) => brandOf.get(r.organization_id) === "crankleads" && !r.industry_pack).map((r) => r.id);
+  const needType = rows.filter((r) => isDoneForYou(brandOf.get(r.organization_id)) && !r.industry_pack).map((r) => r.id);
   const purchases = needType.length
     ? await selectIn<{ company_id: string | null; business_type: string | null }>(admin, "crankleads_purchases", "company_id, business_type", "company_id", needType).catch(() => [])
     : [];
   const typeOf = new Map(purchases.map((p) => [p.company_id, p.business_type]));
   return rows.map((r) => {
     const platformBrand = brandOf.get(r.organization_id) ?? "empirevu";
-    const crankleads = platformBrand === "crankleads";
+    const crankleads = isDoneForYou(platformBrand);
     return {
       organizationId: r.organization_id,
       companyId: r.id,
@@ -120,7 +121,7 @@ async function pageAll<T>(fetchPage: (from: number, to: number) => PromiseLike<{
  */
 export async function loadDispatchCompanies(admin: AdminClient): Promise<DispatchCompany[]> {
   const db = admin as Db;
-  const orgs = await pageAll<{ id: string }>((from, to) => db.from("organizations").select("id").eq("platform_brand", "crankleads").order("id", { ascending: true }).range(from, to));
+  const orgs = await pageAll<{ id: string }>((from, to) => db.from("organizations").select("id").in("platform_brand", [...PRODUCT_LINE_DB_VALUES.done_for_you]).order("id", { ascending: true }).range(from, to));
   const rows = new Map<string, CompanyRow>();
   const orgIds = orgs.map((o) => o.id);
   for (let i = 0; i < orgIds.length; i += 150) {

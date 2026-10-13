@@ -11,6 +11,7 @@
  * rebrands the app.
  */
 import type { PurchasablePlan } from "@/server/services/billing/config";
+import { envWithFallback } from "@/server/services/rebrand/legacy-usage";
 
 export const CRANKLEADS_TIERS = ["catch", "close", "front_desk"] as const;
 export type CrankleadsTier = (typeof CRANKLEADS_TIERS)[number];
@@ -44,21 +45,43 @@ export const CRANKLEADS_SOURCE = "crankleads";
 
 // ── Stripe price ids (env only) ───────────────────────────────────────────────
 
-const MONTHLY_PRICE_ENV: Record<CrankleadsTier, string> = {
-  catch: "STRIPE_PRICE_CL_CATCH",
-  close: "STRIPE_PRICE_CL_CLOSE",
-  front_desk: "STRIPE_PRICE_CL_FRONT_DESK",
+/**
+ * Everdoer rebrand: each setting is read by its new name first (STRIPE_*_EVERDOER_*,
+ * EVERDOER_*), then the old STRIPE_*_CL_* / CRANKLEADS_* name (counted once per process as kind
+ * "env"). `npm run stripe:setup-crankleads` still prints the old names in PR 1.
+ */
+export const ENV_RENAMES = {
+  STRIPE_PRICE_EVERDOER_CATCH: ["STRIPE_PRICE_CL_CATCH"],
+  STRIPE_PRICE_EVERDOER_CLOSE: ["STRIPE_PRICE_CL_CLOSE"],
+  STRIPE_PRICE_EVERDOER_FRONT_DESK: ["STRIPE_PRICE_CL_FRONT_DESK"],
+  STRIPE_SETUP_FEE_EVERDOER_CATCH: ["STRIPE_SETUP_FEE_CL_CATCH"],
+  STRIPE_SETUP_FEE_EVERDOER_CLOSE: ["STRIPE_SETUP_FEE_CL_CLOSE"],
+  STRIPE_SETUP_FEE_EVERDOER_FRONT_DESK: ["STRIPE_SETUP_FEE_CL_FRONT_DESK"],
+  STRIPE_COUPON_EVERDOER_FOUNDING: ["STRIPE_COUPON_CL_FOUNDING"],
+  EVERDOER_SITE_ORIGINS: ["CRANKLEADS_SITE_ORIGINS"],
+  EVERDOER_CANCEL_URL: ["CRANKLEADS_CANCEL_URL"],
+  EVERDOER_CHECKOUT_DISPLAY_NAME: ["CRANKLEADS_CHECKOUT_DISPLAY_NAME"],
+  EVERDOER_CHECKOUT_LOGO_URL: ["CRANKLEADS_CHECKOUT_LOGO_URL"],
+  EVERDOER_CHECKOUT_BACKGROUND_COLOR: ["CRANKLEADS_CHECKOUT_BACKGROUND_COLOR"],
+  EVERDOER_CHECKOUT_BUTTON_COLOR: ["CRANKLEADS_CHECKOUT_BUTTON_COLOR"],
+} as const satisfies Record<string, readonly string[]>;
+type RenamedEnv = keyof typeof ENV_RENAMES;
+
+const MONTHLY_PRICE_ENV: Record<CrankleadsTier, RenamedEnv> = {
+  catch: "STRIPE_PRICE_EVERDOER_CATCH",
+  close: "STRIPE_PRICE_EVERDOER_CLOSE",
+  front_desk: "STRIPE_PRICE_EVERDOER_FRONT_DESK",
 };
 
-const SETUP_PRICE_ENV: Record<CrankleadsTier, string> = {
-  catch: "STRIPE_SETUP_FEE_CL_CATCH",
-  close: "STRIPE_SETUP_FEE_CL_CLOSE",
-  front_desk: "STRIPE_SETUP_FEE_CL_FRONT_DESK",
+const SETUP_PRICE_ENV: Record<CrankleadsTier, RenamedEnv> = {
+  catch: "STRIPE_SETUP_FEE_EVERDOER_CATCH",
+  close: "STRIPE_SETUP_FEE_EVERDOER_CLOSE",
+  front_desk: "STRIPE_SETUP_FEE_EVERDOER_FRONT_DESK",
 };
 
-function envValue(name: string): string | null {
-  const value = process.env[name]?.trim();
-  return value ? value : null;
+function envValue(name: RenamedEnv): string | null {
+  // Rebrand shim (remove in PR 8 once legacy_usage shows no env/<old name> for 30 days)
+  return envWithFallback(name, ENV_RENAMES[name]) ?? null;
 }
 
 /** The tier's recurring monthly Price id, or null when its env var is unset. */
@@ -73,7 +96,7 @@ export function crankleadsSetupPriceId(tier: CrankleadsTier): string | null {
 
 /** Optional founding-client coupon id (applies to the setup fee only — see the setup script). */
 export function crankleadsFoundingCouponId(): string | null {
-  return envValue("STRIPE_COUPON_CL_FOUNDING");
+  return envValue("STRIPE_COUPON_EVERDOER_FOUNDING");
 }
 
 /** Reverse map: a CrankLeads monthly Price id → its tier, or null. */
@@ -93,12 +116,16 @@ export function crankleadsPlanForPriceId(priceId: string | null | undefined): Pu
 
 // ── Public site + checkout settings ───────────────────────────────────────────
 
-const DEFAULT_SITE_ORIGINS = "https://crankleads.com,https://www.crankleads.com";
+const DEFAULT_SITE_ORIGINS = "https://crankleads.com,https://www.crankleads.com,https://everdoer.com,https://www.everdoer.com";
 const DEFAULT_CANCEL_URL = "https://crankleads.com/#pricing";
 
-/** Origins allowed to call the public checkout endpoint (CORS). Env CRANKLEADS_SITE_ORIGINS. */
+/**
+ * Origins allowed to call the public checkout endpoint (CORS). Env EVERDOER_SITE_ORIGINS (old
+ * name CRANKLEADS_SITE_ORIGINS still read for one release). The default includes everdoer.com
+ * and www.everdoer.com alongside today's crankleads.com origins.
+ */
 export function crankleadsSiteOrigins(): Set<string> {
-  const raw = process.env.CRANKLEADS_SITE_ORIGINS?.trim() || DEFAULT_SITE_ORIGINS;
+  const raw = envValue("EVERDOER_SITE_ORIGINS") || DEFAULT_SITE_ORIGINS;
   return new Set(
     raw
       .split(",")
@@ -108,7 +135,7 @@ export function crankleadsSiteOrigins(): Set<string> {
 }
 
 export function crankleadsCancelUrl(): string {
-  return process.env.CRANKLEADS_CANCEL_URL?.trim() || DEFAULT_CANCEL_URL;
+  return envValue("EVERDOER_CANCEL_URL") || DEFAULT_CANCEL_URL;
 }
 
 /** Stripe Tax on the Checkout Session — OFF unless STRIPE_AUTOMATIC_TAX=true (HST is a manual follow-up). */
@@ -140,22 +167,22 @@ const DEFAULT_CHECKOUT_BUTTON = "#a6ee2b";
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
-function hexOr(name: string, fallback: string): string {
+function hexOr(name: RenamedEnv, fallback: string): string {
   const value = envValue(name);
   return value && HEX_COLOR.test(value) ? value : fallback;
 }
 
-function httpsUrlOr(name: string, fallback: string): string {
+function httpsUrlOr(name: RenamedEnv, fallback: string): string {
   const value = envValue(name);
   return value && value.startsWith("https://") ? value : fallback;
 }
 
 export function crankleadsCheckoutBranding(): CrankleadsCheckoutBranding {
   return {
-    displayName: envValue("CRANKLEADS_CHECKOUT_DISPLAY_NAME") ?? DEFAULT_CHECKOUT_DISPLAY_NAME,
-    logoUrl: httpsUrlOr("CRANKLEADS_CHECKOUT_LOGO_URL", DEFAULT_CHECKOUT_LOGO_URL),
-    backgroundColor: hexOr("CRANKLEADS_CHECKOUT_BACKGROUND_COLOR", DEFAULT_CHECKOUT_BACKGROUND),
-    buttonColor: hexOr("CRANKLEADS_CHECKOUT_BUTTON_COLOR", DEFAULT_CHECKOUT_BUTTON),
+    displayName: envValue("EVERDOER_CHECKOUT_DISPLAY_NAME") ?? DEFAULT_CHECKOUT_DISPLAY_NAME,
+    logoUrl: httpsUrlOr("EVERDOER_CHECKOUT_LOGO_URL", DEFAULT_CHECKOUT_LOGO_URL),
+    backgroundColor: hexOr("EVERDOER_CHECKOUT_BACKGROUND_COLOR", DEFAULT_CHECKOUT_BACKGROUND),
+    buttonColor: hexOr("EVERDOER_CHECKOUT_BUTTON_COLOR", DEFAULT_CHECKOUT_BUTTON),
   };
 }
 

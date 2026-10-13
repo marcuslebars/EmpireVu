@@ -11,6 +11,7 @@
  *
  * PURE apart from the loaders at the bottom.
  */
+import { isDoneForYou, PRODUCT_LINE_DB_VALUES } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { chunks, isCrankleadsOrg, readAllPages } from "@/server/services/staff/bookkeeper/settings";
 import { localParts } from "@/server/services/staff/bookkeeper/format";
@@ -173,7 +174,7 @@ function text(v: unknown): string | null {
 }
 
 export function toBriefingCompany(row: BriefingCompanyRow, platformBrand: string): BriefingCompany {
-  const crankleads = platformBrand === "crankleads";
+  const crankleads = isDoneForYou(platformBrand);
   return {
     organizationId: row.organization_id,
     companyId: row.id,
@@ -207,7 +208,7 @@ export async function loadBriefingCompany(admin: AdminClient, organizationId: st
  */
 export async function loadBriefingCompanies(admin: AdminClient): Promise<BriefingCompany[]> {
   const db = admin as Db;
-  const orgs = await readAllPages<{ id: string }>((from, to) => db.from("organizations").select("id").eq("platform_brand", "crankleads").order("id", { ascending: true }).range(from, to));
+  const orgs = await readAllPages<{ id: string }>((from, to) => db.from("organizations").select("id").in("platform_brand", [...PRODUCT_LINE_DB_VALUES.done_for_you]).order("id", { ascending: true }).range(from, to));
   const crankOrgs = new Set(orgs.map((o) => o.id));
   const rows = new Map<string, BriefingCompanyRow>();
   for (const ids of chunks([...crankOrgs])) {

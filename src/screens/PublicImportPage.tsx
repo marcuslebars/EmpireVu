@@ -1,3 +1,4 @@
+import { isDoneForYou } from "@/lib/product-line";
 import { useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -17,7 +18,7 @@ export default function PublicImportPage() {
   const { token = "" } = useParams<{ token: string }>();
   const queryKeyBase = useMemo(() => ["public-import", token], [token]);
   const { data, isLoading, error } = useQuery({ queryKey: queryKeyBase, queryFn: () => fetchPublicImport(token), retry: false });
-  const brandKey = data?.platformBrand === "crankleads" ? "crankleads" : data ? "empirevu" : null;
+  const brandKey = isDoneForYou(data?.platformBrand) ? "crankleads" : data ? "empirevu" : null;
   const brand = PLATFORM_BRANDS[brandKey ?? "crankleads"];
   useBrandOverride(brandKey);
   useDocumentTitle(`Import customers — ${brand.name}`);

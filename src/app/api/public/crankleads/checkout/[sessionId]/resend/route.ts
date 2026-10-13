@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { isCheckoutSessionId } from "@/server/services/crankleads/checkout";
 import { resendWelcomeEmail } from "@/server/services/crankleads/provision";
 import { enforceRateLimit, trustedClientIp } from "@/server/services/rate-limit";
+import { noteLegacyRoute } from "@/server/services/rebrand/route-alias";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ interface RouteContext {
  * supplied here. Rate-limited per session (3/hour) and per IP.
  */
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
+  noteLegacyRoute(request, "checkout/[sessionId]/resend");
   const headers = { "Cache-Control": "no-store" };
   const sessionId = context.params.sessionId;
   if (!isCheckoutSessionId(sessionId)) {

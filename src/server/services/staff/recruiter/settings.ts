@@ -14,6 +14,7 @@
  * are always the 1st–15th and 16th–end of month. The CSV goes to `csv_email`, else the org
  * owner's email.
  */
+import { isDoneForYou, PRODUCT_LINE_DB_VALUES } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db, PayFrequency } from "./db-types";
 
@@ -103,7 +104,7 @@ export function mergeRecruiterSettings(aiSettings: unknown, patch: RecruiterSett
 
 /** organizations row → CrankLeads? PURE. */
 export function isCrankleadsOrg(org: unknown): boolean {
-  return record(org).platform_brand === "crankleads";
+  return isDoneForYou(record(org).platform_brand);
 }
 
 export function zoneOf(timeZone: string | null | undefined): string {
@@ -146,7 +147,7 @@ interface CompanyRow {
 }
 
 function toCompany(row: CompanyRow, platformBrand: string | null): RecruiterCompany {
-  const crankleads = platformBrand === "crankleads";
+  const crankleads = isDoneForYou(platformBrand);
   return {
     organizationId: row.organization_id,
     companyId: row.id,
@@ -201,7 +202,7 @@ async function readAll<T>(make: (from: number, to: number) => PromiseLike<{ data
 export async function loadRecruiterCompanies(admin: AdminClient): Promise<RecruiterCompany[]> {
   const db = admin as Db;
   const orgs = await readAll<{ id: string; platform_brand: string | null }>((from, to) =>
-    db.from("organizations").select("id, platform_brand").eq("platform_brand", "crankleads").order("id", { ascending: true }).range(from, to),
+    db.from("organizations").select("id, platform_brand").in("platform_brand", [...PRODUCT_LINE_DB_VALUES.done_for_you]).order("id", { ascending: true }).range(from, to),
   );
   const brands = new Map(orgs.map((o) => [o.id, o.platform_brand]));
   const rows = new Map<string, CompanyRow>();

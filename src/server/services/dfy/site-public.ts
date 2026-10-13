@@ -5,6 +5,7 @@
 // active form key (publishable by design) and its booking link when online booking is on.
 // docs/done-for-you.md → "Generated sites".
 // ─────────────────────────────────────────────────────────────────────────────
+import { isDoneForYou } from "@/lib/product-line";
 import { createHash } from "node:crypto";
 
 import type { Tables } from "@/server/db/database.types";
@@ -58,7 +59,7 @@ export async function siteRuntime(
     formKey,
     bookingUrl,
     turnstileSiteKey: turnstileSiteKey(),
-    creditUrl: content.facts.brand === "crankleads" ? CRANKLEADS_SITE_CREDIT_URL : null,
+    creditUrl: isDoneForYou(content.facts.brand) ? CRANKLEADS_SITE_CREDIT_URL : null,
   };
 }
 

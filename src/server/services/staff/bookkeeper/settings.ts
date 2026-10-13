@@ -12,6 +12,7 @@
  *
  * PURE apart from loadCollectionsSettings.
  */
+import { isDoneForYou, PRODUCT_LINE_DB_VALUES } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db } from "./db-types";
 
@@ -98,7 +99,7 @@ export async function loadCollectionsSettings(admin: AdminClient, organizationId
 
 /** organizations row → CrankLeads? (platform_brand 'crankleads', like the front desk's readers). PURE. */
 export function isCrankleadsOrg(org: unknown): boolean {
-  return record(org).platform_brand === "crankleads";
+  return isDoneForYou(record(org).platform_brand);
 }
 
 /** True when the Bookkeeper is on for this company (for gating its tools and prompt notes). Never throws. */
@@ -150,7 +151,7 @@ export interface ActiveCompany {
 export async function loadActiveCompanies(admin: AdminClient): Promise<ActiveCompany[]> {
   const db = admin as Db;
   const columns = "id, organization_id, timezone, ai_settings";
-  const orgs = await readAllPages<{ id: string }>((from, to) => db.from("organizations").select("id").eq("platform_brand", "crankleads").order("id", { ascending: true }).range(from, to));
+  const orgs = await readAllPages<{ id: string }>((from, to) => db.from("organizations").select("id").in("platform_brand", [...PRODUCT_LINE_DB_VALUES.done_for_you]).order("id", { ascending: true }).range(from, to));
   const crankOrgs = new Set(orgs.map((o) => o.id));
   const rows = new Map<string, { id: string; organization_id: string; timezone: string | null; ai_settings: unknown }>();
   for (const ids of chunks([...crankOrgs])) {

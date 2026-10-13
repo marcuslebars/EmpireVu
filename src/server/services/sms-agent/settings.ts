@@ -11,6 +11,7 @@
  * Caps (env): SMS_AGENT_MAX_REPLIES_PER_CONVERSATION_DAY (25) and SMS_AGENT_MAX_REPLIES_PER_COMPANY_DAY
  * (300) — past either, the conversation is handed to the owner.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 
 export type SmsAgentAutonomy = "standard" | "ask_first" | "off";
@@ -66,7 +67,7 @@ export async function loadSmsAgentSettings(
     .select("platform_brand")
     .eq("id", row.organization_id)
     .maybeSingle();
-  const crankleads = (org as { platform_brand: string | null } | null)?.platform_brand === "crankleads";
+  const crankleads = isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand);
   return { ...readSmsAgentSettings(row.ai_settings, { crankleads }), organizationId: row.organization_id, companyId: row.id, crankleads };
 }
 

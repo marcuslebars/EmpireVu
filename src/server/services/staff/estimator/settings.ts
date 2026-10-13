@@ -8,6 +8,7 @@
  *   cadence_days — days after the quote was sent for each nudge (1–3 nudges, ascending, 1–30).
  *                  Default [2, 5, 10]; the last one offers a call or the booking link.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -90,7 +91,7 @@ export async function loadEstimatorSettings(admin: AdminClient, companyId: strin
   const row = company as { id: string; organization_id: string; ai_settings: unknown } | null;
   if (!row) return null;
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", row.organization_id).maybeSingle();
-  const crankleads = (org as { platform_brand: string | null } | null)?.platform_brand === "crankleads";
+  const crankleads = isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand);
   return { ...readEstimatorSettings(row.ai_settings, { crankleads }), organizationId: row.organization_id, companyId: row.id, crankleads };
 }
 

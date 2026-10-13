@@ -8,6 +8,7 @@
  *
  * One text per booking (dispatch_messages unique key = booking id).
  */
+import { isDoneForYou } from "@/lib/product-line";
 import type { Json, Tables } from "@/server/db/database.types";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { DispatchCompany } from "./company";
@@ -66,7 +67,7 @@ export async function dispatcherOnOurWayActive(db: AdminClient, scope: { organiz
     if (!company) return false;
     const { data: org } = await (db as Db).from("organizations").select("platform_brand").eq("id", scope.organizationId).maybeSingle();
     const c = company as { name: string; ai_settings: unknown; industry_pack: unknown };
-    const settings = readDispatchSettings(c.ai_settings, { crankleads: (org as { platform_brand?: string | null } | null)?.platform_brand === "crankleads", industryPack: c.industry_pack, hints: [c.name] });
+    const settings = readDispatchSettings(c.ai_settings, { crankleads: isDoneForYou((org as { platform_brand?: string | null } | null)?.platform_brand), industryPack: c.industry_pack, hints: [c.name] });
     return settings.onOurWay.enabled && !(await enRouteAutomationActive(db, scope));
   } catch {
     return false;

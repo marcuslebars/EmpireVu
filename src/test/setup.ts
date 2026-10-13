@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom";
 
-Object.defineProperty(window, "matchMedia", {
+// Guarded so a test file can opt into `// @vitest-environment node` (e.g. the Edge middleware).
+if (typeof window !== "undefined") Object.defineProperty(window, "matchMedia", {
   writable: true,
   value: (query: string) => ({
     matches: false,

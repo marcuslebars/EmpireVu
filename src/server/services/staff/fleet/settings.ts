@@ -10,6 +10,7 @@
  * `enabled` defaults ON for CrankLeads orgs (inert until a vehicle, machine or rental is added) and
  * OFF for house orgs (A1 etc.). `reminders` defaults on and only matters while `enabled`.
  */
+import { isDoneForYou } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import type { Db } from "./db-types";
 
@@ -102,7 +103,7 @@ function toCompany(row: CompanyRow, platformBrand: string | null): FleetCompany 
     platformBrand,
     ownerPhone: row.owner_phone_verified_at && row.owner_phone_e164?.trim() ? row.owner_phone_e164.trim() : null,
     active: !row.stage || !["archived", "paused", "cancelled"].includes(row.stage),
-    settings: readFleetSettings(row.ai_settings, { crankleads: platformBrand === "crankleads" }),
+    settings: readFleetSettings(row.ai_settings, { crankleads: isDoneForYou(platformBrand) }),
   };
 }
 

@@ -492,7 +492,7 @@ pass), `src/test/concierge.test.ts`.
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` *(existing)* | web, worker, billing-worker | Numbers, owner texts (from `TWILIO_FROM_NUMBER`), forwarding tests. |
 | `RETELL_API_KEY` *(existing)* | web, worker, billing-worker | Front Desk numbers + prompt re-push. |
 | `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL` *(existing)* | web, worker, billing-worker | Owner + operator emails. |
-| `APP_BASE_URL`, `CRANKLEADS_APP_BASE_URL` *(existing)* | all | Operator links (`/concierge/…`) / buyer links (`/setup`, `/forward`, `/s`). |
+| `APP_BASE_URL`, `EVERDOER_APP_BASE_URL` *(old name `CRANKLEADS_APP_BASE_URL` still read for one release)* | all | Operator links (`/concierge/…`) / buyer links (`/setup`, `/forward`, `/s`). |
 | `OWNER_EMAIL`, `BUSINESS_TIMEZONE` *(existing)* | worker, billing-worker | Operator emails (24 h escalation, number flagged, "have us set it up") and their hours. |
 
 `COMPANY_SITE_BASE_URL` is gone — page links come only from `PAGES_BASE_URL` (via `siteUrl`).

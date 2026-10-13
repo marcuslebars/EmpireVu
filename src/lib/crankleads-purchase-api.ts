@@ -19,6 +19,15 @@ export interface PurchaseStatusView {
   emailMasked: string;
 }
 
+/**
+ * The public API prefix: the Everdoer alias when the page itself is the Everdoer alias
+ * (/welcome/everdoer, which Stripe's success URL only names once EVERDOER_WRITE_NEW_NAMES is
+ * on), else the original path. Both answer the same; the old one is counted server-side.
+ */
+export function purchaseApiPrefix(pathname: string = typeof window === "undefined" ? "" : window.location.pathname): string {
+  return pathname.startsWith("/welcome/everdoer") ? "/api/public/everdoer" : "/api/public/crankleads";
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(resolveApiUrl(path), {
     ...init,
@@ -36,11 +45,11 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function fetchPurchaseStatus(sessionId: string): Promise<PurchaseStatusView> {
-  return call<PurchaseStatusView>(`/api/public/crankleads/checkout/${encodeURIComponent(sessionId)}`);
+  return call<PurchaseStatusView>(`${purchaseApiPrefix()}/checkout/${encodeURIComponent(sessionId)}`);
 }
 
 export function resendPurchaseEmail(sessionId: string): Promise<{ sent: boolean }> {
-  return call<{ sent: boolean }>(`/api/public/crankleads/checkout/${encodeURIComponent(sessionId)}/resend`, {
+  return call<{ sent: boolean }>(`${purchaseApiPrefix()}/checkout/${encodeURIComponent(sessionId)}/resend`, {
     method: "POST",
     body: "{}",
   });
