@@ -24,7 +24,8 @@ import type { TwilioIncomingNumber, TwilioNumbersClient } from "@/server/service
 import { SMS_INBOUND_PATH, twilioWebhookBaseUrl, VOICE_BUSINESS_LINE_PATH } from "@/server/services/twilio/voice-config";
 import { toE164 } from "@/server/services/retell/payload";
 import { BUSINESS_LINE_MODE, type Db, type NumberPortRow } from "@/server/services/staff/porting/db-types";
-import { checkPortable, LINE_TAG_PREFIX, twilioSideOk } from "@/server/services/staff/porting/guards";
+import { checkPortable, twilioSideOk } from "@/server/services/staff/porting/guards";
+import { twilioTagForWrite } from "@/server/services/twilio/friendly-name";
 import { defaultTwilioClient, deliverOwnerText, transitionPort, type PortingDeps } from "@/server/services/staff/porting/service";
 import { EDITABLE_STATUSES, IN_FLIGHT } from "@/server/services/staff/porting/status";
 import { portFolder, supabasePortingStorage } from "@/server/services/staff/porting/storage";
@@ -34,9 +35,12 @@ export const PURGE_AFTER_MS = 14 * 86_400_000;
 export const ABANDON_AFTER_MS = 60 * 86_400_000;
 const PORTS_PER_PASS = 100;
 
-/** FriendlyName on a ported line (distinct from the catcher tag, so it's never claimed as one). */
+/**
+ * FriendlyName WRITTEN on a ported line (distinct from the catcher tag, so it's never claimed as
+ * one). Old prefix until EVERDOER_WRITE_NEW_NAMES is on; the guards read both.
+ */
 export function businessLineFriendlyName(companyId: string): string {
-  return `${LINE_TAG_PREFIX}${companyId}`;
+  return twilioTagForWrite("line", companyId);
 }
 
 export interface CompletionDeps extends Partial<PortingDeps> {

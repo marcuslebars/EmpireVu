@@ -17,7 +17,8 @@
 //     findVoiceNumberOwner in missed-call.ts), unless it is this same company's twilio row;
 //   • not FriendlyName-tagged for a different company;
 //   • when attaching an untagged number: no voice/SMS webhook already configured.
-// Claimed numbers are tagged `EmpireVu catcher <companyId>`. The DB backstop is the global
+// Claimed numbers are tagged `EmpireVu catcher <companyId>` (`Everdoer catcher <companyId>` once
+// EVERDOER_WRITE_NEW_NAMES is on; both are recognised — twilio/friendly-name.ts). The DB backstop is the global
 // UNIQUE on voice_numbers.phone_e164.
 // ─────────────────────────────────────────────────────────────────────────────
 import { platformNumber } from "@/server/outbound/platform-number";
@@ -27,6 +28,7 @@ import { UserFacingError } from "@/server/errors";
 import { ValidationError } from "@/server/organizations/context";
 import { toE164 } from "@/server/services/retell/payload";
 import { assertCompanyInOrganization, type TenantServiceContext } from "@/server/services/shared";
+import { readTwilioTag, twilioTagCandidates, twilioTagForWrite } from "@/server/services/twilio/friendly-name";
 import {
   CATCHER_MODE,
   createMissedCallAdminClient,
@@ -167,11 +169,12 @@ export function createTwilioNumbersClient(creds: { accountSid: string; authToken
   };
 }
 
-const TAG_PREFIX = "EmpireVu catcher ";
-
-/** FriendlyName tag on numbers we buy/attach — ownership marker + crash-safe idempotency key. */
+/**
+ * FriendlyName tag WRITTEN on numbers we buy/attach — ownership marker + crash-safe idempotency
+ * key. Readers accept the old and new prefix (twilio/friendly-name.ts).
+ */
 export function catcherFriendlyName(companyId: string): string {
-  return `${TAG_PREFIX}${companyId}`;
+  return twilioTagForWrite("catcher", companyId);
 }
 
 /** Twilio's out-of-the-box demo handlers count as "not configured". */
@@ -205,9 +208,10 @@ export async function assertNumberClaimable(
     throw new ValidationError(`${pretty} is the platform's shared SMS sender and can't be a catcher number.`);
   }
 
-  const tag = number.friendly_name ?? "";
-  const ours = tag === catcherFriendlyName(companyId);
-  if (tag.startsWith(TAG_PREFIX) && !ours) {
+  // Either prefix ("EmpireVu catcher " / "Everdoer catcher ") marks a catcher number.
+  const tag = readTwilioTag(number.friendly_name);
+  const ours = tag?.kind === "catcher" && tag.companyId === companyId;
+  if (tag?.kind === "catcher" && !ours) {
     throw new ValidationError(`${pretty} belongs to another company.`);
   }
 
@@ -375,8 +379,13 @@ export async function provisionMissedCallCatcher(
   }
 
   if (!number) {
-    // A number we bought for this company on an earlier run whose DB write never landed.
-    [number = null] = await twilio.listIncoming({ friendlyName: catcherFriendlyName(input.companyId) });
+    // A number we bought for this company on an earlier run whose DB write never landed. Look
+    // under BOTH tag names (new, then old): missing an old tag would buy a second number.
+    // Rebrand shim (remove in PR 8 once legacy_usage shows no twilio_tag/EmpireVu catcher for 30 days)
+    for (const friendlyName of twilioTagCandidates("catcher", input.companyId)) {
+      [number = null] = await twilio.listIncoming({ friendlyName });
+      if (number) break;
+    }
     if (number) await assertNumberClaimable(context, input.companyId, number, { attaching: false, lookupOwner });
   }
 

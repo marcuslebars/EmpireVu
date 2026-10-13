@@ -16,10 +16,8 @@ import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { toE164 } from "@/server/services/retell/payload";
 import { BUSINESS_LINE_MODE } from "@/server/services/staff/porting/db-types";
 import { findVoiceNumberOwner } from "@/server/services/twilio/missed-call";
+import { readTwilioTag } from "@/server/services/twilio/friendly-name";
 import type { TwilioIncomingNumber } from "@/server/services/twilio/provision";
-
-export const CATCHER_TAG_PREFIX = "EmpireVu catcher ";
-export const LINE_TAG_PREFIX = "EmpireVu line ";
 
 /** The platform's own numbers (E.164), from the env. */
 export function platformNumbers(env: Record<string, string | undefined> = process.env): Set<string> {
@@ -57,11 +55,12 @@ function configured(url: string | null | undefined): boolean {
   return Boolean(v) && !/^https?:\/\/demo\.twilio\.com\//i.test(v ?? "");
 }
 
-/** The Twilio-side checks before the sweep touches a landed number. PURE. */
+/** The Twilio-side checks before the sweep touches a landed number. PURE (apart from counting an old tag). */
 export function twilioSideOk(number: TwilioIncomingNumber, companyId: string, businessLineUrl: string): boolean {
-  const tag = number.friendly_name ?? "";
-  if (tag.startsWith(CATCHER_TAG_PREFIX)) return false;
-  if (tag.startsWith(LINE_TAG_PREFIX) && tag !== `${LINE_TAG_PREFIX}${companyId}`) return false;
+  // Tags under either prefix ("EmpireVu …" / "Everdoer …", twilio/friendly-name.ts).
+  const tag = readTwilioTag(number.friendly_name);
+  if (tag?.kind === "catcher") return false;
+  if (tag?.kind === "line" && tag.companyId !== companyId) return false;
   if (!configured(number.voice_url) && !configured(number.sms_url)) return true;
   return number.voice_url === businessLineUrl;
 }
