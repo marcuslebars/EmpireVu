@@ -1,6 +1,11 @@
 import crypto from "node:crypto";
 
-export const TELNYX_SECRET_HEADER = "x-empirevu-telnyx-secret";
+import { headerWithFallback, sampleFromUrl } from "@/server/services/rebrand/legacy-usage";
+
+/** The webhook-tool secret header (decision D6). Read new first, then the old name. */
+export const TELNYX_SECRET_HEADER = "x-everdoer-telnyx-secret";
+// Rebrand shim (remove in PR 8 once legacy_usage shows no header/x-empirevu-telnyx-secret for 30 days)
+export const LEGACY_TELNYX_SECRET_HEADER = "x-empirevu-telnyx-secret";
 
 /**
  * Telnyx does not HMAC-sign these webhook-tool requests, so a shared secret
@@ -14,7 +19,7 @@ export function verifyTelnyxSecret(request: Request): boolean {
     return false;
   }
 
-  const provided = request.headers.get(TELNYX_SECRET_HEADER)?.trim();
+  const provided = headerWithFallback(request.headers, TELNYX_SECRET_HEADER, LEGACY_TELNYX_SECRET_HEADER, sampleFromUrl(request.url))?.trim();
   if (!provided) {
     return false;
   }

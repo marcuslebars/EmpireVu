@@ -9,7 +9,22 @@
 
 import crypto from "node:crypto";
 
-export const RETELL_FUNCTION_SECRET_HEADER = "x-empirevu-retell-secret";
+import { headerWithFallback, sampleFromUrl } from "@/server/services/rebrand/legacy-usage";
+import { writeNewNames } from "@/server/services/rebrand/write-names";
+
+/** The tool-call secret header (decision D6). Read new first, then the old name. */
+export const RETELL_FUNCTION_SECRET_HEADER = "x-everdoer-retell-secret";
+// Rebrand shim (remove in PR 8 once legacy_usage shows no header/x-empirevu-retell-secret for 30 days)
+export const LEGACY_RETELL_FUNCTION_SECRET_HEADER = "x-empirevu-retell-secret";
+
+/**
+ * The header NAME we write into Retell tool configs (receptionist tools, the shared message
+ * agent). Old name until EVERDOER_WRITE_NEW_NAMES is on, so a rollback never leaves an agent
+ * sending a header the old code can't read. The verifier accepts both either way.
+ */
+export function retellFunctionSecretHeaderForWrite(env: Record<string, string | undefined> = process.env): string {
+  return writeNewNames(env) ? RETELL_FUNCTION_SECRET_HEADER : LEGACY_RETELL_FUNCTION_SECRET_HEADER;
+}
 
 /**
  * The mid-call custom-function endpoint (capture-lead) is invoked by Retell as a
@@ -21,7 +36,12 @@ export function verifyRetellFunctionSecret(request: Request): boolean {
   const expected = process.env.RETELL_FUNCTION_SECRET?.trim();
   if (!expected) return false;
 
-  const provided = request.headers.get(RETELL_FUNCTION_SECRET_HEADER)?.trim();
+  const provided = headerWithFallback(
+    request.headers,
+    RETELL_FUNCTION_SECRET_HEADER,
+    LEGACY_RETELL_FUNCTION_SECRET_HEADER,
+    sampleFromUrl(request.url),
+  )?.trim();
   if (!provided) return false;
 
   const expectedBytes = Buffer.from(expected, "utf8");
