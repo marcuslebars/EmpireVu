@@ -95,7 +95,7 @@ describe("readers treat old and new values the same", () => {
     ["standard", false],
     [null, false],
   ] as const)("%s → done for you: %s", (value, dfy) => {
-    expect(signaturePrefix(value)).toBe(dfy ? "Everdoer: " : "");
+    expect(signaturePrefix(value)).toBe(dfy ? "CrankLeads: " : "");
     expect(leadNotifyAudience({ platform_brand: value, crankleads_tier: null }, true) === "none").toBe(dfy);
     expect(isCrankleadsOrg({ platform_brand: value })).toBe(dfy);
   });

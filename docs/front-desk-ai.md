@@ -342,7 +342,7 @@ otherwise it's an answer and goes to the conversation.
 - `notifyOwnerOfApproval(admin, approvalId)` texts the owner from the platform number:
   `"<summary> Reply Y to approve, N to skip."` — with the short code (`Y 2` / `N 2`) when more
   than one is pending for that owner (across all their businesses; the business name is added for
-  multi-business owners). Done-for-you orgs get an `Everdoer: ` prefix; other orgs get it only with `EVERDOER_SMS_PREFIX_ALL_ORGS=1` (docs/everdoer-branding.md).
+  multi-business owners). Done-for-you orgs get a `CrankLeads: ` prefix and other orgs none, until `EVERDOER_SMS_BRANDING=1` signs every org's texts `Everdoer: ` (docs/messaging-compliance.md).
   Idempotent: `notified_at` is claimed before sending and released only if the send fails.
 - **Quiet hours** 21:00–08:00 company local: non-urgent approvals wait; the scheduler sweep sends
   them once quiet hours end. Urgent (sent any time): kinds `same_day_booking`, `urgent_callback`,

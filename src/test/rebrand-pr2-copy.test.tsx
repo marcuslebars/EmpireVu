@@ -1,6 +1,7 @@
 /**
- * Everdoer rebrand PR 2 copy: the owner SMS prefix switch (REBRAND_PLAN.md §1.3), the D10 entity
- * line on the privacy and delete-account pages, and the "Powered by Everdoer" site credit.
+ * Everdoer rebrand PR 2 copy: the ONE SMS branding switch (EVERDOER_SMS_BRANDING; REBRAND_PLAN.md
+ * §1.3, A2P), the D10 entity line on the privacy and delete-account pages, and the AI caller-echo
+ * platform-name filter.
  */
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,44 +9,90 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EVERDOER_ENTITY_LINE } from "@/lib/platform-brand";
 import DeleteAccountPage from "@/screens/DeleteAccountPage";
 import PrivacyPolicyPage from "@/screens/PrivacyPolicyPage";
-import { OWNER_SMS_PREFIX, signaturePrefix, smsPrefixAllOrgs } from "@/server/services/owner-channel/common";
+import { renderLiveSms, renderReminderSms } from "@/server/services/crankleads/followup-messages";
+import { renderForwardingSms } from "@/server/services/dfy/messages";
+import { LEGACY_OWNER_SMS_PREFIX, OWNER_SMS_PREFIX, signaturePrefix } from "@/server/services/owner-channel/common";
+import { smsBrandingOn, smsPlatformName } from "@/server/services/rebrand/sms-branding";
 import { septets } from "@/server/services/staff/office-manager/compose";
+import { platformUnknownSenderText } from "@/server/services/twilio/inbound-sms";
+import { safeEcho } from "@/server/services/voice/post-call";
 
 afterEach(() => {
   vi.unstubAllEnvs();
 });
 
 const OLD_NAMES = /empire\s*vu|crank\s*leads|syncoree/i;
+/** The old name is allowed only in the "(formerly EmpireVu)" note about the store app. */
+const withoutFormerly = (text: string) => text.replace(/\(formerly EmpireVu\)/g, "");
 
-describe("owner SMS prefix", () => {
-  it("is 'Everdoer: ' (10 GSM septets, shorter than the old 'CrankLeads: ')", () => {
+const OLD_UNKNOWN_SENDER =
+  "CrankLeads: this number is for CrankLeads account owners. To reach a business, please text or call them directly. Reply STOP to opt out.";
+
+const REMINDER: Parameters<typeof renderReminderSms>[0] = {
+  stage: "day1",
+  ownerName: "Jane Doe",
+  businessName: "Jane's Roofing",
+  action: "quick_setup",
+  actionUrl: "https://x.test/setup/t",
+  phonePath: "missed_call_catcher",
+  remaining: [],
+  appUrl: "https://x.test",
+  stopUrl: "https://x.test/stop",
+};
+
+describe("EVERDOER_SMS_BRANDING off (default): every SMS text is byte-identical to before the rebrand", () => {
+  it("owner prefix: 'CrankLeads: ' for done-for-you, nothing for house orgs", () => {
+    expect(smsBrandingOn()).toBe(false);
+    for (const v of ["crankleads", "done_for_you"]) expect(signaturePrefix(v)).toBe("CrankLeads: ");
+    for (const v of ["empirevu", "standard", null, undefined]) expect(signaturePrefix(v)).toBe("");
+    expect(LEGACY_OWNER_SMS_PREFIX).toBe("CrankLeads: ");
+  });
+
+  it("platform-number unknown-sender / HELP reply is today's CrankLeads text", () => {
+    expect(platformUnknownSenderText()).toBe(OLD_UNKNOWN_SENDER);
+  });
+
+  it("done-for-you texts and the weekly text keep the old names", () => {
+    expect(smsPlatformName("done_for_you")).toBe("CrankLeads");
+    expect(smsPlatformName("standard")).toBe("EmpireVu");
+    vi.stubEnv("PLATFORM_BRAND_NAME", "Acme");
+    expect(smsPlatformName("standard")).toBe("Acme");
+    expect(renderForwardingSms({ ownerName: "Jane Doe", businessName: "Jane's Roofing", forwardUrl: "https://x.test/f/t", phonePath: "missed_call_catcher", method: "dial_code" })).toMatch(/^CrankLeads: Hi Jane, /);
+    expect(renderLiveSms({ ownerName: "Jane Doe", businessName: "Jane's Roofing", phonePath: "missed_call_catcher", number: null, siteUrl: null, appUrl: "https://x.test", setPasswordUrl: null })).toMatch(/^CrankLeads: /);
+    expect(renderReminderSms({ ...REMINDER })).toMatch(/^CrankLeads: Hi Jane, /);
+  });
+});
+
+describe("EVERDOER_SMS_BRANDING on: Everdoer everywhere, for every org", () => {
+  it("reads 1 / true / yes", () => {
+    for (const v of ["1", " TRUE ", "yes"]) expect(smsBrandingOn({ EVERDOER_SMS_BRANDING: v })).toBe(true);
+    for (const v of ["", "0", "no", "off"]) expect(smsBrandingOn({ EVERDOER_SMS_BRANDING: v })).toBe(false);
+  });
+
+  it("'Everdoer: ' (10 septets, shorter than 'CrankLeads: ') for every org", () => {
+    vi.stubEnv("EVERDOER_SMS_BRANDING", "1");
     expect(OWNER_SMS_PREFIX).toBe("Everdoer: ");
-    expect(septets(OWNER_SMS_PREFIX)).toBe(10);
+    expect(septets(OWNER_SMS_PREFIX)).toBeLessThan(septets(LEGACY_OWNER_SMS_PREFIX));
+    for (const v of ["crankleads", "done_for_you", "empirevu", "standard", null]) expect(signaturePrefix(v)).toBe("Everdoer: ");
   });
 
-  it.each(["crankleads", "done_for_you"])("done-for-you (%s) always gets it, switch off or on", (value) => {
-    vi.stubEnv("EVERDOER_SMS_PREFIX_ALL_ORGS", "");
-    expect(signaturePrefix(value)).toBe("Everdoer: ");
-    vi.stubEnv("EVERDOER_SMS_PREFIX_ALL_ORGS", "1");
-    expect(signaturePrefix(value)).toBe("Everdoer: ");
+  it("unknown-sender reply and done-for-you texts say Everdoer", () => {
+    vi.stubEnv("EVERDOER_SMS_BRANDING", "1");
+    expect(platformUnknownSenderText()).toBe(
+      "Everdoer: this number is for Everdoer account owners. To reach a business, please text or call them directly. Reply STOP to opt out.",
+    );
+    expect(smsPlatformName("done_for_you")).toBe("Everdoer");
+    expect(smsPlatformName("standard")).toBe("Everdoer");
+    expect(renderForwardingSms({ ownerName: "Jane Doe", businessName: "Jane's Roofing", forwardUrl: "https://x.test/f/t", phonePath: "missed_call_catcher", method: "dial_code" })).toMatch(/^Everdoer: Hi Jane, /);
   });
+});
 
-  it.each(["empirevu", "standard", null, undefined])("a house org (%s) gets nothing unless EVERDOER_SMS_PREFIX_ALL_ORGS is on", (value) => {
-    vi.stubEnv("EVERDOER_SMS_PREFIX_ALL_ORGS", "");
-    expect(signaturePrefix(value)).toBe("");
-    vi.stubEnv("EVERDOER_SMS_PREFIX_ALL_ORGS", "0");
-    expect(signaturePrefix(value)).toBe("");
-    vi.stubEnv("EVERDOER_SMS_PREFIX_ALL_ORGS", "1");
-    expect(signaturePrefix(value)).toBe("Everdoer: ");
+describe("caller-echo platform-name filter (voice/post-call safeEcho)", () => {
+  it.each(["Everdoer", "ever doer", "call Everdoer back", "EVERDOER"])("blocks %s", (text) => {
+    expect(safeEcho(text, 80)).toBeNull();
   });
-
-  it("reads the switch like the other EVERDOER_ flags", () => {
-    expect(smsPrefixAllOrgs({})).toBe(false);
-    expect(smsPrefixAllOrgs({ EVERDOER_SMS_PREFIX_ALL_ORGS: "0" })).toBe(false);
-    expect(smsPrefixAllOrgs({ EVERDOER_SMS_PREFIX_ALL_ORGS: "no" })).toBe(false);
-    expect(smsPrefixAllOrgs({ EVERDOER_SMS_PREFIX_ALL_ORGS: "1" })).toBe(true);
-    expect(smsPrefixAllOrgs({ EVERDOER_SMS_PREFIX_ALL_ORGS: " TRUE " })).toBe(true);
-    expect(smsPrefixAllOrgs({ EVERDOER_SMS_PREFIX_ALL_ORGS: "yes" })).toBe(true);
+  it.each(["Clever Doerr", "forever doer", "Whoever does roofs"])("keeps %s", (text) => {
+    expect(safeEcho(text, 80)).toBe(text);
   });
 });
 
@@ -54,13 +101,13 @@ describe("D10 entity line", () => {
     expect(EVERDOER_ENTITY_LINE).toBe("Everdoer is a product of Thinker Holdings Inc.");
   });
 
-  it("privacy policy: Everdoer, hello@everdoer.com, the entity line and the new date; no old names", () => {
+  it("privacy policy: Everdoer, hello@everdoer.com, the entity line and the new date; the old name only as '(formerly EmpireVu)'", () => {
     const { container } = render(<PrivacyPolicyPage />);
     expect(screen.getByTestId("entity-line")).toHaveTextContent(EVERDOER_ENTITY_LINE);
     expect(screen.getByText("Last updated 13 October 2026")).toBeInTheDocument();
     expect(container.textContent).toContain("hello@everdoer.com");
-    expect(container.textContent).not.toMatch(OLD_NAMES);
-    expect(container.innerHTML).not.toMatch(OLD_NAMES);
+    expect(container.textContent).toContain("in the Everdoer mobile app (formerly EmpireVu).");
+    expect(withoutFormerly(container.innerHTML)).not.toMatch(OLD_NAMES);
   });
 
   it("delete-account page: Everdoer, hello@everdoer.com and the entity line; the old name only as '(formerly EmpireVu)'", () => {
@@ -71,6 +118,6 @@ describe("D10 entity line", () => {
     // The store app is still named EmpireVu until the new Everdoer app ships (PR 6); reviewers who
     // follow the store's delete-account link must recognise it. Remove with PR 6.
     expect(container.innerHTML).toContain("Open the Everdoer app (formerly EmpireVu)");
-    expect(container.innerHTML.replace("(formerly EmpireVu)", "")).not.toMatch(OLD_NAMES);
+    expect(withoutFormerly(container.innerHTML)).not.toMatch(OLD_NAMES);
   });
 });

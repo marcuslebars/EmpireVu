@@ -425,7 +425,7 @@ describe("runWeeklyReports — Monday 08:30 Toronto", () => {
     const sms = sendSms.mock.calls[0][0] as { to: string; body: string; from?: string };
     expect(sms.to).toBe("+17055550100");
     expect(sms.from).toBeUndefined(); // platform number (TWILIO_FROM_NUMBER), never the company line
-    expect(sms.body).toContain("Everdoer weekly report for Northshore Lawn & Snow, Oct 5-11:");
+    expect(sms.body).toContain("CrankLeads weekly report for Northshore Lawn & Snow, Oct 5-11:");
     expect(sms.body).toContain("https://app.crankleads.test/reports/weekly?week=2026-10-05");
     expect(smsSegments(sms.body).segments).toBeLessThanOrEqual(2);
 
@@ -440,6 +440,16 @@ describe("runWeeklyReports — Monday 08:30 Toronto", () => {
     expect(row).toMatchObject({ organization_id: ORG_1, week_start: WEEK, status: "sent", channels: ["sms", "email"] });
     expect((row?.metrics as WeeklyReportMetrics).textConversations).toBe(2); // conv-x (other tenant) excluded
     expect((row?.metrics as WeeklyReportMetrics).calls).toMatchObject({ answered: 1, afterHours: 1 });
+  });
+
+  it("with EVERDOER_SMS_BRANDING=1 the text says Everdoer (still within 2 segments)", async () => {
+    vi.stubEnv("EVERDOER_SMS_BRANDING", "1");
+    const db = seed();
+    await runWeeklyReports(db.client, { nowMs: MON_0830, respectSendWindow: true });
+    const sms = sendSms.mock.calls[0][0] as { body: string };
+    expect(sms.body).toContain("Everdoer weekly report for Northshore Lawn & Snow, Oct 5-11:");
+    expect(sms.body.replace(/https?:\/\/\S+/g, "")).not.toMatch(/crank\s*leads/i);
+    expect(smsSegments(sms.body).segments).toBeLessThanOrEqual(2);
   });
 
   it("is idempotent: a second pass sends nothing", async () => {

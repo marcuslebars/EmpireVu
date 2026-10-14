@@ -499,7 +499,7 @@ describe("profit_advisor:weekly", () => {
     expect(text.to).toBe(OWNER);
     // Roof $1,500 − 8h × $40 = $1,180; deck $800 − 20h × $40 − $180 = −$180 (20h vs 8h booked);
     // gutters $189 − 2h × $40 = $109. The imported job and A1's job aren't counted.
-    expect(text.body).toMatch(/^Everdoer: This week: 3 jobs done, \$2,489 billed, profit about \$1,109 \(45%\)\. Best: Jones roof repair \$1,180\. Watch: Smith deck lost \$180 \(labour 12h over\)\. Next 30 days: about \$\S+ in, \$\S+ out - fine\. Text 'profit' for more\.$/);
+    expect(text.body).toMatch(/^CrankLeads: This week: 3 jobs done, \$2,489 billed, profit about \$1,109 \(45%\)\. Best: Jones roof repair \$1,180\. Watch: Smith deck lost \$180 \(labour 12h over\)\. Next 30 days: about \$\S+ in, \$\S+ out - fine\. Text 'profit' for more\.$/);
     expect(rows("profit_advisor_runs")[0]).toMatchObject({ kind: "weekly", run_key: "2026-W42", status: "sent" });
     // A second worker in the same window: nothing.
     expect(await runCompanyWeekly(db.client, await crank(), FRIDAY + 60_000)).toBe("claimed_elsewhere");
@@ -528,7 +528,7 @@ describe("profit_advisor:weekly", () => {
     db.tables.bookings = (db.tables.bookings as Array<Record<string, unknown>>).filter((b) => !["b-14", "b-15"].includes(String(b.id)));
     db.tables.invoices = [];
     expect(await runCompanyWeekly(db.client, await crank(), FRIDAY)).toBe("sent");
-    expect(texts()[0].body).toMatch(/^Everdoer: This week: 1 job done, \$1,500 billed, profit about \$1,180 \(79%\)\. Next 30 days: about \$0 in, \$\S+ out - tight around Nov 1[45] \(about \$[\d,]+ short\)\. Text 'profit' for more\.$/);
+    expect(texts()[0].body).toMatch(/^CrankLeads: This week: 1 job done, \$1,500 billed, profit about \$1,180 \(79%\)\. Next 30 days: about \$0 in, \$\S+ out - tight around Nov 1[45] \(about \$[\d,]+ short\)\. Text 'profit' for more\.$/);
   });
 
   it("a failed send is retried after 30 minutes (3 tries); weekly off / no verified cell → nothing", async () => {
@@ -548,7 +548,7 @@ describe("profit_advisor:weekly", () => {
   it("an owner with two businesses: the text names which one", async () => {
     db.tables.companies.push(company({ id: "66666666-6666-4666-8666-666666666666", name: "Northshore Snow" }));
     expect(await runCompanyWeekly(db.client, await crank(), FRIDAY)).toBe("sent");
-    expect(texts()[0].body).toMatch(/^Everdoer: Northshore Roofing: This week: 3 jobs done/);
+    expect(texts()[0].body).toMatch(/^CrankLeads: Northshore Roofing: This week: 3 jobs done/);
   });
 
   it("claimRun: one winner per key", async () => {
@@ -593,7 +593,7 @@ describe("the pricing check", () => {
     expect(approval).toMatchObject({ kind: PRICE_CHANGE_KIND, status: "pending", notified_to: OWNER });
     const code = approval.short_code;
     expect(texts()[0].body).toBe(
-      `Everdoer: #${code} Price check - Gutter cleaning: 7 jobs in 6 months, 19% margin (you average 46%), and you win 88% of quotes. Y raises it from $189 to $215 (+14%) for new quotes. Estimates from your app data - not financial advice. Reply Y ${code} to raise it, N ${code} to leave it.`,
+      `CrankLeads: #${code} Price check - Gutter cleaning: 7 jobs in 6 months, 19% margin (you average 46%), and you win 88% of quotes. Y raises it from $189 to $215 (+14%) for new quotes. Estimates from your app data - not financial advice. Reply Y ${code} to raise it, N ${code} to leave it.`,
     );
     expect(rows("price_changes")[0]).toMatchObject({ status: "proposed", old_rate_cents: 18_900, new_rate_cents: 21_500, approval_id: approval.id, basis: { jobs: 7, marginPct: 19, companyMarginPct: 46, quotes: 8, winRatePct: 88 } });
     // A second pass this month asks nothing more.
@@ -923,7 +923,7 @@ describe("review: free visits and deposits", () => {
     db.tables.service_agreements.push({ id: "sa-p", organization_id: ORG, company_id: CO, recurring_job_id: "rj-plan", billing: "annual", term_start: "2026-05-01", term_end: "2027-04-30", activated_at: "2026-05-01T12:00:00Z", status: "active" });
     expect(await runCompanyWeekly(db.client, await crank(), FRIDAY)).toBe("sent");
     const body = texts()[0].body;
-    expect(body).toMatch(/^Everdoer: This week: 3 jobs done, \$2,489 billed, profit about \$1,109 \(45%\)\./);
+    expect(body).toMatch(/^CrankLeads: This week: 3 jobs done, \$2,489 billed, profit about \$1,109 \(45%\)\./);
     expect(body).toContain("1 free callback/warranty visit cost about $80.");
     expect(body).not.toContain("no price");
     const tool = await runOwnerTool(ownerState(FRIDAY), "profit", {});

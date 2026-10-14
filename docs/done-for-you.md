@@ -14,7 +14,7 @@ due at night waits for the morning.
 | When | They get | Sent by |
 | --- | --- | --- |
 | **0 min** — they pay | `/welcome/crankleads` page: *"Check your texts — we'll finish setting things up for you"* and the four steps below. **Welcome email**: we're setting things up, the quick-setup link, the set-password link (no DIY steps, no time estimate). Their number is bought in the background. | billing worker (`crankleads/provision.ts`) |
-| **0 min** (08:00–21:00 their time) | **Quick-setup text**: *"Everdoer: you're in. 60 seconds and we'll set the rest up for you: …/setup/<token>"*. Bought at night → the text waits for the retry sweep from 08:00 (the welcome email already carries the link; an email copy goes now only if the welcome email failed). Retried up to 3× if it didn't go. The concierge resend outside hours sends the email only and says so. | `dfy/intake.ts` |
+| **0 min** (08:00–21:00 their time) | **Quick-setup text**: *"CrankLeads: you're in. 60 seconds and we'll set the rest up for you: …/setup/<token>"*. Bought at night → the text waits for the retry sweep from 08:00 (the welcome email already carries the link; an email copy goes now only if the welcome email failed). Retried up to 3× if it didn't go. The concierge resend outside hours sends the email only and says so. | `dfy/intake.ts` |
 | **~1–5 min after they answer** | Nothing to read — we look up their Google listing + website, switch every automation on and build + publish their page. | enrichment → orchestrator (page built inline) |
 | **right after that** | **Forwarding text + email** (once): *"… is almost live. Last step: turn on call forwarding … It's one tap: …/forward/<token>"*. | orchestrator |
 | **~1 min after they tap** | We place one automatic test call. | orchestrator → forwarding test |
@@ -66,7 +66,7 @@ and read the list before applying.
 **What the buyer sees.** Right after provisioning (`provisionClaimed`, just after the welcome
 email) we create one `setup_intakes` row for the company and text the owner from the platform
 number (`TWILIO_FROM_NUMBER`, `smsFrom: "platform"`):
-*"Everdoer: you're in. 60 seconds and we'll set the rest up for you: <app>/setup/<token>"*.
+*"CrankLeads: you're in. 60 seconds and we'll set the rest up for you: <app>/setup/<token>"*. (Texts say "Everdoer" instead once `EVERDOER_SMS_BRANDING=1`; docs/messaging-compliance.md.)
 The welcome email no longer lists DIY steps — it says we're setting things up, to check their
 texts, includes the same link, and keeps the set-password link. If the text can't go (or the
 welcome email failed) an email backup *"Your 60-second setup link"* goes out under the org's

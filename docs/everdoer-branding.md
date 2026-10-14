@@ -31,9 +31,9 @@ files stay in `public/brand/` because emails and pages already sent link to them
 
 * Sidebar, auth pages, onboarding, Dashboard and Reports ("Captured by Everdoer"), the command palette, settings text, the Help panel (with the D10 line "Everdoer is a product of Thinker Holdings Inc." at its foot), help articles (`{{product}}`, filled in by `brandHelpArticle`) and the help assistant.
 * `/privacy` and `/delete-account` (same paths on every host; they're in the app-store listings), with `hello@everdoer.com` and the D10 line.
-* Emails and texts to owners and staff: invites, the workflow "notify owner" subject ("Everdoer alert"), voicemail emails, digests, the monthly scorecard, the purchase welcome email, setup reminders, "you're live", the support email subject ("[Everdoer Help] …"), and accounting memos ("From Everdoer"; already-synced memos stay as they were).
-* Owner texts from the platform number start with **"Everdoer: "**: always for done-for-you orgs; for every other org only when `EVERDOER_SMS_PREFIX_ALL_ORGS=1` (see below). Strangers who text the platform number get "Everdoer: this number is for Everdoer account owners…".
-* Generated done-for-you sites (`/s/<slug>`) end with a small "Powered by Everdoer" link to https://everdoer.com. This is the only place the platform is credited to end customers, and it replaced the old "Site by CrankLeads".
+* Emails to owners and staff: invites, the workflow "notify owner" subject ("Everdoer alert"), voicemail emails, digests, the monthly scorecard, the purchase welcome email, setup reminders, "you're live", the support email subject ("[Everdoer Help] …"), and accounting memos ("From Everdoer"; already-synced memos stay as they were).
+* **SMS is the exception** (A2P): every text stays exactly as before ("CrankLeads: " on done-for-you owner texts, no prefix for other orgs, the CrankLeads platform-number reply) until `EVERDOER_SMS_BRANDING=1`. Then every org's owner texts start with **"Everdoer: "** and every platform SMS says Everdoer (see below).
+* Generated done-for-you sites (`/s/<slug>`) end with a small "Powered by Everdoer" link to https://everdoer.com (`EVERDOER_SITE_URL` overrides it). This is the only place the platform is credited to end customers, and it replaced the old "Site by CrankLeads".
 * The `/welcome/crankleads` purchase page and the `/forward/<token>` page: Everdoer logo, title and icon.
 * Stripe Checkout (purchase and Settings → Billing) shows Everdoer (`crankleadsCheckoutBranding()`).
 * Operator-only: the Concierge list ("Everdoer setups"), operator emails ("Everdoer health", "Everdoer ops", purchase and failure notices), the waitlist notice.
@@ -50,10 +50,11 @@ files stay in `public/brand/` because emails and pages already sent link to them
 
 ## Env switches
 
-* `EVERDOER_SMS_PREFIX_ALL_ORGS=1` [web, worker]: prefix owner texts with "Everdoer: " for every
-  org, not just done-for-you ones. **Off by default**, so house orgs' (A1's) owner texts are
-  unchanged. Before turning it on, update the A2P 10DLC campaign's sample messages in Twilio to
-  show the "Everdoer: " prefix. Unset it to roll back.
+* `EVERDOER_SMS_BRANDING=1` [web, worker, billing-worker]: the ONE switch for platform names in
+  SMS (`src/server/services/rebrand/sms-branding.ts`). **Off by default**: every SMS is
+  byte-identical to before the rebrand. On: "Everdoer: " on every org's owner texts and Everdoer
+  in every platform SMS. Before turning it on, update the A2P 10DLC campaign's brand and sample
+  messages in Twilio. Unset it to roll back (docs/messaging-compliance.md).
 * `PLATFORM_BRAND_NAME` [monthly-scorecard]: still overrides the scorecard name for standard
   orgs. Defaults to "Everdoer". Leave it unset (or set it to `Everdoer`); if it is set to
   `EmpireVu` today, remove it.

@@ -353,10 +353,10 @@ describe("composer", () => {
         fold: Array.from({ length: 6 }, (_, i) => `Now ${30 + i}+ days overdue: Customer Number ${i} $1,240 (INV-${i}), Another Customer $900 (INV-9${i}), A Third $100 (INV-8${i}) +4 more.`),
         waiting: { items: Array.from({ length: 9 }, (_, i) => ({ code: 10 + i, summary: `AI estimate for “Customer ${i}” — “Eavestrough repair and soffit replacement” $${i},750 + HST 🙂` })), total: 9 },
         since: { label: "Yesterday", leads: 12, quotesSent: 9, quotesApproved: 4, textChats: 40, calls: 11 },
-        maxSeptets: MAX_BRIEFING_SEPTETS - "Everdoer: ".length,
+        maxSeptets: MAX_BRIEFING_SEPTETS - "CrankLeads: ".length,
       }),
     );
-    expect(septets(`Everdoer: ${many.text}`)).toBeLessThanOrEqual(612);
+    expect(septets(`CrankLeads: ${many.text}`)).toBeLessThanOrEqual(612);
     expect(many.foldIncluded).toBeLessThan(6);
     expect(many.text).toMatch(/^Morning Bartholomew - /);
     expect(many.text).toContain("Money: $12,345 came in yesterday, $98,765 overdue (31 invoices).");
@@ -383,7 +383,7 @@ describe("morning briefing sweep", () => {
     expect(owner).toHaveLength(1);
     expect(owner[0].from).toBe(PLATFORM);
     expect(owner[0].body.split("\n")).toEqual([
-      "Everdoer: Morning Dana - Northshore Roofing, Tue Oct 13.",
+      "CrankLeads: Morning Dana - Northshore Roofing, Tue Oct 13.",
       "Today: 4 jobs, first at 8am. Mike 2, Sam 1, 1 unassigned.",
       "Money: $1,250 came in yesterday, $1,240 overdue (1 invoice).",
       "Waiting on you: #12 AI estimate for Jamie Lee: Eavestrough repair $750 +...; #13 Record $500 e-Transfer from Bob Jones on INV-9.",
@@ -490,8 +490,8 @@ describe("morning briefing sweep", () => {
     expect(a1[0].body).toBe("Morning - all quiet at A1 Marine Care today (Tue Oct 13): no jobs booked and nothing waiting on you.");
   });
 
-  it("with EVERDOER_SMS_PREFIX_ALL_ORGS=1 a house org's briefing is signed 'Everdoer: ' too, within the 612-septet budget", async () => {
-    vi.stubEnv("EVERDOER_SMS_PREFIX_ALL_ORGS", "1");
+  it("with EVERDOER_SMS_BRANDING=1 a house org's briefing is signed 'Everdoer: ' too, within the 612-septet budget", async () => {
+    vi.stubEnv("EVERDOER_SMS_BRANDING", "1");
     try {
       setSettings(1, { office_manager: { enabled: true } });
       at("2026-10-13T11:20:00Z");
