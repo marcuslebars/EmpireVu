@@ -268,7 +268,8 @@ async function sendForwardingLink(
   const results: string[] = [];
   for (const message of [
     to.phone ? ({ ...base, channel: "sms", to: to.phone, body: renderForwardingSms(input), smsFrom: "platform" } as const) : null,
-    to.email ? ({ ...base, channel: "email", to: to.email, subject: email.subject, body: email.body, html: email.html, fromName: email.fromName } as const) : null,
+    // Platform mail to the owner (D7): the platform sender, never a company's own.
+    to.email ? ({ ...base, channel: "email", to: to.email, subject: email.subject, body: email.body, html: email.html, fromName: email.fromName, fromAddress: null } as const) : null,
   ]) {
     if (!message) continue;
     try {

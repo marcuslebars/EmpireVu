@@ -16,6 +16,7 @@
  * transaction the customer already agreed to), so they don't need marketing
  * consent — but an explicit SMS opt-out (STOP) is always honoured.
  */
+import { loadCompanyFromAddress } from "@/server/outbound/company-sender";
 import { sendEmail } from "@/server/outbound/email";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { deliverMessage } from "@/server/services/workflow-engine/messaging";
@@ -41,12 +42,19 @@ interface Bundle {
   invoice: InvoiceRow;
   company: CompanyForInvoice | null;
   contact: { first_name: string | null; phone: string | null; email: string | null; sms_opt_out_at: string | null } | null;
+  /** D7: the company's own From address, null → the platform default. */
+  fromAddress: string | null;
+}
+
+/** sendEmail's `fromAddress`, only when the company has one (the input stays as before otherwise). */
+function senderOf(fromAddress: string | null): { fromAddress?: string } {
+  return fromAddress ? { fromAddress } : {};
 }
 
 async function loadBundle(db: Db, invoiceId: string): Promise<Bundle | null> {
   const { data: invoice } = await db.from("invoices").select("*").eq("id", invoiceId).maybeSingle();
   if (!invoice) return null;
-  const [company, { data: contact }] = await Promise.all([
+  const [company, { data: contact }, fromAddress] = await Promise.all([
     loadCompanyForInvoice(db, invoice.organization_id, invoice.company_id),
     invoice.contact_id
       ? db
@@ -56,8 +64,9 @@ async function loadBundle(db: Db, invoiceId: string): Promise<Bundle | null> {
           .eq("id", invoice.contact_id)
           .maybeSingle()
       : Promise.resolve({ data: null }),
+    loadCompanyFromAddress(db, invoice.company_id),
   ]);
-  return { invoice, company, contact: contact ?? null };
+  return { invoice, company, contact: contact ?? null, fromAddress };
 }
 
 function firstName(contact: Bundle["contact"]): string | null {
@@ -102,6 +111,7 @@ export async function sendInvoiceEmail(invoiceId: string): Promise<DeliveryOutco
       body: mail.text,
       html: trackedHtml(mail.html, doc.publicUrl, "invoice"),
       fromName: mail.fromName ?? undefined,
+      ...senderOf(b.fromAddress),
       replyTo: mail.replyTo ?? undefined,
       attachments: [{ filename: pdfName(b.invoice), content: base64(pdf) }],
     });
@@ -166,6 +176,7 @@ export async function sendInvoiceCopyEmail(
       body: `${summary}\n\n${mail.text}`,
       html,
       fromName: mail.fromName ?? undefined,
+      ...senderOf(b.fromAddress),
       attachments: [{ filename: pdfName(b.invoice), content: base64(pdf) }],
     });
     await recordInvoiceEvent(db, { organizationId: b.invoice.organization_id, invoiceId, eventType: "copy_sent", metadata: { to } });
@@ -243,6 +254,7 @@ export async function sendPaymentReceiptEmail(paymentId: string): Promise<Delive
       body: mail.text,
       html: mail.html,
       fromName: mail.fromName ?? undefined,
+      ...senderOf(b.fromAddress),
       replyTo: mail.replyTo ?? undefined,
       attachments,
     });
@@ -295,6 +307,7 @@ export async function sendInvoiceReminderEmail(invoiceId: string, opts: Reminder
       body: mail.text,
       html: trackedHtml(mail.html, doc.publicUrl, `reminder-${opts.index + 1}`),
       fromName: mail.fromName ?? undefined,
+      ...senderOf(b.fromAddress),
       replyTo: mail.replyTo ?? undefined,
       attachments: [{ filename: pdfName(b.invoice), content: base64(pdf) }],
     });
@@ -332,6 +345,7 @@ export async function sendStatementEmail(
       body: mail.text,
       html: mail.html,
       fromName: mail.fromName ?? undefined,
+      ...senderOf(await loadCompanyFromAddress(db, args.companyId)),
       replyTo: mail.replyTo ?? undefined,
       attachments: [{ filename: `statement-${st.statement.statementDate}.pdf`, content: base64(pdf) }],
     });

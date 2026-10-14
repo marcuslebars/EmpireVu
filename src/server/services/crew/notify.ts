@@ -3,6 +3,7 @@
  * Best-effort — assigning never fails because a notification did.
  */
 import type { Tables } from "@/server/db/database.types";
+import { loadCompanyFromAddress } from "@/server/outbound/company-sender";
 import { isEmailSendConfigured, sendEmail } from "@/server/outbound/email";
 import { configuredAppBaseUrlFor, loadOrganizationBrand } from "@/server/services/platform-brand";
 import { notifyJobAssigned } from "@/server/services/push/notify";
@@ -80,10 +81,12 @@ export async function notifyCrewAssigned(ctx: TenantServiceContext, booking: Tab
 
     const notified: string[] = [];
     if (isEmailSendConfigured()) {
+      // D7: the company's own sender when it has one.
+      const fromAddress = (people ?? []).some((p) => p.email) ? await loadCompanyFromAddress(ctx.supabase, booking.company_id) : null;
       for (const person of people ?? []) {
         if (!person.email) continue;
         try {
-          await sendEmail({ to: person.email, subject: message.subject, body: message.text, fromName: company?.name ?? undefined });
+          await sendEmail({ to: person.email, subject: message.subject, body: message.text, fromName: company?.name ?? undefined, ...(fromAddress ? { fromAddress } : {}) });
           notified.push(person.id);
         } catch (err) {
           console.error("[crew] assignment email failed:", err instanceof Error ? err.message : err);

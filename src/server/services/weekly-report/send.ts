@@ -298,6 +298,7 @@ async function deliver(
         contactId: null,
         consentContact: null,
         fromName: scorecardPlatformBrandName(brand),
+        fromAddress: null, // platform mail to the owner (D7): the platform sender, not the company's
       });
       status.email = result.status;
       if (result.status === "sent") sent.push("email");

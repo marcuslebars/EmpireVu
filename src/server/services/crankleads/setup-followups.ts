@@ -248,6 +248,7 @@ async function deliverPair(
     body: email.body,
     html: email.html,
     fromName: email.fromName,
+    fromAddress: null, // platform mail to the owner (D7): the platform sender
   });
   const sms_status = await send({ ...base, channel: "sms", to: to.phone, body: sms, smsFrom: "platform" });
   return { email_status, sms_status };
