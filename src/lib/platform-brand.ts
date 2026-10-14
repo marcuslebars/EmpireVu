@@ -63,7 +63,7 @@ export interface PlatformBrand {
   theme: PlatformBrandTheme;
 }
 
-/** Everdoer brand colours (brand kit, public/brand/everdoer/README.txt). */
+/** Everdoer brand colours (brand kit notes: docs/brand/everdoer-kit-README.txt). */
 export const EVERDOER_COLORS = {
   lime: "#A6EE2B",
   nearBlack: "#0C0E12",
