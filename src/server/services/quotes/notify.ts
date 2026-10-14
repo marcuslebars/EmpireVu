@@ -85,10 +85,12 @@ function quoteUrl(token: string, company: Db | null): string {
   return `${quotePublicBaseUrlFor(company)}/q/${token}`;
 }
 
-async function deliver(company: Db | null, to: string, mail: RenderedEmail): Promise<void> {
-  // D7: the company's sender (company-sender.ts). A failed lookup throws into dispatch's catch:
-  // reported as not delivered and recorded as a quote event.
-  const fromAddress = await loadCompanyFromAddress(typeof company?.id === "string" ? company.id : null);
+async function deliver(companyId: string | null, to: string, mail: RenderedEmail): Promise<void> {
+  // D7: the company's sender (company-sender.ts), looked up by the QUOTE's company id, not the
+  // loaded company row: if that row failed to load, the lookup must still run for this company
+  // (and throw when it can't be resolved) rather than fall to the platform default.
+  // A failed lookup throws into dispatch's catch: reported as not delivered + a quote event.
+  const fromAddress = await loadCompanyFromAddress(companyId);
   await sendEmail({
     to,
     subject: mail.subject,
@@ -143,7 +145,7 @@ async function dispatch(
 
   try {
     const mail = build(ctx);
-    await deliver(ctx.company, ctx.recipient.email, mail);
+    await deliver(typeof ctx.quote.company_id === "string" ? ctx.quote.company_id : null, ctx.recipient.email, mail);
     await recordPublicEvent(ctx.quote.organization_id, quoteId, `${kind}_sent`, {
       subject: mail.subject,
     });
