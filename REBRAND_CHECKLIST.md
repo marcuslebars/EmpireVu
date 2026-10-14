@@ -224,7 +224,7 @@ After PR 2 deploys, **every org, A1 included, sees the lime Everdoer app.** Cust
 - crankleads.com and empirevu.com marketing: PR 3.
 - Internal code names, log prefixes, `crankleads_*` tables and `platform_brand` values: PR 5 and PR 7.
 - Old asset files (`/empirevu-*`, `/brand/crankleads-*`), kept because sent emails link to them.
-- Accounting hashes use the old product names (`HASH_PRODUCT_NAMES`). **Keep them for good**: changing them would re-push every synced record.
+- Accounting sync hashes use the old product names (`HASH_PRODUCT_NAMES`), so the rename never re-pushes already-synced records into QuickBooks or Xero. They come out in PR 8 with a one-time rehash job: for each synced record whose stored hash still matches, it recomputes the hash with the new name. No record is pushed. Don't remove the constant without that job.
 
 ## PR 3: marketing
 To be filled in. It covers:
