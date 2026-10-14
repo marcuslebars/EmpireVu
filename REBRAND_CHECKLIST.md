@@ -274,4 +274,8 @@ To be filled in once you've confirmed the store install counts. It covers:
 To be filled in: the migration and rollback that you run.
 
 ## PR 8: remove shims
-To be filled in, using the table in 1.8.
+To be filled in, using the table in 1.8. Already decided:
+- [ ] **Pin A1's sender in data instead of code.**
+  - **Today (PR 2):** `src/server/outbound/company-sender.ts` `isHouseOrgRow` treats an org as the house org when `plan = 'internal'` or its slug equals `LEAD_INTAKE_ORG_SLUG`. The code hard-codes the default for that variable, `a1-group`. House-org companies always send from `OUTBOUND_FROM_EMAIL`.
+  - **PR 8:** a migration sets `companies.email_from_address` for each A1 company **by explicit UUID**, with values you confirm from the audit. It raises an exception if any listed UUID is missing. A rollback goes with it.
+  - **Then** delete the house-org branch from `resolveFromAddress` (and its `a1-group` default), so no company's sender depends on a slug or plan.
