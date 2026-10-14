@@ -194,6 +194,11 @@ export const xero: AccountingProvider = {
     return findOrCreateContact(s, [name], {}, new Set());
   },
 
+  async findVendor(s, name) {
+    const hit = (await findContact(s, name)).find((c) => typeof c.ContactID === "string");
+    return hit ? { id: hit.ContactID as string, version: null } : null;
+  },
+
   async pushInvoice(s, doc, customer, st, existing) {
     const invoice: Obj = {
       ...(existing && isUuid(existing.id) ? { InvoiceID: existing.id } : {}),

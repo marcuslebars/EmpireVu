@@ -102,13 +102,23 @@ interface RawLine {
 /** Memo platform name when the caller doesn't pass the org's brand. */
 export const DEFAULT_PRODUCT_NAME = "Everdoer";
 
+/**
+ * Everdoer rebrand: the platform names memos carried before PR 2. The sync engine computes a
+ * doc's payload hash with one of THESE in place of the current display name (never "Everdoer"),
+ * so a rename never changes a hash and never re-pushes an already-synced record (a re-pushed Xero
+ * payment is deleted and recreated). Standard orgs' docs were hashed with "EmpireVu",
+ * done-for-you orgs' with "CrankLeads" (since the per-org brand), or "EmpireVu" before that.
+ * Keep forever: the hashes stored in accounting_links depend on these exact strings.
+ */
+export const HASH_PRODUCT_NAMES = { standard: "EmpireVu", done_for_you: "CrankLeads" } as const;
+
 export function invoiceDoc(
   inv: InvoiceRowLike,
   opts: {
     timeZone: string;
     depositAsLine: boolean;
     depositInvoiceNumber?: string | null;
-    /** Platform name in memos ("EmpireVu" / "CrankLeads" — the org's platform brand). */
+    /** Platform name in memos ("Everdoer"; see HASH_PRODUCT_NAMES for hashing). */
     productName?: string;
   },
 ): InvoiceDoc {

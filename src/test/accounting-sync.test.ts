@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createFakeDb, type FakeDb } from "./fake-supabase";
 
@@ -740,5 +740,168 @@ describe("sync engine", () => {
     expect(engine.backoffSeconds(3)).toBe(240);
     expect(engine.backoffSeconds(20)).toBe(6 * 3600);
     expect(engine.backoffSeconds(1, 120)).toBe(120);
+  });
+});
+
+// ── Everdoer rebrand: memos say Everdoer, but hashes and the generic contact don't move ──────
+
+describe("rebrand: product name in memos never re-pushes, generic contact is reused", () => {
+  const QUOTE_PAID = "2026-09-30T15:00:00Z";
+  const PAYMENT = { id: "p1", organization_id: ORG, company_id: CO, invoice_id: INV.id, amount_cents: 20000, method: "card", status: "succeeded", reference: null, received_at: "2026-10-05T16:00:00Z" };
+
+  function ctxFor(productName: string, productLine: "standard" | "done_for_you" = "standard") {
+    return new engine.SyncContext(db.client as never, { ...CONN } as never, "America/Toronto", fetch, productName, productLine);
+  }
+
+  function linkOf(type: string) {
+    const l = db.tables.accounting_links.find((x) => x.entity_type === type);
+    if (!l) throw new Error(`no ${type} link`);
+    return l as { remote_id: string; payload_hash: string; local_key: string };
+  }
+
+  /** The hashes the PRE-rebrand engine stored, with the memo name it used then. */
+  function oldHashes(oldName: string) {
+    const inv = db.tables.invoices[0] as unknown as Parameters<typeof mapping.invoiceDoc>[0];
+    const customerId = linkOf("customer").remote_id;
+    const invRemote = linkOf("invoice").remote_id;
+    return {
+      invoice: mapping.docHash(
+        mapping.invoiceDoc(inv, { timeZone: "America/Toronto", depositAsLine: false, depositInvoiceNumber: null, productName: oldName }),
+        customerId,
+        ST.incomeTarget?.id,
+        ST.salesTaxCode?.id,
+        ST.salesExemptCode?.id,
+        ST.country,
+      ),
+      deposit: mapping.docHash(
+        mapping.depositPaymentDoc(inv as unknown as Parameters<typeof mapping.depositPaymentDoc>[0], QUOTE_PAID, "America/Toronto", oldName),
+        invRemote,
+        ST.paymentAccount?.id,
+      ),
+      payment: mapping.docHash(mapping.paymentDoc(PAYMENT, "America/Toronto", oldName), invRemote, ST.paymentAccount?.id),
+    };
+  }
+
+  function seedSynced() {
+    setup({ quotes: [{ id: "q1", organization_id: ORG, deposit_paid_at: QUOTE_PAID }], invoice_payments: [{ ...PAYMENT }] });
+    Object.assign(db.tables.invoices[0], { credit_cents: 5000, quote_id: "q1" });
+  }
+
+  it.each([
+    ["standard", "EmpireVu"],
+    ["done_for_you", "CrankLeads"],
+    ["done_for_you", "EmpireVu"], // a done-for-you org synced before the per-org brand
+  ] as const)("%s org synced as %s: invoice, quote deposit and payment are NOT re-pushed after the rename", async (line, oldName) => {
+    seedSynced();
+    const first = ctxFor("Everdoer", line);
+    await engine.syncInvoice(first, INV.id);
+    await engine.syncPayment(first, "p1");
+    // Put back exactly what the pre-rebrand engine had stored.
+    const old = oldHashes(oldName);
+    db.tables.accounting_links.find((l) => l.entity_type === "invoice")!.payload_hash = old.invoice;
+    db.tables.accounting_links.find((l) => l.entity_type === "deposit")!.payload_hash = old.deposit;
+    db.tables.accounting_links.find((l) => l.entity_type === "payment")!.payload_hash = old.payment;
+
+    calls.length = 0;
+    const after = ctxFor("Everdoer", line);
+    expect(await engine.syncInvoice(after, INV.id)).toMatchObject({ status: "done", detail: "Up to date (INV-0007)." });
+    expect(await engine.syncPayment(after, "p1")).toMatchObject({ status: "done", detail: "Up to date." });
+    // No update, and above all no delete + recreate of a payment.
+    expect(calls).toEqual([]);
+  });
+
+  it("the stored hash is the pre-rebrand one (canonical name per product line), never the display name", async () => {
+    seedSynced();
+    await engine.syncInvoice(ctxFor("Everdoer"), INV.id);
+    await engine.syncPayment(ctxFor("Everdoer"), "p1");
+    const old = oldHashes("EmpireVu");
+    expect(linkOf("invoice").payload_hash).toBe(old.invoice);
+    expect(linkOf("deposit").payload_hash).toBe(old.deposit);
+    expect(linkOf("payment").payload_hash).toBe(old.payment);
+  });
+
+  it("new docs carry Everdoer memos; a real change still pushes", async () => {
+    seedSynced();
+    const ctx = ctxFor("Everdoer");
+    await engine.syncInvoice(ctx, INV.id);
+    const pushed = calls.find((c) => c.fn === "pushInvoice")!.args[0] as { memo: string };
+    expect(pushed.memo).toMatch(/^From Everdoer/);
+    calls.length = 0;
+    db.tables.invoices[0].due_date = "2026-10-26";
+    await engine.syncInvoice(ctx, INV.id);
+    expect(calls.map((c) => c.fn)).toEqual(["pushInvoice"]);
+  });
+
+  describe("Xero generic expense contact", () => {
+    const EXP = { id: "e1", organization_id: ORG, company_id: CO, spent_on: "2026-10-03", vendor: null, description: "Tape", category: "materials", amount_cents: 500, tax_cents: 0, paid_with: "business", receipt_path: null };
+    const p = fakeProvider as unknown as { id: string; findVendor?: (s: unknown, name: string) => Promise<{ id: string; version: string | null } | null> };
+
+    beforeEach(() => {
+      p.id = "xero";
+      p.findVendor = undefined;
+    });
+    afterEach(() => {
+      p.id = "quickbooks";
+      p.findVendor = undefined;
+    });
+
+    function vendorLink(name: string, remoteId: string) {
+      return { id: `l-${remoteId}`, company_id: CO, provider: "quickbooks", remote_tenant_id: "realm-1", entity_type: "vendor", local_key: name.toLowerCase(), remote_id: remoteId, remote_version: null, payload_hash: null };
+    }
+
+    it("reuses the connection's existing 'Expenses (EmpireVu)' contact", async () => {
+      setup({ expenses: [{ ...EXP }], accounting_links: [vendorLink("Expenses (EmpireVu)", "contact-empirevu")] });
+      await engine.syncExpense(ctxFor("Everdoer"), "e1");
+      expect(calls.map((c) => c.fn)).toEqual(["pushExpense"]);
+      expect(calls[0].args[1]).toBe("contact-empirevu");
+    });
+
+    it("a done-for-you org reuses its 'Expenses (CrankLeads)' contact first", async () => {
+      setup({
+        expenses: [{ ...EXP }],
+        accounting_links: [vendorLink("Expenses (EmpireVu)", "contact-empirevu"), vendorLink("Expenses (CrankLeads)", "contact-crankleads")],
+      });
+      await engine.syncExpense(ctxFor("Everdoer", "done_for_you"), "e1");
+      expect(calls[0].args[1]).toBe("contact-crankleads");
+    });
+
+    it("finds an old-named contact in the file when the link is gone, and links it", async () => {
+      setup({ expenses: [{ ...EXP }] });
+      const looked: string[] = [];
+      p.findVendor = async (_s, name) => {
+        looked.push(name);
+        return name === "Expenses (EmpireVu)" ? { id: "contact-in-file", version: null } : null;
+      };
+      await engine.syncExpense(ctxFor("Everdoer"), "e1");
+      expect(looked).toEqual(["Expenses (EmpireVu)"]);
+      expect(calls.map((c) => c.fn)).toEqual(["pushExpense"]);
+      expect(calls[0].args[1]).toBe("contact-in-file");
+      expect(db.tables.accounting_links.find((l) => l.entity_type === "vendor")).toMatchObject({ local_key: "expenses (empirevu)", remote_id: "contact-in-file" });
+    });
+
+    it("a new connection gets 'Expenses (Everdoer)'", async () => {
+      setup({ expenses: [{ ...EXP }] });
+      p.findVendor = async () => null;
+      await engine.syncExpense(ctxFor("Everdoer"), "e1");
+      expect(calls.map((c) => [c.fn, c.args[0]])).toEqual([
+        ["vendor", "Expenses (Everdoer)"],
+        ["pushExpense", 500],
+      ]);
+      expect(db.tables.accounting_links.find((l) => l.entity_type === "vendor")?.local_key).toBe("expenses (everdoer)");
+    });
+  });
+});
+
+describe("xero.findVendor", () => {
+  it("finds by exact name and never creates", async () => {
+    const seen: Array<{ method: string; url: string }> = [];
+    const f = (async (url: string, init?: RequestInit) => {
+      seen.push({ method: init?.method ?? "GET", url: String(url) });
+      return new Response(JSON.stringify({ Contacts: String(url).includes("EmpireVu") ? [{ ContactID: "k-old" }] : [] }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    const s = { tenantId: "tenant-1", accessToken: "t", environment: "production", fetch: f } as never;
+    expect(await xero.findVendor!(s, "Expenses (EmpireVu)")).toEqual({ id: "k-old", version: null });
+    expect(await xero.findVendor!(s, "Expenses (Nobody)")).toBeNull();
+    expect(seen.every((r) => r.method === "GET")).toBe(true);
   });
 });
