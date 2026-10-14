@@ -41,20 +41,20 @@ describe("resolveFromAddress: three-level fallback", () => {
       EVERDOER_DEFAULT_FROM_EMAIL: "hello@everdoer.com",
       OUTBOUND_FROM_EMAIL: A1_FROM,
       LEAD_FROM_EMAIL: "leads@a1marinecare.ca",
-    } as NodeJS.ProcessEnv;
+    } as unknown as NodeJS.ProcessEnv;
     expect(resolveFromAddress("quotes@a1marinecare.ca", env)).toBe("quotes@a1marinecare.ca");
     expect(resolveFromAddress(null, env)).toBe("hello@everdoer.com");
     expect(resolveFromAddress(null, { ...env, EVERDOER_DEFAULT_FROM_EMAIL: undefined })).toBe(A1_FROM);
-    expect(resolveFromAddress(null, { LEAD_FROM_EMAIL: "leads@a1marinecare.ca" } as NodeJS.ProcessEnv)).toBe("leads@a1marinecare.ca");
-    expect(resolveFromAddress(null, {} as NodeJS.ProcessEnv)).toBeNull();
+    expect(resolveFromAddress(null, { LEAD_FROM_EMAIL: "leads@a1marinecare.ca" } as unknown as NodeJS.ProcessEnv)).toBe("leads@a1marinecare.ca");
+    expect(resolveFromAddress(null, {} as unknown as NodeJS.ProcessEnv)).toBeNull();
   });
 
   it("a blank variable falls back instead of defeating the fallback", () => {
-    expect(resolveFromAddress("", { EVERDOER_DEFAULT_FROM_EMAIL: "   ", OUTBOUND_FROM_EMAIL: A1_FROM } as NodeJS.ProcessEnv)).toBe(A1_FROM);
+    expect(resolveFromAddress("", { EVERDOER_DEFAULT_FROM_EMAIL: "   ", OUTBOUND_FROM_EMAIL: A1_FROM } as unknown as NodeJS.ProcessEnv)).toBe(A1_FROM);
   });
 
   it("ignores a company value that isn't one plain address (no header injection, no display-name games)", () => {
-    const env = { OUTBOUND_FROM_EMAIL: A1_FROM } as NodeJS.ProcessEnv;
+    const env = { OUTBOUND_FROM_EMAIL: A1_FROM } as unknown as NodeJS.ProcessEnv;
     for (const bad of ["not-an-email", "Evil <x@y.com>", "a@b.com\r\nBcc: z@q.com", "a@b", " "]) {
       expect(resolveFromAddress(bad, env)).toBe(A1_FROM);
     }
@@ -65,7 +65,7 @@ describe("resolveFromAddress: three-level fallback", () => {
       { OUTBOUND_FROM_EMAIL: "A1 Marine Care <hello@a1marinecare.ca>" },
       { OUTBOUND_FROM_EMAIL: "", LEAD_FROM_EMAIL: "leads@a1marinecare.ca" },
       { OUTBOUND_FROM_EMAIL: A1_FROM, LEAD_FROM_EMAIL: "leads@a1marinecare.ca" },
-    ] as NodeJS.ProcessEnv[]) {
+    ] as unknown as NodeJS.ProcessEnv[]) {
       expect(resolveFromAddress(null, env)).toBe(env.OUTBOUND_FROM_EMAIL || env.LEAD_FROM_EMAIL);
     }
   });
