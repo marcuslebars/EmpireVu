@@ -81,11 +81,12 @@ export async function notifyCrewAssigned(ctx: TenantServiceContext, booking: Tab
 
     const notified: string[] = [];
     if (isEmailSendConfigured()) {
-      // D7: the company's own sender when it has one.
-      const fromAddress = (people ?? []).some((p) => p.email) ? await loadCompanyFromAddress(ctx.supabase, booking.company_id) : null;
       for (const person of people ?? []) {
         if (!person.email) continue;
         try {
+          // D7: the company's sender (cached after the first). A failed lookup fails this email,
+          // logged below like any send failure; the push above has already gone.
+          const fromAddress = await loadCompanyFromAddress(booking.company_id);
           await sendEmail({ to: person.email, subject: message.subject, body: message.text, fromName: company?.name ?? undefined, ...(fromAddress ? { fromAddress } : {}) });
           notified.push(person.id);
         } catch (err) {

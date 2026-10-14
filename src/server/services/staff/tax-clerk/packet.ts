@@ -221,7 +221,7 @@ export async function emailPacket(
       .filter((l, i, all) => l !== "" || all[i - 1] !== "")
       .join("\n");
     // D7: the company's own sender when it has one.
-    const fromAddress = await loadCompanyFromAddress(admin, company.companyId);
+    const fromAddress = await loadCompanyFromAddress(company.companyId);
     await deps.sendEmail({
       to,
       subject: `${periodName(period)} packet: ${period.range} (${company.name})`,

@@ -16,7 +16,7 @@
  * Every attempt writes a quote_event either way, so "did the customer get it?" is
  * answerable from the audit trail rather than from log archaeology.
  */
-import { companyFromAddressOf } from "@/server/outbound/company-sender";
+import { loadCompanyFromAddress } from "@/server/outbound/company-sender";
 import { sendEmail } from "@/server/outbound/email";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { quotePublicBaseUrlFor } from "./config";
@@ -86,8 +86,9 @@ function quoteUrl(token: string, company: Db | null): string {
 }
 
 async function deliver(company: Db | null, to: string, mail: RenderedEmail): Promise<void> {
-  // D7: the company's own sender when it has one (the row is loaded with `*`).
-  const fromAddress = companyFromAddressOf(company);
+  // D7: the company's sender (company-sender.ts). A failed lookup throws into dispatch's catch:
+  // reported as not delivered and recorded as a quote event.
+  const fromAddress = await loadCompanyFromAddress(typeof company?.id === "string" ? company.id : null);
   await sendEmail({
     to,
     subject: mail.subject,

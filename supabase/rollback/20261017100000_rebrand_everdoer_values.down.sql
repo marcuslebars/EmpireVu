@@ -1,16 +1,16 @@
 -- Rollback of 20261017100000_rebrand_everdoer_values.sql (Everdoer rebrand, PR 2: stored values + D7).
 --
--- 1. Restores, from public.rebrand_values_backup, every org/company name and quote link host the
---    migration changed, but only where the row still holds the value the migration wrote (a name
---    someone changed by hand since is left alone and reported).
+-- 1. Restores, from public.rebrand_values_backup, every quote link host the migration changed, but
+--    only where the row still holds the value the migration wrote (a link changed since is left
+--    alone and reported).
 -- 2. Restores the table/column comments and the waitlist.source default from the backup.
--- 3. Drops companies.email_from_address (and its check). The app then sends every message from
---    EVERDOER_DEFAULT_FROM_EMAIL, else OUTBOUND_FROM_EMAIL: UNSET EVERDOER_DEFAULT_FROM_EMAIL
---    BEFORE running this if it is set, or A1's customer mail moves to that address.
+-- 3. Drops companies.email_from_address (and its check). ANY VALUE SET IN IT SINCE (by hand, by the
+--    service role) IS LOST: note them first if you want them back:
+--      select id, name, email_from_address from public.companies where email_from_address is not null;
+--    Without the column every company sends from the platform default again (the house org keeps
+--    OUTBOUND_FROM_EMAIL in code either way).
 -- 4. Drops the backup table, last.
 -- Re-runnable: does nothing once the backup table is gone (beyond dropping the column).
-
-begin;
 
 do $$
 declare
@@ -23,12 +23,8 @@ begin
     return;
   end if;
 
-  -- Names and quote links: only rows still holding the migration's value.
-  for r in
-    select * from public.rebrand_values_backup
-     where step in ('name', 'quote_public_base_url')
-     order by id
-  loop
+  -- Quote links: only rows still holding the migration's value.
+  for r in select * from public.rebrand_values_backup where step = 'quote_public_base_url' order by id loop
     execute format('update public.%I set %I = $1 where id = $2 and %I is not distinct from $3', r.target_table, r.target_column, r.target_column)
       using r.old_value, r.row_id, r.new_value;
     get diagnostics n = row_count;
@@ -68,5 +64,3 @@ alter table public.companies drop constraint if exists companies_email_from_addr
 alter table public.companies drop column if exists email_from_address;
 
 drop table if exists public.rebrand_values_backup;
-
-commit;

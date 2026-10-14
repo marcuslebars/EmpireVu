@@ -22,7 +22,7 @@
  * (services/rebrand/demo-seed.ts). While the OLD demo org ("EmpireVu Demo", empirevu-demo,
  * found by its old-salt id) or the old login demo@empirevu.com still exist, the job only
  * prints what it would delete; `--apply` deletes them (the org through its cascades; the
- * login only if it belongs to no other org) and then seeds. Once they're gone no flag is
+ * login only if its one membership is in that old org) and then seeds. Once they're gone no flag is
  * needed. `--legacy-email` / `--legacy-org-slug` override the old login / slug.
  *
  * Service-role (bypasses RLS): a seed runs outside any request, so there is no RLS

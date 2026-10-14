@@ -349,7 +349,7 @@ export async function emailPeriodCsv(
   ].join("\n");
   try {
     // D7: the company's own sender when it has one.
-    const fromAddress = await loadCompanyFromAddress(admin, company.companyId);
+    const fromAddress = await loadCompanyFromAddress(company.companyId);
     await deps.sendEmail({
       to,
       subject: `Payroll hours: ${periodLabel(dates)} (${company.name})`,
