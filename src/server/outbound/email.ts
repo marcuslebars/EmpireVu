@@ -15,7 +15,7 @@
  * and to avoid adding a dependency.
  */
 import { UserFacingError } from "@/server/errors";
-import { resolveFromAddress } from "@/server/outbound/company-sender";
+import { platformFromAddress, resolveFromAddress } from "@/server/outbound/company-sender";
 
 export interface SendEmailInput {
   to: string;
@@ -31,10 +31,10 @@ export interface SendEmailInput {
    */
   fromName?: string;
   /**
-   * The sending company's own From address (`companies.email_from_address`, D7), when
-   * the mail goes out on a company's behalf and the company has one. Service-role-set
-   * only, so it's always on a domain the platform's Resend account covers. Omit (or
-   * null) for platform mail and for companies without one: see resolveFromAddress.
+   * The From for mail sent on a company's behalf, already resolved (D7): from
+   * company-sender.ts loadCompanyFromAddress, used verbatim (the house org's may be
+   * "Name <addr>"). Omit (or null) for platform mail and whenever it is the platform
+   * sender anyway: see company-sender.ts resolveFromAddress.
    */
   fromAddress?: string | null;
   /** Per-message reply-to, so a customer replying reaches the brand. */
@@ -110,13 +110,13 @@ export class OutboundSendError extends UserFacingError {
 
 // The From address rule (D7) lives in company-sender.ts so modules that tests mock this
 // file around (deliverMessage, the email inbox) can use it too.
-export { resolveFromAddress };
+export { platformFromAddress, resolveFromAddress };
 
 export function readEmailConfig(): OutboundEmailConfig | null {
   const apiKey = process.env.RESEND_API_KEY;
   // The platform sender (no company): EVERDOER_DEFAULT_FROM_EMAIL, else today's
   // OUTBOUND_FROM_EMAIL || LEAD_FROM_EMAIL. See resolveFromAddress.
-  const from = resolveFromAddress(null);
+  const from = platformFromAddress();
 
   if (!apiKey || !from) {
     return null;
@@ -153,7 +153,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: formatFrom(resolveFromAddress(input.fromAddress) ?? config.from, input.fromName),
+        from: formatFrom(input.fromAddress?.trim() || config.from, input.fromName),
         to: [input.to],
         subject: input.subject,
         text: input.body,

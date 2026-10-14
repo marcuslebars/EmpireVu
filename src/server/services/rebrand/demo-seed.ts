@@ -7,7 +7,7 @@
  * "organization", checks it really is the demo org (slug and name both match what the old job
  * wrote, and the slug contains "demo"), and deletes it; the org's rows go with it through the
  * organization_id cascades. The old reviewer login (demo@empirevu.com) is deleted too, but only
- * if it belongs to no other org. Nothing else is ever touched, and nothing is deleted without
+ * if it is a member of that old demo org and of no other org. Nothing else is ever touched, and nothing is deleted without
  * `--apply`: without it the job prints the plan and stops.
  */
 import { createHash } from "node:crypto";
@@ -86,9 +86,9 @@ export interface LegacyDemoPlan {
   org: { id: string; slug: string; name: string } | null;
   /** Rows per table in the old org (all removed with it). */
   counts: Record<string, number>;
-  /** The old reviewer login, to delete; null when there's none or it must be kept. */
-  user: { id: string; email: string } | null;
-  /** Why an existing old login is kept (it's in another org, or it IS the new login). */
+  /** The old reviewer login, to delete (with its only membership, in the old demo org); null when there's none or it must be kept. */
+  user: { id: string; email: string; membership: { id: string; role: string } } | null;
+  /** Why an existing old login is kept (in another org, not in the demo org, or it IS the new login). */
   userKept: string | null;
   /** Set when something with the old org's id is NOT the demo org: nothing may be deleted. */
   refused: string | null;
@@ -118,9 +118,9 @@ export async function planLegacyDemoCleanup(
     }
     plan.org = row;
     for (const table of COUNTED_TABLES) {
-      const { data, error: countError } = await admin.from(table).select("id").eq("organization_id", row.id);
+      const { count, error: countError } = await admin.from(table).select("id", { count: "exact", head: true }).eq("organization_id", row.id);
       if (countError) throw countError;
-      plan.counts[table] = (data ?? []).length;
+      plan.counts[table] = count ?? 0;
     }
   }
 
@@ -130,18 +130,22 @@ export async function planLegacyDemoCleanup(
   }
   const user = await auth.findUserByEmail(options.legacyEmail);
   if (user) {
+    // Deleted only when it is a member of the (verified) old demo org AND of nothing else, so a
+    // mistyped --legacy-email can never delete someone's real login.
     const { data: memberships, error: membershipError } = await admin
       .from("organization_memberships")
-      .select("organization_id")
+      .select("id, organization_id, role")
       .eq("profile_id", user.id);
     if (membershipError) throw membershipError;
-    const others = ((memberships ?? []) as Array<{ organization_id: string }>)
-      .map((m) => m.organization_id)
-      .filter((id) => id !== legacyOrgId);
+    const rows = (memberships ?? []) as Array<{ id: string; organization_id: string; role: string }>;
+    const demo = plan.org ? rows.find((m) => m.organization_id === plan.org?.id) ?? null : null;
+    const others = rows.filter((m) => m.organization_id !== legacyOrgId).map((m) => m.organization_id);
     if (others.length) {
-      plan.userKept = `${user.email} is also a member of ${others.join(", ")}; it is kept. Remove it by hand if it should go.`;
+      plan.userKept = `${user.email} (${user.id}) is also a member of ${others.join(", ")}; it is kept. Remove it by hand if it should go.`;
+    } else if (!demo) {
+      plan.userKept = `${user.email} (${user.id}) is not a member of the old demo org; it is kept.`;
     } else {
-      plan.user = user;
+      plan.user = { ...user, membership: { id: demo.id, role: demo.role } };
     }
   }
   return plan;
@@ -156,7 +160,7 @@ export function formatLegacyDemoPlan(plan: LegacyDemoPlan): string {
   } else {
     lines.push("no old-salt demo organization (already removed)");
   }
-  if (plan.user) lines.push(`delete the old reviewer login ${plan.user.email} (${plan.user.id})`);
+  if (plan.user) lines.push(`delete the old reviewer login ${plan.user.email} (${plan.user.id}); its only membership: ${plan.user.membership.id} (${plan.user.membership.role}) in the old demo org`);
   if (plan.userKept) lines.push(`keep: ${plan.userKept}`);
   return lines.join("\n");
 }

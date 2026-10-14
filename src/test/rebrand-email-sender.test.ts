@@ -1,20 +1,28 @@
 /**
- * D7 (Everdoer rebrand): the per-company From address.
+ * D7 (Everdoer rebrand): which From a company's email goes out from.
  *
- *   companies.email_from_address → EVERDOER_DEFAULT_FROM_EMAIL → OUTBOUND_FROM_EMAIL → LEAD_FROM_EMAIL
+ *   companies.email_from_address → house org (A1): OUTBOUND_FROM_EMAIL verbatim →
+ *   EVERDOER_DEFAULT_FROM_EMAIL → OUTBOUND_FROM_EMAIL || LEAD_FROM_EMAIL
  *
- * The contract that matters most: with no company value and EVERDOER_DEFAULT_FROM_EMAIL
- * unset, every message goes out exactly as before (same From header, same request body).
- * And a company pinned to its own sender (A1) keeps it even when the platform default is
- * set, including when its row can't be read.
+ * With no company value and EVERDOER_DEFAULT_FROM_EMAIL unset, every message goes out exactly as
+ * before. A1 never moves to @everdoer.com. A failed read never guesses once the new default is set.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadCompanyFromAddress, resetCompanySenderCache, resolveFromAddress, companyFromAddressOf } from "@/server/outbound/company-sender";
+import {
+  CompanySenderUnavailableError,
+  isHouseOrgRow,
+  loadCompanyFromAddress,
+  platformFromAddress,
+  resetCompanySenderCache,
+  resolveFromAddress,
+} from "@/server/outbound/company-sender";
 import { readEmailConfig, sendEmail } from "@/server/outbound/email";
+import { classifyByRules } from "@/server/services/staff/email-clerk/classify";
 
-const A1_FROM = "quotes@a1marinestorage.ca";
+const A1_FROM = "A1 Marine Storage <quotes@a1marinestorage.ca>";
 const fetchMock = vi.fn();
+const env = (e: Record<string, string | undefined>) => e as unknown as NodeJS.ProcessEnv;
 
 beforeEach(() => {
   fetchMock.mockReset().mockResolvedValue({ ok: true, json: () => Promise.resolve({ id: "re_1" }) });
@@ -23,6 +31,7 @@ beforeEach(() => {
   vi.stubEnv("OUTBOUND_FROM_EMAIL", A1_FROM);
   vi.stubEnv("LEAD_FROM_EMAIL", "");
   vi.stubEnv("EVERDOER_DEFAULT_FROM_EMAIL", "");
+  vi.stubEnv("LEAD_INTAKE_ORG_SLUG", "a1-group");
   resetCompanySenderCache();
 });
 
@@ -31,137 +40,161 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function sentBody(): Record<string, unknown> {
-  return JSON.parse(fetchMock.mock.calls[0][1].body as string) as Record<string, unknown>;
+function sentFrom(i = 0): unknown {
+  return (JSON.parse(fetchMock.mock.calls[i][1].body as string) as Record<string, unknown>).from;
 }
 
-describe("resolveFromAddress: three-level fallback", () => {
-  it("company value first, then EVERDOER_DEFAULT_FROM_EMAIL, then OUTBOUND_FROM_EMAIL, then LEAD_FROM_EMAIL", () => {
-    const env = {
-      EVERDOER_DEFAULT_FROM_EMAIL: "hello@everdoer.com",
-      OUTBOUND_FROM_EMAIL: A1_FROM,
-      LEAD_FROM_EMAIL: "leads@a1marinecare.ca",
-    } as unknown as NodeJS.ProcessEnv;
-    expect(resolveFromAddress("quotes@a1marinecare.ca", env)).toBe("quotes@a1marinecare.ca");
-    expect(resolveFromAddress(null, env)).toBe("hello@everdoer.com");
-    expect(resolveFromAddress(null, { ...env, EVERDOER_DEFAULT_FROM_EMAIL: undefined })).toBe(A1_FROM);
-    expect(resolveFromAddress(null, { LEAD_FROM_EMAIL: "leads@a1marinecare.ca" } as unknown as NodeJS.ProcessEnv)).toBe("leads@a1marinecare.ca");
-    expect(resolveFromAddress(null, {} as unknown as NodeJS.ProcessEnv)).toBeNull();
+describe("resolveFromAddress: the four levels", () => {
+  const all = env({ EVERDOER_DEFAULT_FROM_EMAIL: "hello@everdoer.com", OUTBOUND_FROM_EMAIL: A1_FROM, LEAD_FROM_EMAIL: "leads@a1marinecare.ca" });
+
+  it("own address, then the house org's OUTBOUND_FROM_EMAIL verbatim, then the new default, then today's", () => {
+    expect(resolveFromAddress({ own: "care@a1marinecare.ca", house: true }, all)).toBe("care@a1marinecare.ca");
+    expect(resolveFromAddress({ own: null, house: true }, all)).toBe(A1_FROM);
+    expect(resolveFromAddress({ own: null, house: false }, all)).toBe("hello@everdoer.com");
+    expect(resolveFromAddress(null, all)).toBe("hello@everdoer.com");
+    expect(resolveFromAddress({ own: null, house: false }, env({ OUTBOUND_FROM_EMAIL: A1_FROM }))).toBe(A1_FROM);
+    expect(resolveFromAddress(null, env({ LEAD_FROM_EMAIL: "leads@a1marinecare.ca" }))).toBe("leads@a1marinecare.ca");
+    expect(resolveFromAddress(null, env({}))).toBeNull();
   });
 
-  it("a blank variable falls back instead of defeating the fallback", () => {
-    expect(resolveFromAddress("", { EVERDOER_DEFAULT_FROM_EMAIL: "   ", OUTBOUND_FROM_EMAIL: A1_FROM } as unknown as NodeJS.ProcessEnv)).toBe(A1_FROM);
+  it("the house org falls back to LEAD_FROM_EMAIL like today, never to the new default while either is set", () => {
+    expect(resolveFromAddress({ own: null, house: true }, env({ EVERDOER_DEFAULT_FROM_EMAIL: "hello@everdoer.com", LEAD_FROM_EMAIL: "leads@a1marinecare.ca" }))).toBe("leads@a1marinecare.ca");
   });
 
-  it("ignores a company value that isn't one plain address (no header injection, no display-name games)", () => {
-    const env = { OUTBOUND_FROM_EMAIL: A1_FROM } as unknown as NodeJS.ProcessEnv;
-    for (const bad of ["not-an-email", "Evil <x@y.com>", "a@b.com\r\nBcc: z@q.com", "a@b", " "]) {
-      expect(resolveFromAddress(bad, env)).toBe(A1_FROM);
+  it("blank variables fall back; a malformed own address is ignored", () => {
+    expect(platformFromAddress(env({ EVERDOER_DEFAULT_FROM_EMAIL: "  ", OUTBOUND_FROM_EMAIL: A1_FROM }))).toBe(A1_FROM);
+    for (const bad of ["not-an-email", "Evil <x@y.com>", "a@b.com\r\nBcc: z@q.com", "a@b"]) {
+      expect(resolveFromAddress({ own: bad, house: false }, env({ OUTBOUND_FROM_EMAIL: "x@y.com" }))).toBe("x@y.com");
     }
   });
 
-  it("with nothing new set it is exactly the old OUTBOUND_FROM_EMAIL || LEAD_FROM_EMAIL", () => {
-    for (const env of [
-      { OUTBOUND_FROM_EMAIL: "A1 Marine Care <hello@a1marinecare.ca>" },
-      { OUTBOUND_FROM_EMAIL: "", LEAD_FROM_EMAIL: "leads@a1marinecare.ca" },
-      { OUTBOUND_FROM_EMAIL: A1_FROM, LEAD_FROM_EMAIL: "leads@a1marinecare.ca" },
-    ] as unknown as NodeJS.ProcessEnv[]) {
-      expect(resolveFromAddress(null, env)).toBe(env.OUTBOUND_FROM_EMAIL || env.LEAD_FROM_EMAIL);
-    }
+  it("house org = plan internal or the LEAD_INTAKE_ORG_SLUG slug (messaging.ts uses the same rule)", () => {
+    expect(isHouseOrgRow({ plan: "launch", slug: "a1-group" })).toBe(true);
+    expect(isHouseOrgRow({ plan: "internal", slug: "x" })).toBe(true);
+    expect(isHouseOrgRow({ plan: "operate", slug: "blairs" })).toBe(false);
+    expect(isHouseOrgRow(null)).toBe(false);
   });
 });
 
-describe("sendEmail From header", () => {
-  it("no company value + no EVERDOER_DEFAULT_FROM_EMAIL: identical to before (address and display name)", async () => {
-    await sendEmail({ to: "jane@example.com", subject: "Your quote", body: "Hi", fromName: "A1 Marine Storage", replyTo: "office@a1marinestorage.ca" });
-    const body = sentBody();
-    expect(body.from).toBe(`"A1 Marine Storage" <${A1_FROM}>`);
-    expect(body.reply_to).toBe("office@a1marinestorage.ca");
-    expect(Object.keys(body).sort()).toEqual(["from", "reply_to", "subject", "text", "to"]);
-    expect(readEmailConfig()?.from).toBe(A1_FROM);
-  });
-
-  it("a company's own sender wins over the platform default; Reply-To is untouched", async () => {
-    vi.stubEnv("EVERDOER_DEFAULT_FROM_EMAIL", "hello@everdoer.com");
-    await sendEmail({ to: "jane@example.com", subject: "s", body: "b", fromName: "A1 Marine Storage", replyTo: "office@a1marinestorage.ca", fromAddress: A1_FROM });
-    expect(sentBody().from).toBe(`"A1 Marine Storage" <${A1_FROM}>`);
-    expect(sentBody().reply_to).toBe("office@a1marinestorage.ca");
-  });
-
-  it("platform mail (no company value) uses EVERDOER_DEFAULT_FROM_EMAIL once set, else OUTBOUND_FROM_EMAIL", async () => {
-    await sendEmail({ to: "owner@biz.test", subject: "s", body: "b", fromName: "Everdoer" });
-    expect(sentBody().from).toBe(`"Everdoer" <${A1_FROM}>`);
-    fetchMock.mockClear();
-    vi.stubEnv("EVERDOER_DEFAULT_FROM_EMAIL", "hello@everdoer.com");
-    await sendEmail({ to: "owner@biz.test", subject: "s", body: "b", fromName: "Everdoer" });
-    expect(sentBody().from).toBe('"Everdoer" <hello@everdoer.com>');
-  });
-
-  it("a company without a sender (null) gets the platform default", async () => {
-    vi.stubEnv("EVERDOER_DEFAULT_FROM_EMAIL", "hello@everdoer.com");
-    await sendEmail({ to: "jane@example.com", subject: "s", body: "b", fromName: "Bob's Roofing", fromAddress: null });
-    expect(sentBody().from).toBe('"Bob\'s Roofing" <hello@everdoer.com>');
-  });
-
-  it("is configured with only EVERDOER_DEFAULT_FROM_EMAIL set", () => {
-    vi.stubEnv("OUTBOUND_FROM_EMAIL", "");
-    vi.stubEnv("EVERDOER_DEFAULT_FROM_EMAIL", "hello@everdoer.com");
-    expect(readEmailConfig()?.from).toBe("hello@everdoer.com");
-  });
-});
-
-/** A fake client whose companies read answers with `row` (or an error), counting queries. */
-function fakeDb(answer: { row?: Record<string, unknown> | null; error?: { message: string } }) {
-  const calls: string[] = [];
-  const db = {
+/** A fake service-role client: companies + organizations, counting reads; `fail` makes reads error. */
+function fakeAdmin(rows: { companies: Record<string, Record<string, unknown> | null>; orgs: Record<string, Record<string, unknown>> }, fail?: string) {
+  const reads: string[] = [];
+  const admin = {
     from(table: string) {
-      calls.push(table);
+      let id = "";
       const api = {
-        select: (cols: string) => {
-          calls.push(`select:${cols}`);
+        select: () => api,
+        eq: (_c: string, v: string) => {
+          id = v;
           return api;
         },
-        eq: () => api,
-        maybeSingle: () => Promise.resolve({ data: answer.error ? null : answer.row ?? null, error: answer.error ?? null }),
+        maybeSingle: () => {
+          reads.push(`${table}:${id}`);
+          if (fail) return Promise.resolve({ data: null, error: { message: fail } });
+          const data = table === "companies" ? rows.companies[id] ?? null : rows.orgs[id] ?? null;
+          return Promise.resolve({ data, error: null });
+        },
       };
       return api;
     },
   };
-  return { db: db as never, calls };
+  return { admin: admin as never, reads };
 }
 
+const WORLD = {
+  companies: {
+    "co-a1": { organization_id: "org-a1", email_from_address: null },
+    "co-a1-own": { organization_id: "org-a1", email_from_address: "care@a1marinecare.ca" },
+    "co-blairs": { organization_id: "org-blairs", email_from_address: null },
+    "co-lookalike": { organization_id: "org-blairs", email_from_address: null },
+  },
+  orgs: { "org-a1": { plan: "internal", slug: "a1-group" }, "org-blairs": { plan: "operate", slug: "blairs" } },
+};
+
 describe("loadCompanyFromAddress", () => {
-  it("reads only email_from_address, and caches per company", async () => {
-    const { db, calls } = fakeDb({ row: { email_from_address: A1_FROM } });
-    expect(await loadCompanyFromAddress(db, "co-a1", 1_000)).toBe(A1_FROM);
-    expect(await loadCompanyFromAddress(db, "co-a1", 2_000)).toBe(A1_FROM);
-    expect(calls).toEqual(["companies", "select:email_from_address"]);
-    // …and reads again once the cache entry is old.
-    await loadCompanyFromAddress(db, "co-a1", 1_000 + 6 * 60_000);
-    expect(calls.filter((c) => c === "companies")).toHaveLength(2);
+  it("nothing new set: every company sends exactly as before (no fromAddress)", async () => {
+    const { admin } = fakeAdmin(WORLD);
+    expect(await loadCompanyFromAddress("co-a1", { admin })).toBeNull();
+    expect(await loadCompanyFromAddress("co-blairs", { admin })).toBeNull();
+    expect(await loadCompanyFromAddress(null, { admin })).toBeNull();
   });
 
-  it("null when the company has none or no company is given", async () => {
-    const { db, calls } = fakeDb({ row: { email_from_address: null } });
-    expect(await loadCompanyFromAddress(db, "co-x")).toBeNull();
-    expect(await loadCompanyFromAddress(db, null)).toBeNull();
-    expect(calls.filter((c) => c === "companies")).toHaveLength(1);
-  });
-
-  it("a failed read (e.g. migration not applied yet) sends from today's address, never the new default", async () => {
-    vi.stubEnv("OUTBOUND_FROM_EMAIL", `A1 Marine Storage <${A1_FROM}>`);
+  it("with EVERDOER_DEFAULT_FROM_EMAIL set the house org keeps OUTBOUND_FROM_EMAIL, display name included", async () => {
     vi.stubEnv("EVERDOER_DEFAULT_FROM_EMAIL", "hello@everdoer.com");
+    const { admin } = fakeAdmin(WORLD);
+    const a1 = await loadCompanyFromAddress("co-a1", { admin });
+    expect(a1).toBe(A1_FROM);
+    expect(await loadCompanyFromAddress("co-a1-own", { admin })).toBe("care@a1marinecare.ca");
+    expect(await loadCompanyFromAddress("co-blairs", { admin })).toBeNull(); // = the platform default
+
+    await sendEmail({ to: "jane@example.com", subject: "s", body: "b", fromAddress: a1 });
+    expect(sentFrom(0)).toBe(A1_FROM);
+    await sendEmail({ to: "jane@example.com", subject: "s", body: "b", fromName: "Blair's Marine" });
+    expect(sentFrom(1)).toBe('"Blair\'s Marine" <hello@everdoer.com>');
+  });
+
+  it("caches a successful read; a null (RLS-hidden / missing) read is not cached", async () => {
+    const { admin, reads } = fakeAdmin(WORLD);
+    await loadCompanyFromAddress("co-a1", { admin, now: 1_000 });
+    await loadCompanyFromAddress("co-a1", { admin, now: 2_000 });
+    expect(reads).toEqual(["companies:co-a1", "organizations:org-a1"]);
+
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const { db } = fakeDb({ error: { message: 'column companies.email_from_address does not exist' } });
-    const got = await loadCompanyFromAddress(db, "co-a1");
-    expect(got).toBe(A1_FROM);
-    expect(resolveFromAddress(got)).toBe(A1_FROM);
+    const hidden = fakeAdmin({ companies: { "co-hidden": null }, orgs: {} });
+    await loadCompanyFromAddress("co-hidden", { admin: hidden.admin, now: 1_000 });
+    await loadCompanyFromAddress("co-hidden", { admin: hidden.admin, now: 1_500 });
+    expect(hidden.reads).toEqual(["companies:co-hidden", "companies:co-hidden"]);
     err.mockRestore();
   });
 
-  it("companyFromAddressOf reads a `*` row, tolerating a row from before the migration", () => {
-    expect(companyFromAddressOf({ id: "c", email_from_address: ` ${A1_FROM} ` })).toBe(A1_FROM);
-    expect(companyFromAddressOf({ id: "c" })).toBeNull();
-    expect(companyFromAddressOf(null)).toBeNull();
+  it("read error, EVERDOER_DEFAULT_FROM_EMAIL unset: today's sender (identical behaviour)", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { admin } = fakeAdmin(WORLD, "column companies.email_from_address does not exist");
+    expect(await loadCompanyFromAddress("co-a1", { admin })).toBeNull();
+    expect(readEmailConfig()?.from).toBe(A1_FROM);
+    err.mockRestore();
+  });
+
+  it("read error, EVERDOER_DEFAULT_FROM_EMAIL set: throws (no guessing), logged at most once a minute", async () => {
+    vi.stubEnv("EVERDOER_DEFAULT_FROM_EMAIL", "hello@everdoer.com");
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { admin } = fakeAdmin(WORLD, "db down");
+    await expect(loadCompanyFromAddress("co-a1", { admin, now: 0 })).rejects.toBeInstanceOf(CompanySenderUnavailableError);
+    await expect(loadCompanyFromAddress("co-a1", { admin, now: 30_000 })).rejects.toBeInstanceOf(CompanySenderUnavailableError);
+    expect(err).toHaveBeenCalledTimes(1);
+    await expect(loadCompanyFromAddress("co-a1", { admin, now: 61_000 })).rejects.toThrow(/not sending rather than guessing/);
+    expect(err).toHaveBeenCalledTimes(2);
+    err.mockRestore();
+  });
+});
+
+describe("sendEmail with no company sender", () => {
+  it("is byte-identical to before: same From, same body keys", async () => {
+    await sendEmail({ to: "jane@example.com", subject: "Your quote", body: "Hi", fromName: "A1 Marine Storage", replyTo: "office@a1marinestorage.ca" });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as Record<string, unknown>;
+    expect(body.from).toBe('"A1 Marine Storage" <quotes@a1marinestorage.ca>');
+    expect(Object.keys(body).sort()).toEqual(["from", "reply_to", "subject", "text", "to"]);
+  });
+});
+
+describe("email inbox loop check (L1)", () => {
+  const base = {
+    inboxAddress: "inbox@in.everdoer.com",
+    inboundDomain: null,
+    outboundFrom: null,
+    ownerEmail: null,
+    forwardedFrom: null,
+    suppliers: [],
+    purchaseOrders: [],
+    knownContact: false,
+  };
+  const facts = (from: string) => ({ fromAddress: from, fromName: null, subject: "Re: your quote", text: "hello", headers: {}, auth: null });
+
+  it("treats mail from ANY of our senders as our own, bare and case-insensitive", () => {
+    const ctx = { ...base, outboundFroms: [A1_FROM, "hello@everdoer.com", null, "Leads <LEADS@a1marinecare.ca>"] };
+    for (const from of ["QUOTES@a1marinestorage.ca", "hello@EVERDOER.com", "leads@a1marinecare.ca"]) {
+      expect(classifyByRules(facts(from), ctx as never).rule?.category).toBe("no_reply");
+    }
+    expect(classifyByRules(facts("jane@example.com"), ctx as never).rule?.category).not.toBe("no_reply");
   });
 });

@@ -515,7 +515,7 @@ export async function executeMaterialsOrder(admin: AdminClient, approval: OwnerA
   });
   try {
     // D7: the company's own sender when it has one.
-    const fromAddress = await loadCompanyFromAddress(admin, company.companyId);
+    const fromAddress = await loadCompanyFromAddress(company.companyId);
     await deps.sendEmail({ to: supplier.email, subject: email.subject, body: email.text, html: email.html, fromName: company.name, replyTo, ...(fromAddress ? { fromAddress } : {}) });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);

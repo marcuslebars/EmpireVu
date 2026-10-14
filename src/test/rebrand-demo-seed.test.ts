@@ -52,9 +52,9 @@ function world(overrides: { orgName?: string; orgSlug?: string; extraMembership?
       { id: "org-blairs", slug: "blairs-demo-shop", name: "Blair's" },
     ],
     organization_memberships: [
-      { id: oldDemoId("membership"), organization_id: OLD_ORG, profile_id: "user-old" },
-      { id: "m-a1", organization_id: "org-a1", profile_id: "user-a1" },
-      ...(overrides.extraMembership ? [{ id: "m-x", organization_id: "org-blairs", profile_id: "user-old" }] : []),
+      { id: oldDemoId("membership"), organization_id: OLD_ORG, profile_id: "user-old", role: "owner" },
+      { id: "m-a1", organization_id: "org-a1", profile_id: "user-a1", role: "owner" },
+      ...(overrides.extraMembership ? [{ id: "m-x", organization_id: "org-blairs", profile_id: "user-old", role: "member" }] : []),
     ],
     companies: [
       { id: oldDemoId("company"), organization_id: OLD_ORG, slug: "harbour-point-marine" },
@@ -89,7 +89,8 @@ describe("planLegacyDemoCleanup / applyLegacyDemoCleanup", () => {
     expect(plan.refused).toBeNull();
     expect(plan.org).toEqual({ id: OLD_ORG, slug: "empirevu-demo", name: "EmpireVu Demo" });
     expect(plan.counts).toMatchObject({ companies: 1, contacts: 2, organization_memberships: 1 });
-    expect(plan.user).toEqual({ id: "user-old", email: "demo@empirevu.com" });
+    expect(plan.user).toEqual({ id: "user-old", email: "demo@empirevu.com", membership: { id: oldDemoId("membership"), role: "owner" } });
+    expect(formatLegacyDemoPlan(plan)).toContain(`its only membership: ${oldDemoId("membership")} (owner) in the old demo org`);
     expect(formatLegacyDemoPlan(plan)).toContain(`delete organization ${OLD_ORG} "EmpireVu Demo" (empirevu-demo)`);
     // Planning deletes nothing.
     expect(db.queries.filter((q) => q.op !== "select")).toEqual([]);
@@ -153,15 +154,38 @@ describe("planLegacyDemoCleanup / applyLegacyDemoCleanup", () => {
     expect(db.queries.filter((q) => q.op === "delete")).toEqual([]);
   });
 
-  it("a login left over without its org is still removed", async () => {
+  it("a login with no membership in the old demo org is kept (even with zero memberships)", async () => {
     const db = createFakeDb({ organizations: [], organization_memberships: [] });
     const auth = fakeAuth([{ id: "user-old", email: "demo@empirevu.com" }]);
     const plan = await planLegacyDemoCleanup(db.client, auth, OPTIONS);
     expect(plan.org).toBeNull();
-    expect(plan.user?.id).toBe("user-old");
-    expect(planIsEmpty(plan)).toBe(false);
+    expect(plan.user).toBeNull();
+    expect(plan.userKept).toMatch(/not a member of the old demo org/);
+    expect(planIsEmpty(plan)).toBe(true);
     await applyLegacyDemoCleanup(db.client, auth, plan);
-    expect(auth.deleted).toEqual(["user-old"]);
+    expect(auth.deleted).toEqual([]);
+  });
+
+  it("a mistyped --legacy-email (a real person with zero memberships) is never deleted", async () => {
+    const db = world();
+    const auth = fakeAuth([
+      { id: "user-old", email: "demo@empirevu.com" },
+      { id: "user-typo", email: "deno@empirevu.com" },
+    ]);
+    const plan = await planLegacyDemoCleanup(db.client, auth, { ...OPTIONS, legacyEmail: "deno@empirevu.com" });
+    expect(plan.org?.id).toBe(OLD_ORG);
+    expect(plan.user).toBeNull();
+    expect(plan.userKept).toMatch(/deno@empirevu\.com \(user-typo\) is not a member of the old demo org/);
+    const done = await applyLegacyDemoCleanup(db.client, auth, plan);
+    expect(done.deletedUser).toBe(false);
+    expect(auth.deleted).toEqual([]);
+  });
+
+  it("the dry run counts the old org's rows per table (exact count queries)", async () => {
+    const db = world();
+    const plan = await planLegacyDemoCleanup(db.client, fakeAuth([]), OPTIONS);
+    expect(plan.counts.contacts).toBe(2);
+    expect(plan.counts.quotes).toBe(0);
   });
 
   it("surfaces a read error instead of guessing", async () => {

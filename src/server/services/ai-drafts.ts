@@ -240,7 +240,7 @@ export async function sendDraftEmail(
   let emailResult: { id: string | null } | undefined;
   try {
     // D7: from the contact's company's own sender when it has one.
-    const fromAddress = await loadCompanyFromAddress(context.supabase, contact.company_id);
+    const fromAddress = await loadCompanyFromAddress(contact.company_id);
     emailResult = await sendEmail({ body, subject, to: contact.email, ...(fromAddress ? { fromAddress } : {}) });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
