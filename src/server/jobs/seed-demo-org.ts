@@ -18,17 +18,24 @@
  * same rows rather than piling up duplicates, and the demo password is reset to
  * whatever you supply. `--reset` clears the org's seeded data first.
  *
+ * Everdoer rebrand: the id salt changed from 'empirevu-demo-seed:' to 'everdoer-demo-seed:'
+ * (services/rebrand/demo-seed.ts). While the OLD demo org ("EmpireVu Demo", empirevu-demo,
+ * found by its old-salt id) or the old login demo@empirevu.com still exist, the job only
+ * prints what it would delete; `--apply` deletes them (the org through its cascades; the
+ * login only if it belongs to no other org) and then seeds. Once they're gone no flag is
+ * needed. `--legacy-email` / `--legacy-org-slug` override the old login / slug.
+ *
  * Service-role (bypasses RLS): a seed runs outside any request, so there is no RLS
  * identity to scope by — the organization is resolved explicitly by slug.
  *
  * Usage:
- *   npm run job:seed-demo -- --email demo@empirevu.com
- *   npm run job:seed-demo -- --email demo@empirevu.com --reset
+ *   npm run job:seed-demo -- --email demo@everdoer.com            # dry run while the old org exists
+ *   npm run job:seed-demo -- --email demo@everdoer.com --apply
+ *   npm run job:seed-demo -- --email demo@everdoer.com --reset
  *
  * The password is never a CLI argument (it would sit in shell history): the script
  * reads DEMO_PASSWORD from the environment, or prompts for it without echoing.
  */
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -36,10 +43,24 @@ import type { Inserts, Json } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import { createCompany } from "@/server/services/companies";
 import { createQuote } from "@/server/services/quotes/service";
+import {
+  applyLegacyDemoCleanup,
+  DEMO_EMAIL,
+  DEMO_ORG_NAME,
+  DEMO_ORG_SLUG,
+  DEMO_SEED_SALT,
+  demoAuthAdmin,
+  demoUuid,
+  formatLegacyDemoPlan,
+  LEGACY_DEMO_EMAIL,
+  LEGACY_DEMO_ORG_SLUG,
+  planIsEmpty,
+  planLegacyDemoCleanup,
+} from "@/server/services/rebrand/demo-seed";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
-const DEFAULT_ORG_SLUG = "empirevu-demo";
+const DEFAULT_ORG_SLUG = DEMO_ORG_SLUG;
 const COMPANY_SLUG = "harbour-point-marine";
 const COMPANY_NAME = "Harbour Point Marine";
 const TIMEZONE = "America/Toronto";
@@ -57,17 +78,7 @@ const log = (message: string): void => console.log(`[seed-demo-org] ${message}`)
  * anything between runs.
  */
 function demoId(name: string): string {
-  const bytes = createHash("sha1").update(`empirevu-demo-seed:${name}`).digest().subarray(0, 16);
-  bytes.writeUInt8((bytes.readUInt8(6) & 0x0f) | 0x50, 6); // version 5
-  bytes.writeUInt8((bytes.readUInt8(8) & 0x3f) | 0x80, 8); // RFC 4122 variant
-  const hex = bytes.toString("hex");
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    hex.slice(12, 16),
-    hex.slice(16, 20),
-    hex.slice(20, 32),
-  ].join("-");
+  return demoUuid(DEMO_SEED_SALT, name);
 }
 
 // ── time ──────────────────────────────────────────────────────────────────────
@@ -533,7 +544,8 @@ async function main(): Promise<number> {
   const email = flag("email");
   if (!email) {
     console.error(
-      "Usage: npm run job:seed-demo -- --email demo@empirevu.com [--org-slug empirevu-demo] [--reset]",
+      `Usage: npm run job:seed-demo -- --email ${DEMO_EMAIL} [--org-slug ${DEMO_ORG_SLUG}] [--reset] [--apply] ` +
+        `[--legacy-email ${LEGACY_DEMO_EMAIL}] [--legacy-org-slug ${LEGACY_DEMO_ORG_SLUG}]`,
     );
     return 1;
   }
@@ -548,13 +560,41 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  const admin = createSupabaseAdminClient();
+
+  // ── the pre-rebrand demo org and login (old id salt) ───────────────────────
+  // Planned before the password prompt (a dry run needs none) and deleted only after it,
+  // so a mistyped password can't leave the reviewers with no login at all.
+  const auth = demoAuthAdmin(admin);
+  const legacy = await planLegacyDemoCleanup(admin, auth, {
+    legacyOrgSlug: flag("legacy-org-slug") ?? LEGACY_DEMO_ORG_SLUG,
+    legacyEmail: flag("legacy-email") ?? LEGACY_DEMO_EMAIL,
+    newEmail: email,
+  });
+  if (legacy.refused) {
+    console.error(`[seed-demo-org] ${formatLegacyDemoPlan(legacy)}`);
+    return 1;
+  }
+  const apply = process.argv.includes("--apply");
+  if (!planIsEmpty(legacy) || legacy.userKept) {
+    for (const line of formatLegacyDemoPlan(legacy).split("\n")) log(line);
+  }
+  if (!planIsEmpty(legacy) && !apply) {
+    log("Dry run: nothing was changed. Re-run with --apply to delete the above and seed the new demo org.");
+    return 0;
+  }
+
   const password = await promptForPassword();
   if (password.length < 12) {
     console.error("That password is under 12 characters. Play stores it indefinitely — use a long one.");
     return 1;
   }
 
-  const admin = createSupabaseAdminClient();
+  if (!planIsEmpty(legacy)) {
+    const done = await applyLegacyDemoCleanup(admin, auth, legacy);
+    log(`old demo org deleted: ${done.deletedOrg ? "yes" : "no (already gone)"}; old login deleted: ${done.deletedUser ? "yes" : "no"}`);
+  }
+
   const profileId = await ensureDemoUser(admin, email, password);
 
   // ── organization ───────────────────────────────────────────────────────────
@@ -563,7 +603,7 @@ async function main(): Promise<number> {
     const { error } = await admin.from("organizations").upsert(
       {
         id: organizationId,
-        name: "EmpireVu Demo",
+        name: DEMO_ORG_NAME,
         slug: orgSlug,
         billing_email: email,
         created_by: profileId,
@@ -1227,7 +1267,7 @@ async function main(): Promise<number> {
   }
 
   log("");
-  log(`Demo organization ready: "EmpireVu Demo" (${orgSlug}), company "${COMPANY_NAME}".`);
+  log(`Demo organization ready: "${DEMO_ORG_NAME}" (${orgSlug}), company "${COMPANY_NAME}".`);
   log(`Sign in as ${email} with the password you just supplied.`);
   log("Give those credentials to Play Console (App content → App access) and App Store Connect.");
   return 0;

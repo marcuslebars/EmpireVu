@@ -740,6 +740,7 @@ export interface Database {
           invoice_settings: Json;
           brand_accent_color: string | null;
           brand_from_name: string | null;
+          email_from_address: string | null;
           brand_logo_url: string | null;
           brand_primary_color: string | null;
           brand_reply_email: string | null;
@@ -797,6 +798,7 @@ export interface Database {
           invoice_settings?: Json;
           brand_accent_color?: string | null;
           brand_from_name?: string | null;
+          email_from_address?: string | null;
           brand_logo_url?: string | null;
           brand_primary_color?: string | null;
           brand_reply_email?: string | null;
@@ -854,6 +856,7 @@ export interface Database {
           invoice_settings?: Json;
           brand_accent_color?: string | null;
           brand_from_name?: string | null;
+          email_from_address?: string | null;
           brand_logo_url?: string | null;
           brand_primary_color?: string | null;
           brand_reply_email?: string | null;

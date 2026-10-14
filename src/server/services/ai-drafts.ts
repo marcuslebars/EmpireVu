@@ -4,6 +4,7 @@ import { proposedSlotSchema, type LeadAnalysis, type ProposedSlot } from "@/serv
 import type { Inserts, Json, Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import { ValidationError } from "@/server/organizations/context";
+import { loadCompanyFromAddress } from "@/server/outbound/company-sender";
 import { sendEmail } from "@/server/outbound/email";
 import { createActivityEvent } from "@/server/services/activity-events";
 import { analyzeContact } from "@/server/services/ai";
@@ -238,7 +239,9 @@ export async function sendDraftEmail(
 
   let emailResult: { id: string | null } | undefined;
   try {
-    emailResult = await sendEmail({ body, subject, to: contact.email });
+    // D7: from the contact's company's own sender when it has one.
+    const fromAddress = await loadCompanyFromAddress(context.supabase, contact.company_id);
+    emailResult = await sendEmail({ body, subject, to: contact.email, ...(fromAddress ? { fromAddress } : {}) });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await updateDraftRow(context, draftId, { email_error: message, email_status: "failed" });

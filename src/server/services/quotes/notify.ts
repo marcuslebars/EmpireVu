@@ -16,6 +16,7 @@
  * Every attempt writes a quote_event either way, so "did the customer get it?" is
  * answerable from the audit trail rather than from log archaeology.
  */
+import { companyFromAddressOf } from "@/server/outbound/company-sender";
 import { sendEmail } from "@/server/outbound/email";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { quotePublicBaseUrlFor } from "./config";
@@ -84,7 +85,9 @@ function quoteUrl(token: string, company: Db | null): string {
   return `${quotePublicBaseUrlFor(company)}/q/${token}`;
 }
 
-async function deliver(quote: Db, to: string, mail: RenderedEmail): Promise<void> {
+async function deliver(company: Db | null, to: string, mail: RenderedEmail): Promise<void> {
+  // D7: the company's own sender when it has one (the row is loaded with `*`).
+  const fromAddress = companyFromAddressOf(company);
   await sendEmail({
     to,
     subject: mail.subject,
@@ -92,6 +95,7 @@ async function deliver(quote: Db, to: string, mail: RenderedEmail): Promise<void
     html: mail.html,
     fromName: mail.fromName ?? undefined,
     replyTo: mail.replyTo ?? undefined,
+    ...(fromAddress ? { fromAddress } : {}),
   });
 }
 
@@ -138,7 +142,7 @@ async function dispatch(
 
   try {
     const mail = build(ctx);
-    await deliver(ctx.quote, ctx.recipient.email, mail);
+    await deliver(ctx.company, ctx.recipient.email, mail);
     await recordPublicEvent(ctx.quote.organization_id, quoteId, `${kind}_sent`, {
       subject: mail.subject,
     });

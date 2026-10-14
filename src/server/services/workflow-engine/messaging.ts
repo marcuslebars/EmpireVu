@@ -1,5 +1,6 @@
 import { platformNumber } from "@/server/outbound/platform-number";
 import type { Inserts, Tables } from "@/server/db/database.types";
+import { loadCompanyFromAddress } from "@/server/outbound/company-sender";
 import { sendEmail, type SendEmailInput } from "@/server/outbound/email";
 import { sendSms } from "@/server/outbound/sms";
 import type { TenantServiceContext } from "@/server/services/shared";
@@ -230,6 +231,13 @@ export interface DeliverMessageInput {
   subject?: string | null;
   fromName?: string | null;
   replyTo?: string | null;
+  /**
+   * Email only: the From address (D7). Omitted → the company's own sender
+   * (`companies.email_from_address`, looked up by companyId and cached), else the platform
+   * default (outbound/email.ts resolveFromAddress). Pass null for platform mail that must
+   * never use the company's sender.
+   */
+  fromAddress?: string | null;
   workflowRunId?: string | null;
   /**
    * SMS sender. "company" (default): the company's own Twilio number (catcher first), else
@@ -311,6 +319,8 @@ export async function deliverMessage(input: DeliverMessageInput): Promise<Delive
       const from = input.smsFrom === "platform" ? platformNumber() : await resolveCompanySmsFrom(context, companyId);
       providerRef = (await sendSms(from ? { to: input.to, body, from } : { to: input.to, body })).sid;
     } else {
+      const fromAddress =
+        input.fromAddress !== undefined ? input.fromAddress : await loadCompanyFromAddress(context.supabase, companyId);
       providerRef = (
         await sendEmail({
           to: input.to,
@@ -319,6 +329,7 @@ export async function deliverMessage(input: DeliverMessageInput): Promise<Delive
           html: input.html ?? undefined,
           fromName: input.fromName ?? undefined,
           replyTo: input.replyTo ?? undefined,
+          ...(fromAddress ? { fromAddress } : {}),
           ...(input.emailHeaders ? { headers: input.emailHeaders } : {}),
         })
       ).id;

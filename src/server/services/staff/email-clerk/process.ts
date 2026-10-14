@@ -12,6 +12,7 @@
  *   bill / other            → the 16:00 digest (digest.ts)
  *   auto-reply / bounce / newsletter / no-reply / spam → stored, counted in the digest, nothing else
  */
+import { loadCompanyFromAddress, resolveFromAddress } from "@/server/outbound/company-sender";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { getPack } from "@/server/services/packs";
 import { parseAppliedIndustryPack } from "@/server/services/packs/types";
@@ -96,8 +97,9 @@ async function classifyContext(admin: AdminClient, company: EmailClerkCompany, r
     // tolerant
   }
   const known = row.from_address ? Boolean(await findContactByEmail(admin, company, row.from_address)) : false;
-  // Our sending address (outbound/email.ts readEmailConfig's), to spot our own mail looping back.
-  const outbound = process.env.OUTBOUND_FROM_EMAIL || process.env.LEAD_FROM_EMAIL || null;
+  // The address this company's mail goes out from (D7: its own sender, else the platform's;
+  // company-sender.ts resolveFromAddress), to spot our own mail looping back.
+  const outbound = resolveFromAddress(await loadCompanyFromAddress(admin, company.companyId));
   return { inboxAddress: inbox.address, inboundDomain: inboundDomain(), inboundDomains: inboundDomains(), outboundFrom: outbound, ownerEmail: company.ownerEmail, forwardedFrom: inbox.forwarded_from, suppliers, purchaseOrders, knownContact: known };
 }
 
