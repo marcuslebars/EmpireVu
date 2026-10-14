@@ -690,7 +690,7 @@ describe("one-tap forwarding page", () => {
     const view = await pollForwardPage(db.client, TOKEN);
     expect(view).toMatchObject({
       businessName: "Jane's Roofing",
-      brandName: "CrankLeads",
+      brandName: "Everdoer",
       phonePath: "missed_call_catcher",
       status: "ready",
       businessLinePretty: "(416) 555-0101",
@@ -881,7 +881,7 @@ describe("done-for-you messages (golden)", () => {
     );
     expect(renderForwardingSms({ ...input, method: "provider", phonePath: "ai_receptionist" })).toContain("so your AI receptionist picks up the calls you miss. Here's how (2 min):");
     const email = renderForwardingEmail(input);
-    expect(email.fromName).toBe("CrankLeads");
+    expect(email.fromName).toBe("Everdoer");
     expect(email.body).toMatchSnapshot();
     expect(`${email.body}${email.html}`).not.toMatch(/EmpireVu|stripe/i);
   });

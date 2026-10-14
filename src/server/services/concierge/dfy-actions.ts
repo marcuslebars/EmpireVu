@@ -114,7 +114,7 @@ const FORWARDING_TEXT_ERRORS: Record<Exclude<ForwardingTextOutcome, "sent">, str
   verified: "Forwarding already works for them — nothing to send.",
   not_switched_on: "Setup hasn't been switched on yet — run switch-on first.",
   quiet_hours: "It's outside 8am–9pm their time — try again in the morning.",
-  not_crankleads: "This isn't an active CrankLeads account.",
+  not_crankleads: "This isn't an active Everdoer done-for-you account.",
   legacy: "This account was bought before done-for-you — it has no forwarding link. Set forwarding up with them by phone.",
   texts_stopped: "They stopped setup texts (or are exempt) — call them instead.",
 };
@@ -136,7 +136,7 @@ registerConciergeAction({
   schema: emptySchema,
   async run(ctx) {
     const rawTier = ctx.org.crankleads_tier ?? ctx.purchase?.tier ?? null;
-    if (!isCrankleadsTier(rawTier)) throw new ValidationError("This account has no CrankLeads plan.");
+    if (!isCrankleadsTier(rawTier)) throw new ValidationError("This account has no Everdoer done-for-you plan.");
     const row = await ensureProgress(ctx.admin, ctx.organizationId, ctx.companyId);
     const before = { flaggedAt: row.number_flagged_at, attempts: row.number_attempts, lastError: row.number_last_error };
     // Clear the flag + attempt count so the purchase runs again now (with its usual area-code order).

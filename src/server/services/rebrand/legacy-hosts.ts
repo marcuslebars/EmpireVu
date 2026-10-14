@@ -14,7 +14,7 @@
  * EVERDOER_APP_BASE_URL alone must never start redirecting people. Unsetting
  * EVERDOER_REDIRECT_LEGACY_HOSTS is the instant rollback.
  */
-import { OLD_PLATFORM_HOSTS, isOldPlatformHost } from "./platform-hosts";
+import { OLD_PLATFORM_HOSTS, isAllowedEverdoerAppHost, isOldPlatformHost } from "./platform-hosts";
 
 /** Old app hosts whose page views move to the new app host. Never api.empirevu.com. */
 export const LEGACY_APP_HOSTS = OLD_PLATFORM_HOSTS.filter((h) => h.startsWith("app.")) as readonly string[];
@@ -73,9 +73,9 @@ export function legacyRedirectOrigin(env: LegacyRedirectEnv): string | null {
   try {
     const url = new URL(raw);
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    // Never "redirect" to another old platform host (a copied value would bounce people
-    // between old hosts).
-    if (isOldPlatformHost(url.hostname)) return null;
+    // Only ever redirect to an everdoer host (or a dev host): a copied old value would bounce
+    // people between old hosts, and any other host is not ours.
+    if (isOldPlatformHost(url.hostname) || !isAllowedEverdoerAppHost(url.hostname)) return null;
     return url.origin;
   } catch {
     return null;

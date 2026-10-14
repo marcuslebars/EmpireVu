@@ -237,7 +237,7 @@ describe("checkout.session.completed (CrankLeads) → provisioned account", () =
       trial_ends_at: null,
       stripe_customer_id: CUSTOMER,
       crankleads_tier: "catch",
-      // A CrankLeads buyer sees CrankLeads, never EmpireVu (docs/crankleads-branding.md).
+      // A done-for-you buyer sees Everdoer, never EmpireVu (docs/everdoer-branding.md).
       platform_brand: "crankleads",
       billing_email: BUYER,
     });
@@ -293,12 +293,12 @@ describe("checkout.session.completed (CrankLeads) → provisioned account", () =
     // Emails: buyer welcome (set-password token_hash link + hosted form) and operator note.
     expect(sendEmail).toHaveBeenCalledTimes(2);
     const welcome = sendEmail.mock.calls.find(([m]) => m.to === BUYER)?.[0];
-    expect(welcome?.subject).toBe("You're in — we're setting up CrankLeads for you");
+    expect(welcome?.subject).toBe("You're in — we're setting up Everdoer for you");
     expect(welcome?.body).toContain(
       "https://app.crankleads.test/update-password?token_hash=hashed_tok_123&type=recovery&next=%2Fonboarding%3Fstep%3Dresume",
     );
     expect(welcome?.body).toContain(`https://app.crankleads.test/f/${formKey}`);
-    expect(welcome?.body).toContain("You can still log in to CrankLeads at app.crankleads.test");
+    expect(welcome?.body).toContain("You can still log in to Everdoer at app.crankleads.test");
 
     // Done for you: one quick-setup intake, its link in the welcome email AND texted to the
     // owner from the platform number (docs/done-for-you.md).
@@ -323,7 +323,7 @@ describe("checkout.session.completed (CrankLeads) → provisioned account", () =
     expect(welcome?.body).not.toMatch(/\$\s?\d/);
     expect(generateLink).toHaveBeenCalledWith(expect.objectContaining({ type: "recovery", email: BUYER }));
     const operator = sendEmail.mock.calls.find(([m]) => m.to === "ops@empirevu.test")?.[0];
-    expect(operator?.subject).toBe("New CrankLeads purchase: Jane's Roofing (Catch)");
+    expect(operator?.subject).toBe("New Everdoer purchase: Jane's Roofing (Catch)");
     expect(p.welcome_email_sent_at).toBeTruthy();
     expect(p.operator_notified_at).toBeTruthy();
 

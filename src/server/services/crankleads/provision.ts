@@ -150,7 +150,7 @@ async function resolvePurchaseForSession(admin: AdminClient, session: StripeObje
   const tier = metadata.tier;
   const email = session.customer_details?.email ?? session.customer_email;
   if (!isCrankleadsTier(tier) || typeof email !== "string" || !email) {
-    throw new Error(`CrankLeads session ${sessionId ?? "(no id)"} has no staged purchase and not enough metadata to rebuild it.`);
+    throw new Error(`Everdoer session ${sessionId ?? "(no id)"} has no staged purchase and not enough metadata to rebuild it.`);
   }
   console.error(`[crankleads/provision] purchase row missing for session ${sessionId}; rebuilding it from Stripe metadata`);
   const row: Inserts<"crankleads_purchases"> = {
@@ -369,7 +369,7 @@ async function ensureOrganization(
     stripeCustomerId: customerId,
     billingEmail: purchase.owner_email,
     crankleadsTier: tier,
-    // A CrankLeads buyer sees CrankLeads everywhere, never EmpireVu (docs/crankleads-branding.md).
+    // A CrankLeads buyer sees CrankLeads everywhere, never EmpireVu (docs/everdoer-branding.md).
     platformBrand: "crankleads",
     // Never move an existing user's default org out from under them.
     setAsDefaultOrganization: !existingUser,
@@ -551,7 +551,7 @@ export interface ProvisionOptions {
 /** The provisioning steps. Every step is idempotent, so a retry after a crash resumes safely. */
 async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase, deps: ProvisionDeps): Promise<string> {
   const tier = purchase.tier;
-  if (!isCrankleadsTier(tier)) throw new Error(`Unknown CrankLeads tier "${tier}".`);
+  if (!isCrankleadsTier(tier)) throw new Error(`Unknown Everdoer tier "${tier}".`);
 
   // 1) Owner login — create, or attach to the existing EmpireVu user with this email.
   let ownerId = purchase.owner_profile_id;
@@ -719,7 +719,7 @@ async function handleProvisioningFailure(
   );
   if (!options.finalAttempt) {
     if (err instanceof DeferBillingEventError) throw err;
-    throw new DeferBillingEventError(`CrankLeads provisioning failed (will retry): ${reason}`);
+    throw new DeferBillingEventError(`Everdoer provisioning failed (will retry): ${reason}`);
   }
   const operator = operatorEmailAddress();
   if (operator) {
@@ -741,17 +741,17 @@ async function handleProvisioningFailure(
 /** Claim + run the steps. On a step failure records `failed` (best-effort) and rethrows. */
 async function provisionPurchaseUnguarded(admin: AdminClient, purchaseId: string, deps: ProvisionDeps): Promise<string> {
   const current = await findPurchaseById(admin, purchaseId);
-  if (!current) throw new Error(`CrankLeads purchase ${purchaseId} not found.`);
+  if (!current) throw new Error(`Everdoer purchase ${purchaseId} not found.`);
   if (current.status === "provisioned" && current.organization_id) return current.organization_id;
   if (current.status === "checkout_created") {
-    throw new Error(`CrankLeads purchase ${purchaseId} is not paid yet.`);
+    throw new Error(`Everdoer purchase ${purchaseId} is not paid yet.`);
   }
 
   const claimed = await claimPurchaseForProvisioning(admin, current);
   if (!claimed) {
     const latest = await findPurchaseById(admin, purchaseId);
     if (latest?.status === "provisioned" && latest.organization_id) return latest.organization_id;
-    throw new DeferBillingEventError(`CrankLeads purchase ${purchaseId} is being provisioned by another worker.`);
+    throw new DeferBillingEventError(`Everdoer purchase ${purchaseId} is being provisioned by another worker.`);
   }
 
   try {

@@ -16,6 +16,7 @@
  * transaction the customer already agreed to), so they don't need marketing
  * consent — but an explicit SMS opt-out (STOP) is always honoured.
  */
+import { loadCompanyFromAddress } from "@/server/outbound/company-sender";
 import { sendEmail } from "@/server/outbound/email";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { deliverMessage } from "@/server/services/workflow-engine/messaging";
@@ -41,6 +42,15 @@ interface Bundle {
   invoice: InvoiceRow;
   company: CompanyForInvoice | null;
   contact: { first_name: string | null; phone: string | null; email: string | null; sms_opt_out_at: string | null } | null;
+}
+
+/**
+ * sendEmail's `fromAddress` (D7, company-sender.ts), only when it differs from the platform sender
+ * (the input stays as before otherwise). A failed lookup throws into the caller's catch: reported
+ * as not delivered and recorded on the invoice.
+ */
+function senderOf(fromAddress: string | null): { fromAddress?: string } {
+  return fromAddress ? { fromAddress } : {};
 }
 
 async function loadBundle(db: Db, invoiceId: string): Promise<Bundle | null> {
@@ -102,6 +112,7 @@ export async function sendInvoiceEmail(invoiceId: string): Promise<DeliveryOutco
       body: mail.text,
       html: trackedHtml(mail.html, doc.publicUrl, "invoice"),
       fromName: mail.fromName ?? undefined,
+      ...senderOf(await loadCompanyFromAddress(b.invoice.company_id)),
       replyTo: mail.replyTo ?? undefined,
       attachments: [{ filename: pdfName(b.invoice), content: base64(pdf) }],
     });
@@ -166,6 +177,7 @@ export async function sendInvoiceCopyEmail(
       body: `${summary}\n\n${mail.text}`,
       html,
       fromName: mail.fromName ?? undefined,
+      ...senderOf(await loadCompanyFromAddress(b.invoice.company_id)),
       attachments: [{ filename: pdfName(b.invoice), content: base64(pdf) }],
     });
     await recordInvoiceEvent(db, { organizationId: b.invoice.organization_id, invoiceId, eventType: "copy_sent", metadata: { to } });
@@ -243,6 +255,7 @@ export async function sendPaymentReceiptEmail(paymentId: string): Promise<Delive
       body: mail.text,
       html: mail.html,
       fromName: mail.fromName ?? undefined,
+      ...senderOf(await loadCompanyFromAddress(b.invoice.company_id)),
       replyTo: mail.replyTo ?? undefined,
       attachments,
     });
@@ -295,6 +308,7 @@ export async function sendInvoiceReminderEmail(invoiceId: string, opts: Reminder
       body: mail.text,
       html: trackedHtml(mail.html, doc.publicUrl, `reminder-${opts.index + 1}`),
       fromName: mail.fromName ?? undefined,
+      ...senderOf(await loadCompanyFromAddress(b.invoice.company_id)),
       replyTo: mail.replyTo ?? undefined,
       attachments: [{ filename: pdfName(b.invoice), content: base64(pdf) }],
     });
@@ -332,6 +346,7 @@ export async function sendStatementEmail(
       body: mail.text,
       html: mail.html,
       fromName: mail.fromName ?? undefined,
+      ...senderOf(await loadCompanyFromAddress(args.companyId)),
       replyTo: mail.replyTo ?? undefined,
       attachments: [{ filename: `statement-${st.statement.statementDate}.pdf`, content: base64(pdf) }],
     });

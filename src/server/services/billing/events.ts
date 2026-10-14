@@ -224,7 +224,7 @@ async function requireOrg(
     // instead of dead-lettering.
     if (await crankleadsPurchasePendingFor(supabase, object)) {
       throw new DeferBillingEventError(
-        `Stripe customer ${customerId ?? "(none)"} on ${eventType} belongs to a CrankLeads purchase still being provisioned.`,
+        `Stripe customer ${customerId ?? "(none)"} on ${eventType} belongs to an Everdoer purchase still being provisioned.`,
       );
     }
     throw new UnresolvedCustomerError(customerId, eventType);

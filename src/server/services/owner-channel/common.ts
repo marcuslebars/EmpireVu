@@ -14,6 +14,7 @@ import { normalizePhoneLast10 } from "@/server/services/lead-intake/matching";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { isPlatformOptedOut as isPlatformOptedOutShared } from "@/server/services/platform-opt-out";
 import { deliverMessage } from "@/server/services/workflow-engine/messaging";
+import { EVERDOER_SMS_NAME, LEGACY_DFY_SMS_NAME, smsBrandingOn } from "@/server/services/rebrand/sms-branding";
 
 export const DEFAULT_TIMEZONE = "America/Toronto";
 
@@ -177,9 +178,18 @@ export const OWNER_ALERTS_SUMMARY =
 // Approval texts (≤440 + code + instruction + a business name) must never be cut.
 const MAX_OWNER_SMS = 700;
 
-/** "CrankLeads: " for CrankLeads orgs; nothing otherwise (never "EmpireVu"). */
+/** The platform signature on owner texts once EVERDOER_SMS_BRANDING is on (REBRAND_PLAN.md §1.3). */
+export const OWNER_SMS_PREFIX = `${EVERDOER_SMS_NAME}: `;
+/** Today's signature, done-for-you orgs only (switch off; byte-identical to before the rebrand). */
+export const LEGACY_OWNER_SMS_PREFIX = `${LEGACY_DFY_SMS_NAME}: `;
+
+/**
+ * Switch off (default): "CrankLeads: " for done-for-you orgs, nothing for other orgs — exactly
+ * today's texts. EVERDOER_SMS_BRANDING on: "Everdoer: " for every org (rebrand/sms-branding.ts).
+ */
 export function signaturePrefix(platformBrand: string | null | undefined): string {
-  return isDoneForYou(platformBrand) ? "CrankLeads: " : "";
+  if (smsBrandingOn()) return OWNER_SMS_PREFIX;
+  return isDoneForYou(platformBrand) ? LEGACY_OWNER_SMS_PREFIX : "";
 }
 
 export interface OwnerSmsInput {

@@ -8,7 +8,7 @@
  *   • it's short (≈2 SMS segments), plain, and never names the platform.
  */
 
-const PLATFORM_NAMES = /\b(crank\s?leads|empire\s?vu)\b/gi;
+const PLATFORM_NAMES = /\b(crank\s?leads|empire\s?vu|ever\s?doer)\b/gi;
 
 export const MAX_REPLY_CHARS = 320;
 export const MAX_REPLY_CHARS_WITH_LINK = 459;

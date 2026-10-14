@@ -3,6 +3,7 @@
 // Phases 3-4 add the Checkout + invoice flow, reusing the existing billing infrastructure.
 
 import { isDoneForYou } from "@/lib/product-line";
+import { validEverdoerAppBaseUrl } from "@/server/services/platform-brand";
 import { envWithFallback } from "@/server/services/rebrand/legacy-usage";
 
 export interface QuotesConfig {
@@ -79,6 +80,11 @@ export function normalizeBaseUrl(raw: string): string {
  * Several brands share one EmpireVu deployment, so a single env origin would put
  * every brand's customer links on one brand's domain. Tolerates a company row from
  * before the column existed (undefined → the platform default).
+ *
+ * Everdoer rebrand PR 2: a standard org's customer links deliberately do NOT follow
+ * EVERDOER_APP_BASE_URL. QUOTE_PUBLIC_BASE_URL may be a tenant domain
+ * (quotes.a1marinestorage.ca), and customer pages are company-branded; a standard company
+ * moves only via its own quote_public_base_url (the PR 2 values migration) or the owner's env.
  */
 export function quotePublicBaseUrlFor(company: { quote_public_base_url?: unknown; platform_brand?: unknown } | null | undefined): string {
   const own = typeof company?.quote_public_base_url === "string" ? company.quote_public_base_url.trim() : "";
@@ -89,7 +95,11 @@ export function quotePublicBaseUrlFor(company: { quote_public_base_url?: unknown
     // Rebrand shim (remove in PR 8 once legacy_usage shows no env/QUOTE_PUBLIC_BASE_URL_CRANKLEADS or env/CRANKLEADS_APP_BASE_URL for 30 days)
     const crank =
       envWithFallback("QUOTE_PUBLIC_BASE_URL_EVERDOER", ["QUOTE_PUBLIC_BASE_URL_CRANKLEADS"]) ||
-      envWithFallback("EVERDOER_APP_BASE_URL", ["CRANKLEADS_APP_BASE_URL"]);
+      // Same host rule as appBaseUrlFor: a non-everdoer EVERDOER_APP_BASE_URL is ignored.
+      validEverdoerAppBaseUrl() ||
+      envWithFallback("EVERDOER_APP_BASE_URL", ["CRANKLEADS_APP_BASE_URL"], {
+        CRANKLEADS_APP_BASE_URL: process.env.CRANKLEADS_APP_BASE_URL,
+      });
     if (crank) return normalizeBaseUrl(crank);
   }
   return getQuotesConfig().publicBaseUrl;

@@ -121,7 +121,7 @@ function ListBody() {
     <ConciergeShell>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">CrankLeads setups</h1>
+          <h1 className="text-xl font-semibold">Everdoer setups</h1>
           <p className="text-sm text-muted-foreground">
             Newest first. Finish setup for anyone who isn't live.{" "}
             <Link to="/concierge/ports" className="font-medium text-foreground underline-offset-2 hover:underline">
@@ -176,7 +176,7 @@ function ListBody() {
           </div>
         ) : visible.length === 0 ? (
           <div className="py-16 text-center text-sm text-muted-foreground">
-            {accounts.length === 0 ? "No CrankLeads accounts yet." : "Nothing here."}
+            {accounts.length === 0 ? "No Everdoer accounts yet." : "Nothing here."}
           </div>
         ) : (
           visible.map((a) => <AccountRow key={a.organizationId} account={a} />)

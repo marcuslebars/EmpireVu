@@ -156,7 +156,7 @@ function withApiCors(request: NextRequest): NextResponse {
 export const config = {
   matcher: [
     // Everything except API routes, Next internals, and static asset files.
-    "/((?!api/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!api/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|webmanifest)$).*)",
     // API routes — CORS headers only.
     "/api/:path*",
   ],

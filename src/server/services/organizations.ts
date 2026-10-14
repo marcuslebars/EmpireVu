@@ -31,7 +31,7 @@ export interface PaidOrganizationBilling {
   stripeCustomerId: string;
   billingEmail: string | null;
   crankleadsTier: CrankleadsTier | null;
-  /** Brand the org's own people see (docs/crankleads-branding.md). CrankLeads purchases → "crankleads". */
+  /** Brand the org's own people see (docs/everdoer-branding.md). CrankLeads purchases → "crankleads". */
   platformBrand: PlatformBrandKey;
   /** Make it the owner's default org. False when grafting onto an EXISTING user. */
   setAsDefaultOrganization: boolean;

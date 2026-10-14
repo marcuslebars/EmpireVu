@@ -18,7 +18,13 @@ import { isValidSlug, parseSiteContent, type SiteContent } from "./site-content"
 import { renderSitePage, type SiteRenderOptions } from "./site-render";
 import { siteUrl } from "./site-url";
 
-export const CRANKLEADS_SITE_CREDIT_URL = "https://crankleads.com";
+/** Default target of the generated sites' "Powered by Everdoer" link. */
+export const CRANKLEADS_SITE_CREDIT_URL = "https://everdoer.com";
+
+/** EVERDOER_SITE_URL [web] overrides the credit link target (the renderer still vets it with safeHref). */
+export function siteCreditUrl(): string {
+  return process.env.EVERDOER_SITE_URL?.trim() || CRANKLEADS_SITE_CREDIT_URL;
+}
 
 export interface RenderedSite {
   html: string;
@@ -59,7 +65,7 @@ export async function siteRuntime(
     formKey,
     bookingUrl,
     turnstileSiteKey: turnstileSiteKey(),
-    creditUrl: isDoneForYou(content.facts.brand) ? CRANKLEADS_SITE_CREDIT_URL : null,
+    creditUrl: isDoneForYou(content.facts.brand) ? siteCreditUrl() : null,
   };
 }
 

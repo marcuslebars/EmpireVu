@@ -26,6 +26,8 @@ export default {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          // Deep lime #4F8A00 — the accent for text / marks on white surfaces (index.css).
+          "on-light": "hsl(var(--primary-on-light))",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",

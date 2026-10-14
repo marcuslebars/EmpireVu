@@ -3,7 +3,7 @@
 //   /storage/v1/object/* → a minimal storage stub (service-role upload, download, signed upload / read
 //                 URLs, list, remove; files under $E2E_ROOT/storage)
 //   /auth/v1/*  → a minimal stub of Supabase Auth backed by auth.users (only the endpoints the
-//                 app actually calls: admin users list/get/create/update, generate_link, user,
+//                 app actually calls: admin users list/get/create/update/delete, generate_link, user,
 //                 token password/refresh, logout)
 //   /api/*, /s/*, /r/*, /_next/* → Next dev
 //   everything else (the SPA, Vite modules, HMR websocket) → Vite dev
@@ -130,6 +130,12 @@ async function auth(req, res, url) {
       await sql(`update auth.users set ${sets.join(", ")} where id = ${lit(one[1])}`);
       const u = await userById(one[1]);
       return u ? send(res, 200, toUser(u)) : authErr(res, 404, "User not found", "user_not_found");
+    }
+    if (one && req.method === "DELETE") {
+      const u = await userById(one[1]);
+      if (!u) return authErr(res, 404, "User not found", "user_not_found");
+      await sql(`delete from auth.users where id = ${lit(one[1])}`);
+      return send(res, 200, toUser(u));
     }
     if (path === "/admin/generate_link" && req.method === "POST") {
       const body = await readJson(req);

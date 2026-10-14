@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { parseJsonBody } from "@/server/api/route";
 import { weeklyReportSettingsRoute } from "@/server/api/weekly-report-route";
-import { loadOrganizationBrand } from "@/server/services/platform-brand";
+import { isDoneForYouBrand, loadOrganizationBrand } from "@/server/services/platform-brand";
 import { WEEKLY_REPORT_CHANNELS } from "@/server/services/weekly-report/settings";
 import { getWeeklyReportSettingsView, updateWeeklyReportSettings } from "@/server/services/weekly-report/view";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
@@ -51,7 +51,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
       ctx.organizationId,
       companyId,
       body,
-      brand.key === "crankleads",
+      isDoneForYouBrand(brand),
     );
     const view = await getWeeklyReportSettingsView(ctx, companyId);
     return NextResponse.json({ data: { ...view, enabled: settings.enabled, channels: settings.channels, canManage: true } });

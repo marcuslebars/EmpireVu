@@ -8,6 +8,7 @@
  * reply-to the owner). Claimed on hst_periods (packet_claimed_at) so a double Y emails once.
  * Prepared figures only: nothing is ever filed with CRA.
  */
+import { loadCompanyFromAddress } from "@/server/outbound/company-sender";
 import { sendEmail, type SendEmailInput } from "@/server/outbound/email";
 import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } from "@/server/services/front-desk/contracts";
 import { ctxFor } from "@/server/services/owner-channel/common";
@@ -219,12 +220,15 @@ export async function emailPacket(
     ]
       .filter((l, i, all) => l !== "" || all[i - 1] !== "")
       .join("\n");
+    // D7: the company's own sender when it has one.
+    const fromAddress = await loadCompanyFromAddress(company.companyId);
     await deps.sendEmail({
       to,
       subject: `${periodName(period)} packet: ${period.range} (${company.name})`,
       body,
       fromName: company.name,
       replyTo: company.ownerEmail ?? undefined,
+      ...(fromAddress ? { fromAddress } : {}),
       attachments: built.attachments,
     });
     await db

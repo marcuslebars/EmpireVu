@@ -122,7 +122,7 @@ function firstName(name: string | null): string | null {
 export function safeEcho(raw: string | null | undefined, max: number): string | null {
   const t = (raw ?? "").replace(/\s+/g, " ").trim();
   if (!t) return null;
-  if (/https?:|www\.|@|\b[a-z0-9-]+\.(?:com|ca|net|org|io|co|app|ly|me|info|biz|xyz|link|gl)\b|\$|%|\d{3,}|crank\s?leads|empire\s?vu/i.test(t)) return null;
+  if (/https?:|www\.|@|\b[a-z0-9-]+\.(?:com|ca|net|org|io|co|app|ly|me|info|biz|xyz|link|gl)\b|\$|%|\d{3,}|\b(?:crank\s?leads|empire\s?vu|ever\s?doer)\b/i.test(t)) return null;
   if (!/^[A-Za-zÀ-ÿ0-9 ,.'’&/:()-]+$/.test(t)) return null;
   return t.length > max ? `${t.slice(0, max - 3).trimEnd()}...` : t;
 }

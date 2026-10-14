@@ -46,6 +46,12 @@ describe("HelpPanel", () => {
     expect(within(list).getAllByRole("button")).toHaveLength(HELP_ARTICLES.length);
   });
 
+  it("shows the D10 entity line once, at the foot of the panel", () => {
+    const dialog = openPanel();
+    expect(within(dialog).getByTestId("help-entity-line")).toHaveTextContent("Everdoer is a product of Thinker Holdings Inc.");
+    expect(within(dialog).getAllByText("Everdoer is a product of Thinker Holdings Inc.")).toHaveLength(1);
+  });
+
   it("searches articles and opens one", () => {
     const dialog = openPanel();
     fireEvent.change(within(dialog).getByRole("searchbox", { name: "Search help articles" }), {

@@ -4,7 +4,7 @@ import { assertCompanyInOrganization, type TenantServiceContext } from "@/server
 import { companyTimeZone } from "@/server/services/monthly-scorecard/scorecard";
 import { scorecardPlatformBrandName } from "@/server/services/monthly-scorecard/platform-brand";
 import { shiftWeekKey, weekKeyInTimeZone, weekLabel, weekRangeForKey } from "@/server/services/monthly-scorecard/weeks";
-import { loadOrganizationBrand } from "@/server/services/platform-brand";
+import { isDoneForYouBrand, loadOrganizationBrand } from "@/server/services/platform-brand";
 import {
   computeWeekForCompany,
   HOURS_SAVED_ASSUMPTIONS,
@@ -92,7 +92,7 @@ export async function getWeeklyReportView(
   if (error) throw error;
   const company = companyRow as { id: string; name: string; timezone: string | null; ai_settings: Json; owner_phone_e164: string | null };
   const brand = await loadOrganizationBrand(context.supabase, context.organizationId);
-  const isCrankleads = brand.key === "crankleads";
+  const isCrankleads = isDoneForYouBrand(brand);
   const settings = parseWeeklyReportSettings(company.ai_settings, isCrankleads);
   const timeZone = companyTimeZone(company);
 
@@ -160,7 +160,7 @@ export async function getWeeklyReportSettingsView(context: TenantServiceContext,
   if (error) throw error;
   const row = data as { ai_settings: Json; owner_phone_e164: string | null; owner_email: string | null };
   const brand = await loadOrganizationBrand(context.supabase, context.organizationId);
-  const isCrankleads = brand.key === "crankleads";
+  const isCrankleads = isDoneForYouBrand(brand);
   const settings = parseWeeklyReportSettings(row.ai_settings, isCrankleads);
   return {
     enabled: settings.enabled,

@@ -13,6 +13,7 @@
  * briefingTakesMoneyAlert); its untold items ride in the briefing and are marked reported only
  * once the briefing went out (only the ones that fit).
  */
+import { EVERDOER_BRAND } from "@/lib/platform-brand";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { ctxFor, sendOwnerSms, signaturePrefix } from "@/server/services/owner-channel/common";
 import { markMoneyAlertReported } from "@/server/services/staff/bookkeeper/daily-alert";
@@ -90,8 +91,8 @@ async function sendEmailCopy(admin: AdminClient, company: BriefingCompany, gathe
   if (!owner.email) return "no_email";
   const email = renderBriefingEmail({ businessName: company.name, dayLabel: gathered.input.dayLabel, briefing: text, details: gathered.details });
   const result = await deliverMessage({ context, channel: "email", to: owner.email, subject: email.subject, body: email.text, html: email.html, companyId: company.companyId, contactId: null, consentContact: null,
-    // Never "EmpireVu" for a CrankLeads org; a house org sees its own name.
-    fromName: company.crankleads ? "CrankLeads" : company.name });
+    // A done-for-you org gets the platform name (Everdoer); a house org sees its own name.
+    fromName: company.crankleads ? EVERDOER_BRAND.name : company.name });
   return result.status;
 }
 

@@ -12,6 +12,7 @@
  *   bill / other            → the 16:00 digest (digest.ts)
  *   auto-reply / bounce / newsletter / no-reply / spam → stored, counted in the digest, nothing else
  */
+import { loadCompanySenderInfo, resolveFromAddress } from "@/server/outbound/company-sender";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
 import { getPack } from "@/server/services/packs";
 import { parseAppliedIndustryPack } from "@/server/services/packs/types";
@@ -96,9 +97,16 @@ async function classifyContext(admin: AdminClient, company: EmailClerkCompany, r
     // tolerant
   }
   const known = row.from_address ? Boolean(await findContactByEmail(admin, company, row.from_address)) : false;
-  // Our sending address (outbound/email.ts readEmailConfig's), to spot our own mail looping back.
+  // Every address our mail may go out from (D7), to spot our own mail looping back: this company's
+  // resolved sender (when it can be read; never fails the inbound email), the platform default and
+  // today's senders.
+  const companySender = await loadCompanySenderInfo(company.companyId, { admin }).then(
+    (info) => resolveFromAddress(info),
+    () => null,
+  );
+  const outboundFroms = [companySender, process.env.EVERDOER_DEFAULT_FROM_EMAIL ?? null, process.env.OUTBOUND_FROM_EMAIL ?? null, process.env.LEAD_FROM_EMAIL ?? null];
   const outbound = process.env.OUTBOUND_FROM_EMAIL || process.env.LEAD_FROM_EMAIL || null;
-  return { inboxAddress: inbox.address, inboundDomain: inboundDomain(), inboundDomains: inboundDomains(), outboundFrom: outbound, ownerEmail: company.ownerEmail, forwardedFrom: inbox.forwarded_from, suppliers, purchaseOrders, knownContact: known };
+  return { inboxAddress: inbox.address, inboundDomain: inboundDomain(), inboundDomains: inboundDomains(), outboundFrom: outbound, outboundFroms, ownerEmail: company.ownerEmail, forwardedFrom: inbox.forwarded_from, suppliers, purchaseOrders, knownContact: known };
 }
 
 interface Decided {

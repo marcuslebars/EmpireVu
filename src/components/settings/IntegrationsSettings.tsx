@@ -136,8 +136,8 @@ export function IntegrationsSettings() {
             <p className="text-[11px] font-semibold text-muted-foreground mt-1">Post a lead (sign the body with this key):</p>
             <pre className="text-[11px] font-mono whitespace-pre-wrap break-all text-muted-foreground bg-background/60 rounded-md p-2">{`POST ${intakeUrl}
 content-type: application/json
-x-empirevu-key: ${freshKey}
-x-empirevu-signature: sha256=<hmac-sha256(body, key)>
+x-everdoer-key: ${freshKey}
+x-everdoer-signature: sha256=<hmac-sha256(body, key)>
 
 { "schemaVersion": 1, "source": "website", "sourceSite": "yourbrand", "formType": "contact", "contact": { "name": "...", "email": "..." } }`}</pre>
           </div>

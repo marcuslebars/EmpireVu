@@ -19,7 +19,8 @@ import { downloadReceipt } from "@/server/services/expenses/receipts";
 import { reviewTimeZone } from "@/server/services/reviews/rules";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { loadOrganizationBrand } from "@/server/services/platform-brand";
-import { DEFAULT_PRODUCT_NAME, customerDoc, depositPaymentDoc, docHash, expenseDoc, invoiceDoc, paymentDoc } from "./mapping";
+import type { ProductLine } from "@/lib/product-line";
+import { DEFAULT_PRODUCT_NAME, HASH_PRODUCT_NAMES, customerDoc, depositPaymentDoc, docHash, expenseDoc, invoiceDoc, paymentDoc } from "./mapping";
 import { providerFor } from "./providers";
 import { sessionFor } from "./tokens";
 import { ProviderError, missingSettings, parseSettings, type AccountingProvider, type AccountingSettings, type ProviderSession, type RemoteRef } from "./types";
@@ -44,8 +45,10 @@ export class SyncContext {
   readonly provider: AccountingProvider;
   readonly settings: AccountingSettings;
   readonly timeZone: string;
-  /** The org's platform brand name, for memos and the generic vendor ("CrankLeads" for a CrankLeads org). */
+  /** The platform name for NEW memos and a new generic vendor ("Everdoer"). Never hashed. */
   readonly productName: string;
+  /** The org's product line: picks the pre-rebrand name hashes and the old generic vendor use. */
+  readonly productLine: ProductLine;
 
   constructor(
     readonly admin: Admin,
@@ -53,11 +56,23 @@ export class SyncContext {
     timeZone: string,
     private readonly f: typeof fetch,
     productName: string = DEFAULT_PRODUCT_NAME,
+    productLine: ProductLine = "standard",
   ) {
     this.provider = providerFor(conn.provider);
     this.settings = parseSettings(conn.settings);
     this.timeZone = timeZone;
     this.productName = productName;
+    this.productLine = productLine;
+  }
+
+  /**
+   * The memo names a payload hash may have been computed with, the canonical one first
+   * (HASH_PRODUCT_NAMES). New hashes use the first; a stored hash matching any of them is up to
+   * date, so the rename (and the earlier EmpireVu → per-org CrankLeads switch) never re-pushes.
+   */
+  get hashNames(): string[] {
+    const own = HASH_PRODUCT_NAMES[this.productLine];
+    return [own, ...Object.values(HASH_PRODUCT_NAMES).filter((n) => n !== own)];
   }
 
   session(): Promise<ProviderSession> {
@@ -154,20 +169,53 @@ async function ensureCustomer(ctx: SyncContext, inv: Tables<"invoices">): Promis
   return remote;
 }
 
-/** Xero needs a contact on every spend: "Expenses (CrankLeads)" / "Expenses (EmpireVu)". */
+/** Xero needs a contact on every spend: "Expenses (Everdoer)" (earlier: EmpireVu / CrankLeads). */
 function genericVendor(productName: string): string {
   return `Expenses (${productName})`;
 }
 
+function vendorKey(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 async function ensureVendor(ctx: SyncContext, name: string | null): Promise<RemoteRef | null> {
-  // QuickBooks expenses don't need a vendor; Xero needs a contact on every spend.
-  const vendorName = name ?? (ctx.provider.id === "xero" ? genericVendor(ctx.productName) : null);
-  if (!vendorName) return null;
-  const key = vendorName.trim().toLowerCase();
+  if (!name) {
+    // QuickBooks expenses don't need a vendor; Xero needs a contact on every spend.
+    return ctx.provider.id === "xero" ? ensureGenericVendor(ctx) : null;
+  }
+  const key = vendorKey(name);
   const existing = await ctx.link("vendor", key);
   if (existing) return { id: existing.remote_id, version: existing.remote_version };
-  const remote = await ctx.provider.findOrCreateVendor(await ctx.session(), vendorName);
+  const remote = await ctx.provider.findOrCreateVendor(await ctx.session(), name);
   if (remote) await ctx.saveLink("vendor", key, remote);
+  return remote;
+}
+
+/**
+ * The generic "Expenses (…)" contact. A file that already has one under an old name keeps using
+ * it (its expenses' hashes include the contact id, and the owner's books shouldn't grow a second
+ * catch-all contact): the connection's stored link under any old name first (the org's own
+ * pre-rebrand name before the other), then the file itself by those names, and only then
+ * find-or-create "Expenses (Everdoer)".
+ */
+async function ensureGenericVendor(ctx: SyncContext): Promise<RemoteRef | null> {
+  const current = genericVendor(ctx.productName);
+  const oldNames = ctx.hashNames.map(genericVendor).filter((n) => vendorKey(n) !== vendorKey(current));
+  for (const n of [...oldNames, current]) {
+    const link = await ctx.link("vendor", vendorKey(n));
+    if (link) return { id: link.remote_id, version: link.remote_version };
+  }
+  if (ctx.provider.findVendor) {
+    for (const n of oldNames) {
+      const found = await ctx.provider.findVendor(await ctx.session(), n);
+      if (found) {
+        await ctx.saveLink("vendor", vendorKey(n), found);
+        return found;
+      }
+    }
+  }
+  const remote = await ctx.provider.findOrCreateVendor(await ctx.session(), current);
+  if (remote) await ctx.saveLink("vendor", vendorKey(current), remote);
   return remote;
 }
 
@@ -228,12 +276,15 @@ export async function syncInvoice(ctx: SyncContext, invoiceId: string): Promise<
     }
   }
 
-  const doc = invoiceDoc(inv, { timeZone: ctx.timeZone, depositAsLine, depositInvoiceNumber, productName: ctx.productName });
+  const docFor = (productName: string) => invoiceDoc(inv, { timeZone: ctx.timeZone, depositAsLine, depositInvoiceNumber, productName });
+  const doc = docFor(ctx.productName);
   const customer = await ensureCustomer(ctx, inv);
   const s = ctx.settings;
-  const hash = docHash(doc, customer.id, s.incomeTarget?.id, s.salesTaxCode?.id, s.salesExemptCode?.id, s.country);
+  // Hashed with the pre-rebrand memo name, never the display name (see SyncContext.hashNames).
+  const hashes = ctx.hashNames.map((n) => docHash(docFor(n), customer.id, s.incomeTarget?.id, s.salesTaxCode?.id, s.salesExemptCode?.id, s.country));
+  const hash = hashes[0];
   let detail = `Up to date (${inv.invoice_number ?? "invoice"}).`;
-  if (!link || link.payload_hash !== hash) {
+  if (!link || !hashes.includes(link.payload_hash ?? "")) {
     const res = await ctx.provider.pushInvoice(await ctx.session(), doc, customer, s, link ? { id: link.remote_id, version: link.remote_version } : null);
     const note = res.totalCents !== null && res.totalCents !== doc.totalCents ? `Total in the file is ${money(res.totalCents)}; ${ctx.productName} has ${money(doc.totalCents)} — check the tax code on this invoice.` : null;
     await ctx.saveLink("invoice", inv.id, res, { hash, note });
@@ -246,8 +297,10 @@ export async function syncInvoice(ctx: SyncContext, invoiceId: string): Promise<
     if (invLink) {
       const pdoc = depositPaymentDoc(inv, quoteDepositPaidAt, ctx.timeZone, ctx.productName);
       const dlink = await ctx.link("deposit", pdoc.localKey);
-      const phash = docHash(pdoc, invLink.remote_id, s.paymentAccount?.id);
-      if (!dlink || dlink.payload_hash !== phash) {
+      // A re-pushed Xero payment is deleted and recreated: the rename must never trigger one.
+      const phashes = ctx.hashNames.map((n) => docHash(depositPaymentDoc(inv, quoteDepositPaidAt, ctx.timeZone, n), invLink.remote_id, s.paymentAccount?.id));
+      const phash = phashes[0];
+      if (!dlink || !phashes.includes(dlink.payload_hash ?? "")) {
         const res = await ctx.provider.pushPayment(await ctx.session(), pdoc, { id: invLink.remote_id, version: invLink.remote_version }, customer, s, dlink ? { id: dlink.remote_id, version: dlink.remote_version } : null);
         await ctx.saveLink("deposit", pdoc.localKey, res, { hash: phash });
       }
@@ -292,8 +345,11 @@ export async function syncPayment(ctx: SyncContext, paymentId: string): Promise<
   if (!inv) return { status: "skipped", detail: "Its invoice no longer exists." };
   const customer = await ensureCustomer(ctx, inv);
   const doc = paymentDoc(p, ctx.timeZone, ctx.productName);
-  const hash = docHash(doc, invLink.remote_id, ctx.settings.paymentAccount?.id);
-  if (link && link.payload_hash === hash) return { status: "done", detail: "Up to date." };
+  // A re-pushed Xero payment is deleted and recreated: the rename must never trigger one.
+  const invRemoteId = invLink.remote_id;
+  const hashes = ctx.hashNames.map((n) => docHash(paymentDoc(p, ctx.timeZone, n), invRemoteId, ctx.settings.paymentAccount?.id));
+  const hash = hashes[0];
+  if (link && hashes.includes(link.payload_hash ?? "")) return { status: "done", detail: "Up to date." };
   const res = await ctx.provider.pushPayment(
     await ctx.session(),
     doc,
@@ -327,10 +383,13 @@ export async function syncExpense(ctx: SyncContext, expenseId: string): Promise<
   const vendor = await ensureVendor(ctx, doc.vendorName);
   const s = ctx.settings;
   const account = s.expenseAccounts[e.category as keyof AccountingSettings["expenseAccounts"]] ?? s.expenseFallbackAccount;
-  const hash = docHash(doc, vendor?.id ?? null, account?.id, s.paidFromBusiness?.id, s.paidFromPersonal?.id, s.purchaseTaxCode?.id, s.purchaseExemptCode?.id, s.country);
+  const hashes = ctx.hashNames.map((n) =>
+    docHash(expenseDoc(e, n), vendor?.id ?? null, account?.id, s.paidFromBusiness?.id, s.paidFromPersonal?.id, s.purchaseTaxCode?.id, s.purchaseExemptCode?.id, s.country),
+  );
+  const hash = hashes[0];
   let remote: RemoteRef = link ? { id: link.remote_id, version: link.remote_version } : { id: "", version: null };
   let detail = "Up to date.";
-  if (!link || link.payload_hash !== hash) {
+  if (!link || !hashes.includes(link.payload_hash ?? "")) {
     const res = await ctx.provider.pushExpense(await ctx.session(), doc, vendor, s, link ? remote : null);
     remote = res;
     // A new remote record has no receipt yet.
@@ -384,7 +443,7 @@ async function contextFor(admin: Admin, companyId: string, f: typeof fetch): Pro
   if (!conn || conn.status !== "active") return null;
   const { data: company } = await admin.from("companies").select("timezone").eq("id", companyId).eq("organization_id", conn.organization_id).maybeSingle();
   const brand = await loadOrganizationBrand(admin, conn.organization_id);
-  return new SyncContext(admin, conn, reviewTimeZone(company), f, brand.name);
+  return new SyncContext(admin, conn, reviewTimeZone(company), f, brand.name, brand.productLine);
 }
 
 export async function runJob(ctx: SyncContext, job: Job): Promise<Outcome> {

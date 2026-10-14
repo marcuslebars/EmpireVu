@@ -15,6 +15,7 @@
  * and to avoid adding a dependency.
  */
 import { UserFacingError } from "@/server/errors";
+import { platformFromAddress, resolveFromAddress } from "@/server/outbound/company-sender";
 
 export interface SendEmailInput {
   to: string;
@@ -23,12 +24,19 @@ export interface SendEmailInput {
   /** Optional HTML alternative. `body` remains the plain-text part. */
   html?: string;
   /**
-   * Display name on the From line, e.g. "A1 Marine Storage". The ADDRESS stays
-   * the configured, domain-verified sender — an arbitrary per-brand address would
-   * fail SPF/DKIM — but the display name is what a recipient reads first, so this
-   * is what makes the mail read as the brand rather than the platform.
+   * Display name on the From line, e.g. "A1 Marine Storage". The ADDRESS comes from
+   * resolveFromAddress (a verified sender — an arbitrary per-brand address would fail
+   * SPF/DKIM) — but the display name is what a recipient reads first, so this is what
+   * makes the mail read as the brand rather than the platform.
    */
   fromName?: string;
+  /**
+   * The From for mail sent on a company's behalf, already resolved (D7): from
+   * company-sender.ts loadCompanyFromAddress, used verbatim (the house org's may be
+   * "Name <addr>"). Omit (or null) for platform mail and whenever it is the platform
+   * sender anyway: see company-sender.ts resolveFromAddress.
+   */
+  fromAddress?: string | null;
   /** Per-message reply-to, so a customer replying reaches the brand. */
   replyTo?: string;
   /** Files to attach (e.g. the invoice PDF). `content` is base64. */
@@ -100,11 +108,15 @@ export class OutboundSendError extends UserFacingError {
   }
 }
 
+// The From address rule (D7) lives in company-sender.ts so modules that tests mock this
+// file around (deliverMessage, the email inbox) can use it too.
+export { platformFromAddress, resolveFromAddress };
+
 export function readEmailConfig(): OutboundEmailConfig | null {
   const apiKey = process.env.RESEND_API_KEY;
-  // `||` not `??`: a variable that exists but is blank (easy to do in a hosting
-  // dashboard) should fall back, not silently defeat the fallback.
-  const from = process.env.OUTBOUND_FROM_EMAIL || process.env.LEAD_FROM_EMAIL;
+  // The platform sender (no company): EVERDOER_DEFAULT_FROM_EMAIL, else today's
+  // OUTBOUND_FROM_EMAIL || LEAD_FROM_EMAIL. See resolveFromAddress.
+  const from = platformFromAddress();
 
   if (!apiKey || !from) {
     return null;
@@ -141,7 +153,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: formatFrom(config.from, input.fromName),
+        from: formatFrom(input.fromAddress?.trim() || config.from, input.fromName),
         to: [input.to],
         subject: input.subject,
         text: input.body,

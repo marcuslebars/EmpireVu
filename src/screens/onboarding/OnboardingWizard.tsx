@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { receptionistCopy } from "@/lib/platform-brand";
+import { isDoneForYouBrand, receptionistCopy } from "@/lib/platform-brand";
 import {
   Building2, ClipboardList, Phone, CreditCard, Globe, PhoneCall, Users, Zap,
   Check, Loader2, ArrowRight, Upload, Sparkles, ExternalLink, X,
@@ -267,7 +267,7 @@ function PhoneStep({ orgId, companyId, stepData, onDone }: StepProps) {
 
   return (
     <div className="space-y-4 max-w-xl">
-      <p className="text-sm text-muted-foreground">{brand.key === "crankleads" ? "Get a phone number answered by your AI receptionist — built from the business + services you just entered." : "Get a phone number answered by Marina, your AI receptionist — built from the business + services you just entered."}</p>
+      <p className="text-sm text-muted-foreground">{isDoneForYouBrand(brand) ? "Get a phone number answered by your AI receptionist — built from the business + services you just entered." : "Get a phone number answered by Marina, your AI receptionist — built from the business + services you just entered."}</p>
       {result ? (
         <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-4">
           <p className="text-sm font-semibold text-emerald-400">{receptionistCopy("Marina is answering", brand)}</p>
@@ -361,7 +361,7 @@ function WebsiteStep({ orgId, companyId, onDone }: StepProps) {
   };
 
   const snippet = key
-    ? `POST https://api.empirevu.com/api/intake\nx-empirevu-key: ${key.key}\nx-empirevu-signature: sha256=<hmac-sha256(body, key)>`
+    ? `POST https://api.everdoer.com/api/intake\nx-everdoer-key: ${key.key}\nx-everdoer-signature: sha256=<hmac-sha256(body, key)>`
     : "";
 
   return (
@@ -629,7 +629,7 @@ function SelfServeWizard() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">Set up {brand.name}</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {brand.key === "crankleads"
+              {isDoneForYouBrand(brand)
                 ? "Your phone and website leads working in about 20 minutes."
                 : receptionistCopy("A working Marina number + website leads in about 20 minutes.", brand)}
             </p>

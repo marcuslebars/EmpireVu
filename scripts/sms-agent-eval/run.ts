@@ -205,7 +205,7 @@ async function runScenario(s: Scenario): Promise<{ ok: boolean; notes: string[] 
   if (s.expect.booking && log.bookings === 0) notes.push("expected a booking");
   if (s.expect.mustNotSay?.some((re) => re.test(all))) notes.push(`said something it shouldn't: ${s.expect.mustNotSay.filter((re) => re.test(all)).join(", ")}`);
   if (log.texts.length && !/automated assistant/i.test(log.texts[0])) notes.push("first message lacks the AI disclosure");
-  if (/crank\s?leads|empire\s?vu/i.test(all)) notes.push("named the platform");
+  if (/crank\s?leads|empire\s?vu|ever\s?doer/i.test(all)) notes.push("named the platform");
   if (log.texts.some((x) => x.length > 459)) notes.push("a reply was too long");
 
   console.log(`\n── ${s.name} (${biz.name}) ${"─".repeat(Math.max(0, 60 - s.name.length))}`);

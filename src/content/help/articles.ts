@@ -7,15 +7,15 @@ import { withProductName, type PlatformBrand } from "@/lib/platform-brand";
  * from these). No dollar amounts: prices live in Stripe and are shown in Settings → Billing &
  * Plans (a test fails on any `$<number>` here). See docs/help-assistant.md before editing.
  *
- * Never write a platform name here: write `{{product}}` and it becomes "EmpireVu" or
- * "CrankLeads" for the reader's account (brandHelpArticle; docs/crankleads-branding.md).
+ * Never write a platform name here: write `{{product}}` and it becomes "Everdoer" for every
+ * reader (brandHelpArticle; docs/everdoer-branding.md).
  */
 export const HELP_ARTICLES: readonly HelpArticle[] = [
   {
     id: "getting-started",
     title: "Finish setting up {{product}}",
     summary: "The setup checklist: what each step does and how to get back to it.",
-    keywords: ["setup", "onboarding", "wizard", "start", "checklist", "continue setup", "new account", "crankleads", "welcome", "password"],
+    keywords: ["setup", "onboarding", "wizard", "start", "checklist", "continue setup", "new account", "crankleads", "everdoer", "welcome", "password"],
     sections: [
       {
         heading: "Where setup lives",
@@ -28,7 +28,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
           "1. Business — your business name, website, timezone, hours, service area, owner email and phone, and logo.\n2. Services — your list of services and prices (start from an industry pack, paste your website, or type them in).\n3. Phone — choose how calls are handled: the AI receptionist, or the missed-call catcher that keeps your own number.\n4. Payments — connect Stripe so customers can pay deposits by card. You can skip this for now.\n5. Website leads — get a lead form for your website. You can skip this for now.\n6. Test call — call your number to check it works.\n7. Team — invite the people who help you.\n8. Automations — turn on the texts and reminders that run in the background, then click \"Finish setup\".",
       },
       {
-        heading: "If you bought through CrankLeads",
+        heading: "If you bought through {{product}}",
         body:
           "Your account, business, starter services, automations and website form were created for you, and we emailed you a link to set your password. Setup opens at the next step you still need: usually entering your prices, choosing your phone number, and putting the form on your website.",
       },
@@ -183,7 +183,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
     id: "your-website",
     title: "Your website page",
     summary: "The page {{product}} builds for your business: what's on it, publishing, and changing the wording.",
-    keywords: ["website", "web page", "site", "page", "landing page", "price page", "publish", "unpublish", "regenerate", "headline", "seo", "google", "domain", "link"],
+    keywords: ["website", "web page", "site", "page", "landing page", "price page", "publish", "unpublish", "regenerate", "headline", "seo", "google", "domain", "link", "crankleads", "everdoer"],
     sections: [
       {
         heading: "What it is",
@@ -198,7 +198,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
       {
         heading: "Preview, publish and take it down",
         body:
-          "Go to Settings → Your website.\n- Preview opens the page as it will look, even before it's published.\n- Publish puts it live at the link shown. Unpublish takes it down; the link then shows a \"not available\" page.\n- Regenerate rebuilds the page from your latest details, services and prices. Wording you've changed yourself is kept.\nIf you bought through CrankLeads, we build and publish the page for you after quick setup, and text you the link. Only owners and admins can publish or change the page.",
+          "Go to Settings → Your website.\n- Preview opens the page as it will look, even before it's published.\n- Publish puts it live at the link shown. Unpublish takes it down; the link then shows a \"not available\" page.\n- Regenerate rebuilds the page from your latest details, services and prices. Wording you've changed yourself is kept.\nIf you bought through {{product}}, we build and publish the page for you after quick setup, and text you the link. Only owners and admins can publish or change the page.",
       },
       {
         heading: "Changing the wording and prices",

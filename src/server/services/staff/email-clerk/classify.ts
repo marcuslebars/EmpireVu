@@ -32,6 +32,12 @@ export interface ClassifyContext {
   inboundDomains?: readonly string[];
   /** The address our outbound mail is sent from (OUTBOUND_FROM_EMAIL), to catch loops. */
   outboundFrom: string | null;
+  /**
+   * Every address our mail may go out from (D7: this company's sender, EVERDOER_DEFAULT_FROM_EMAIL,
+   * OUTBOUND_FROM_EMAIL, LEAD_FROM_EMAIL), "Name <addr>" allowed; compared as bare addresses,
+   * case-insensitively, together with `outboundFrom`.
+   */
+  outboundFroms?: readonly (string | null)[];
   ownerEmail: string | null;
   suppliers: Array<{ id: string; name: string; branch: string | null; email: string | null }>;
   /** The company's purchase orders that a PO-n in the email could mean. */
@@ -167,9 +173,11 @@ export function classifyByRules(f: EmailFacts, ctx: ClassifyContext): Classifica
   if (isAutoReply(f)) return done({ category: "auto_reply", detail: {} });
   if (isSpamFlagged(f)) return done({ category: "spam", detail: { reason: "flagged as spam" } });
   // Our own mail looping back (a reply we sent, bounced through someone's forwarding).
-  const outbound = normalizeAddress(ctx.outboundFrom);
+  const outbound = new Set(
+    [ctx.outboundFrom, ...(ctx.outboundFroms ?? [])].map((a) => normalizeAddress(a)).filter((a): a is string => Boolean(a)),
+  );
   const ourDomains = [...(ctx.inboundDomains ?? []), ...(ctx.inboundDomain ? [ctx.inboundDomain] : [])];
-  if (from && (from === ctx.inboxAddress || ourDomains.some((d) => from.endsWith(`@${d}`)) || (outbound && from === outbound))) {
+  if (from && (from === ctx.inboxAddress || ourDomains.some((d) => from.endsWith(`@${d}`)) || outbound.has(from))) {
     return done({ category: "no_reply", detail: { reason: "our own mail" } });
   }
   if (from && ctx.ownerEmail && from === normalizeAddress(ctx.ownerEmail)) return done({ category: "other", detail: { reason: "from you" } });

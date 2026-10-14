@@ -131,17 +131,100 @@ A shim is removed only when its `kind/key` has had no rows for 30 days:
 
 ---
 
-## Tenant-repo PRs (after PR 1 is deployed)
-To be filled in with those PRs. They cover `EVERDOER_*` env on the a1marinecare, a1marinestorage and boatnames.ca services, the intake URL changing to `https://api.everdoer.com/api/intake`, the `x-everdoer-*` headers, and boatnames' `everdoer_outbox` migration.
+## Tenant-repo PRs
+- **A1 Marine Care ([a1marinecare#28](https://github.com/marcuslebars/a1marinecare/pull/28)): ✅ merged and deployed 2026-10-13.**
+  - Railway (a1-marine-care → a1marinecare):
+    - `EVERDOER_INTAKE_URL=https://api.everdoer.com/api/intake`
+    - `EVERDOER_INTAKE_SECRET=${{EMPIREVU_INTAKE_SECRET}}`
+    - `RETELL_FORWARD_WEBHOOK_URL=https://api.everdoer.com/api/retell/webhook`
+  - [ ] **Make one test call** to the A1 number and check the call lands in Everdoer. The Retell forward is the only path phone leads take, and it doesn't retry.
+  - [ ] PR 8: delete `EMPIREVU_INTAKE_URL` / `EMPIREVU_INTAKE_SECRET`. Turn the `EVERDOER_INTAKE_SECRET` reference into its literal value first.
+- **A1 Marine Storage and boatnames.ca:** no longer maintained (owner, 2026-10-13). Their PRs ([#45](https://github.com/marcuslebars/a1marinestorage/pull/45), [#3](https://github.com/marcuslebars/boatnames.ca/pull/3)) can be closed. The `EVERDOER_INTAKE_*` vars set on their Railway services are harmless; the deployed code doesn't read them.
 
 ## PR 2: Everdoer for every customer
-To be filled in. It covers:
-- `EVERDOER_APP_BASE_URL=https://app.everdoer.com`, then `EVERDOER_REDIRECT_LEGACY_HOSTS=1`. The 301 is sent with `Cache-Control: no-store`, so unsetting the switch is an instant rollback.
-- the Supabase Site URL
-- sender domain cut-over per company (D7)
-- A2P campaign sample messages updated before the "Everdoer: " SMS prefix goes live
-- the values migration
-- the App Review demo login `demo@everdoer.com`
+After PR 2 deploys, **every org, A1 included, sees the lime Everdoer app.** Customer pages (quotes, invoices, booking, portal, forms) stay company-branded. These stay exactly as today until you flip their switch:
+- links
+- SMS wording
+- the email sender
+
+### 2.1 Before merging
+- [x] `EVERDOER_APP_BASE_URL` is unset on every EmpireVu service. (I checked on 2026-10-13. PR 2 also ignores any value not on everdoer.com.)
+- [x] `PLATFORM_BRAND_NAME` and `CRANKLEADS_CHECKOUT_*` are unset on every service. (Checked 2026-10-13.)
+- [ ] **Run the values audit.** Supabase → SQL editor → `supabase/tests/rebrand_values_audit.sql` (read-only).
+  - It lists quote links on app.crankleads.com / app.empirevu.com that will move to app.everdoer.com.
+  - It lists tenants named exactly "CrankLeads" or "EmpireVu". Rename those in the app; the migration doesn't.
+  - Check any **A1 rows** in the quote-link list. A1's `quotes.a1marine*.ca` never matches, but an A1 company set to `app.empirevu.com` would move. That host serves the same app, so it's harmless.
+- [ ] **Run the migration**: `supabase/migrations/20261017100000_rebrand_everdoer_values.sql`.
+  - It adds `companies.email_from_address` (service-role only, empty), moves those quote links, and changes the waitlist default and column comments.
+  - Check: run the audit again; there should be no "will change" rows.
+  - Undo: `supabase/rollback/20261017100000_rebrand_everdoer_values.down.sql` (unset `EVERDOER_DEFAULT_FROM_EMAIL` first).
+  - **This must run before 2.4**, or every company email fails once `EVERDOER_DEFAULT_FROM_EMAIL` is set.
+
+### 2.2 Merge and deploy, then watch for 10 minutes
+- Logs: no new errors.
+- A1's quote and invoice emails still come from the same address.
+- The owner dashboard on app.empirevu.com shows Everdoer.
+- Accounting sync doesn't re-push old records. Synced memos stay as they are; new ones say "From Everdoer".
+- Undo: roll back the deploy. PR 1's shims keep both names working either way.
+
+### 2.3 Move everyone to app.everdoer.com
+- [ ] Do this only once 1.3 is done: the Supabase redirect URLs, Google JS origin and Turnstile hostnames include app.everdoer.com.
+- [ ] `EVERDOER_APP_BASE_URL=https://app.everdoer.com` on **every** EmpireVu service:
+  - EmpireVu (web)
+  - EmpireVu worker
+  - workflow-events
+  - crankleads-sweep
+  - billiing-worker
+  - billing-reconcile
+  - quote-maintenance
+  - monthly-scorecard
+
+  Effect: owner and staff links (invites, digests, alerts, billing and Stripe returns) and third-party links (compliance shares and uploads, `/s/` sites, importer, porting) point at app.everdoer.com. A1's customer quote, invoice and portal links don't move.
+  Check: `legacy_usage` has no `env / EVERDOER_APP_BASE_URL(invalid-host)` row.
+- [ ] Supabase → Authentication → URL configuration → **Site URL** `https://app.everdoer.com`. Keep the old redirect URLs.
+- [ ] Then `EVERDOER_REDIRECT_LEGACY_HOSTS=1` on **EmpireVu (web)**. Page views on app.empirevu.com / app.crankleads.com then 301 (not cached) to app.everdoer.com. `/api`, `/embed`, `/f`, `/.well-known` and sign-in callbacks never redirect, and api.empirevu.com never redirects.
+  - People sign in once on the new host. The announcement says so.
+  - Undo: unset it. The redirect isn't cached, so the undo takes effect immediately.
+
+### 2.4 Email sender (after 1.4: Resend shows everdoer.com verified for SPF, DKIM and DMARC)
+- [ ] **Confirm A1 is the house org** in the SQL editor:
+  `select slug, plan from organizations where plan = 'internal' or slug = 'a1-group';`
+  A1's org must show `plan = internal` or the slug in `LEAD_INTAKE_ORG_SLUG`. House-org companies always keep `OUTBOUND_FROM_EMAIL`.
+- [ ] `EVERDOER_DEFAULT_FROM_EMAIL=hello@everdoer.com` on every EmpireVu service (same list as 2.3).
+  - Non-A1 companies' mail and platform mail (invites, welcome, scorecard, weekly report) then come from hello@everdoer.com.
+  - A1's customer mail stays on its A1 address with the same display name.
+  - Check: send an invite (from hello@everdoer.com), and an A1 quote (from the same address as before).
+  - Undo: unset it.
+
+### 2.5 SMS wording (A2P compliance first)
+- [ ] Twilio Console → Messaging → Regulatory Compliance → your A2P **brand and campaign**: update the brand name and the sample messages to the Everdoer wording:
+  - "Everdoer: …" owner texts
+  - "Everdoer: this number is for Everdoer account owners…"
+
+  Wait for approval if Twilio requires a re-review.
+- [ ] Then `EVERDOER_SMS_BRANDING=1` on every EmpireVu service (same list as 2.3). After that:
+  - owner texts for **every** org (A1 included) start "Everdoer: ";
+  - the platform number's unknown-sender/HELP reply and the done-for-you setup, reminder, live and forwarding texts say Everdoer.
+
+  Until then, every text is byte-identical to today. Undo: unset it.
+
+### 2.6 Stripe (dashboard; nothing in code)
+- [ ] Settings → Branding: business name "Everdoer", icon `public/brand/everdoer/everdoer-icon.svg` (or `icon-512.png`), brand colour `#A6EE2B`, accent `#0C0E12`. This also brands the Billing Portal, which has no per-session branding. Checkout already sends Everdoer branding per session.
+- [ ] Optional, once everdoer.com is live (PR 3): `EVERDOER_CANCEL_URL=https://everdoer.com/#pricing` and `EVERDOER_SITE_URL=https://everdoer.com` on web.
+
+### 2.7 Demo account (App Review)
+- [ ] **Don't do this while a store review is in progress.** From the Railway web shell:
+  1. Dry run: `npm run job:seed-demo -- --email demo@everdoer.com`. It prints the old demo org, row counts and the old login, and changes nothing.
+  2. `DEMO_PASSWORD='<password>' npm run job:seed-demo -- --email demo@everdoer.com --apply`. This deletes the old "EmpireVu Demo" org and the `demo@empirevu.com` login, then seeds "Everdoer Demo".
+- [ ] Put `demo@everdoer.com` and the password into Play Console → App access and App Store Connect → App Review Information. `mobile/STORE.md` has the notes.
+- If the job deletes the org but fails to delete the old login, delete `demo@empirevu.com` by hand in Supabase → Authentication → Users.
+
+### 2.8 What's still EmpireVu or CrankLeads after PR 2 (by design)
+- The mobile app in the stores: that's PR 6. The privacy and delete-account pages say "(formerly EmpireVu)" until then.
+- crankleads.com and empirevu.com marketing: PR 3.
+- Internal code names, log prefixes, `crankleads_*` tables and `platform_brand` values: PR 5 and PR 7.
+- Old asset files (`/empirevu-*`, `/brand/crankleads-*`), kept because sent emails link to them.
+- Accounting sync hashes use the old product names (`HASH_PRODUCT_NAMES`), so the rename never re-pushes already-synced records into QuickBooks or Xero. They come out in PR 8 with a one-time rehash job: for each synced record whose stored hash still matches, it recomputes the hash with the new name. No record is pushed. Don't remove the constant without that job.
 
 ## PR 3: marketing
 To be filled in. It covers:

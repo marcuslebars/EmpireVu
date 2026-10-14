@@ -14,6 +14,7 @@
  * claim; the lock is a conditional status update; the CSV email is claimed by csv_emailed_at.
  */
 import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } from "@/server/services/front-desk/contracts";
+import { loadCompanyFromAddress } from "@/server/outbound/company-sender";
 import { sendEmail, type SendEmailInput } from "@/server/outbound/email";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { orgOwnerEmail } from "@/server/services/workflow-engine/messaging";
@@ -347,11 +348,14 @@ export async function emailPeriodCsv(
     "These hours are now locked. An owner or admin can unlock them in Settings > AI front desk > Hiring & payroll.",
   ].join("\n");
   try {
+    // D7: the company's own sender when it has one.
+    const fromAddress = await loadCompanyFromAddress(company.companyId);
     await deps.sendEmail({
       to,
       subject: `Payroll hours: ${periodLabel(dates)} (${company.name})`,
       body,
       fromName: company.name,
+      ...(fromAddress ? { fromAddress } : {}),
       attachments: [{ filename: csvFilename(company.name, dates), content: Buffer.from(csv, "utf8").toString("base64") }],
     });
     await logEvent(admin, period, "csv_emailed", "system", { to });

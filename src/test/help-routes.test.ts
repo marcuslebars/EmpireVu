@@ -222,7 +222,7 @@ describe("POST /help/escalate", () => {
     expect(mail.subject).toContain("Acme Roofing");
     expect(mail.body).toContain("From: owner@acme.test");
     expect(mail.body).toContain("Plan: Operate");
-    expect(mail.body).toContain("Bought through: CrankLeads Catch");
+    expect(mail.body).toContain("Bought through: Everdoer Catch");
     expect(mail.body).toContain("Customer: how do I add my google review link?");
     expect(mail.body).toContain("Assistant: I'm not sure");
     expect(mail.body).not.toContain("Secret Competitor");

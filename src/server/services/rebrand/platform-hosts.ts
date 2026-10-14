@@ -23,6 +23,18 @@ export function isOldPlatformHost(host: string | null | undefined): boolean {
   return (OLD_PLATFORM_HOSTS as readonly string[]).includes(h);
 }
 
+/**
+ * May EVERDOER_APP_BASE_URL point here? Only everdoer.com / *.everdoer.com, or a dev host
+ * (localhost, *.localhost, *.test, 127.0.0.1). Anything else, e.g. a copied app.crankleads.com
+ * or app.empirevu.com value, is refused so it can't move every org's links. PURE.
+ */
+export function isAllowedEverdoerAppHost(host: string | null | undefined): boolean {
+  const h = (host ?? "").trim().toLowerCase().replace(/\.$/, "").replace(/:\d+$/, "");
+  if (!h) return false;
+  if (h === "everdoer.com" || h.endsWith(".everdoer.com")) return true;
+  return h === "localhost" || h.endsWith(".localhost") || h.endsWith(".test") || h === "127.0.0.1";
+}
+
 /** Is `host` one of the NEW platform hosts? PURE. */
 export function isNewPlatformHost(host: string | null | undefined): boolean {
   const h = (host ?? "").trim().toLowerCase().replace(/:\d+$/, "");

@@ -2,15 +2,16 @@
  * Web storage keys (Everdoer rebrand, REBRAND_PLAN.md §5.2). Browser-only helpers; every
  * storage access is wrapped so a private window / blocked storage never throws.
  *
- * PR 1 rule for each key: WRITE BOTH and REMOVE BOTH; READ the OLD empirevu_* key first, then
- * the new everdoer_* one. Old-first is deliberate: every build (including one we roll back to)
- * writes the old key, so it is never stale; the new key can be (a rolled-back build changes the
- * org but leaves everdoer_* behind, and its sign-out doesn't clear it). A value found only under
- * the new key is therefore stale and is dropped. PR 2 flips the read order (new first) once no
- * rollback past PR 1 is possible. Mobile keeps its own keys (separate app release).
+ * PR 2 rule for each key: READ the NEW everdoer_* key first; if only the OLD empirevu_* key is
+ * present (written by a pre-PR 1 build), use it and copy it forward. Still WRITE BOTH and REMOVE
+ * BOTH for this one release, so a rollback to PR 1 (which reads the old key first) still finds the
+ * current value. (PR 1 read old-first, because a rollback past PR 1 could leave a stale new key;
+ * every build since PR 1 writes both, so that window is closed.) Mobile keeps its own keys
+ * (separate app release).
  *
- * Rebrand shim (remove in PR 8 once the new keys have been written for a full release): drop the
- * `legacy` names. Browser storage can't be counted server-side, so removal is by release age.
+ * Rebrand shim (remove in PR 8, i.e. drop old keys after one release of PR 2): stop writing and
+ * clearing the `legacy` names. Browser storage can't be counted server-side, so removal is by
+ * release age.
  */
 
 export interface StorageKey {
@@ -39,42 +40,37 @@ function storageOf(kind: Kind): Storage | null {
 }
 
 /**
- * PR 1: the old key decides (never stale, see above); the new key is kept in step with it, and a
- * new-only value is dropped. Null when the old key isn't set.
+ * PR 2: the new key decides; the old key is kept in step with it (so a rollback to PR 1, which
+ * reads the old key first, sees the same value). An old-only value is used and copied forward.
+ * Null when neither is set.
  */
 export function readKey(k: StorageKey, kind: Kind = "local"): string | null {
   const s = storageOf(kind);
   if (!s) return null;
   try {
-    const old = s.getItem(k.legacy);
     const fresh = s.getItem(k.key);
-    if (old !== null) {
-      if (fresh !== old) {
-        try {
-          s.setItem(k.key, old);
-        } catch {
-          /* quota / blocked: the old key still answers */
-        }
-      }
-      return old;
-    }
-    // PR 1 always writes both, so a value under ONLY the new key was left behind by a build
-    // that doesn't know it (e.g. a rolled-back build's sign-out cleared just the old key): it may
-    // belong to the previous user, so drop it rather than use it.
-    if (fresh !== null) {
+    const old = s.getItem(k.legacy);
+    const value = fresh ?? old;
+    if (value === null) return null;
+    // Copy forward (old-only) or keep the old name in step (new wins).
+    for (const [name, current] of [
+      [k.key, fresh],
+      [k.legacy, old],
+    ] as const) {
+      if (current === value) continue;
       try {
-        s.removeItem(k.key);
+        s.setItem(name, value);
       } catch {
-        /* storage unavailable */
+        /* quota / blocked: the value read still answers */
       }
     }
-    return null;
+    return value;
   } catch {
     return null;
   }
 }
 
-/** Write the value under BOTH names (PR 1: a rollback must still find the old key). */
+/** Write the value under BOTH names (one more release: a rollback to PR 1 must find the old key). */
 export function writeKey(k: StorageKey, value: string, kind: Kind = "local"): void {
   const s = storageOf(kind);
   if (!s) return;

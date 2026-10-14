@@ -39,6 +39,7 @@ import {
 import { handleOwnerInboundSms } from "@/server/services/owner-channel/entry";
 import { runSmsAgentForInbound } from "@/server/services/sms-agent/entry";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
+import { smsPlatformName } from "@/server/services/rebrand/sms-branding";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -202,8 +203,11 @@ async function findOrCreateContact(
 
 const PLATFORM_HELP_OWNER =
   "This is your front desk line. Reply Y/N to approvals, or text things like \"what's on tomorrow\" or \"who's waiting on me\". Reply STOP to opt out.";
-const PLATFORM_UNKNOWN_SENDER =
-  "CrankLeads: this number is for CrankLeads account owners. To reach a business, please text or call them directly. Reply STOP to opt out.";
+/** Reply to a stranger texting the platform number: "<name>: this number is for <name> account owners…" (EVERDOER_SMS_BRANDING picks the name). */
+export function platformUnknownSenderText(): string {
+  const name = smsPlatformName("done_for_you");
+  return `${name}: this number is for ${name} account owners. To reach a business, please text or call them directly. Reply STOP to opt out.`;
+}
 const UNKNOWN_REPLY_WINDOW_S = 30 * 86_400;
 
 type CommandLogIntent = "stop" | "start" | "help" | "unknown_sender" | "owner_company_keyword";
@@ -262,14 +266,14 @@ async function handlePlatformInbound(admin: AdminClient, fields: InboundSmsField
     // directly, past the opt-out-respecting senders.
     if (await isPlatformOptedOut(admin, fields.from)) {
       try {
-        await sendSms(withPlatformFrom({ to: fields.from, body: first ? `${signaturePrefix(first.platformBrand)}${PLATFORM_HELP_OWNER}` : PLATFORM_UNKNOWN_SENDER }));
+        await sendSms(withPlatformFrom({ to: fields.from, body: first ? `${signaturePrefix(first.platformBrand)}${PLATFORM_HELP_OWNER}` : platformUnknownSenderText() }));
       } catch (err) {
         console.error("[inbound-sms] platform HELP reply failed:", err instanceof Error ? err.message : err);
       }
     } else if (first) {
       await sendOwnerSms(admin, { to: fields.from, body: PLATFORM_HELP_OWNER, organizationId: first.organizationId, companyId: first.companyId, platformBrand: first.platformBrand });
     } else {
-      await sendPlatformTextNoTenant(admin, fields.from, PLATFORM_UNKNOWN_SENDER);
+      await sendPlatformTextNoTenant(admin, fields.from, platformUnknownSenderText());
     }
     return;
   }
@@ -278,7 +282,7 @@ async function handlePlatformInbound(admin: AdminClient, fields: InboundSmsField
     // Not an owner. Log it; reply at most once a month (never to an opted-out phone).
     if (!(await logPlatformText(admin, fields, "unknown_sender"))) return;
     if (await consumeLimit(admin, `platform_unknown:${last10}`, 1, UNKNOWN_REPLY_WINDOW_S)) {
-      await sendPlatformTextNoTenant(admin, fields.from, PLATFORM_UNKNOWN_SENDER);
+      await sendPlatformTextNoTenant(admin, fields.from, platformUnknownSenderText());
     }
     return;
   }

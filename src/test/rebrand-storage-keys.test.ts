@@ -13,7 +13,8 @@ import {
   writeKey,
 } from "@/lib/storage-keys";
 
-// Everdoer rebrand PR 1: web storage keys read new → old, write both, clear both.
+// Everdoer rebrand PR 2: web storage keys read NEW first (old-only is copied forward), write
+// both, clear both.
 
 beforeEach(() => {
   localStorage.clear();
@@ -37,18 +38,27 @@ describe("storage-keys", () => {
     expect(localStorage.getItem("empirevu_org_id")).toBe("org-old");
   });
 
-  it("PR 1: the OLD key wins when they disagree (a rolled-back build only updates the old key)", () => {
-    // Roll-forward after a rollback: the old build switched org to C, everdoer_* still says B.
-    localStorage.setItem("empirevu_company_id", "co-C");
-    localStorage.setItem("everdoer_company_id", "co-B");
-    expect(readKey(COMPANY_ID_KEY)).toBe("co-C");
-    expect(localStorage.getItem("everdoer_company_id")).toBe("co-C");
+  it("PR 2: the NEW key wins when they disagree, and the old key is brought in step", () => {
+    localStorage.setItem("empirevu_company_id", "co-old");
+    localStorage.setItem("everdoer_company_id", "co-new");
+    expect(readKey(COMPANY_ID_KEY)).toBe("co-new");
+    expect(localStorage.getItem("everdoer_company_id")).toBe("co-new");
+    // A rollback to PR 1 (old key first) sees the same value.
+    expect(localStorage.getItem("empirevu_company_id")).toBe("co-new");
   });
 
-  it("a value only under the new key is stale in PR 1 (a rolled-back build signed out): dropped", () => {
-    localStorage.setItem("everdoer_org_id", "previous-users-org");
-    expect(readKey(ORG_ID_KEY)).toBeNull();
-    expect(localStorage.getItem("everdoer_org_id")).toBeNull();
+  it("PR 2: a value only under the new key is used (and mirrored to the old key)", () => {
+    localStorage.setItem("everdoer_org_id", "org-new");
+    expect(readKey(ORG_ID_KEY)).toBe("org-new");
+    expect(localStorage.getItem("everdoer_org_id")).toBe("org-new");
+    expect(localStorage.getItem("empirevu_org_id")).toBe("org-new");
+  });
+
+  it("when both agree, reading writes nothing", () => {
+    writeKey(ORG_ID_KEY, "org-1");
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    expect(readKey(ORG_ID_KEY)).toBe("org-1");
+    expect(setItem).not.toHaveBeenCalled();
   });
 
   it("null when neither is set", () => {
@@ -124,6 +134,14 @@ describe("post-auth path (public-routes)", () => {
   it("a path remembered by the previous build (old key only) is still honoured", () => {
     sessionStorage.setItem("empirevu_post_auth_path", "/settings/billing");
     expect(takePostAuthPath()).toBe("/settings/billing");
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it("the new key wins over a different old one, and both are cleared", () => {
+    sessionStorage.setItem("empirevu_post_auth_path", "/old");
+    sessionStorage.setItem("everdoer_post_auth_path", "/new");
+    expect(takePostAuthPath()).toBe("/new");
+    expect(sessionStorage.length).toBe(0);
   });
 
   it("still refuses an unsafe path", () => {

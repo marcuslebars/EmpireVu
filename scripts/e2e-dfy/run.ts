@@ -517,7 +517,7 @@ async function main(): Promise<void> {
     const html = await raw.text();
     check(raw.status === 200, `GET /s/${siteSlug} → ${raw.status}`);
     check(noEmpireVu(html), "page never says EmpireVu");
-    check(/Site by CrankLeads/i.test(html), "footer credit 'Site by CrankLeads'");
+    check(/Powered by Everdoer/i.test(html) && !/Site by CrankLeads/i.test(html), "footer credit 'Powered by Everdoer' (not 'Site by CrankLeads')");
     check(/\$650/.test(html) && /\$250/.test(html), "both real prices on the page");
     check(/Mon–Fri: 7am–6pm/.test(html) && /openingHoursSpecification/.test(html), "hours as per-day lines + openingHoursSpecification");
     check(!/aggregateRating/.test(html), "no aggregateRating in JSON-LD");
@@ -632,7 +632,7 @@ async function main(): Promise<void> {
   });
 
   // ── 6 ──────────────────────────────────────────────────────────────────────
-  await step("6. owner signs in: progress view + dashboard (1280), CrankLeads branding", async () => {
+  await step("6. owner signs in: progress view + dashboard (1280), Everdoer branding", async () => {
     const ctx = await desktopContext();
     const page = await signIn(ctx, BUYER_APP, dana.email);
     await page.goto(`${BUYER_APP}/onboarding`);
@@ -649,7 +649,8 @@ async function main(): Promise<void> {
     const badge = Number((dash.match(/(\d+) workflows active/i) ?? [])[1]);
     const strip = Number((dash.match(/(\d+)\s*Workflows Active/) ?? [])[1]);
     check(Number.isFinite(badge) && badge === strip, `dashboard workflow counts agree (badge ${badge}, activity strip ${strip})`);
-    check(/crankleads/i.test(await page.content()), "CrankLeads branding present");
+    check(/brand\/everdoer\/everdoer-logo/i.test(await page.content()), "Everdoer logo present");
+    check(!/crank\s?leads/i.test(dash), "dashboard never says CrankLeads");
     await ctx.close();
   });
 

@@ -3,14 +3,15 @@
  * Sign a lead envelope with an intake key for spoke testing (Task 7).
  *
  * The intake route requires an HMAC body signature keyed by the intake key. This prints
- * the x-empirevu-signature header and a ready-to-run curl, and can POST it with --send.
+ * the x-everdoer-signature header (the old x-empirevu-* names still work) and a ready-to-run
+ * curl, and can POST it with --send.
  *
  * Usage:
  *   node scripts/dev/sign-intake.mjs --key evk_xxx [--file envelope.json] [--url URL] [--send]
  *
  *   --key   the intake key (or set EVERDOER_INTAKE_KEY; the old EMPIREVU_INTAKE_KEY is still read)
  *   --file  path to a JSON envelope (defaults to a built-in sample)
- *   --url   intake endpoint (default https://app.empirevu.com/api/intake)
+ *   --url   intake endpoint (default https://api.everdoer.com/api/intake)
  *   --send  actually POST it and print the response
  */
 import { createHmac } from "node:crypto";
@@ -30,7 +31,7 @@ if (!key) {
   process.exit(1);
 }
 
-const url = arg("url", "https://app.empirevu.com/api/intake");
+const url = arg("url", "https://api.everdoer.com/api/intake");
 const file = arg("file", null);
 
 const sample = {
@@ -52,8 +53,8 @@ console.log("Signature:", signature);
 console.log("");
 console.log(`curl -sS -X POST ${JSON.stringify(url)} \\`);
 console.log('  -H "content-type: application/json" \\');
-console.log(`  -H "x-empirevu-key: ${key}" \\`);
-console.log(`  -H "x-empirevu-signature: ${signature}" \\`);
+console.log(`  -H "x-everdoer-key: ${key}" \\`);
+console.log(`  -H "x-everdoer-signature: ${signature}" \\`);
 console.log(`  -d ${JSON.stringify(body)}`);
 
 if (has("send")) {
@@ -61,8 +62,8 @@ if (has("send")) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-empirevu-key": key,
-      "x-empirevu-signature": signature,
+      "x-everdoer-key": key,
+      "x-everdoer-signature": signature,
     },
     body,
   });

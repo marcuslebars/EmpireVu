@@ -17,6 +17,7 @@ import {
 } from "@/lib/help-api";
 import { useBrand } from "@/lib/brand-context";
 import { useOrg } from "@/lib/org-context";
+import { EVERDOER_ENTITY_LINE } from "@/lib/platform-brand";
 import { cn } from "@/lib/utils";
 
 /**
@@ -412,6 +413,9 @@ export function HelpPanel({ open, onOpenChange }: { open: boolean; onOpenChange:
             </TabsContent>
           </div>
         </Tabs>
+        <p className="px-5 py-2 border-t border-border text-[11px] text-muted-foreground" data-testid="help-entity-line">
+          {EVERDOER_ENTITY_LINE}
+        </p>
       </SheetContent>
     </Sheet>
   );

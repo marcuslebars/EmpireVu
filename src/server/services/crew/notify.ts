@@ -3,6 +3,7 @@
  * Best-effort — assigning never fails because a notification did.
  */
 import type { Tables } from "@/server/db/database.types";
+import { loadCompanyFromAddress } from "@/server/outbound/company-sender";
 import { isEmailSendConfigured, sendEmail } from "@/server/outbound/email";
 import { configuredAppBaseUrlFor, loadOrganizationBrand } from "@/server/services/platform-brand";
 import { notifyJobAssigned } from "@/server/services/push/notify";
@@ -83,7 +84,10 @@ export async function notifyCrewAssigned(ctx: TenantServiceContext, booking: Tab
       for (const person of people ?? []) {
         if (!person.email) continue;
         try {
-          await sendEmail({ to: person.email, subject: message.subject, body: message.text, fromName: company?.name ?? undefined });
+          // D7: the company's sender (cached after the first). A failed lookup fails this email,
+          // logged below like any send failure; the push above has already gone.
+          const fromAddress = await loadCompanyFromAddress(booking.company_id);
+          await sendEmail({ to: person.email, subject: message.subject, body: message.text, fromName: company?.name ?? undefined, ...(fromAddress ? { fromAddress } : {}) });
           notified.push(person.id);
         } catch (err) {
           console.error("[crew] assignment email failed:", err instanceof Error ? err.message : err);

@@ -559,22 +559,22 @@ describe("delivery decisions", () => {
 describe("renderOperatorHealthEmail", () => {
   it("subject counts items and guarantees at risk", () => {
     const report = buildOperatorHealthReport(fullFacts());
-    expect(operatorHealthSubject(report)).toBe("CrankLeads health: 8 need you (2 guarantee at risk)");
+    expect(operatorHealthSubject(report)).toBe("Everdoer health: 8 need you (2 guarantee at risk)");
     const one = buildOperatorHealthReport(emptyFacts({ support: [supportFact()] }));
-    expect(operatorHealthSubject(one)).toBe("CrankLeads health: 1 needs you");
-    expect(operatorHealthSubject(buildOperatorHealthReport(emptyFacts()))).toBe("CrankLeads health: all clear");
+    expect(operatorHealthSubject(one)).toBe("Everdoer health: 1 needs you");
+    expect(operatorHealthSubject(buildOperatorHealthReport(emptyFacts()))).toBe("Everdoer health: all clear");
   });
 
   it("golden: full report (text + html)", () => {
     const email = renderOperatorHealthEmail(buildOperatorHealthReport(fullFacts()), { allClearMode: "weekly" });
-    expect(email.fromName).toBe("CrankLeads ops");
+    expect(email.fromName).toBe("Everdoer ops");
     expect(email.text).toMatchSnapshot();
     expect(email.html).toMatchSnapshot();
   });
 
   it("golden: weekly all clear", () => {
     const email = renderOperatorHealthEmail(buildOperatorHealthReport(emptyFacts()), { allClearMode: "weekly" });
-    expect(email.subject).toBe("CrankLeads health: all clear");
+    expect(email.subject).toBe("Everdoer health: all clear");
     expect(email.text).toMatchSnapshot();
   });
 
@@ -797,7 +797,7 @@ describe("processOperatorHealth (scheduled daily send)", () => {
     const first = await processOperatorHealth(db.client, NOW, deps, CONFIG);
     expect(first).toMatchObject({ action: "sent", reportDate: "2026-10-05", itemCount: 8 });
     expect(sendEmail).toHaveBeenCalledTimes(1);
-    expect(sendEmail.mock.calls[0][0]).toMatchObject({ to: "marcus@example.test", subject: "CrankLeads health: 8 need you (2 guarantee at risk)" });
+    expect(sendEmail.mock.calls[0][0]).toMatchObject({ to: "marcus@example.test", subject: "Everdoer health: 8 need you (2 guarantee at risk)" });
     expect(db.tables.operator_health_reports[0]).toMatchObject({ report_date: "2026-10-05", status: "sent", item_count: 8, guarantee_at_risk: 2, all_clear: false });
     expect(db.tables.operator_health_reports[0].summary).toEqual({ provisioning: 1, forwarding: 1, setup: 2, queues: 1, payments: 1, support: 1, silent: 1 });
 
@@ -845,7 +845,7 @@ describe("processOperatorHealth (scheduled daily send)", () => {
     facts = emptyFacts();
     const outcome = await processOperatorHealth(db.client, NOW, deps, CONFIG);
     expect(outcome).toMatchObject({ action: "sent", delivery: "all_clear" });
-    expect(sendEmail.mock.calls[0][0].subject).toBe("CrankLeads health: all clear");
+    expect(sendEmail.mock.calls[0][0].subject).toBe("Everdoer health: all clear");
     expect(db.tables.operator_health_reports[0]).toMatchObject({ all_clear: true, status: "sent" });
 
     resetOperatorHealthMemo();
@@ -884,7 +884,7 @@ describe("runOperatorHealthJob (CLI)", () => {
       deps: { sendEmail, loadFacts: async () => fullFacts() },
     });
     expect(result.sentTo).toBeNull();
-    expect(result.email.subject).toBe("CrankLeads health: 8 need you (2 guarantee at risk)");
+    expect(result.email.subject).toBe("Everdoer health: 8 need you (2 guarantee at risk)");
     expect(sendEmail).not.toHaveBeenCalled();
     expect(db.tables.operator_health_reports).toHaveLength(0);
   });

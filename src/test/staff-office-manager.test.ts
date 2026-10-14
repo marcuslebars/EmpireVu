@@ -490,6 +490,21 @@ describe("morning briefing sweep", () => {
     expect(a1[0].body).toBe("Morning - all quiet at A1 Marine Care today (Tue Oct 13): no jobs booked and nothing waiting on you.");
   });
 
+  it("with EVERDOER_SMS_BRANDING=1 a house org's briefing is signed 'Everdoer: ' too, within the 612-septet budget", async () => {
+    vi.stubEnv("EVERDOER_SMS_BRANDING", "1");
+    try {
+      setSettings(1, { office_manager: { enabled: true } });
+      at("2026-10-13T11:20:00Z");
+      await run();
+      const a1 = smsTo(A1_OWNER);
+      expect(a1).toHaveLength(1);
+      expect(a1[0].body).toBe("Everdoer: Morning - all quiet at A1 Marine Care today (Tue Oct 13): no jobs booked and nothing waiting on you.");
+      expect(septets(a1[0].body)).toBeLessThanOrEqual(MAX_BRIEFING_SEPTETS);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("a paused company gets nothing", async () => {
     rows("companies")[0].stage = "paused";
     await run();
@@ -504,7 +519,7 @@ describe("morning briefing sweep", () => {
     expect(sendEmail).toHaveBeenCalledTimes(1);
     const email = sendEmail.mock.calls[0][0] as { to: string; subject: string; body: string; html: string; fromName: string };
     expect(email.to).toBe("dana@northshore.test");
-    expect(email.fromName).toBe("CrankLeads");
+    expect(email.fromName).toBe("Everdoer");
     expect(email.subject).toBe("Northshore Roofing: your morning briefing for Tue Oct 13");
     expect(email.body).toContain("Mike: 8am - Jamie - Roof repair - 12 Bay St; 10am - Pat - Roof repair - 12 Bay St");
     expect(email.body).toContain("Unassigned: 3pm - Jamie - Roof repair - 12 Bay St");

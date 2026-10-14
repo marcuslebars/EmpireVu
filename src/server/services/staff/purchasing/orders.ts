@@ -11,6 +11,7 @@ import { insertApproval } from "@/server/services/front-desk/approvals";
 import type { AdminClient, ApprovalDecision, ExecuteResult, OwnerApprovalRow } from "@/server/services/front-desk/contracts";
 import { ctxFor, sendOwnerSms } from "@/server/services/owner-channel/common";
 import { notifyOwnerOfApproval } from "@/server/services/owner-channel/notify";
+import { loadCompanyFromAddress } from "@/server/outbound/company-sender";
 import { sendEmail, type SendEmailInput } from "@/server/outbound/email";
 import { addDays, localDate } from "@/server/services/booking-windows";
 import { orgOwnerEmail } from "@/server/services/workflow-engine/messaging";
@@ -513,7 +514,9 @@ export async function executeMaterialsOrder(admin: AdminClient, approval: OwnerA
     lines,
   });
   try {
-    await deps.sendEmail({ to: supplier.email, subject: email.subject, body: email.text, html: email.html, fromName: company.name, replyTo });
+    // D7: the company's own sender when it has one.
+    const fromAddress = await loadCompanyFromAddress(company.companyId);
+    await deps.sendEmail({ to: supplier.email, subject: email.subject, body: email.text, html: email.html, fromName: company.name, replyTo, ...(fromAddress ? { fromAddress } : {}) });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     await (admin as Db).from("purchase_orders").update({ send_error: reason.slice(0, 500), sent_via: "owner_call_in" }).eq("id", po.id).eq("status", "approved");

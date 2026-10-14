@@ -28,7 +28,7 @@ export function cleanLineLabel(raw: string | null | undefined, businessName: str
     .replace(/%/g, " ")
     .replace(/\b(?:\d+|half|ten|twenty|fifty)\s+off\b/gi, " ")
     .replace(/\b(?:free|discount(?:ed|s)?|as agreed|promo(?:tion)?|special deal|no charge)\b/gi, " ")
-    .replace(/\b(crankleads|empirevu)\b/gi, businessName)
+    .replace(/\b(crankleads|empirevu|everdoer)\b/gi, businessName)
     .replace(/[<>{}[\]]/g, " ")
     .replace(/\s+/g, " ")
     .trim()

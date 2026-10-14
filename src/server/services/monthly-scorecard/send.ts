@@ -257,6 +257,7 @@ async function processCompany(
       contactId: null,
       consentContact: null,
       fromName: scorecardPlatformBrandName(brand),
+      fromAddress: null, // platform mail to the owner (D7): the platform sender, not the company's
     });
     emailStatus = result.status;
     if (result.status !== "sent") failure = result.reason ?? result.status;

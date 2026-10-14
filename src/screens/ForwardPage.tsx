@@ -16,12 +16,13 @@ import { AlertCircle, Check, CheckCircle2, ChevronDown, Copy, Loader2, PhoneCall
 
 import { ApiError } from "@/lib/api-client";
 import { useBrandOverride } from "@/lib/brand-context";
+import { EVERDOER_BRAND } from "@/lib/platform-brand";
 import { fetchForwardPage, isIOSDevice, postForwardAction, type ForwardPageView } from "@/lib/dfy-api";
 import { useDocumentFavicon } from "@/lib/use-document-favicon";
 import { useDocumentTitle } from "@/lib/use-document-title";
 
-const LOGO_URL = "/brand/crankleads-logo.svg";
-const FAVICON_URL = "/brand/crankleads-favicon.svg";
+const LOGO_URL = EVERDOER_BRAND.logoSrc;
+const FAVICON_URL = EVERDOER_BRAND.faviconHref;
 const POLL_MS = 5000;
 const MAX_POLLS = 72; // ~6 minutes
 
@@ -122,7 +123,7 @@ export default function ForwardPage() {
     <div className="min-h-screen bg-background px-4 py-6 sm:py-12">
       <div className="mx-auto w-full max-w-[440px]">
         <div className="mb-6 flex justify-center">
-          <img src={LOGO_URL} alt="CrankLeads" width={673} height={128} className="h-7 w-auto" />
+          <img src={LOGO_URL} alt={EVERDOER_BRAND.name} width={EVERDOER_BRAND.logoWidth} height={EVERDOER_BRAND.logoHeight} className="h-7 w-auto" />
         </div>
         <main className="rounded-2xl border border-border bg-card p-5 sm:p-7 shadow-xl shadow-black/10" data-testid="forward-page">
           {state === "loading" ? (

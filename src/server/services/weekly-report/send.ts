@@ -4,6 +4,7 @@ import type { TenantServiceContext } from "@/server/services/shared";
 import { deliverMessage, resolveOwnerContacts } from "@/server/services/workflow-engine/messaging";
 import { companyTimeZone } from "@/server/services/monthly-scorecard/scorecard";
 import { scorecardPlatformBrandName } from "@/server/services/monthly-scorecard/platform-brand";
+import { smsBrandingOn, smsPlatformName } from "@/server/services/rebrand/sms-branding";
 import {
   isDateKey,
   localDateKey,
@@ -13,7 +14,7 @@ import {
   weekKeyInTimeZone,
   weekRangeForKey,
 } from "@/server/services/monthly-scorecard/weeks";
-import { appBaseUrlFor, brandForOrg, platformBrand, type PlatformBrand } from "@/server/services/platform-brand";
+import { appBaseUrlFor, brandForOrg, isDoneForYouBrand, platformBrand, type PlatformBrand } from "@/server/services/platform-brand";
 import {
   computeWeekForCompany,
   hadActivityInLast30Days,
@@ -233,7 +234,9 @@ function render(company: WeeklyRunCompany, brand: PlatformBrand, metrics: Weekly
     reportUrl: weeklyReportUrl(brand, metrics.weekStart),
     primaryColor: company.brand_primary_color,
   };
-  return { email: renderWeeklyEmail(metrics, options), sms: renderWeeklySms(metrics, options) };
+  // The text names the platform only per EVERDOER_SMS_BRANDING (A2P samples); the email says Everdoer.
+  const smsOptions = { ...options, platformBrand: smsBrandingOn() ? options.platformBrand : smsPlatformName(brand.productLine) };
+  return { email: renderWeeklyEmail(metrics, options), sms: renderWeeklySms(metrics, smsOptions) };
 }
 
 interface Recipients {
@@ -298,6 +301,7 @@ async function deliver(
         contactId: null,
         consentContact: null,
         fromName: scorecardPlatformBrandName(brand),
+        fromAddress: null, // platform mail to the owner (D7): the platform sender, not the company's
       });
       status.email = result.status;
       if (result.status === "sent") sent.push("email");
@@ -321,7 +325,7 @@ async function processCompany(
   const timeZone = companyTimeZone(company);
   const week = options.week ?? defaultReportWeek(timeZone, options.nowMs);
   const base = { companyId: company.id, companyName: company.name, week };
-  const isCrankleads = org.brand.key === "crankleads";
+  const isCrankleads = isDoneForYouBrand(org.brand);
   const settings = parseWeeklyReportSettings(company.ai_settings, isCrankleads);
   const context = ctxFor(admin, company.organization_id);
   const skip = weeklySkipReason({ company, settings, orgSubscriptionStatus: org.subscriptionStatus, live, week, timeZone, nowMs: options.nowMs });
@@ -554,7 +558,7 @@ export async function sendTestWeeklyReport(
     subscriptionStatus: null,
     brand: platformBrand(null),
   };
-  const isCrankleads = org.brand.key === "crankleads";
+  const isCrankleads = isDoneForYouBrand(org.brand);
   const settings = parseWeeklyReportSettings(company.ai_settings, isCrankleads);
   const timeZone = companyTimeZone(company);
   const week = defaultReportWeek(timeZone, nowMs);

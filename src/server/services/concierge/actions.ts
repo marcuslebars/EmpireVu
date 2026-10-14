@@ -474,7 +474,7 @@ registerConciergeAction({
   schema: emptySchema,
   async run(ctx) {
     const sessionId = ctx.purchase?.stripe_checkout_session_id;
-    if (!sessionId) throw new ValidationError("This account has no CrankLeads purchase to resend from.");
+    if (!sessionId) throw new ValidationError("This account has no Everdoer purchase to resend from.");
     const outcome = await resendWelcomeEmail(ctx.admin, sessionId);
     if (outcome === "use_forgot_password") {
       throw new ValidationError("They've already signed in (or it's been over a week) — have them use Forgot password.");

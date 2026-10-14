@@ -119,7 +119,7 @@ export function buildCrankleadsSessionParams(
   const setup = crankleadsSetupPriceId(input.tier);
   if (!monthly || !setup) {
     throw new CrankleadsCheckoutUnavailableError(
-      `CrankLeads ${input.tier} prices are not configured (STRIPE_PRICE_EVERDOER_* / STRIPE_SETUP_FEE_EVERDOER_*, or the old STRIPE_PRICE_CL_* / STRIPE_SETUP_FEE_CL_*).`,
+      `Everdoer ${input.tier} prices are not configured (STRIPE_PRICE_EVERDOER_* / STRIPE_SETUP_FEE_EVERDOER_*, or the old STRIPE_PRICE_CL_* / STRIPE_SETUP_FEE_CL_*).`,
     );
   }
 
@@ -137,7 +137,7 @@ export function buildCrankleadsSessionParams(
   };
 
   // After paying, the buyer lands on the CrankLeads app host (CRANKLEADS_APP_BASE_URL) — the
-  // same host their welcome email and every later link uses (docs/crankleads-branding.md).
+  // same host their welcome email and every later link uses (docs/everdoer-branding.md).
   const base = appBaseUrlFor("crankleads");
   const brand = crankleadsCheckoutBranding();
 
@@ -190,7 +190,7 @@ export async function createCrankleadsCheckout(
 ): Promise<{ url: string; sessionId: string; purchaseId: string }> {
   // Fail fast (before staging anything) when the tier's prices aren't configured.
   if (!crankleadsMonthlyPriceId(input.tier) || !crankleadsSetupPriceId(input.tier)) {
-    throw new CrankleadsCheckoutUnavailableError(`CrankLeads ${input.tier} prices are not configured.`);
+    throw new CrankleadsCheckoutUnavailableError(`Everdoer ${input.tier} prices are not configured.`);
   }
 
   const utm = sanitizeUtm(input.utm);

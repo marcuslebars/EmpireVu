@@ -66,7 +66,7 @@ and read the list before applying.
 **What the buyer sees.** Right after provisioning (`provisionClaimed`, just after the welcome
 email) we create one `setup_intakes` row for the company and text the owner from the platform
 number (`TWILIO_FROM_NUMBER`, `smsFrom: "platform"`):
-*"CrankLeads: you're in. 60 seconds and we'll set the rest up for you: <app>/setup/<token>"*.
+*"CrankLeads: you're in. 60 seconds and we'll set the rest up for you: <app>/setup/<token>"*. (Texts say "Everdoer" instead once `EVERDOER_SMS_BRANDING=1`; docs/messaging-compliance.md.)
 The welcome email no longer lists DIY steps — it says we're setting things up, to check their
 texts, includes the same link, and keeps the set-password link. If the text can't go (or the
 welcome email failed) an email backup *"Your 60-second setup link"* goes out under the org's
@@ -261,7 +261,7 @@ Built only from facts (nothing is invented):
 | About, tagline, highlights | `companies.profile` |
 | Quote form | the company's active public form key → `POST /api/public/forms/<key>` (same abuse layers as the hosted form: rate limits, honeypot, min fill time, Turnstile when `TURNSTILE_SITE_KEY`/`VITE_TURNSTILE_SITE_KEY` + secret are set). Requests become normal leads |
 | Book online | the public booking page, only while online booking is on |
-| Footer credit | "Site by CrankLeads" for CrankLeads orgs only; never "EmpireVu" |
+| Footer credit | "Powered by Everdoer" (links to https://everdoer.com) for done-for-you orgs only |
 
 SEO: `<title>`, meta description, canonical, Open Graph, and LocalBusiness JSON-LD (or the
 trade's subtype: `RoofingContractor`, `HVACBusiness`, `GeneralContractor`,

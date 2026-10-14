@@ -41,7 +41,7 @@ Every outbound message is written to `message_log` (channel, direction, to/from,
 
 A missed call caught by the [missed-call catcher](missed-call-catcher.md) is an inquiry: the caller phoned the business, so intake stamps **implied consent** (`implied_inquiry`) on the contact, exactly as for a Retell call or a web form. The `missed-call-text-back` recipe's message names the business (`{{company.name}} here`) and is the first SMS, so it carries `Reply STOP to opt out`. It is sent **from the company's own catcher number**, so a STOP reply lands on that number and opts the contact out of that company. A caller who opted out is never texted back on a later missed call (`checkConsent` at send time), a withheld caller ID is never texted, and a repeat call within `MISSED_CALL_TEXTBACK_WINDOW_MINUTES` doesn't trigger a second text.
 
-## CrankLeads setup reminders (owner, transactional)
+## Done-for-you setup reminders (owner, transactional)
 
 The setup follow-ups ([crankleads-purchase.md](crankleads-purchase.md#setup-follow-ups-automatic-chasing-until-the-buyer-is-live))
 message the **account owner who just bought the service**, about finishing that purchase's
@@ -52,3 +52,24 @@ the account is live or the subscription is cancelled. Every text ends "Reply STO
 texts" and is sent from the platform number (`TWILIO_FROM_NUMBER`), so Twilio's carrier-level
 STOP handling stops them without touching the company's own number; every email has a "stop
 these reminders" link (sets `crankleads_purchases.setup_reminders_stopped_at`).
+
+## Platform name in SMS: one switch, `EVERDOER_SMS_BRANDING`
+
+Live SMS traffic must match the A2P 10DLC campaign's registered brand and sample messages, so
+no SMS text changes with the Everdoer rebrand until one switch is turned on
+(`src/server/services/rebrand/sms-branding.ts`):
+
+* **Off (default; unset):** every SMS is exactly as before the rebrand. Owner texts from the
+  platform number (approvals, alerts, the 07:00 briefing, setup reminders, "you're live",
+  forwarding and quick-setup texts, the weekly report text) are signed `CrankLeads: ` for
+  done-for-you orgs and carry no prefix for other orgs (A1 etc.). A stranger texting the platform
+  number gets "CrankLeads: this number is for CrankLeads account owners…".
+* **On (`EVERDOER_SMS_BRANDING=1`, also `true`/`yes`) on web, worker and billing-worker:** every
+  org's owner texts are signed `Everdoer: ` (10 GSM characters, shorter than `CrankLeads: `, so
+  the 612-character briefing budget still holds), the done-for-you and weekly texts say
+  Everdoer, and the stranger/HELP reply says "Everdoer: this number is for Everdoer account
+  owners…".
+
+**Before turning it on, update the A2P campaign's brand and sample messages in the Twilio
+console** to the Everdoer wording. Unset it to roll back. Texts to end customers never carry a
+platform name; they name the company.

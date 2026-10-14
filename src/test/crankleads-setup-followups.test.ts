@@ -328,7 +328,7 @@ describe("follow-up templates (done-for-you: one action, one no-login link)", ()
 
   it("reminder email (golden) — never asks for Stripe, prices or wizard steps", () => {
     const email = renderReminderEmail(REMINDER);
-    expect(email.fromName).toBe("CrankLeads");
+    expect(email.fromName).toBe("Everdoer");
     expect(email.subject).toBe("Jane's Roofing is one tap from live");
     expect(email.body).toMatchSnapshot();
     expect(email.html).toMatchSnapshot();
@@ -451,7 +451,7 @@ describe("setup follow-up pass", () => {
     const token = db.tables.dfy_progress[0].forward_token as string;
     expect(token).toMatch(/^[A-Za-z0-9_-]{32}$/);
     expect(email.to).toBe("jane@roofco.example");
-    expect(email.fromName).toBe("CrankLeads");
+    expect(email.fromName).toBe("Everdoer");
     expect(email.body).toContain(`${APP}/forward/${token}`);
     expect(email.body).toContain(`${APP}/api/public/crankleads/setup-reminders?token=${TOKEN}`);
     expect(email.body).not.toContain("update-password");

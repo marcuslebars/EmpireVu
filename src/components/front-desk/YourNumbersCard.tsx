@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getMissedCallCatcher } from "@/lib/api-client";
 import { useCompanies } from "@/lib/api-hooks";
 import { useBrand } from "@/lib/brand-context";
+import { isDoneForYouBrand } from "@/lib/platform-brand";
 
 /**
  * Dashboard "Your numbers" card: the business's own number (the missed-call / AI line its
@@ -28,7 +29,7 @@ export function YourNumbersCard({ orgId, companyId }: { orgId: string; companyId
   const ownerLine = status.data.ownerTextNumberPretty ?? null;
   const brandName = brand.name;
   // House tenants without a catcher number have nothing to show here.
-  if (!line && brand.key !== "crankleads") return null;
+  if (!line && !isDoneForYouBrand(brand)) return null;
 
   return (
     <Card className="opacity-0 animate-fade-in" style={{ animationDelay: "60ms" }}>

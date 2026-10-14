@@ -182,6 +182,8 @@ export interface AccountingProvider {
   options(s: ProviderSession): Promise<ProviderOptions>;
   findOrCreateCustomer(s: ProviderSession, c: CustomerDoc, takenRemoteIds: Set<string>): Promise<RemoteRef>;
   findOrCreateVendor(s: ProviderSession, name: string): Promise<RemoteRef | null>;
+  /** Find (never create) a vendor/contact by exact name — reusing an old generic "Expenses (…)". */
+  findVendor?(s: ProviderSession, name: string): Promise<RemoteRef | null>;
   pushInvoice(s: ProviderSession, doc: InvoiceDoc, customer: RemoteRef, settings: AccountingSettings, existing: RemoteRef | null): Promise<PushResult>;
   voidInvoice(s: ProviderSession, existing: RemoteRef): Promise<void>;
   pushPayment(s: ProviderSession, doc: PaymentDoc, invoice: RemoteRef, customer: RemoteRef, settings: AccountingSettings, existing: RemoteRef | null): Promise<PushResult>;

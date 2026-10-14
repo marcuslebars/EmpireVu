@@ -432,7 +432,7 @@ describe("runWeeklyReports — Monday 08:30 Toronto", () => {
     expect(sendEmail).toHaveBeenCalledTimes(1);
     const mail = sendEmail.mock.calls[0][0] as { to: string; subject: string; fromName: string; html: string; body: string };
     expect(mail.to).toBe("owner@northshore.test");
-    expect(mail.fromName).toBe("CrankLeads");
+    expect(mail.fromName).toBe("Everdoer");
     expect(`${mail.subject} ${mail.html} ${mail.body}`).not.toMatch(/empirevu/i);
     expect(mail.subject).toBe("Your front desk last week: 1 call answered, 2 text conversations");
 
@@ -440,6 +440,16 @@ describe("runWeeklyReports — Monday 08:30 Toronto", () => {
     expect(row).toMatchObject({ organization_id: ORG_1, week_start: WEEK, status: "sent", channels: ["sms", "email"] });
     expect((row?.metrics as WeeklyReportMetrics).textConversations).toBe(2); // conv-x (other tenant) excluded
     expect((row?.metrics as WeeklyReportMetrics).calls).toMatchObject({ answered: 1, afterHours: 1 });
+  });
+
+  it("with EVERDOER_SMS_BRANDING=1 the text says Everdoer (still within 2 segments)", async () => {
+    vi.stubEnv("EVERDOER_SMS_BRANDING", "1");
+    const db = seed();
+    await runWeeklyReports(db.client, { nowMs: MON_0830, respectSendWindow: true });
+    const sms = sendSms.mock.calls[0][0] as { body: string };
+    expect(sms.body).toContain("Everdoer weekly report for Northshore Lawn & Snow, Oct 5-11:");
+    expect(sms.body.replace(/https?:\/\/\S+/g, "")).not.toMatch(/crank\s*leads/i);
+    expect(smsSegments(sms.body).segments).toBeLessThanOrEqual(2);
   });
 
   it("is idempotent: a second pass sends nothing", async () => {
@@ -523,13 +533,13 @@ describe("runWeeklyReports — Monday 08:30 Toronto", () => {
     expect(sendSms).not.toHaveBeenCalled();
   });
 
-  it("a house (non-CrankLeads) org that opts in gets email only, branded EmpireVu", async () => {
+  it("a house (non-CrankLeads) org that opts in gets email only, branded Everdoer", async () => {
     const db = seed();
     db.tables.companies[1].ai_settings = { weekly_report: { enabled: true, channels: ["sms", "email"] } };
     const outcomes = await runWeeklyReports(db.client, { nowMs: MON_0830, companyId: CO_HOUSE, respectSendWindow: true });
     expect(outcomes[0]).toMatchObject({ result: "sent", channels: ["email"] });
     expect(sendSms).not.toHaveBeenCalled();
-    expect((sendEmail.mock.calls[0][0] as { fromName: string }).fromName).toBe("EmpireVu");
+    expect((sendEmail.mock.calls[0][0] as { fromName: string }).fromName).toBe("Everdoer");
   });
 
   it("quiet week: skips a brand-new account with no activity in 30 days, but sends a short note after recent activity", async () => {
@@ -663,7 +673,7 @@ describe("in-app view + test send", () => {
     ]);
     expect(view.weeks[1].metrics.textConversations).toBe(2);
     expect(view.weeks[1].send).toMatchObject({ status: "sent", channels: ["sms", "email"] });
-    expect(view).toMatchObject({ isCrankleads: true, brandName: "CrankLeads", settings: { enabled: true, channels: ["sms", "email"] } });
+    expect(view).toMatchObject({ isCrankleads: true, brandName: "Everdoer", settings: { enabled: true, channels: ["sms", "email"] } });
   });
 
   it("'send a test to me' emails the requester and doesn't use up the week", async () => {

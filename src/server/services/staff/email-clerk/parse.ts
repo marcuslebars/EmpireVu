@@ -133,7 +133,7 @@ export function newText(text: string | null | undefined): string {
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-const PLATFORM_NAMES = /\b(crank\s?leads|empire\s?vu)\b/gi;
+const PLATFORM_NAMES = /\b(crank\s?leads|empire\s?vu|ever\s?doer)\b/gi;
 
 /**
  * One line of untrusted email text made safe for an owner text or a prompt label: links,

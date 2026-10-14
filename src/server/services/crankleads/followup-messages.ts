@@ -2,7 +2,7 @@
  * CrankLeads setup follow-up messages — PURE renderers (golden-tested in
  * src/test/crankleads-setup-followups.test.ts). Purchase-context, so they are sent as
  * CrankLeads (sender name CRANKLEADS_OFFER_NAME), and the app the owner logs into is CrankLeads
- * too (appUrl = the CrankLeads app host). Never "EmpireVu" (docs/crankleads-branding.md).
+ * too (appUrl = the CrankLeads app host). Never "EmpireVu" (docs/everdoer-branding.md).
  * No prices (Working Protocol #4). No employee names (Protocol #16) — "your AI receptionist".
  *
  * Done-for-you (docs/done-for-you.md): we set everything up, so a reminder asks for exactly
@@ -14,6 +14,7 @@ import type { RenderedEmail } from "@/server/services/crankleads/emails";
 import type { ReminderStage } from "@/server/services/crankleads/followup-schedule";
 import type { PhonePath } from "@/server/services/crankleads/setup-checklist";
 import { prettyPhone } from "@/lib/carrier-forwarding";
+import { smsPlatformName } from "@/server/services/rebrand/sms-branding";
 
 export interface FollowupStepLine {
   title: string;
@@ -137,7 +138,7 @@ export function renderReminderEmail(input: ReminderMessageInput): RenderedEmail 
  * STOP handling stops further texts from the platform number).
  */
 export function renderReminderSms(input: ReminderMessageInput): string {
-  const hi = `${CRANKLEADS_OFFER_NAME}: Hi ${firstName(input.ownerName)}, `;
+  const hi = `${smsPlatformName("done_for_you")}: Hi ${firstName(input.ownerName)}, `;
   let lead: string;
   switch (input.action) {
     case "quick_setup":
@@ -220,5 +221,5 @@ export function renderLiveSms(input: LiveMessageInput): string {
       ? `calls you miss now go to your AI receptionist${number}`
       : `missed callers now get a text back from${number || " your text-back number"}`;
   const site = input.siteUrl ? ` Your new page: ${input.siteUrl}` : "";
-  return `${CRANKLEADS_OFFER_NAME}: 🎉 You're live! ${input.businessName}: ${what}.${site} Log in: ${input.appUrl}`;
+  return `${smsPlatformName("done_for_you")}: 🎉 You're live! ${input.businessName}: ${what}.${site} Log in: ${input.appUrl}`;
 }

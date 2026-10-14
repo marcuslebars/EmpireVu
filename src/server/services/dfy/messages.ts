@@ -6,6 +6,7 @@
 import { prettyPhone, type ForwardingPlan } from "@/lib/carrier-forwarding";
 import { CRANKLEADS_OFFER_NAME, CRANKLEADS_TIER_LABELS, type CrankleadsTier } from "@/server/services/crankleads/config";
 import type { RenderedEmail } from "@/server/services/crankleads/emails";
+import { smsPlatformName } from "@/server/services/rebrand/sms-branding";
 
 function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -43,7 +44,7 @@ function forwardingWhy(phonePath: ForwardingMessageInput["phonePath"]): string {
 export function renderForwardingSms(input: ForwardingMessageInput): string {
   const how = input.method === "dial_code" ? "It's one tap" : "Here's how (2 min)";
   return (
-    `${CRANKLEADS_OFFER_NAME}: Hi ${firstName(input.ownerName)}, ${input.businessName} is almost live. ` +
+    `${smsPlatformName("done_for_you")}: Hi ${firstName(input.ownerName)}, ${input.businessName} is almost live. ` +
     `Last step: turn on call forwarding ${forwardingWhy(input.phonePath)}. ${how}: ${input.forwardUrl}\nReply STOP to stop these texts.`
   );
 }

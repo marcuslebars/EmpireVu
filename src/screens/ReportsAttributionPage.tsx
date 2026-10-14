@@ -155,7 +155,7 @@ export default function ReportsAttributionPage() {
           variant="outline"
           size="sm"
           disabled={rows.length === 0}
-          onClick={() => downloadCsv(`empirevu-attribution-${range?.from.slice(0, 10) ?? "report"}.csv`, rowsToCsv(rows))}
+          onClick={() => downloadCsv(`everdoer-attribution-${range?.from.slice(0, 10) ?? "report"}.csv`, rowsToCsv(rows))}
         >
           <Download className="w-4 h-4 mr-2" />
           Export CSV

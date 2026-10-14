@@ -1,5 +1,6 @@
 import { platformNumber } from "@/server/outbound/platform-number";
 import type { Inserts, Tables } from "@/server/db/database.types";
+import { isHouseOrgRow, loadCompanyFromAddress } from "@/server/outbound/company-sender";
 import { sendEmail, type SendEmailInput } from "@/server/outbound/email";
 import { sendSms } from "@/server/outbound/sms";
 import type { TenantServiceContext } from "@/server/services/shared";
@@ -83,10 +84,6 @@ export interface ResolveOwnerOptions {
   allowPlatformFallback?: boolean;
 }
 
-/** Slug of the house/platform org (A1) — same source as lead intake (LEAD_INTAKE_ORG_SLUG). */
-function houseOrgSlug(): string {
-  return process.env.LEAD_INTAKE_ORG_SLUG ?? "a1-group";
-}
 
 /**
  * Is this org the platform's own ("house") org? plan='internal' (billing's own marker) or the
@@ -100,8 +97,8 @@ export async function isHouseOrganization(context: TenantServiceContext): Promis
     .select("plan, slug")
     .eq("id", context.organizationId)
     .maybeSingle();
-  const org = data as { plan: string | null; slug: string | null } | null;
-  return Boolean(org && (org.plan === "internal" || org.slug === houseOrgSlug()));
+  // The same rule the email sender uses for the house org (outbound/company-sender.ts).
+  return isHouseOrgRow(data as { plan: string | null; slug: string | null } | null);
 }
 
 /**
@@ -230,6 +227,14 @@ export interface DeliverMessageInput {
   subject?: string | null;
   fromName?: string | null;
   replyTo?: string | null;
+  /**
+   * Email only: the From (D7). Omitted → the company's sender, looked up by companyId with the
+   * service role and cached (outbound/company-sender.ts: its own address, the house org's
+   * OUTBOUND_FROM_EMAIL, else the platform default). A failed lookup with
+   * EVERDOER_DEFAULT_FROM_EMAIL set fails the send (status "failed", logged). Pass null for
+   * platform mail that must never use the company's sender.
+   */
+  fromAddress?: string | null;
   workflowRunId?: string | null;
   /**
    * SMS sender. "company" (default): the company's own Twilio number (catcher first), else
@@ -311,6 +316,8 @@ export async function deliverMessage(input: DeliverMessageInput): Promise<Delive
       const from = input.smsFrom === "platform" ? platformNumber() : await resolveCompanySmsFrom(context, companyId);
       providerRef = (await sendSms(from ? { to: input.to, body, from } : { to: input.to, body })).sid;
     } else {
+      const fromAddress =
+        input.fromAddress !== undefined ? input.fromAddress : await loadCompanyFromAddress(companyId);
       providerRef = (
         await sendEmail({
           to: input.to,
@@ -319,6 +326,7 @@ export async function deliverMessage(input: DeliverMessageInput): Promise<Delive
           html: input.html ?? undefined,
           fromName: input.fromName ?? undefined,
           replyTo: input.replyTo ?? undefined,
+          ...(fromAddress ? { fromAddress } : {}),
           ...(input.emailHeaders ? { headers: input.emailHeaders } : {}),
         })
       ).id;

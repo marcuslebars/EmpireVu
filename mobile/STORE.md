@@ -54,10 +54,10 @@ and the ability to text someone who never agreed to be part of a store review. S
 self-contained org instead:
 
 ```bash
-npm run job:seed-demo -- --email demo@empirevu.com
+npm run job:seed-demo -- --email demo@everdoer.com --apply
 ```
 
-It creates (or updates) the `empirevu-demo` organization with one company, a price list,
+It creates (or updates) the `everdoer-demo` organization with one company, a price list,
 eight invented customers on 555-01xx numbers and example.com addresses, today's bookings,
 tasks, an inbox with three conversations waiting on a reply, two leads with a drafted
 reply, three quotes (draft / viewed / approved with the deposit paid) and a month of
@@ -175,7 +175,7 @@ all "App Functionality", **none** used for tracking. This matches `ios/App/App/P
 **Review notes — this is what gets apps rejected, so be explicit:**
 
 > EmpireVu is sold to service businesses and requires an account tied to an
-> organization. Demo account: <email> / <password>. It has an organization with sample leads,
+> organization. Demo account: demo@everdoer.com / <password>. It has an organization with sample leads,
 > bookings and quotes so every screen has data.
 >
 > Billing is deliberately read-only in the app: plans are purchased on the web, and nothing

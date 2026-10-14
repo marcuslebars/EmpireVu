@@ -10,7 +10,7 @@
  *
  * Set EVERDOER_WRITE_NEW_NAMES=1 on every service (web + workers) once PR 1 has been live and
  * stable (REBRAND_CHECKLIST.md). Unsetting it is the instant rollback, with no deploy needed.
- * PR 2 hard-codes the new names and removes this switch.
+ * The "remove shims" PR (PR 8) hard-codes the new names and removes this switch.
  */
 export function writeNewNames(env: Record<string, string | undefined> = process.env): boolean {
   const v = env.EVERDOER_WRITE_NEW_NAMES?.trim().toLowerCase();

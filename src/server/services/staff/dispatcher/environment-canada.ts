@@ -31,7 +31,7 @@ export const EC_ATTRIBUTION = "Data Source: Environment and Climate Change Canad
 const HOUR = 3_600_000;
 const TIMEOUT_MS = 10_000;
 const SITE_LIST_TTL_MS = 24 * HOUR;
-const USER_AGENT = "CrankLeads-Dispatcher/1.0 (weather checks for scheduled jobs)";
+const USER_AGENT = "Everdoer-Dispatcher/1.0 (weather checks for scheduled jobs)";
 
 // ── Site list ─────────────────────────────────────────────────────────────────
 

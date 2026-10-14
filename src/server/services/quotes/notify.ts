@@ -16,6 +16,7 @@
  * Every attempt writes a quote_event either way, so "did the customer get it?" is
  * answerable from the audit trail rather than from log archaeology.
  */
+import { loadCompanyFromAddress } from "@/server/outbound/company-sender";
 import { sendEmail } from "@/server/outbound/email";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import { quotePublicBaseUrlFor } from "./config";
@@ -84,7 +85,12 @@ function quoteUrl(token: string, company: Db | null): string {
   return `${quotePublicBaseUrlFor(company)}/q/${token}`;
 }
 
-async function deliver(quote: Db, to: string, mail: RenderedEmail): Promise<void> {
+async function deliver(companyId: string | null, to: string, mail: RenderedEmail): Promise<void> {
+  // D7: the company's sender (company-sender.ts), looked up by the QUOTE's company id, not the
+  // loaded company row: if that row failed to load, the lookup must still run for this company
+  // (and throw when it can't be resolved) rather than fall to the platform default.
+  // A failed lookup throws into dispatch's catch: reported as not delivered + a quote event.
+  const fromAddress = await loadCompanyFromAddress(companyId);
   await sendEmail({
     to,
     subject: mail.subject,
@@ -92,6 +98,7 @@ async function deliver(quote: Db, to: string, mail: RenderedEmail): Promise<void
     html: mail.html,
     fromName: mail.fromName ?? undefined,
     replyTo: mail.replyTo ?? undefined,
+    ...(fromAddress ? { fromAddress } : {}),
   });
 }
 
@@ -138,7 +145,7 @@ async function dispatch(
 
   try {
     const mail = build(ctx);
-    await deliver(ctx.quote, ctx.recipient.email, mail);
+    await deliver(typeof ctx.quote.company_id === "string" ? ctx.quote.company_id : null, ctx.recipient.email, mail);
     await recordPublicEvent(ctx.quote.organization_id, quoteId, `${kind}_sent`, {
       subject: mail.subject,
     });

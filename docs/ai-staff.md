@@ -482,7 +482,7 @@ Each part is read on its own. A part with nothing to say is left out. A failed r
 
 "Yesterday" is everything since the previous briefing day, local midnight to midnight: Monday after a Saturday briefing says "Since Saturday" and covers Saturday and Sunday (49 hours across the November DST change).
 
-**Length.** At most 4 SMS segments: 612 GSM-7 characters including the "CrankLeads: " prefix (extension characters count double). The text is flattened to plain ASCII (accents, curly quotes, dashes, emoji), so it is never sent as UCS-2. When it's too long, in order: approval one-liners are shortened, then cut to one, the Yesterday line goes, heads-ups are cut to two, the crew breakdown goes, tomorrow's weather goes, the approvals become a count, heads-ups are cut to one and then none, and last the folded money lines are dropped from the end. Money lines that didn't fit are not marked reported, so they come the next morning.
+**Length.** At most 4 SMS segments: 612 GSM-7 characters including the platform prefix when the org gets one ("CrankLeads: " for done-for-you orgs today; "Everdoer: " for every org once `EVERDOER_SMS_BRANDING=1`, see messaging-compliance.md) (extension characters count double). The text is flattened to plain ASCII (accents, curly quotes, dashes, emoji), so it is never sent as UCS-2. When it's too long, in order: approval one-liners are shortened, then cut to one, the Yesterday line goes, heads-ups are cut to two, the crew breakdown goes, tomorrow's weather goes, the approvals become a count, heads-ups are cut to one and then none, and last the folded money lines are dropped from the end. Money lines that didn't fit are not marked reported, so they come the next morning.
 
 ### Once a day (`briefing.ts`)
 
