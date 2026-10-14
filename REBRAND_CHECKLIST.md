@@ -300,7 +300,7 @@ There is a company flag, `companies.stage` (`prospect | active | paused | archiv
 - the AI staff roles: dispatcher, marketer, office manager, compliance, customer care, email clerk, fleet, profit advisor, purchasing, recruiter, tax clerk and service plans.
 
 It does **not** stop workflows, recurring jobs, review requests, quote expiry or follow-ups, invoice reminders, the SMS agent, call answering, Stripe, online booking, the estimator, bookkeeper, importer, porting, the owner digest or lead routing. Do both:
-- [ ] Set the flag in the SQL editor:
+- [ ] **Run `supabase/ops/20261014_a1_marine_storage_decommission.sql`** (rollback: `.down.sql` next to it). It archives the company, turns off its switches, pauses its workflows and recurring series, cancels scheduled review requests and open quotes, and deactivates its numbers, voice profile and keys. Every changed row is backed up first. Then do by hand what it leaves alone: Stripe, invoices, service agreements, booked visits and org-wide workflows. Without the script, the flag alone is:
   `update public.companies set stage = 'archived', updated_at = now() where organization_id = (select id from public.organizations where slug = 'a1-group') and slug = 'a1-marine-storage';`
 - [ ] Then turn off each item the audit shows, with the company switcher set to **A1 Marine Storage**:
   - **Automations:** pause every Storage workflow. Org-wide workflows (no company) also fire for Storage; check them.
@@ -319,7 +319,7 @@ It does **not** stop workflows, recurring jobs, review requests, quote expiry or
 ### D.3 Phones and voice (replaces Storage's PR 4 re-point)
 - [ ] **Storage's phone number(s), from audit row 20:** either forward them to A1 Marine Care's number (Twilio console → the number → Voice "A call comes in" → forward), or set a short closed-business greeting ("A1 Marine Storage has closed; for shrink wrapping call A1 Marine Care at …"). Then deactivate them in Settings → Integrations, or release them in Twilio once forwarding is no longer needed.
 - [ ] **Storage's Retell agent** (audit rows 20 and 22, `provider_agent_id` / `retell_outbound_agent_id`): delete it in Retell, or release its Retell number.
-- [ ] **`RETELL_SOURCE_SITE` isn't set** on EmpireVu (web) or the worker, so the code default `a1marinestorage` applies: **any Retell call that matches no number is filed as an A1 Marine Storage lead** (`retell/config.ts:32`, `retell/tenant.ts:120-125`). Set `RETELL_SOURCE_SITE=a1marinecare` on EmpireVu (web), EmpireVu worker and workflow-events.
+- [x] **Done 2026-10-14:** `RETELL_SOURCE_SITE=a1marinecare` set on EmpireVu (web), EmpireVu worker and workflow-events. **Before that it wasn't set** on EmpireVu (web) or the worker, so the code default `a1marinestorage` applies: **any Retell call that matches no number is filed as an A1 Marine Storage lead** (`retell/config.ts:32`, `retell/tenant.ts:120-125`). Set `RETELL_SOURCE_SITE=a1marinecare` on EmpireVu (web), EmpireVu worker and workflow-events.
 - [ ] `TELNYX_DEFAULT_TENANT_ID` is set on EmpireVu (web), worker and workflow-events. If its value is Storage's company id, change it to A1 Marine Care's.
 
 ### D.4 Lead routing
