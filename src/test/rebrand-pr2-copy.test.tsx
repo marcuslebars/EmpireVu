@@ -63,11 +63,14 @@ describe("D10 entity line", () => {
     expect(container.innerHTML).not.toMatch(OLD_NAMES);
   });
 
-  it("delete-account page: Everdoer, hello@everdoer.com and the entity line; no old names", () => {
+  it("delete-account page: Everdoer, hello@everdoer.com and the entity line; the old name only as '(formerly EmpireVu)'", () => {
     const { container } = render(<DeleteAccountPage />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Delete your Everdoer account");
     expect(screen.getByTestId("entity-line")).toHaveTextContent(EVERDOER_ENTITY_LINE);
     expect(container.innerHTML).toContain("mailto:hello@everdoer.com?subject=Delete my Everdoer account");
-    expect(container.innerHTML).not.toMatch(OLD_NAMES);
+    // The store app is still named EmpireVu until the new Everdoer app ships (PR 6); reviewers who
+    // follow the store's delete-account link must recognise it. Remove with PR 6.
+    expect(container.innerHTML).toContain("Open the Everdoer app (formerly EmpireVu)");
+    expect(container.innerHTML.replace("(formerly EmpireVu)", "")).not.toMatch(OLD_NAMES);
   });
 });
