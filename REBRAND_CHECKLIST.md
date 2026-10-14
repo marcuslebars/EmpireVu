@@ -320,7 +320,7 @@ It does **not** stop workflows, recurring jobs, review requests, quote expiry or
 - [ ] **Storage's phone number(s), from audit row 20:** either forward them to A1 Marine Care's number (Twilio console → the number → Voice "A call comes in" → forward), or set a short closed-business greeting ("A1 Marine Storage has closed; for shrink wrapping call A1 Marine Care at …"). Then deactivate them in Settings → Integrations, or release them in Twilio once forwarding is no longer needed.
 - [ ] **Storage's Retell agent** (audit rows 20 and 22, `provider_agent_id` / `retell_outbound_agent_id`): delete it in Retell, or release its Retell number.
 - [x] **Done 2026-10-14:** `RETELL_SOURCE_SITE=a1marinecare` set on EmpireVu (web), EmpireVu worker and workflow-events. **Before that it wasn't set** on EmpireVu (web) or the worker, so the code default `a1marinestorage` applies: **any Retell call that matches no number is filed as an A1 Marine Storage lead** (`retell/config.ts:32`, `retell/tenant.ts:120-125`). Set `RETELL_SOURCE_SITE=a1marinecare` on EmpireVu (web), EmpireVu worker and workflow-events.
-- [ ] `TELNYX_DEFAULT_TENANT_ID` is set on EmpireVu (web), worker and workflow-events. If its value is Storage's company id, change it to A1 Marine Care's.
+- [x] **Done 2026-10-14:** `TELNYX_DEFAULT_TENANT_ID=a1000000-0000-4000-8000-000000000002` (A1 Marine Care) set on EmpireVu (web), EmpireVu worker and workflow-events.
 
 ### D.4 Lead routing
 - [ ] The platform still maps `sourceSite: "a1marinestorage"` → the Storage company (`lead-intake/routing.ts:13`). The site redirects to a1marinecare.ca and posts nothing (no old-header traffic since 2026-10-13). Remove the mapping in the PR 5 code pass.
