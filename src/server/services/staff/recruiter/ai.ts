@@ -118,7 +118,7 @@ function clean(text: unknown, max: number): string | null {
     .replace(/[‘’]/g, "'")
     .replace(/[“”]/g, '"')
     .replace(/[–—]/g, "-")
-    .replace(/\b(crank\s?leads|empire\s?vu)\b/gi, "")
+    .replace(/\b(crank\s?leads|empire\s?vu|ever\s?doer)\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
   if (!t) return null;

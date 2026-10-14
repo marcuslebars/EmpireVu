@@ -523,13 +523,13 @@ describe("runWeeklyReports — Monday 08:30 Toronto", () => {
     expect(sendSms).not.toHaveBeenCalled();
   });
 
-  it("a house (non-CrankLeads) org that opts in gets email only, branded EmpireVu", async () => {
+  it("a house (non-CrankLeads) org that opts in gets email only, branded Everdoer", async () => {
     const db = seed();
     db.tables.companies[1].ai_settings = { weekly_report: { enabled: true, channels: ["sms", "email"] } };
     const outcomes = await runWeeklyReports(db.client, { nowMs: MON_0830, companyId: CO_HOUSE, respectSendWindow: true });
     expect(outcomes[0]).toMatchObject({ result: "sent", channels: ["email"] });
     expect(sendSms).not.toHaveBeenCalled();
-    expect((sendEmail.mock.calls[0][0] as { fromName: string }).fromName).toBe("EmpireVu");
+    expect((sendEmail.mock.calls[0][0] as { fromName: string }).fromName).toBe("Everdoer");
   });
 
   it("quiet week: skips a brand-new account with no activity in 30 days, but sends a short note after recent activity", async () => {

@@ -46,9 +46,9 @@ describe("greeting name in message templates", () => {
 describe("monthly scorecard platform name", () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it("defaults to EmpireVu", () => {
+  it("defaults to Everdoer", () => {
     vi.stubEnv("PLATFORM_BRAND_NAME", "");
-    expect(scorecardPlatformBrandName()).toBe("EmpireVu");
+    expect(scorecardPlatformBrandName()).toBe("Everdoer");
   });
 
   it("can be overridden with PLATFORM_BRAND_NAME", () => {

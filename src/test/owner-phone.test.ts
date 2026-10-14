@@ -74,7 +74,7 @@ describe("owner phone identity", () => {
     expect(start.ok).toBe(true);
     const sent = deliverMessage.mock.calls[0][0] as { to: string; smsFrom: string; body: string };
     expect(sent).toMatchObject({ to: NEW_CELL, smsFrom: "platform" });
-    expect(sent.body).toMatch(/^CrankLeads: Your code/);
+    expect(sent.body).toMatch(/^Everdoer: Your code/);
     expect(JSON.stringify(db.tables.owner_phone_verifications)).not.toContain(sentCode());
     expect((await getOwnerPhoneView(db.client, "org-1", "co-1")).pendingPhone).toBe(NEW_CELL);
 

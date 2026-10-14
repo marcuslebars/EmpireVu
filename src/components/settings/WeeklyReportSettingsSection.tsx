@@ -78,7 +78,7 @@ export function WeeklyReportSettingsSection({
         ? data.ownerPhoneOnFile
           ? "3 short lines to the owner's cell, with a link to the full report."
           : "No owner cell on file yet, so texts are skipped — email still goes out."
-        : "Texts are part of CrankLeads plans.",
+        : "Texts are part of Everdoer plans.",
       disabled: !data?.isCrankleads,
     },
     { value: "email", label: "Email", hint: "The full report, to the owner's email." },

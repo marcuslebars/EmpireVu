@@ -16,7 +16,7 @@ export interface SessionOrganizationSummary {
   membershipRole: Tables<"organization_memberships">["role"];
   name: string;
   slug: string;
-  /** Brand this org's people see (docs/crankleads-branding.md). */
+  /** Brand this org's people see (docs/everdoer-branding.md). */
   platformBrand: PlatformBrandKey;
 }
 

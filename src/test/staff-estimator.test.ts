@@ -465,7 +465,7 @@ describe("request_estimate (SMS agent tool)", () => {
     expect(est.approval_id).toBe(approval.id);
     const ownerSms = smsTo(OWNER);
     expect(ownerSms).toHaveLength(1);
-    expect(ownerSms[0].body).toMatch(/^CrankLeads: #1 AI estimate for Jamie Lee/);
+    expect(ownerSms[0].body).toMatch(/^Everdoer: #1 AI estimate for Jamie Lee/);
     expect(ownerSms[0].body).toContain("Reply Y 1 to send it, Y 1 $price (before HST) to change the total, N 1 to skip.");
     expect(smsTo(PHONE)).toHaveLength(0);
     expect(state.effects.approvals).toEqual([{ id: approval.id, shortCode: 1, kind: "ai_estimate" }]);

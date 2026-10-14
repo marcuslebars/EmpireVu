@@ -177,9 +177,22 @@ export const OWNER_ALERTS_SUMMARY =
 // Approval texts (≤440 + code + instruction + a business name) must never be cut.
 const MAX_OWNER_SMS = 700;
 
-/** "CrankLeads: " for CrankLeads orgs; nothing otherwise (never "EmpireVu"). */
+/** The platform signature on owner texts (REBRAND_PLAN.md §1.3). */
+export const OWNER_SMS_PREFIX = "Everdoer: ";
+
+/**
+ * EVERDOER_SMS_PREFIX_ALL_ORGS=1 [web, worker]: sign owner texts for EVERY org, not just
+ * done-for-you ones. Off by default, so house orgs' (A1's) owner texts stay unprefixed until the
+ * owner has updated the A2P campaign's sample messages to show the "Everdoer: " prefix.
+ */
+export function smsPrefixAllOrgs(env: Record<string, string | undefined> = process.env): boolean {
+  const v = env.EVERDOER_SMS_PREFIX_ALL_ORGS?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
+/** "Everdoer: " for done-for-you orgs always; for other orgs only with EVERDOER_SMS_PREFIX_ALL_ORGS on. */
 export function signaturePrefix(platformBrand: string | null | undefined): string {
-  return isDoneForYou(platformBrand) ? "CrankLeads: " : "";
+  return isDoneForYou(platformBrand) || smsPrefixAllOrgs() ? OWNER_SMS_PREFIX : "";
 }
 
 export interface OwnerSmsInput {

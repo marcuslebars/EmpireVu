@@ -16,7 +16,7 @@ export interface HelpAccountContext {
   plan: string | null;
   subscriptionStatus: string | null;
   crankleadsTier: string | null;
-  /** Product name the asker knows the app by (docs/crankleads-branding.md). Absent = EmpireVu. */
+  /** Product name the asker knows the app by (docs/everdoer-branding.md). Absent = EmpireVu. */
   platformBrand?: PlatformBrandKey;
   role: string | null;
   companyName: string | null;
@@ -31,9 +31,9 @@ export const PLAN_LABELS: Record<string, string> = {
 };
 
 export const TIER_LABELS: Record<string, string> = {
-  catch: "CrankLeads Catch",
-  close: "CrankLeads Close",
-  front_desk: "CrankLeads Front Desk",
+  catch: "Everdoer Catch",
+  close: "Everdoer Close",
+  front_desk: "Everdoer Front Desk",
 };
 
 export const STEP_LABELS: Record<string, string> = {

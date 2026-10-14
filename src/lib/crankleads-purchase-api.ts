@@ -7,9 +7,9 @@ import { ApiError, resolveApiUrl } from "@/lib/api-client";
  */
 
 /** The offer the buyer purchased (named on the welcome page only). */
-export const PURCHASED_OFFER_NAME = "CrankLeads";
-/** The app the buyer logs into — CrankLeads accounts see CrankLeads (docs/crankleads-branding.md). */
-export const APP_NAME = "CrankLeads";
+export const PURCHASED_OFFER_NAME = "Everdoer";
+/** The app the buyer logs into — every account sees Everdoer (docs/everdoer-branding.md). */
+export const APP_NAME = "Everdoer";
 
 export type PurchaseStatus = "pending" | "provisioning" | "ready" | "failed";
 

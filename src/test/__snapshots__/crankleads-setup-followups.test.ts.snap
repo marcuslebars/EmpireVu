@@ -12,7 +12,7 @@ Log in any time: https://app.crankleads.test
 
 Questions? Just reply to this email.
 
-— The CrankLeads team"
+— The Everdoer team"
 `;
 
 exports[`follow-up templates (done-for-you: one action, one no-login link) > reminder email (golden) — never asks for Stripe, prices or wizard steps 1`] = `
@@ -25,7 +25,7 @@ Turn on forwarding: https://app.crankleads.test/forward/AbCdEfGhIjKlMnOpQrStUvWx
 We've done the rest for you — your number and your automations are ready.
 Questions? Just reply to this email.
 
-— The CrankLeads team
+— The Everdoer team
 
 Don't want these setup reminders? Stop them: https://app.crankleads.test/api/public/crankleads/setup-reminders?token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 `;
@@ -35,7 +35,7 @@ exports[`follow-up templates (done-for-you: one action, one no-login link) > rem
 <p>Quick nudge: Jane's Roofing is one step from live: turn on call forwarding on your business phone so every call you miss gets a text back. It's one tap.</p>
 <p><a href="https://app.crankleads.test/forward/AbCdEfGhIjKlMnOpQrStUvWxYz012345" style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600">Turn on forwarding</a></p>
 <p>We've done the rest for you — your number and your automations are ready.</p>
-<p>Questions? Just reply to this email.</p><p>— The CrankLeads team</p>
+<p>Questions? Just reply to this email.</p><p>— The Everdoer team</p>
 <p style="font-size:12px;color:#6b7280">Don't want these setup reminders? <a href="https://app.crankleads.test/api/public/crankleads/setup-reminders?token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">Stop them</a>.</p>"
 `;
 
@@ -49,7 +49,7 @@ Finish the 60-second setup: https://app.crankleads.test/setup/intake-token-1
 We do the rest for you — your number, your automations and your page.
 Questions? Just reply to this email.
 
-— The CrankLeads team
+— The Everdoer team
 
 Don't want these setup reminders? Stop them: https://app.crankleads.test/api/public/crankleads/setup-reminders?token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 `;

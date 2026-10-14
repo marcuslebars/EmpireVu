@@ -361,7 +361,7 @@ function WebsiteStep({ orgId, companyId, onDone }: StepProps) {
   };
 
   const snippet = key
-    ? `POST https://api.empirevu.com/api/intake\nx-empirevu-key: ${key.key}\nx-empirevu-signature: sha256=<hmac-sha256(body, key)>`
+    ? `POST https://api.everdoer.com/api/intake\nx-everdoer-key: ${key.key}\nx-everdoer-signature: sha256=<hmac-sha256(body, key)>`
     : "";
 
   return (

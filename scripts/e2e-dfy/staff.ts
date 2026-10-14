@@ -706,7 +706,7 @@ async function main(): Promise<void> {
     const body = String(toBob[0]?.body ?? "");
     console.log(`   reminder: ${body}`);
     check(/INV-2026-0012/.test(body) && /\$1,240\.00/.test(body) && /\/i\/inv_/.test(body) && /Northshore Snow & Lawn/.test(body), "invoice number, amount, pay link, business name");
-    check(/Reply STOP/i.test(body) && !/empire\s*vu|crank\s*leads/i.test(body.replace(/https?:\/\/\S+/g, "")), "STOP footer, no platform name");
+    check(/Reply STOP/i.test(body) && !/empire\s*vu|crank\s*leads|ever\s*doer/i.test(body.replace(/https?:\/\/\S+/g, "")), "STOP footer, no platform name");
     const { data: rt } = await db.from("invoice_reminder_texts").select("reminder_key, status").eq("invoice_id", ids.bobInvoice);
     check((rt ?? []).length === 1 && rt![0].reminder_key === "step:1" && rt![0].status === "sent", `invoice_reminder_texts step:1 sent (${JSON.stringify(rt)})`);
     const { data: inv } = await db.from("invoices").select("last_reminder_at").eq("id", ids.bobInvoice).single();

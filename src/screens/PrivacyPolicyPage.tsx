@@ -9,8 +9,10 @@
  * DRAFT: written from the code, not reviewed by a lawyer.
  */
 
-const CONTACT_EMAIL = "hello@empirevu.com";
-const LAST_UPDATED = "9 October 2026";
+import { EVERDOER_ENTITY_LINE } from "@/lib/platform-brand";
+
+const CONTACT_EMAIL = "hello@everdoer.com";
+const LAST_UPDATED = "13 October 2026";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -32,13 +34,13 @@ export default function PrivacyPolicyPage() {
 
         <Section title="Who this covers">
           <p>
-            EmpireVu is business software for marine and field-service companies: a shared inbox,
-            calendar, CRM, quotes and job records, on the web and in the EmpireVu mobile app.
+            Everdoer is business software for marine and field-service companies: a shared inbox,
+            calendar, CRM, quotes and job records, on the web and in the Everdoer mobile app.
           </p>
           <p>
             We handle two different kinds of data, and they have different rules.{" "}
             <span className="text-foreground">Account data</span> is about the businesses and people
-            who use EmpireVu — we decide how that is handled, and this policy describes it.{" "}
+            who use Everdoer — we decide how that is handled, and this policy describes it.{" "}
             <span className="text-foreground">Business content</span> is what a business stores about
             its own customers — contacts, bookings, messages, quotes, job photos. That belongs to the
             business. We process it on their instructions and do not use it for our own purposes.
@@ -58,7 +60,7 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>
               <span className="text-foreground">Calls and messages:</span> SMS and email sent through
-              EmpireVu, and records of calls placed by the AI voice agent, including outcome and
+              Everdoer, and records of calls placed by the AI voice agent, including outcome and
               transcript where one is produced.
             </li>
             <li>
@@ -75,7 +77,7 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>
               <span className="text-foreground">Invoice opens:</span> when a business sends an invoice
-              through EmpireVu, we record when its customer opens the invoice page or the invoice and
+              through Everdoer, we record when its customer opens the invoice page or the invoice and
               reminder emails (the emails contain a small image that reports the open), with a general
               device type such as &ldquo;iPhone&rdquo;. No IP address or location is kept. The business
               sees this on the invoice.
@@ -109,7 +111,7 @@ export default function PrivacyPolicyPage() {
               To send notifications you have turned on, subject to your notification preferences and
               quiet hours.
             </li>
-            <li>To take payments and deposits, and to bill for EmpireVu itself.</li>
+            <li>To take payments and deposits, and to bill for Everdoer itself.</li>
             <li>To keep the service secure, diagnose faults, and meet legal obligations.</li>
           </ul>
           <p className="text-foreground">
@@ -177,13 +179,13 @@ export default function PrivacyPolicyPage() {
               {CONTACT_EMAIL}
             </a>{" "}
             and we will respond within the period the law allows. If your data was entered by a
-            business that uses EmpireVu, we will refer you to that business, which decides what
+            business that uses Everdoer, we will refer you to that business, which decides what
             happens to its records.
           </p>
         </Section>
 
         <Section title="Children">
-          <p>EmpireVu is a tool for businesses. It is not directed at anyone under 18.</p>
+          <p>Everdoer is a tool for businesses. It is not directed at anyone under 18.</p>
         </Section>
 
         <Section title="Changes">
@@ -195,11 +197,12 @@ export default function PrivacyPolicyPage() {
 
         <Section title="Contact">
           <p>
-            EmpireVu —{" "}
+            Everdoer —{" "}
             <a className="text-primary underline" href={`mailto:${CONTACT_EMAIL}`}>
               {CONTACT_EMAIL}
             </a>
           </p>
+          <p data-testid="entity-line">{EVERDOER_ENTITY_LINE}</p>
         </Section>
       </article>
     </main>

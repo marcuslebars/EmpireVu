@@ -72,6 +72,9 @@ export const EVERDOER_COLORS = {
   deepLime: "#4F8A00",
 } as const;
 
+/** D10: the legal-entity line (app Help panel, privacy and delete-account pages). */
+export const EVERDOER_ENTITY_LINE = "Everdoer is a product of Thinker Holdings Inc.";
+
 /** The one platform brand's display config (everything but key / productLine). */
 export const EVERDOER_BRAND: Omit<PlatformBrand, "key" | "productLine"> = {
   name: "Everdoer",

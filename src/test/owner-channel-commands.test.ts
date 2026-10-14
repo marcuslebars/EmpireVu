@@ -142,7 +142,7 @@ describe("owner commands", () => {
     expect(seen).not.toContain("Secret");
     expect(seen).not.toContain("Gutter job"); // Friday isn't tomorrow
     expect(seen).toMatch(/^<tool_data/); // fenced as data
-    expect(ownerReplies()).toEqual(["CrankLeads: Tomorrow: Thu 9am Dana Jones — Spring cleanup."]);
+    expect(ownerReplies()).toEqual(["Everdoer: Tomorrow: Thu 9am Dana Jones — Spring cleanup."]);
     const firstCall = anthropicCreate.mock.calls[0][0] as { model: string; system: Array<{ text: string }> };
     expect(firstCall.model).toBe("claude-sonnet-5-5");
     expect(firstCall.system[0].text).toContain("Northshore Lawn");
@@ -156,7 +156,7 @@ describe("owner commands", () => {
 
     expect(rescheduleBooking).not.toHaveBeenCalled();
     const ask = ownerReplies().at(-1) ?? "";
-    expect(ask).toMatch(/^CrankLeads: Move Dana Jones \(Thu.*Oct.*8.*9:00.*\) to Fri.*Oct.*9.*9:00.*\? Reply \d{4} to confirm/);
+    expect(ask).toMatch(/^Everdoer: Move Dana Jones \(Thu.*Oct.*8.*9:00.*\) to Fri.*Oct.*9.*9:00.*\? Reply \d{4} to confirm/);
     expect(db.tables.owner_approvals).toHaveLength(1);
     expect(db.tables.owner_approvals[0]).toMatchObject({ kind: "owner_command", status: "pending", requested_by: "owner_command", notified_to: OWNER });
     expect(db.tables.owner_approvals[0].notified_at).toBeTruthy();
@@ -236,7 +236,7 @@ describe("owner commands", () => {
     scriptModel([{ name: "text_customer", input: { contact_id: DANA, message: "We'll be there at 3." } }], "unused");
     await text("tell Dana we'll be there at 3");
     expect(deliverMessage.mock.calls.some((c) => (c[0] as Record<string, unknown>).contactId === DANA)).toBe(false);
-    expect(ownerReplies().at(-1)).toMatch(/^CrankLeads: Send to Dana Jones: "We'll be there at 3\."\? Reply \d{4} to confirm/);
+    expect(ownerReplies().at(-1)).toMatch(/^Everdoer: Send to Dana Jones: "We'll be there at 3\."\? Reply \d{4} to confirm/);
     await text(lastCode());
 
     const customer = deliverMessage.mock.calls.map((c) => c[0] as Record<string, unknown>).find((m) => m.contactId === DANA);
@@ -245,7 +245,7 @@ describe("owner commands", () => {
     expect(customer?.consentContact).toBeTruthy(); // consent still checked
     expect(db.tables.sms_conversations[0]).toMatchObject({ organization_id: "org-1", company_id: "co-1", contact_id: DANA, state: "owner" });
     expect(db.tables.sms_conversations[0].owner_takeover_at).toBeTruthy();
-    expect(ownerReplies().at(-1)).toBe("CrankLeads: Sent to Dana Jones. The assistant will stay out of that conversation for now.");
+    expect(ownerReplies().at(-1)).toBe("Everdoer: Sent to Dana Jones. The assistant will stay out of that conversation for now.");
   });
 
   it("another company's booking or customer is 'not found' — no change, no text, no leak", async () => {

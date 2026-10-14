@@ -154,7 +154,7 @@ export function cleanCopy(text: string, businessName: string): string {
     .replace(/[“”]/g, '"')
     .replace(/[–—]/g, "-")
     .replace(/…/g, "...")
-    .replace(/\b(crank\s?leads|empire\s?vu)\b/gi, businessName)
+    .replace(/\b(crank\s?leads|empire\s?vu|ever\s?doer)\b/gi, businessName)
     .replace(/^["'\s]+|["'\s]+$/g, "")
     .replace(/[ \t]+/g, " ")
     .trim();

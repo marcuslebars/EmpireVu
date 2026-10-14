@@ -484,7 +484,7 @@ describe("Google reviews", () => {
     await ingestReviewsForCompany(db.client, deps({ fetchReviews: async () => fetched([{ rating: 2, text: "They were late and left a mess" }]) }), await company());
     const owner = textsTo(OWNER);
     expect(owner).toHaveLength(1);
-    expect(owner[0].body).toBe("CrankLeads: Heads up: a new 2-star Google review for Northshore Roofing from Sam K. Read it: https://maps.google.com/review/r0 I've drafted a calm reply for you to OK (#1).");
+    expect(owner[0].body).toBe("Everdoer: Heads up: a new 2-star Google review for Northshore Roofing from Sam K. Read it: https://maps.google.com/review/r0 I've drafted a calm reply for you to OK (#1).");
     expect(owner[0].body).not.toContain("late and left a mess");
   });
 
@@ -495,7 +495,7 @@ describe("Google reviews", () => {
     expect(decided.message).toBe("Approved - I texted you the reply and the link to paste it on Google.");
     const paste = textsTo(OWNER);
     expect(paste).toHaveLength(1);
-    expect(paste[0].body).toBe(`CrankLeads: Your reply to Sam K.'s Google review - open https://maps.google.com/review/r0 , tap Reply and paste:\n\n${REVIEW_REPLY}`);
+    expect(paste[0].body).toBe(`Everdoer: Your reply to Sam K.'s Google review - open https://maps.google.com/review/r0 , tap Reply and paste:\n\n${REVIEW_REPLY}`);
     expect(tableRows("google_reviews")[0]).toMatchObject({ reply_status: "approved" });
     expect(tableRows("google_reviews")[0].owner_texted_at).toBeTruthy();
   });

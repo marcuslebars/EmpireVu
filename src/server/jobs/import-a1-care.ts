@@ -217,7 +217,7 @@ async function importQuote(
   const priced = await priceQuoteForCompany(company.id, { services: q.services, hullType: q.hullType });
   const matches = priced.subtotalCents === q.quotedCents;
   if (!matches) {
-    mismatches.push(`${q.person.name} (${q.lengthFt} ft ${q.hullType}): quoted $${(q.quotedCents / 100).toFixed(2)}, EmpireVu prices $${(priced.subtotalCents / 100).toFixed(2)} — keeping the quoted amount`);
+    mismatches.push(`${q.person.name} (${q.lengthFt} ft ${q.hullType}): quoted $${(q.quotedCents / 100).toFixed(2)}, Everdoer prices $${(priced.subtotalCents / 100).toFixed(2)} — keeping the quoted amount`);
   }
   if (!APPLY) {
     report.quotesCreated += 1;

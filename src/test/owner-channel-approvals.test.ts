@@ -166,7 +166,7 @@ describe("approvals by text", () => {
     expect(decision).toMatchObject({ approved: true, ownerNote: null, decidedVia: "sms", decidedBy: OWNER });
     expect(db.tables.owner_approvals[0]).toMatchObject({ status: "executed", decided_via: "sms" });
     expect(db.tables.owner_approvals[0].result).toMatchObject({ ok: true, message: "Sent the $650 quote to Dana." });
-    expect(lastReply()).toBe("CrankLeads: Sent the $650 quote to Dana.");
+    expect(lastReply()).toBe("Everdoer: Sent the $650 quote to Dana.");
     expect((deliverMessage.mock.calls[0][0] as { smsFrom: string; to: string }).smsFrom).toBe("platform");
     expect(db.tables.owner_command_log[0]).toMatchObject({ intent: "approval_done", company_id: "co-1", organization_id: "org-1" });
   });
@@ -326,7 +326,7 @@ describe("notifyOwnerOfApproval + sweep", () => {
     expect(deliverMessage).toHaveBeenCalledTimes(1);
     const sent = deliverMessage.mock.calls[0][0] as { body: string; smsFrom: string; to: string };
     expect(sent).toMatchObject({ smsFrom: "platform", to: OWNER });
-    expect(sent.body).toBe("CrankLeads: #1 Quote for Dana: $650 seasonal contract. Reply Y 1 $price (before HST) to send it, N 1 to skip.");
+    expect(sent.body).toBe("Everdoer: #1 Quote for Dana: $650 seasonal contract. Reply Y 1 $price (before HST) to send it, N 1 to skip.");
     expect(db.tables.owner_approvals[0].notified_at).toBeTruthy();
     expect(db.tables.owner_approvals[0].notified_to).toBe(OWNER);
   });
@@ -334,7 +334,7 @@ describe("notifyOwnerOfApproval + sweep", () => {
   it("the code is always shown, with the instruction for the kind", async () => {
     seed({ owner_approvals: [approval({ id: "a-0", short_code: 1 }), approval({ id: "a-1", notified_at: null, kind: "book_job", summary: "Sam - book them for Fri 9am?" })] });
     await notifyOwnerOfApproval(db.client, "a-1", { nowMs: NOW });
-    expect(lastReply()).toBe("CrankLeads: #2 Sam - book them for Fri 9am? Reply Y 2 to book it, N 2 to skip.");
+    expect(lastReply()).toBe("Everdoer: #2 Sam - book them for Fri 9am? Reply Y 2 to book it, N 2 to skip.");
   });
 
   it("a failed send releases the claim so the sweep retries", async () => {

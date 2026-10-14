@@ -5,7 +5,7 @@
  * CrankLeads-branded org (organizations.platform_brand = 'crankleads') on the CrankLeads app
  * host (appBaseUrlFor("crankleads"): CRANKLEADS_APP_BASE_URL once set, else APP_BASE_URL). Copy
  * names the host of the actual link (appHostOf), never a hard-coded one. These emails never say
- * "EmpireVu" (docs/crankleads-branding.md). No prices in here (Working Protocol #4).
+ * "EmpireVu" (docs/everdoer-branding.md). No prices in here (Working Protocol #4).
  */
 import { PLATFORM_BRANDS } from "@/lib/platform-brand";
 import { CRANKLEADS_OFFER_NAME, CRANKLEADS_TIER_LABELS, type CrankleadsTier } from "@/server/services/crankleads/config";
@@ -191,7 +191,7 @@ export interface OperatorFailureEmailInput {
 export function renderOperatorFailureEmail(input: OperatorFailureEmailInput): RenderedEmail {
   const subject = `ACTION NEEDED: ${CRANKLEADS_OFFER_NAME} provisioning failed — ${input.businessName} (${input.tier ? CRANKLEADS_TIER_LABELS[input.tier] : "unknown tier"})`;
   const body = [
-    "A paid CrankLeads purchase could not be set up automatically. The payment is safe and recorded",
+    "A paid Everdoer purchase could not be set up automatically. The payment is safe and recorded",
     "(crankleads_purchases.status = 'failed'); nothing is lost.",
     "",
     `Buyer: ${input.ownerEmail}`,

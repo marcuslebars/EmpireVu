@@ -768,7 +768,7 @@ async function main(): Promise<void> {
     const h = (sent[0]?.headers ?? {}) as Record<string, string>;
     check(sent.length === 1 && sent[0].to === ROBIN_EMAIL && sent[0].subject === "Re: Roof quote" && sent[0].replyTo === inbox && new RegExp(`^"?Northshore Snow & Lawn"? <${esc(OUTBOUND_FROM)}>$`).test(String(sent[0].from)), "one reply to Robin: from the business name, Reply-To = inbox, \"Re: Roof quote\"");
     check(h["In-Reply-To"] === "<CAJ-e2e-robin-1@mail.gmail.com>" && h.References === "<CAJ-e2e-robin-1@mail.gmail.com>", "In-Reply-To / References = the inbound Message-ID");
-    check(String(sent[0]?.body).startsWith("Hi Robin,") && !/crankleads|empirevu/i.test(String(sent[0]?.body)), "the body is the draft (no platform name)");
+    check(String(sent[0]?.body).startsWith("Hi Robin,") && !/crankleads|empirevu|everdoer/i.test(String(sent[0]?.body)), "the body is the draft (no platform name)");
     const own = ownerTexts(got);
     check(own.length === 1 && noPrefix(own[0].body) === `Sent your reply to Robin Lake (${ROBIN_EMAIL}).`, `owner: "${short(own[0]?.body, 120)}"`);
     const { data: after } = await db.from("inbound_emails").select("reply_status, replied_at").eq("id", ids.robinRow).single();

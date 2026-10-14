@@ -218,14 +218,14 @@ describe("text-back sends from the company's own Twilio number", () => {
       context,
       channel: "sms",
       to: "+17055550101",
-      body: "CrankLeads: 1 step left",
+      body: "Everdoer: 1 step left",
       companyId: "co-1",
       contactId: null,
       consentContact: null,
       smsFrom: "platform",
     });
     expect(result.status).toBe("sent");
-    expect(sendSms).toHaveBeenCalledWith({ to: "+17055550101", body: "CrankLeads: 1 step left" });
+    expect(sendSms).toHaveBeenCalledWith({ to: "+17055550101", body: "Everdoer: 1 step left" });
   });
 
   it("an opted-out caller is never texted back", async () => {

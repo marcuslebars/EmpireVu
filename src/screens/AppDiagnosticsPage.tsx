@@ -210,7 +210,7 @@ export function AppDiagnosticsPage() {
                   }
                 }
                 if (keys.length === 0) {
-                  return <span className="text-muted-foreground">No empirevu localStorage keys found</span>;
+                  return <span className="text-muted-foreground">No everdoer or legacy empirevu storage keys found</span>;
                 }
                 return keys.map(({ key, value }) => (
                   <div key={key} className="flex gap-2">

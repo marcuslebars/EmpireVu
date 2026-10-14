@@ -479,7 +479,7 @@ describe("the expiry chase", () => {
     doc({ id: "dcrew", kind: "certification", title: "Working at Heights", holder_type: "crew", profile_id: MIKE, expires_on: "2026-10-12" });
     await sweepExpiry(db.client, NOW);
     expect(ownerTexts()).toEqual([
-      "CrankLeads: Heads up: Mike's Working at Heights expires today; Vehicle insurance expires in 7 days; Liability insurance expires in 30 days. Text me a photo of the new one when you have it.",
+      "Everdoer: Heads up: Mike's Working at Heights expires today; Vehicle insurance expires in 7 days; Liability insurance expires in 30 days. Text me a photo of the new one when you have it.",
     ]);
     const byId = (id: string) => rows("compliance_documents").find((d) => d.id === id)!;
     expect(byId("d30")).toMatchObject({ status: "expiring", reminded_30_at: expect.any(String) });
@@ -571,7 +571,7 @@ describe("request_sub_docs through decideApproval", () => {
     const filed = rows("compliance_documents").find((d) => d.uploaded_via === "sub_link")!;
     expect(filed).toMatchObject({ holder_type: "subcontractor", subcontractor_id: SUB, kind: "wsib_clearance", upload_request_id: req.id, owner_notified_at: expect.any(String) });
     expect(rows("compliance_documents").find((d) => d.id === "dsub")).toMatchObject({ status: "replaced", replaced_by: filed.id });
-    expect(ownerTexts().at(-1)).toBe("CrankLeads: Mike's Electric sent a new WSIB clearance (expires Jan 9, 2027).");
+    expect(ownerTexts().at(-1)).toBe("Everdoer: Mike's Electric sent a new WSIB clearance (expires Jan 9, 2027).");
     expect(rows("compliance_events").some((e) => e.event === "sub_upload" && e.ip === "203.0.113.9")).toBe(true);
     expect(rows("compliance_upload_requests")[0].uploads).toBe(1);
   });
@@ -600,7 +600,7 @@ describe("request_sub_docs through decideApproval", () => {
     await submitSubUpload(db.client, String(req.token), { path: upload!.path, contentType: "application/pdf" }, { ip: null, userAgent: null }, night);
     expect(ownerTexts()).toHaveLength(before);
     await sweepOutbox(db.client, Date.parse("2026-10-13T12:30:00Z")); // 8:30am
-    expect(ownerTexts().at(-1)).toBe(`CrankLeads: Mike's Electric sent a new WSIB clearance (expires Jan 9, 2027). The name on it is "Somebody Else" - check it's theirs.`);
+    expect(ownerTexts().at(-1)).toBe(`Everdoer: Mike's Electric sent a new WSIB clearance (expires Jan 9, 2027). The name on it is "Somebody Else" - check it's theirs.`);
   });
 
   it("decided late: queued, then the outbox sends it at 9am", async () => {
@@ -896,7 +896,7 @@ describe("unreadable / non-certificate files never replace a live document", () 
     expect(copy).toMatchObject({ holder_type: "subcontractor", status: "replaced", replaced_by: "dsub" });
     expect(copy.reminded_7_at ?? null).toBeNull();
     expect(copy.reminded_0_at ?? null).toBeNull();
-    expect(ownerTexts().at(-1)).toBe("CrankLeads: Mike's Electric sent a new WSIB clearance (expires Oct 16). It isn't newer than the one on file (expires Oct 16), so that one stays current.");
+    expect(ownerTexts().at(-1)).toBe("Everdoer: Mike's Electric sent a new WSIB clearance (expires Oct 16). It isn't newer than the one on file (expires Oct 16), so that one stays current.");
   });
 
   it("the same upload sent twice uses one slot", async () => {

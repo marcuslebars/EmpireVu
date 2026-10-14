@@ -37,8 +37,8 @@ Rules — follow all of them:
 
 The response shape is fixed by a schema — fill in every field it asks for.`;
 
-/** The EmpireVu prompt (house accounts). */
-export const HELP_SYSTEM_PROMPT = helpSystemPrompt("EmpireVu");
+/** The default prompt (Everdoer, every org since PR 2). */
+export const HELP_SYSTEM_PROMPT = helpSystemPrompt("Everdoer");
 
 export const helpAnswerSchema = z.object({
   status: z.enum(["answered", "not_sure"]),
@@ -70,7 +70,7 @@ const HELP_ANSWER_JSON_SCHEMA: Record<string, unknown> = {
 /** One call to the model with an already-assembled user message (see services/help/assistant.ts). */
 export async function callHelpModel(
   userMessage: string,
-  productName = "EmpireVu",
+  productName = "Everdoer",
 ): Promise<{ answer: HelpModelAnswer; usage: AiUsageMeta }> {
   // The zero-arg client reads ANTHROPIC_API_KEY from the environment.
   const client = new Anthropic();

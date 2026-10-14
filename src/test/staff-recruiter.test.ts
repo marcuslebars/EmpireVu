@@ -547,7 +547,7 @@ describe("start_hiring → job_post", () => {
     expect(out.message).toContain("Posted the Roofing Labourer job: ");
     expect(out.message).toContain("Copy for Indeed/Facebook is in my other text.");
     const copy = textsTo(OWNER).at(-1)!.body;
-    expect(copy).toMatch(/^CrankLeads: Copy for Indeed\/Facebook:\nNorthshore Roofing is hiring: Roofing Labourer \(\$22\/hr, Full-time, start Monday, Midland\)\. You'll: Carry shingles/);
+    expect(copy).toMatch(/^Everdoer: Copy for Indeed\/Facebook:\nNorthshore Roofing is hiring: Roofing Labourer \(\$22\/hr, Full-time, start Monday, Midland\)\. You'll: Carry shingles/);
     expect(copy).toContain(`Apply here: ${url}`);
     // Second Y: already decided, no second paste text.
     await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER });

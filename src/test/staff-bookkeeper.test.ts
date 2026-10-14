@@ -459,7 +459,7 @@ describe("final notice (collections_final_notice)", () => {
     const ownerText = smsTo(OWNER);
     expect(ownerText).toHaveLength(1);
     expect(ownerText[0].from).toBe(PLATFORM);
-    expect(ownerText[0].body).toMatch(/^CrankLeads: #1 Final notice for Jamie Lee.*Reply Y 1 to approve, N 1 to skip\.$/s);
+    expect(ownerText[0].body).toMatch(/^Everdoer: #1 Final notice for Jamie Lee.*Reply Y 1 to approve, N 1 to skip\.$/s);
     expect(smsTo(JAMIE_PHONE)).toHaveLength(0);
     expect(rows("invoice_collections")[0]).toMatchObject({ final_notice_status: "proposed", final_notice_approval_id: approval.id });
 
@@ -701,7 +701,7 @@ describe("daily money alert", () => {
     expect(owner).toHaveLength(1);
     expect(owner[0].from).toBe(PLATFORM);
     expect(owner[0].body.split("\n")).toEqual([
-      "CrankLeads: Money check for Northshore Snow & Lawn:",
+      "Everdoer: Money check for Northshore Snow & Lawn:",
       "Payment failed: Jamie Lee $500 (INV-30).",
       "Missed promise to pay: Jamie Lee, $300 by Oct 9.",
       "Now 30+ days overdue: Jamie Lee $1,240 (INV-30).",

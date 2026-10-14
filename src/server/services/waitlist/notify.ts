@@ -32,10 +32,10 @@ async function notifyByEmail(signup: WaitlistSignup): Promise<void> {
   try {
     await sendEmail({
       to,
-      fromName: "EmpireVu",
-      subject: `New EmpireVu waitlist signup: ${signup.email}`,
+      fromName: "Everdoer",
+      subject: `New Everdoer waitlist signup: ${signup.email}`,
       body:
-        `${who} just joined the EmpireVu waitlist.\n\n` +
+        `${who} just joined the Everdoer waitlist.\n\n` +
         `Email:    ${signup.email}\n` +
         `Business: ${signup.business ?? "—"}\n` +
         `Source:   ${signup.source}\n`,
@@ -55,7 +55,7 @@ async function notifyBySlack(signup: WaitlistSignup): Promise<void> {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: `:tada: New EmpireVu waitlist signup: *${signup.email}*${suffix}` }),
+      body: JSON.stringify({ text: `:tada: New Everdoer waitlist signup: *${signup.email}*${suffix}` }),
     });
     if (!res.ok) {
       console.error(`[waitlist/notify] Slack webhook rejected (${res.status})`);

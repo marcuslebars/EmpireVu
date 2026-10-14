@@ -18,6 +18,7 @@ import {
   type SiteFactsInput,
 } from "@/server/services/dfy/site-content";
 import { pagesRewritePath, requestHost } from "@/server/services/dfy/site-host";
+import { CRANKLEADS_SITE_CREDIT_URL } from "@/server/services/dfy/site-public";
 import { buildJsonLd, renderSitePage } from "@/server/services/dfy/site-render";
 import { siteUrl } from "@/server/services/dfy/site-url";
 
@@ -120,6 +121,16 @@ describe("page content", () => {
     expect(html).not.toContain("quote-form");
     expect(html).toContain('href="tel:+17055550142"');
     expect(html.toLowerCase()).not.toContain("empirevu");
+  });
+
+  it("the platform credit is 'Powered by Everdoer' (only when a credit URL is given); never CrankLeads", () => {
+    const html = renderSitePage(contentFor(snowCompany), { ...opts, url: "https://pages.everdoer.com/northshore", creditUrl: CRANKLEADS_SITE_CREDIT_URL });
+    expect(CRANKLEADS_SITE_CREDIT_URL).toBe("https://everdoer.com");
+    expect(html).toMatch(/<a href="https:\/\/everdoer\.com\/?" rel="noopener">Powered by Everdoer<\/a>/);
+    expect(html).not.toMatch(/crank\s*leads/i);
+    const house = renderSitePage(contentFor(snowCompany), { ...opts, creditUrl: null });
+    expect(house).not.toContain("Powered by");
+    expect(house).not.toMatch(/>[^<]*everdoer/i);
   });
 });
 

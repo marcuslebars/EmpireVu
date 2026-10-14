@@ -1,5 +1,5 @@
 /**
- * Per-account platform brand (docs/crankleads-branding.md): the shared configs, host and org
+ * Per-account platform brand (docs/everdoer-branding.md): the shared configs, host and org
  * resolution, the server's per-brand app origin, and the owner-facing copy that now follows
  * the org's brand.
  */
@@ -188,7 +188,8 @@ describe("owner-facing copy follows the org's brand", () => {
   it("help assistant: system prompt, canned reply, articles and support email", () => {
     expect(helpSystemPrompt("CrankLeads")).toContain("Help assistant inside CrankLeads");
     expect(helpSystemPrompt("CrankLeads")).not.toMatch(EMPIRE);
-    expect(HELP_SYSTEM_PROMPT).toContain("inside EmpireVu");
+    expect(HELP_SYSTEM_PROMPT).toContain("inside Everdoer");
+    expect(HELP_SYSTEM_PROMPT).not.toMatch(EMPIRE);
     expect(handoffAnswer(cl)).toBe("Sure — click Contact support below and the Everdoer team will reply by email.");
     expect(HANDOFF_ANSWER).toContain("Everdoer team");
     for (const article of HELP_ARTICLES) {

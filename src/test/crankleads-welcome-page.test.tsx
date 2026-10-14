@@ -43,14 +43,14 @@ afterEach(() => {
 });
 
 describe("CrankLeads welcome page", () => {
-  it("shows setting-up, then done with the masked email, resend and Open CrankLeads", async () => {
+  it("shows setting-up, then done with the masked email, resend and Open Everdoer", async () => {
     renderPage();
     await screen.findByText(/setting up your system/i);
     await vi.advanceTimersByTimeAsync(3100);
     await screen.findByTestId("welcome-ready");
     expect(screen.getByText("j***@roofco.example")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open CrankLeads" })).toHaveAttribute("href", "/signin");
-    expect(screen.getByTestId("welcome-ready").textContent).not.toMatch(/EmpireVu/);
+    expect(screen.getByRole("link", { name: "Open Everdoer" })).toHaveAttribute("href", "/signin");
+    expect(screen.getByTestId("welcome-ready").textContent).not.toMatch(/EmpireVu|CrankLeads/);
     // Done-for-you: we finish it for them — the steps that actually happen, no DIY time estimate.
     expect(screen.getByText(/Check your texts — we'll finish setting things up for you/)).toBeInTheDocument();
     expect(screen.getByTestId("welcome-steps").textContent).toMatch(/quick setup.*call forwarding.*You're live/s);
@@ -64,7 +64,7 @@ describe("CrankLeads welcome page", () => {
     );
   });
 
-  it("wears CrankLeads branding (logo, tab title, tab icon) and restores the app's on leave", async () => {
+  it("wears Everdoer branding (logo, tab title, tab icon) and restores the app's on leave", async () => {
     document.title = "EmpireVu";
     const icon = document.createElement("link");
     icon.rel = "icon";
@@ -74,10 +74,10 @@ describe("CrankLeads welcome page", () => {
 
     const { unmount } = renderPage();
     const logo = await screen.findByTestId("crankleads-logo");
-    expect(logo).toHaveAttribute("src", "/brand/crankleads-logo.svg");
-    expect(logo).toHaveAttribute("alt", "CrankLeads");
-    expect(document.title).toBe("Welcome — CrankLeads");
-    expect(icon.getAttribute("href")).toBe("/brand/crankleads-favicon.svg");
+    expect(logo).toHaveAttribute("src", "/brand/everdoer/everdoer-logo-on-dark.svg");
+    expect(logo).toHaveAttribute("alt", "Everdoer");
+    expect(document.title).toBe("Welcome — Everdoer");
+    expect(icon.getAttribute("href")).toBe("/favicon.svg");
 
     unmount();
     expect(document.title).toBe("EmpireVu");

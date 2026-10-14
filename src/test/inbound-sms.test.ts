@@ -357,7 +357,7 @@ describe("handleInboundSms — the platform number", () => {
     await handleInboundSms(payload({ From: OWNER, To: PLATFORM, Body: "HELP", MessageSid: "SM2" }));
     expect(deliverMessage).not.toHaveBeenCalled();
     expect(sendSms).toHaveBeenCalledTimes(1);
-    expect(sendSms.mock.calls[0][0]).toMatchObject({ to: OWNER, body: expect.stringMatching(/^CrankLeads: This is your front desk line/) });
+    expect(sendSms.mock.calls[0][0]).toMatchObject({ to: OWNER, body: expect.stringMatching(/^Everdoer: This is your front desk line/) });
 
     // "Yes" while opted out = opt back in.
     await handleInboundSms(payload({ From: OWNER, To: PLATFORM, Body: "yes", MessageSid: "SM3" }));
@@ -371,7 +371,7 @@ describe("handleInboundSms — the platform number", () => {
     const sent = deliverMessage.mock.calls[0][0] as { body: string; smsFrom: string; to: string };
     expect(sent.smsFrom).toBe("platform");
     expect(sent.to).toBe(OWNER);
-    expect(sent.body).toMatch(/^CrankLeads: /);
+    expect(sent.body).toMatch(/^Everdoer: /);
     expect(sent.body).toMatch(/STOP/);
     expect(sent.body).not.toMatch(/EmpireVu/);
   });

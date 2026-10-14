@@ -391,7 +391,7 @@ describe("record_job_feedback", () => {
       ["care_followup", "call", 2, OWNER],
     ]);
     expect(ownerTexts()).toEqual([
-      'CrankLeads: Dana Jones rated the roof replacement job 2/5: "still leaking by the chimney". Y 1 books a callback visit (I\'ll text them times). Y 2 texts them "Mike will call you today." N 1 to leave it.',
+      'Everdoer: Dana Jones rated the roof replacement job 2/5: "still leaking by the chimney". Y 1 books a callback visit (I\'ll text them times). Y 2 texts them "Mike will call you today." N 1 to leave it.',
     ]);
     expect(state.effects.approvals.map((a) => a.kind)).toEqual(["care_followup", "care_followup"]);
     await runTool(turn("and the gutter is loose"), "record_job_feedback", { comment: "the gutter is loose", unhappy: true });
@@ -433,7 +433,7 @@ describe("care_followup through the owner channel", () => {
     await unhappy();
     await ownerSays("Y 1");
     expect(ownerTexts()).toEqual([
-      "CrankLeads: Texted Dana Jones times for a callback visit: Wed Oct 14 in the morning; Wed Oct 14 in the afternoon; Thu Oct 15 in the morning. I'll book the one they pick.",
+      "Everdoer: Texted Dana Jones times for a callback visit: Wed Oct 14 in the morning; Wed Oct 14 in the afternoon; Thu Oct 15 in the morning. I'll book the one they pick.",
     ]);
     const offer = smsTo(DANA_PHONE);
     expect(offer).toHaveLength(1);
@@ -460,7 +460,7 @@ describe("care_followup through the owner channel", () => {
     expect(visitBooking).toMatchObject({ title: "Callback: Roof replacement (Dana Jones)", status: "pending", contact_id: DANA, scheduled_for: "2026-10-15T13:00:00.000Z", window_key: "morning", duration_minutes: 180 });
     expect(rows("care_case_bookings")).toEqual([expect.objectContaining({ booking_id: visitBooking.id, kind: "callback", case_id: rows("care_cases")[0].id })]);
     expect(rows("care_cases")[0]).toMatchObject({ status: "scheduled", visit_stage: "booked" });
-    expect(ownerTexts()).toEqual(["CrankLeads: Booked Dana Jones's callback visit for Thu Oct 15 in the morning (no charge - it won't be invoiced). It's pending on your calendar."]);
+    expect(ownerTexts()).toEqual(["Everdoer: Booked Dana Jones's callback visit for Thu Oct 15 in the morning (no charge - it won't be invoiced). It's pending on your calendar."]);
     // A repeat of the same tool call doesn't book twice.
     const { result: repeat } = await runTool(turn(), "book_care_visit", { date: "2026-10-15", window: "morning" });
     expect(repeat).toMatchObject({ ok: true, already_booked: true });
@@ -481,7 +481,7 @@ describe("care_followup through the owner channel", () => {
     await unhappy();
     await ownerSays("Y 2");
     expect(smsTo(DANA_PHONE).map((m) => m.body)).toEqual([expect.stringContaining("Hi Dana, it's Northshore Roofing. Mike will call you today about the roof replacement.")]);
-    expect(ownerTexts()).toEqual(["CrankLeads: Texted Dana Jones that you'll call today. Their number: 705-555-0123."]);
+    expect(ownerTexts()).toEqual(["Everdoer: Texted Dana Jones that you'll call today. Their number: 705-555-0123."]);
     expect(rows("owner_approvals").map((a) => a.status)).toEqual(["superseded", "executed"]);
     expect(rows("sms_conversations")[0]).toMatchObject({ state: "owner" });
     expect(rows("care_cases")[0]).toMatchObject({ followup: "call", visit_stage: "owner_calls", status: "open" });
@@ -546,7 +546,7 @@ describe("check_warranty and warranty_claim", () => {
     expect(String(result.tell_customer)).toContain("Don't say it's covered");
     expect((result.past_jobs as unknown[])[0]).toMatchObject({ job: "roof replacement", still_under_warranty: true });
     expect(ownerTexts()).toEqual([
-      'CrankLeads: #1 Dana Jones says "the roof leaks" (job May 4, 2026; 12-month workmanship warranty to May 4, 2027). Y books a no-charge warranty visit (I\'ll text them times), N and I\'ll tell them you\'ll call. Reply Y 1 or N 1.',
+      'Everdoer: #1 Dana Jones says "the roof leaks" (job May 4, 2026; 12-month workmanship warranty to May 4, 2027). Y books a no-charge warranty visit (I\'ll text them times), N and I\'ll tell them you\'ll call. Reply Y 1 or N 1.',
     ]);
     expect(rows("care_cases")[0]).toMatchObject({ kind: "warranty", opened_via: "sms_agent", warranty_id: "jw1" });
     // One open claim per customer.
@@ -569,7 +569,7 @@ describe("check_warranty and warranty_claim", () => {
     sendSms.mockClear();
     await ownerSays("N 1");
     expect(smsTo(DANA_PHONE)[0].body).toContain("Hi Dana, it's Northshore Roofing. Mike will give you a call about the roof replacement.");
-    expect(ownerTexts()[0]).toBe("CrankLeads: OK - I told Dana Jones you'll give them a call. Their number: 705-555-0123.");
+    expect(ownerTexts()[0]).toBe("Everdoer: OK - I told Dana Jones you'll give them a call. Their number: 705-555-0123.");
     expect(rows("sms_conversations")[0]).toMatchObject({ state: "owner" });
 
     db = seed();
@@ -827,6 +827,6 @@ describe("review fixes", () => {
     rows("companies")[1].owner_phone_e164 = OWNER;
     sentCheckin();
     await runTool(turn(), "record_job_feedback", { rating: 2, comment: "leaking" });
-    expect(ownerTexts()[0]).toMatch(/^CrankLeads: Northshore Roofing: Dana Jones rated/);
+    expect(ownerTexts()[0]).toMatch(/^Everdoer: Northshore Roofing: Dana Jones rated/);
   });
 });

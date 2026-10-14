@@ -19,7 +19,7 @@ export function buildTestLeadEnvelope(now: Date = new Date()): LeadEnvelope {
     receivedAt: now.toISOString(),
     contact: {
       name: "Test Lead",
-      email: "test.lead+onboarding@empirevu.com",
+      email: "test.lead+onboarding@everdoer.com",
       phone: "+15555550123",
     },
     message: "This is a test lead from the onboarding wizard — it confirms your website form is wired up.",

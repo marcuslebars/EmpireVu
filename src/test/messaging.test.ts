@@ -223,7 +223,7 @@ describe("deliverMessage: platform-number opt-out", () => {
   it("a platform text (setup reminder / weekly report / forwarding) to a phone that texted STOP to the platform number is blocked and logged", async () => {
     const db = createFakeDb({ platform_sms_opt_outs: [optedOut("+17055550142", daysAgo(1))] });
     const result = await deliverMessage({
-      context: ctxFor(db), channel: "sms", to: "(705) 555-0142", body: "CrankLeads: your week", companyId: "co-1", contactId: null, consentContact: null, smsFrom: "platform",
+      context: ctxFor(db), channel: "sms", to: "(705) 555-0142", body: "Everdoer: your week", companyId: "co-1", contactId: null, consentContact: null, smsFrom: "platform",
     });
     expect(result).toMatchObject({ status: "blocked", reason: "platform_opted_out" });
     expect(sendSms).not.toHaveBeenCalled();

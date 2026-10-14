@@ -100,7 +100,7 @@ interface RawLine {
 }
 
 /** Memo platform name when the caller doesn't pass the org's brand. */
-export const DEFAULT_PRODUCT_NAME = "EmpireVu";
+export const DEFAULT_PRODUCT_NAME = "Everdoer";
 
 export function invoiceDoc(
   inv: InvoiceRowLike,

@@ -203,7 +203,7 @@ async function findOrCreateContact(
 const PLATFORM_HELP_OWNER =
   "This is your front desk line. Reply Y/N to approvals, or text things like \"what's on tomorrow\" or \"who's waiting on me\". Reply STOP to opt out.";
 const PLATFORM_UNKNOWN_SENDER =
-  "CrankLeads: this number is for CrankLeads account owners. To reach a business, please text or call them directly. Reply STOP to opt out.";
+  "Everdoer: this number is for Everdoer account owners. To reach a business, please text or call them directly. Reply STOP to opt out.";
 const UNKNOWN_REPLY_WINDOW_S = 30 * 86_400;
 
 type CommandLogIntent = "stop" | "start" | "help" | "unknown_sender" | "owner_company_keyword";

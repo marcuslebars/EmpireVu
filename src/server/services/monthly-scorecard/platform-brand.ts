@@ -2,14 +2,14 @@
  * The platform name on the monthly scorecard (sender display name + footer). The CLIENT's
  * company name comes from `companies.name` and is shown in the email body.
  *
- * Per org (docs/crankleads-branding.md): a CrankLeads org's scorecard says "CrankLeads" and
- * links to the CrankLeads app. Everyone else gets PLATFORM_BRAND_NAME, else "EmpireVu".
+ * Per org (docs/everdoer-branding.md): every org's scorecard says "Everdoer". A done-for-you
+ * org always gets the brand name; standard orgs get PLATFORM_BRAND_NAME, else "Everdoer".
  *
- * Env: PLATFORM_BRAND_NAME [monthly-scorecard] — optional override for EmpireVu orgs, defaults to "EmpireVu".
+ * Env: PLATFORM_BRAND_NAME [monthly-scorecard] — optional override for standard orgs, defaults to "Everdoer".
  */
 import { platformBrand, type PlatformBrand } from "@/lib/platform-brand";
 
-export const DEFAULT_PLATFORM_BRAND_NAME = "EmpireVu";
+export const DEFAULT_PLATFORM_BRAND_NAME = "Everdoer";
 
 export function scorecardPlatformBrandName(brand: PlatformBrand = platformBrand(null)): string {
   // Product line, not brand: the env override has only ever applied to standard orgs.

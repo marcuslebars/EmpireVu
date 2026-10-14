@@ -18,7 +18,7 @@ import { isValidSlug, parseSiteContent, type SiteContent } from "./site-content"
 import { renderSitePage, type SiteRenderOptions } from "./site-render";
 import { siteUrl } from "./site-url";
 
-export const CRANKLEADS_SITE_CREDIT_URL = "https://crankleads.com";
+export const CRANKLEADS_SITE_CREDIT_URL = "https://everdoer.com";
 
 export interface RenderedSite {
   html: string;

@@ -186,7 +186,7 @@ describe("mapping", () => {
 
   it("dates payments in the company's time zone and turns a quote deposit into a payment", () => {
     const p = mapping.paymentDoc({ id: "p1", invoice_id: INV.id, amount_cents: 2500, method: "etransfer", reference: "CA123", received_at: "2026-10-06T02:30:00Z" }, "America/Toronto");
-    expect(p).toMatchObject({ date: "2026-10-05", memo: "e-Transfer via EmpireVu (CA123)", reference: "CA123" });
+    expect(p).toMatchObject({ date: "2026-10-05", memo: "e-Transfer via Everdoer (CA123)", reference: "CA123" });
     expect(mapping.depositPaymentDoc({ ...INV, credit_cents: 5000 }, "2026-09-30T15:00:00Z", "America/Toronto")).toMatchObject({ localKey: `deposit:${INV.id}`, amountCents: 5000, date: "2026-09-30" });
   });
 

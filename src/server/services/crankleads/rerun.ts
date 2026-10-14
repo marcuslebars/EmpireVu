@@ -85,7 +85,7 @@ export async function runCrankleadsProvisionJob(
     const stripe = options.stripe ?? getStripeClient();
     const session = await stripe.checkout.sessions.retrieve(args.sessionId);
     if (!isDoneForYouStripeSource(session.metadata?.source)) {
-      return { outcome: "not_found", organizationId: null, detail: "not a CrankLeads Checkout Session" };
+      return { outcome: "not_found", organizationId: null, detail: "not an Everdoer Checkout Session" };
     }
     if (!isProvisionablePaymentStatus(session.payment_status)) {
       return { outcome: "not_paid", organizationId: null, detail: `Stripe says payment_status=${session.payment_status}` };

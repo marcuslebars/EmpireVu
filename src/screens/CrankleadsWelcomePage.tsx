@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { AlertCircle, CheckCircle2, Loader2, Mail } from "lucide-react";
 
 import { useBrandOverride } from "@/lib/brand-context";
+import { EVERDOER_BRAND } from "@/lib/platform-brand";
 import { useDocumentFavicon } from "@/lib/use-document-favicon";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import {
@@ -26,9 +27,9 @@ const POLL_MS = 3000;
 /** Stop polling after ~6 minutes and show the "taking longer" message. */
 const MAX_POLLS = 120;
 const RESEND_COOLDOWN_MS = 30_000;
-/** Self-hosted copies of the crankleads.com artwork (public/brand/). */
-const CRANKLEADS_LOGO_URL = "/brand/crankleads-logo.svg";
-const CRANKLEADS_FAVICON_URL = "/brand/crankleads-favicon.svg";
+/** The Everdoer brand kit (public/brand/everdoer/). */
+const CRANKLEADS_LOGO_URL = EVERDOER_BRAND.logoSrc;
+const CRANKLEADS_FAVICON_URL = EVERDOER_BRAND.faviconHref;
 
 const openAppClass =
   "flex-1 flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90";
@@ -125,8 +126,8 @@ export default function CrankleadsWelcomePage() {
           <img
             src={CRANKLEADS_LOGO_URL}
             alt={PURCHASED_OFFER_NAME}
-            width={673}
-            height={128}
+            width={EVERDOER_BRAND.logoWidth}
+            height={EVERDOER_BRAND.logoHeight}
             className="h-9 w-auto"
             data-testid="crankleads-logo"
           />

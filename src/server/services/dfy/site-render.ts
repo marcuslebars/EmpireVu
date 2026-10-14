@@ -36,7 +36,7 @@ export interface SiteRenderOptions {
   turnstileSiteKey: string | null;
   /** Owner preview from Settings: a banner + noindex. */
   preview?: boolean;
-  /** Link for the small "Site by CrankLeads" credit (CrankLeads orgs only); null hides it. */
+  /** Link for the small "Powered by Everdoer" credit (done-for-you orgs only); null hides it. */
   creditUrl?: string | null;
 }
 
@@ -580,7 +580,7 @@ export function renderSitePage(content: SiteContent, opts: SiteRenderOptions): s
       ${f.serviceArea ? `<p>${esc(f.serviceArea)}</p>` : ""}
       ${website ? `<p><a href="${website}" rel="noopener">${isPricePage ? "Visit our main site" : "Our website"}</a></p>` : ""}
     </div>
-    ${credit ? `<p class="credit"><a href="${credit}" rel="noopener">Site by CrankLeads</a></p>` : ""}
+    ${credit ? `<p class="credit"><a href="${credit}" rel="noopener">Powered by Everdoer</a></p>` : ""}
   </div>
 </footer>`;
 

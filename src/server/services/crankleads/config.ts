@@ -22,8 +22,8 @@ export function isCrankleadsTier(value: unknown): value is CrankleadsTier {
   return typeof value === "string" && (CRANKLEADS_TIERS as readonly string[]).includes(value);
 }
 
-/** Display name of the purchased offer (emails only — the app itself stays EmpireVu). */
-export const CRANKLEADS_OFFER_NAME = "CrankLeads";
+/** Display name of the purchased offer (emails, SMS, operator mail). Everdoer since PR 2; the identifier is renamed in PR 5. */
+export const CRANKLEADS_OFFER_NAME = "Everdoer";
 
 export const CRANKLEADS_TIER_LABELS: Record<CrankleadsTier, string> = {
   catch: "Catch",
