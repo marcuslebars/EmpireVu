@@ -35,7 +35,7 @@ export default function PrivacyPolicyPage() {
         <Section title="Who this covers">
           <p>
             Everdoer is business software for marine and field-service companies: a shared inbox,
-            calendar, CRM, quotes and job records, on the web and in the Everdoer mobile app.
+            calendar, CRM, quotes and job records, on the web and in the Everdoer mobile app (formerly EmpireVu).
           </p>
           <p>
             We handle two different kinds of data, and they have different rules.{" "}

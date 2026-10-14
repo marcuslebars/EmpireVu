@@ -401,7 +401,7 @@ describe("fleet:reminders", () => {
     seedFleet();
     await sweepFleetReminders(db.client, NOW);
     expect(ownerTexts()).toEqual([
-      'Everdoer: Fleet heads-up: Rental: Sunbelt mini-ex due back today 5pm - $380/day after; Truck 1 plate sticker expires in 7 days; Truck 2 oil change due (about 8,100 km since last). Text me "mini-ex returned" when it\'s back.',
+      'CrankLeads: Fleet heads-up: Rental: Sunbelt mini-ex due back today 5pm - $380/day after; Truck 1 plate sticker expires in 7 days; Truck 2 oil change due (about 8,100 km since last). Text me "mini-ex returned" when it\'s back.',
     ]);
     expect(smsTo(OWNER)[0].from).toBe(PLATFORM);
     expect(smsTo(HOUSE_OWNER)).toHaveLength(0);
@@ -412,14 +412,14 @@ describe("fleet:reminders", () => {
 
     // 15:30: the compactor due back tomorrow 8am gets the afternoon text.
     await sweepFleetReminders(db.client, NOW + 5.5 * HOUR);
-    expect(ownerTexts().at(-1)).toBe("Everdoer: Fleet heads-up: Rental: Wacker plate compactor due back tomorrow 8am.");
+    expect(ownerTexts().at(-1)).toBe("CrankLeads: Fleet heads-up: Rental: Wacker plate compactor due back tomorrow 8am.");
     await sweepFleetReminders(db.client, NOW + 6 * HOUR);
     expect(ownerTexts()).toHaveLength(2);
 
     // Next morning: both rentals overdue (the mini-ex by a day); nothing already said is repeated.
     await sweepFleetReminders(db.client, NOW + DAY);
     expect(ownerTexts().at(-1)).toBe(
-      'Everdoer: Fleet heads-up: Rental: Sunbelt mini-ex was due back Oct 12 (1 day late, about $380 extra); Rental: Wacker plate compactor was due back today 8am. Text me "mini-ex returned" when it\'s back.',
+      'CrankLeads: Fleet heads-up: Rental: Sunbelt mini-ex was due back Oct 12 (1 day late, about $380 extra); Rental: Wacker plate compactor was due back today 8am. Text me "mini-ex returned" when it\'s back.',
     );
     // Returned → no more.
     db.tables.rentals.forEach((r) => (r.returned_at = new Date(NOW + DAY).toISOString()));
@@ -462,7 +462,7 @@ describe("fleet:reminders", () => {
     db.tables.vehicles.push(vehicle({ odometer_km: 60_000, odometer_at: "2026-08-20T12:00:00Z", avg_km_per_day: 0 }));
     db.tables.vehicle_service_items.push({ id: OIL, organization_id: ORG, company_id: CO, vehicle_id: TRUCK1, label: "Oil change", every_km: 8_000, every_months: null, last_done_km: 58_000, last_done_on: null, active: true });
     await sweepFleetReminders(db.client, NOW);
-    expect(ownerTexts()).toEqual(['Everdoer: Fleet heads-up: Truck 1: what\'s the odometer at? Text me "truck 1 at 60,000".']);
+    expect(ownerTexts()).toEqual(['CrankLeads: Fleet heads-up: Truck 1: what\'s the odometer at? Text me "truck 1 at 60,000".']);
     await sweepFleetReminders(db.client, NOW + DAY);
     expect(ownerTexts()).toHaveLength(1);
   });
@@ -509,7 +509,7 @@ describe("odometer photos", () => {
 
   it("'truck 2 km' + photo → read off the photo and logged; the agent never runs", async () => {
     await text(OWNER, "truck 2 km");
-    expect(ownerTexts().at(-1)).toBe("Everdoer: Truck 2: 84,200 km logged (read off the photo - tell me if it's wrong).");
+    expect(ownerTexts().at(-1)).toBe("CrankLeads: Truck 2: 84,200 km logged (read off the photo - tell me if it's wrong).");
     expect(smsTo(OWNER).at(-1)?.from).toBe(PLATFORM);
     expect(rows("owner_command_log").at(-1)).toMatchObject({ intent: "fleet_odometer" });
     expect(rows("fleet_log")).toEqual([expect.objectContaining({ vehicle_id: TRUCK2, kind: "odometer", reading: 84_200, source: "owner_photo", source_key: `sms:${rows("owner_command_log").at(-1)?.id}` })]);
@@ -519,14 +519,14 @@ describe("odometer photos", () => {
 
   it("a number in the words wins and the photo isn't read", async () => {
     await text(OWNER, "truck 2 odometer 84,350");
-    expect(ownerTexts().at(-1)).toBe("Everdoer: Truck 2: 84,350 km logged.");
+    expect(ownerTexts().at(-1)).toBe("CrankLeads: Truck 2: 84,350 km logged.");
     expect(readOdometer).not.toHaveBeenCalled();
   });
 
   it("unreadable photo: claimed (the words were clear) but nothing logged", async () => {
     reading = { isOdometer: true, km: null, miles: false };
     await text(OWNER, "truck 2 km");
-    expect(ownerTexts().at(-1)).toBe('Everdoer: Got the photo for Truck 2, but I couldn\'t read the odometer - text me the km like "truck 2 at 84,200".');
+    expect(ownerTexts().at(-1)).toBe('CrankLeads: Got the photo for Truck 2, but I couldn\'t read the odometer - text me the km like "truck 2 at 84,200".');
     expect(rows("fleet_log")).toHaveLength(0);
   });
 
@@ -720,7 +720,7 @@ describe("review: readings, schedules, retired vehicles, Settings", () => {
     );
     db.tables.rentals.push({ id: COMPACTOR, organization_id: ORG, company_id: CO, item: "plate compactor", vendor: "Wacker", due_back_at: "2026-10-13T11:30:00Z", rate_cents_per_day: null, returned_at: null, out_at: "2026-10-11T12:00:00Z" });
     await sweepFleetReminders(db.client, NOW + 6 * HOUR); // 4pm
-    expect(ownerTexts()).toEqual(["Everdoer: Fleet heads-up: Rental: Wacker plate compactor due back tomorrow 7:30am."]);
+    expect(ownerTexts()).toEqual(["CrankLeads: Fleet heads-up: Rental: Wacker plate compactor due back tomorrow 7:30am."]);
   });
 
   it("re-adding a retired vehicle offers to bring it back (history kept); Settings shows it", async () => {

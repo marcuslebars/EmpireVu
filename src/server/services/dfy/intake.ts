@@ -25,6 +25,7 @@ import { inLiveWindow } from "@/server/services/crankleads/followup-schedule";
 import { loadOwnerTextBlock } from "@/server/services/dfy/eligibility";
 import { isPlaceId, isPlacesConfigured } from "@/server/services/dfy/places";
 import { appBaseUrlFor, loadOrganizationBrand, type PlatformBrand, type PlatformBrandKey } from "@/server/services/platform-brand";
+import { smsPlatformName } from "@/server/services/rebrand/sms-branding";
 import { toE164 } from "@/server/services/retell/payload";
 import type { TenantServiceContext } from "@/server/services/shared";
 import {
@@ -234,7 +235,7 @@ async function deliverClaimed(
           ...base,
           channel: "sms",
           to: company.owner_phone_e164,
-          body: renderSetupSms({ brandName: brand.name, url }),
+          body: renderSetupSms({ brandName: smsPlatformName(brand.productLine), url }),
           smsFrom: "platform",
         });
         if (result.status === "sent") smsSent = true;

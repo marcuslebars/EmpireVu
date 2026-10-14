@@ -877,7 +877,7 @@ describe("done-for-you messages (golden)", () => {
   };
   it("forwarding text + email", () => {
     expect(renderForwardingSms(input)).toBe(
-      `Everdoer: Hi Jane, Jane's Roofing is almost live. Last step: turn on call forwarding so every call you miss gets a text back in seconds. It's one tap: ${APP}/forward/${TOKEN}\nReply STOP to stop these texts.`,
+      `CrankLeads: Hi Jane, Jane's Roofing is almost live. Last step: turn on call forwarding so every call you miss gets a text back in seconds. It's one tap: ${APP}/forward/${TOKEN}\nReply STOP to stop these texts.`,
     );
     expect(renderForwardingSms({ ...input, method: "provider", phonePath: "ai_receptionist" })).toContain("so your AI receptionist picks up the calls you miss. Here's how (2 min):");
     const email = renderForwardingEmail(input);

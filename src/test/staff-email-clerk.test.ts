@@ -614,7 +614,7 @@ describe("a customer's email", () => {
     const [text] = texts();
     expect(text.to).toBe(OWNER);
     expect(text.body).toBe(
-      `Everdoer: #${approval.short_code} Email from Dana Jones: "Can you quote a full roof on 12 Bay St?" Draft: "Hi Dana, Thanks for reaching out to Northshore Roofing. Dana will get back to you with a price for the full roof - could you send a few photos? Thanks, Northshore Roofing" Full draft: https://app.crankleads.test/settings?section=front-desk&email=${email.id} Reply Y ${approval.short_code} to send it, N ${approval.short_code} to skip.`,
+      `CrankLeads: #${approval.short_code} Email from Dana Jones: "Can you quote a full roof on 12 Bay St?" Draft: "Hi Dana, Thanks for reaching out to Northshore Roofing. Dana will get back to you with a price for the full roof - could you send a few photos? Thanks, Northshore Roofing" Full draft: https://app.crankleads.test/settings?section=front-desk&email=${email.id} Reply Y ${approval.short_code} to send it, N ${approval.short_code} to skip.`,
     );
     // The draft prompt had the facts and the fenced email; no customer email was sent.
     const draftPrompt = prompts.find((p) => p.system.startsWith("You draft email replies"));
@@ -652,7 +652,7 @@ describe("a customer's email", () => {
     expect(rows("owner_approvals")).toHaveLength(0);
     const morning = Date.parse("2026-10-13T12:05:00Z"); // 8:05 Toronto
     await sweepInbound(db.client, morning);
-    expect(texts().map((t) => t.body)).toEqual(['Everdoer: Email from Dana Jones: "How much to fix a leak by the chimney?" Answer it in the app: https://app.crankleads.test/inbox']);
+    expect(texts().map((t) => t.body)).toEqual(['CrankLeads: Email from Dana Jones: "How much to fix a leak by the chimney?" Answer it in the app: https://app.crankleads.test/inbox']);
     await sweepInbound(db.client, morning + 60_000);
     expect(texts()).toHaveLength(1);
   });
@@ -814,7 +814,7 @@ describe("other mail", () => {
     await deliver({ from: "Pat Smith <pat@smithbuild.test>", subject: "ITB: 40 King St", text: "Please bid on the roof at 40 King St, bids due Friday." });
     await sweepInbound(db.client, NOW);
     expect(rows("tasks")[0]).toMatchObject({ title: "Bid: Smith Build - roof", company_id: CO, priority: "high", due_at: "2026-10-16T12:00:00.000Z" });
-    expect(texts().map((t) => t.body)).toEqual(["Everdoer: Bid invite: Smith Build - roof, due Fri. It's on your task list."]);
+    expect(texts().map((t) => t.body)).toEqual(["CrankLeads: Bid invite: Smith Build - roof, due Fri. It's on your task list."]);
     expect(rows("message_log").filter((m) => m.direction === "inbound")).toHaveLength(0);
   });
 
@@ -825,7 +825,7 @@ describe("other mail", () => {
     await deliver({ from: "billing <noreply@billing.example.com>", subject: "Invoice 4411", text: "Amount due $412.00" });
     await deliver({ from: "Deals <deals@shop.test>", subject: "50% off", headers: { "list-unsubscribe": "<mailto:u@shop.test>" } });
     await sweepInbound(db.client, NOW);
-    expect(texts().map((t) => t.body)).toEqual(['Everdoer: Rona (Midland) emailed about PO-3: "PO-3 confirmed"']);
+    expect(texts().map((t) => t.body)).toEqual(['CrankLeads: Rona (Midland) emailed about PO-3: "PO-3 confirmed"']);
     sendSms.mockClear();
 
     const co = (await loadEmailClerkCompany(db.client, ORG, CO))!;
@@ -834,7 +834,7 @@ describe("other mail", () => {
     const four = Date.parse("2026-10-12T20:00:00Z"); // 16:00 Toronto
     vi.setSystemTime(four);
     expect(await sweepDigests(db.client, four)).toBe(1);
-    expect(texts().map((t) => t.body)).toEqual(['Everdoer: Email today: 1 bill (Rona $412 due Oct 30), 1 newsletter ignored. Text "email status" for more.']);
+    expect(texts().map((t) => t.body)).toEqual(['CrankLeads: Email today: 1 bill (Rona $412 due Oct 30), 1 newsletter ignored. Text "email status" for more.']);
     resetEmailClerkCompanyCache();
     expect(await sweepDigests(db.client, four + 5 * 60_000)).toBe(0);
     expect(texts()).toHaveLength(1);
@@ -989,7 +989,7 @@ describe("review fixes", () => {
     await inbox();
     await deliver({ from: "Jo Lee <jo.lee@example.com>", subject: "Hello", text: "Hi Northshore,\n\nHope you're well. Are we still on for Thursday?\n\nThanks,\nJo" });
     await sweepInbound(db.client, NOW);
-    expect(texts()[0].body).toBe('Everdoer: Email from Jo Lee: "Are we still on for Thursday?" Answer it in the app: https://app.crankleads.test/inbox');
+    expect(texts()[0].body).toBe('CrankLeads: Email from Jo Lee: "Are we still on for Thursday?" Answer it in the app: https://app.crankleads.test/inbox');
   });
 
   it("an alert is claimed: two workers on one row send one text", async () => {

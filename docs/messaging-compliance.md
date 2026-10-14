@@ -53,12 +53,23 @@ texts" and is sent from the platform number (`TWILIO_FROM_NUMBER`), so Twilio's 
 STOP handling stops them without touching the company's own number; every email has a "stop
 these reminders" link (sets `crankleads_purchases.setup_reminders_stopped_at`).
 
-## Owner texts from the platform number: the "Everdoer: " prefix
+## Platform name in SMS: one switch, `EVERDOER_SMS_BRANDING`
 
-Texts to a business owner from the platform number (approvals, alerts, the 07:00 briefing,
-setup reminders) are signed `Everdoer: ` so the owner knows who is texting
-(`owner-channel/common.ts` `signaturePrefix`). Done-for-you orgs always get it. Every other org
-(the house tenants, e.g. A1) gets it only when `EVERDOER_SMS_PREFIX_ALL_ORGS=1` is set on web and
-worker. **Before setting it, update the A2P 10DLC campaign's sample messages in the Twilio
-console** to show the `Everdoer: ` prefix, so live traffic matches the registered samples.
-Texts to end customers never carry a platform name; they name the company.
+Live SMS traffic must match the A2P 10DLC campaign's registered brand and sample messages, so
+no SMS text changes with the Everdoer rebrand until one switch is turned on
+(`src/server/services/rebrand/sms-branding.ts`):
+
+* **Off (default; unset):** every SMS is exactly as before the rebrand. Owner texts from the
+  platform number (approvals, alerts, the 07:00 briefing, setup reminders, "you're live",
+  forwarding and quick-setup texts, the weekly report text) are signed `CrankLeads: ` for
+  done-for-you orgs and carry no prefix for other orgs (A1 etc.). A stranger texting the platform
+  number gets "CrankLeads: this number is for CrankLeads account owners…".
+* **On (`EVERDOER_SMS_BRANDING=1`, also `true`/`yes`) on web, worker and billing-worker:** every
+  org's owner texts are signed `Everdoer: ` (10 GSM characters, shorter than `CrankLeads: `, so
+  the 612-character briefing budget still holds), the done-for-you and weekly texts say
+  Everdoer, and the stranger/HELP reply says "Everdoer: this number is for Everdoer account
+  owners…".
+
+**Before turning it on, update the A2P campaign's brand and sample messages in the Twilio
+console** to the Everdoer wording. Unset it to roll back. Texts to end customers never carry a
+platform name; they name the company.

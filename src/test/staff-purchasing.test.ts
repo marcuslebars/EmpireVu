@@ -311,7 +311,7 @@ describe("the draft sweep", () => {
     const [text] = texts();
     expect(text.to).toBe(OWNER);
     expect(text.body).toBe(
-      `Everdoer: #${approval.short_code} Materials for Jones - Roof replacement Thu Oct 15 (PO-1): 22 bundles shingles, 3 rolls underlay, 1 box nails (~$1,162). Y emails Home Depot Pro (Barrie) for pickup Wed Oct 14. Reply Y ${approval.short_code} to order it, Y ${approval.short_code} delivery for delivery, Y ${approval.short_code} no nails to leave nails out, N ${approval.short_code} to skip.`,
+      `CrankLeads: #${approval.short_code} Materials for Jones - Roof replacement Thu Oct 15 (PO-1): 22 bundles shingles, 3 rolls underlay, 1 box nails (~$1,162). Y emails Home Depot Pro (Barrie) for pickup Wed Oct 14. Reply Y ${approval.short_code} to order it, Y ${approval.short_code} delivery for delivery, Y ${approval.short_code} no nails to leave nails out, N ${approval.short_code} to skip.`,
     );
     // Too soon (1 day out) and no quote: not drafted. The house org's job: never looked at.
     expect(rows("purchase_order_drafts").map((d) => d.booking_id)).toEqual(["b-jones"]);
@@ -517,7 +517,7 @@ describe("tracking", () => {
     expect(await runCompanyReminders(db.client, c, afternoon, deps())).toBe(1);
     expect(await runCompanyReminders(db.client, c, afternoon + HOUR, deps())).toBe(0);
     expect(texts().map((t) => t.body)).toEqual([
-      'Everdoer: Tomorrow: Jones - Roof replacement (8:00 a.m.). Materials PO-1 from Home Depot Pro (Barrie) aren\'t picked up yet. Text "PO-1 picked up" once you have them.',
+      'CrankLeads: Tomorrow: Jones - Roof replacement (8:00 a.m.). Materials PO-1 from Home Depot Pro (Barrie) aren\'t picked up yet. Text "PO-1 picked up" once you have them.',
     ]);
 
     db = seed();
@@ -714,7 +714,7 @@ describe("robustness", () => {
     const t = Date.parse("2026-10-14T20:00:00Z");
     expect(await runCompanyJobChanges(db.client, c, t, deps())).toBe(1);
     expect(await runCompanyJobChanges(db.client, c, t + HOUR, deps())).toBe(0);
-    expect(texts().map((x) => x.body)).toEqual(["Everdoer: Jones - Roof replacement moved to Fri Oct 16 - PO-1 at Home Depot Pro (Barrie) still says pickup Wed Oct 14; call them."]);
+    expect(texts().map((x) => x.body)).toEqual(["CrankLeads: Jones - Roof replacement moved to Fri Oct 16 - PO-1 at Home Depot Pro (Barrie) still says pickup Wed Oct 14; call them."]);
     expect(rows("purchase_orders")[0]).toMatchObject({ reminder_sent_at: null, job_scheduled_for: "2026-10-16T12:00:00.000Z" });
     expect(await runCompanyReminders(db.client, c, Date.parse("2026-10-15T19:30:00Z"), deps())).toBe(1);
     // Same day, new time: nothing to say.
@@ -725,7 +725,7 @@ describe("robustness", () => {
     db.tables.bookings.find((b) => b.id === "b-jones")!.status = "cancelled";
     expect(await runCompanyJobChanges(db.client, c, t + 3 * HOUR, deps())).toBe(1);
     expect(await runCompanyJobChanges(db.client, c, t + 4 * HOUR, deps())).toBe(0);
-    expect(texts()[0].body).toBe('Everdoer: Jones - Roof replacement was cancelled - PO-1 at Home Depot Pro (Barrie) is still on order. Call them to cancel, then text "cancel PO-1".');
+    expect(texts()[0].body).toBe('CrankLeads: Jones - Roof replacement was cancelled - PO-1 at Home Depot Pro (Barrie) is still on order. Call them to cancel, then text "cancel PO-1".');
     // At night nothing is sent.
     expect(jobChangeText({ job: "Lee", poNumber: "PO-2", supplier: null, fulfilment: "delivery", neededBy: "2026-10-14", movedTo: "Fri Oct 16" })).toBe("Lee moved to Fri Oct 16 - PO-2 still says delivery Wed Oct 14; call them.");
   });

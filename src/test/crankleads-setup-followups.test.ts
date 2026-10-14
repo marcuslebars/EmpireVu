@@ -311,7 +311,7 @@ const REMINDER: ReminderMessageInput = {
 describe("follow-up templates (done-for-you: one action, one no-login link)", () => {
   it("forwarding reminder SMS (golden)", () => {
     expect(renderReminderSms(REMINDER)).toBe(
-      `Everdoer: Hi Jane, Jane's Roofing is one tap from live. Turn on call forwarding so every call you miss gets a text back: ${FORWARD_URL}\nReply STOP to stop these texts.`,
+      `CrankLeads: Hi Jane, Jane's Roofing is one tap from live. Turn on call forwarding so every call you miss gets a text back: ${FORWARD_URL}\nReply STOP to stop these texts.`,
     );
     expect(renderReminderSms({ ...REMINDER, phonePath: "ai_receptionist" })).toContain("so your AI receptionist picks up the calls you miss");
   });
@@ -319,10 +319,10 @@ describe("follow-up templates (done-for-you: one action, one no-login link)", ()
   it("quick-setup reminder SMS (golden) and the day-10 variant", () => {
     const quick = { ...REMINDER, action: "quick_setup" as const, actionUrl: SETUP_URL };
     expect(renderReminderSms(quick)).toBe(
-      `Everdoer: Hi Jane, finish your 60-second setup and we'll switch Jane's Roofing on for you: ${SETUP_URL}\nReply STOP to stop these texts.`,
+      `CrankLeads: Hi Jane, finish your 60-second setup and we'll switch Jane's Roofing on for you: ${SETUP_URL}\nReply STOP to stop these texts.`,
     );
     expect(renderReminderSms({ ...REMINDER, stage: "day10" })).toBe(
-      `Everdoer: Hi Jane, last nudge — Jane's Roofing is one tap from live. Turn on call forwarding so every call you miss gets a text back: ${FORWARD_URL}\nReply STOP to stop these texts.`,
+      `CrankLeads: Hi Jane, last nudge — Jane's Roofing is one tap from live. Turn on call forwarding so every call you miss gets a text back: ${FORWARD_URL}\nReply STOP to stop these texts.`,
     );
   });
 
@@ -359,10 +359,10 @@ describe("follow-up templates (done-for-you: one action, one no-login link)", ()
       setPasswordUrl: null,
     };
     expect(renderLiveSms(live)).toBe(
-      `Everdoer: 🎉 You're live! Jane's Roofing: missed callers now get a text back from (705) 555-0000. Your new page: ${APP}/s/janes-roofing Log in: ${APP}`,
+      `CrankLeads: 🎉 You're live! Jane's Roofing: missed callers now get a text back from (705) 555-0000. Your new page: ${APP}/s/janes-roofing Log in: ${APP}`,
     );
     expect(renderLiveSms({ ...live, phonePath: "ai_receptionist", siteUrl: null })).toBe(
-      `Everdoer: 🎉 You're live! Jane's Roofing: calls you miss now go to your AI receptionist (705) 555-0000. Log in: ${APP}`,
+      `CrankLeads: 🎉 You're live! Jane's Roofing: calls you miss now go to your AI receptionist (705) 555-0000. Log in: ${APP}`,
     );
     const email = renderLiveEmail(live);
     expect(email.subject).toBe("🎉 You're live — Jane's Roofing is catching leads");
@@ -530,7 +530,7 @@ describe("setup follow-up pass", () => {
     // never signed in → the live EMAIL (buyer's own address only) carries the set-password link; the text never does
     expect(delivered("email")[0].to).toBe("jane@roofco.example");
     expect(delivered("email")[0].body).toContain("update-password?token_hash=h");
-    expect(delivered("sms")[0].body).toBe(`Everdoer: 🎉 You're live! Jane's Roofing: missed callers now get a text back from (705) 555-0000. Log in: ${APP}`);
+    expect(delivered("sms")[0].body).toBe(`CrankLeads: 🎉 You're live! Jane's Roofing: missed callers now get a text back from (705) 555-0000. Log in: ${APP}`);
     await run("2026-10-07T14:00:00Z");
     await run("2026-10-16T14:00:00Z");
     expect(deliver).toHaveBeenCalledTimes(2);

@@ -463,7 +463,7 @@ describe("upload → preview → import", () => {
     const owner = smsTo(OWNER);
     expect(owner).toHaveLength(1);
     expect(owner[0].from).toBe(PLATFORM);
-    expect(owner[0].body).toMatch(/^Everdoer: Imported 5 customers \(3 new, 2 you already had - blanks filled, nothing overwritten\), 3 past jobs, 2 open balances \(\$1,290\) from customers\.csv\. 1 row skipped - see the import page\. Nobody was texted or emailed\.\n#1 2 imported balances, \$1,290 owing\. Nobody has been reminded yet\. Y to let the Bookkeeper start reminders on them \(texts and emails, your usual schedule\)\. Reply Y 1 to approve, N 1 to skip\.$/);
+    expect(owner[0].body).toMatch(/^CrankLeads: Imported 5 customers \(3 new, 2 you already had - blanks filled, nothing overwritten\), 3 past jobs, 2 open balances \(\$1,290\) from customers\.csv\. 1 row skipped - see the import page\. Nobody was texted or emailed\.\n#1 2 imported balances, \$1,290 owing\. Nobody has been reminded yet\. Y to let the Bookkeeper start reminders on them \(texts and emails, your usual schedule\)\. Reply Y 1 to approve, N 1 to skip\.$/);
     expect(rows("owner_approvals")[0]).toMatchObject({ kind: KIND_CHASE_IMPORTED, status: "pending", requested_by: "importer", notified_to: OWNER });
 
     // Not texted twice.
@@ -719,7 +719,7 @@ describe("review fixes", () => {
     expect(b.status).toBe("failed");
     expect(b.error).toBe("Stopped after 10 tries: db timeout");
     expect(viewOf(b).can.undo).toBe(true);
-    expect(smsTo(OWNER)[0].body).toMatch(/^Everdoer: Your customer import of customers\.csv stopped after 0 of 8 rows/);
+    expect(smsTo(OWNER)[0].body).toMatch(/^CrankLeads: Your customer import of customers\.csv stopped after 0 of 8 rows/);
     expect(customerTexts()).toHaveLength(0);
   });
 

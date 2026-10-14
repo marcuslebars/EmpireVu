@@ -4,6 +4,7 @@ import type { TenantServiceContext } from "@/server/services/shared";
 import { deliverMessage, resolveOwnerContacts } from "@/server/services/workflow-engine/messaging";
 import { companyTimeZone } from "@/server/services/monthly-scorecard/scorecard";
 import { scorecardPlatformBrandName } from "@/server/services/monthly-scorecard/platform-brand";
+import { smsBrandingOn, smsPlatformName } from "@/server/services/rebrand/sms-branding";
 import {
   isDateKey,
   localDateKey,
@@ -233,7 +234,9 @@ function render(company: WeeklyRunCompany, brand: PlatformBrand, metrics: Weekly
     reportUrl: weeklyReportUrl(brand, metrics.weekStart),
     primaryColor: company.brand_primary_color,
   };
-  return { email: renderWeeklyEmail(metrics, options), sms: renderWeeklySms(metrics, options) };
+  // The text names the platform only per EVERDOER_SMS_BRANDING (A2P samples); the email says Everdoer.
+  const smsOptions = { ...options, platformBrand: smsBrandingOn() ? options.platformBrand : smsPlatformName(brand.productLine) };
+  return { email: renderWeeklyEmail(metrics, options), sms: renderWeeklySms(metrics, smsOptions) };
 }
 
 interface Recipients {

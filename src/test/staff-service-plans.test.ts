@@ -462,7 +462,7 @@ describe("annual plan paid online", () => {
     expect(series.line_items).toEqual([]); // prepaid: visits carry no price
     // Dana is a matched customer (name fits) with no address on file: the typed address waits for the owner.
     expect(series.location).toBeNull();
-    expect(textsTo(OWNER)[0].body).toBe("Everdoer: New plan: Dana Jones signed up for Lawn Care Plus and paid $474.60 online. First visit Tue May 4 is on the calendar.");
+    expect(textsTo(OWNER)[0].body).toBe("CrankLeads: New plan: Dana Jones signed up for Lawn Care Plus and paid $474.60 online. First visit Tue May 4 is on the calendar.");
     expect(textsTo(DANA_PHONE)[0].body).toContain("you're signed up for Lawn Care Plus");
     // Retries are idempotent (webhook again, the hook, the sweep).
     await stripePaid("inv-1", deps, NOW + 120_000);
@@ -702,7 +702,7 @@ describe("lapse", () => {
     expect(ids).toContain("v-done");
     expect(ids).not.toContain("v-untouched");
     expect(rows("recurring_jobs").find((r) => r.id === series)).toMatchObject({ status: "ended" });
-    expect(textsTo(OWNER)[0].body).toMatch(/^Everdoer: Dana Jones's Spring \+ Fall Lawn Care plan lapsed: the renewal wasn't paid by Nov 14, 2026\. I took \d+ upcoming visits? off the calendar\. If they pay in the next 60 days, I'll renew it\.$/);
+    expect(textsTo(OWNER)[0].body).toMatch(/^CrankLeads: Dana Jones's Spring \+ Fall Lawn Care plan lapsed: the renewal wasn't paid by Nov 14, 2026\. I took \d+ upcoming visits? off the calendar\. If they pay in the next 60 days, I'll renew it\.$/);
     expectA1Untouched();
   });
 });
@@ -761,7 +761,7 @@ describe("lapse safety", () => {
     expect(next).toMatchObject({ status: "active", term_start: "2026-11-01", term_end: "2027-10-31" });
     expect(rows("recurring_jobs").find((r) => r.id === series)).toMatchObject({ status: "active" });
     expect(rows("bookings").some((b) => b.recurring_job_id === series && b.occurrence_date === "2027-05-04")).toBe(true);
-    expect(textsTo(OWNER)[0].body).toBe("Everdoer: Dana Jones paid for Lawn Care Plus after it lapsed, so I renewed it and put their visits back on the calendar.");
+    expect(textsTo(OWNER)[0].body).toBe("CrankLeads: Dana Jones paid for Lawn Care Plus after it lapsed, so I renewed it and put their visits back on the calendar.");
     // Once only.
     await sweepPayments(db.client, day(21), deps);
     expect(textsTo(OWNER)).toHaveLength(1);
@@ -775,7 +775,7 @@ describe("lapse safety", () => {
     sendSms.mockClear();
     await sweepPayments(db.client, NOW + DAY, deps);
     await sweepPayments(db.client, NOW + 2 * DAY, deps);
-    expect(textsTo(OWNER).map((t) => t.body)).toEqual(["Everdoer: Dana Jones paid $474.60 for Lawn Care Plus, but that plan is cancelled. Nothing was booked - restart it in Settings or refund them."]);
+    expect(textsTo(OWNER).map((t) => t.body)).toEqual(["CrankLeads: Dana Jones paid $474.60 for Lawn Care Plus, but that plan is cancelled. Nothing was booked - restart it in Settings or refund them."]);
   });
 
   it("no renewal link ever went out (renewals off / the owner said no): no lapse, no \"wasn't paid\" text", async () => {
