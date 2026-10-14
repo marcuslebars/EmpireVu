@@ -1,9 +1,17 @@
 /**
  * Server half of the platform brand (src/lib/platform-brand.ts holds the shared config).
  *
- * appBaseUrlFor(brand) is the ONE place an owner-/staff-facing link's origin comes from
- * (REBRAND_PLAN.md §3.2). Every org now shows Everdoer, and once EVERDOER_APP_BASE_URL is set
- * every org's links use it (app.everdoer.com). Until then nothing changes:
+ * appBaseUrlFor(brand) is the ONE place the origin comes from for links built on the app host
+ * (REBRAND_PLAN.md §3.2). That is owner/staff links (invites, digests, alerts, setup, reports)
+ * AND links third parties open:
+ *   - compliance document shares and upload requests;
+ *   - generated /s/<slug> sites (when PAGES_BASE_URL is unset);
+ *   - importer (/import/<token>) and porting (/port/<token>) links;
+ *   - Stripe billing and Connect return URLs.
+ * (Customer quote/invoice/portal links do NOT come from here: quotes/config.ts.)
+ * Every org now shows Everdoer, and once a valid EVERDOER_APP_BASE_URL is set every org's links
+ * above use it (app.everdoer.com). Only an everdoer.com / *.everdoer.com (or dev) host counts:
+ * any other value is ignored (validEverdoerAppBaseUrl). Until then nothing changes:
  *   - standard orgs: EVERDOER_APP_BASE_URL, else APP_BASE_URL (http://localhost:3000 when unset).
  *     The old CRANKLEADS_APP_BASE_URL is deliberately NOT a fallback here: it may point at
  *     app.crankleads.com, and house tenants (A1 etc.) were never sent there.
@@ -27,7 +35,8 @@ import {
   type PlatformBrandKey,
 } from "@/lib/platform-brand";
 import type { ProductLine } from "@/lib/product-line";
-import { envWithFallback } from "@/server/services/rebrand/legacy-usage";
+import { envWithFallback, noteLegacyUsage } from "@/server/services/rebrand/legacy-usage";
+import { isAllowedEverdoerAppHost } from "@/server/services/rebrand/platform-hosts";
 import type { TenantServiceContext } from "@/server/services/shared";
 
 export { brandForOrg, isDoneForYouBrand, platformBrand, PLATFORM_BRANDS };
@@ -41,16 +50,56 @@ function productLineOf(brand: BrandRef): ProductLine {
   return typeof brand === "string" ? platformBrand(brand).productLine : brand.productLine;
 }
 
+/** Rejected EVERDOER_APP_BASE_URL values already logged + counted (once per process). */
+const rejectedEverdoerAppBaseUrls = new Set<string>();
+
+/**
+ * EVERDOER_APP_BASE_URL, but only when its host is everdoer.com / *.everdoer.com or a dev host
+ * (isAllowedEverdoerAppHost). Anything else, e.g. a copied app.crankleads.com, is ignored (as if
+ * unset), logged once and counted as legacy_usage env/EVERDOER_APP_BASE_URL(invalid-host), so a
+ * wrong value can never move every org's links.
+ */
+export function validEverdoerAppBaseUrl(): string | undefined {
+  const raw = process.env.EVERDOER_APP_BASE_URL?.trim();
+  if (!raw) return undefined;
+  let host = "";
+  try {
+    const url = new URL(raw);
+    if (url.protocol === "https:" || url.protocol === "http:") host = url.hostname;
+  } catch {
+    /* not a URL: rejected below */
+  }
+  if (host && isAllowedEverdoerAppHost(host)) return raw;
+  if (!rejectedEverdoerAppBaseUrls.has(raw)) {
+    rejectedEverdoerAppBaseUrls.add(raw);
+    console.warn(
+      `[platform-brand] EVERDOER_APP_BASE_URL is ignored: "${raw}" is not an everdoer.com (or dev) host. Links keep their previous origin.`,
+    );
+    noteLegacyUsage("env", "EVERDOER_APP_BASE_URL(invalid-host)", host || null);
+  }
+  return undefined;
+}
+
+/** Tests only: forget which rejected values were already logged. */
+export function resetRejectedEverdoerAppBaseUrls(): void {
+  rejectedEverdoerAppBaseUrls.clear();
+}
+
 /**
  * The configured Everdoer-era app origin for a product line, if any (no APP_BASE_URL fallback):
- * EVERDOER_APP_BASE_URL for everyone; done-for-you also reads the old CRANKLEADS_APP_BASE_URL.
+ * a valid EVERDOER_APP_BASE_URL for everyone; done-for-you also reads the old
+ * CRANKLEADS_APP_BASE_URL.
  */
 function everdoerAppBaseUrl(line: ProductLine): string | undefined {
+  const everdoer = validEverdoerAppBaseUrl();
+  if (everdoer) return everdoer;
   if (line === "done_for_you") {
     // Rebrand shim (remove in PR 8 once legacy_usage shows no env/CRANKLEADS_APP_BASE_URL for 30 days)
-    return envWithFallback("EVERDOER_APP_BASE_URL", ["CRANKLEADS_APP_BASE_URL"]);
+    return envWithFallback("EVERDOER_APP_BASE_URL", ["CRANKLEADS_APP_BASE_URL"], {
+      CRANKLEADS_APP_BASE_URL: process.env.CRANKLEADS_APP_BASE_URL,
+    });
   }
-  return process.env.EVERDOER_APP_BASE_URL?.trim() || undefined;
+  return undefined;
 }
 
 /** App origin (no trailing slash) for links sent to an org's own people. */

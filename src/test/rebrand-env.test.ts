@@ -16,7 +16,11 @@ import {
   crankleadsTierForPriceId,
   ENV_RENAMES,
 } from "@/server/services/crankleads/config";
-import { appBaseUrlFor, configuredAppBaseUrlFor } from "@/server/services/platform-brand";
+import {
+  appBaseUrlFor,
+  configuredAppBaseUrlFor,
+  resetRejectedEverdoerAppBaseUrls,
+} from "@/server/services/platform-brand";
 import { quotePublicBaseUrlFor } from "@/server/services/quotes/config";
 
 // Everdoer rebrand PR 1: EVERDOER_* env names read first, the old names as a counted fallback.
@@ -157,6 +161,45 @@ describe("appBaseUrlFor: EVERDOER_APP_BASE_URL for every org (PR 2)", () => {
     expect(appBaseUrlFor("empirevu")).toBe("https://app.everdoer.com");
     expect(appBaseUrlFor(null)).toBe("https://app.everdoer.com");
     expect(configuredAppBaseUrlFor("empirevu")).toBe("https://app.everdoer.com");
+  });
+
+  it.each([
+    "https://app.crankleads.com",
+    "https://app.empirevu.com",
+    "https://quotes.a1marinestorage.ca",
+    "https://everdoer.com.evil.example",
+    "https://noteverdoer.com",
+    "ftp://app.everdoer.com",
+    "not a url",
+  ])("ignores EVERDOER_APP_BASE_URL=%s (not an everdoer or dev host), counted once", async (bad) => {
+    resetRejectedEverdoerAppBaseUrls();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("APP_BASE_URL", "https://app.empirevu.com");
+    vi.stubEnv("CRANKLEADS_APP_BASE_URL", "https://app.crankleads.com");
+    vi.stubEnv("EVERDOER_APP_BASE_URL", bad);
+    // A1's links don't move; done-for-you keeps its PR 1 chain.
+    expect(appBaseUrlFor("empirevu")).toBe("https://app.empirevu.com");
+    expect(appBaseUrlFor("crankleads")).toBe("https://app.crankleads.com");
+    expect(configuredAppBaseUrlFor("empirevu")).toBe("https://app.empirevu.com");
+    expect(quotePublicBaseUrlFor({ platform_brand: "crankleads" })).toBe("https://app.crankleads.com");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect((await envRows()).sort()).toEqual(["CRANKLEADS_APP_BASE_URL", "EVERDOER_APP_BASE_URL(invalid-host)"]);
+  });
+
+  it.each([
+    ["https://app.everdoer.com", "https://app.everdoer.com"],
+    ["https://everdoer.com/", "https://everdoer.com"],
+    ["https://staging.app.everdoer.com", "https://staging.app.everdoer.com"],
+    ["http://localhost:3000", "http://localhost:3000"],
+    ["http://app.everdoer.localhost:5173", "http://app.everdoer.localhost:5173"],
+    ["https://app.everdoer.test", "https://app.everdoer.test"],
+    ["http://127.0.0.1:3000", "http://127.0.0.1:3000"],
+  ])("honours EVERDOER_APP_BASE_URL=%s", async (good, expected) => {
+    vi.stubEnv("APP_BASE_URL", "https://app.empirevu.com");
+    vi.stubEnv("EVERDOER_APP_BASE_URL", good);
+    expect(appBaseUrlFor("empirevu")).toBe(expected);
+    expect(appBaseUrlFor("crankleads")).toBe(expected);
+    expect(await envRows()).toEqual([]);
   });
 
   it("standard orgs: EVERDOER_APP_BASE_URL alone is enough (no APP_BASE_URL)", () => {

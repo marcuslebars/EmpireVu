@@ -99,6 +99,18 @@ describe("legacy-host redirect: dormant by default", () => {
     expect(isRedirect(await middleware(req("https://app.empirevu.com/quotes")))).toBe(false);
   });
 
+  it("only an everdoer (or dev) host is a valid redirect target", () => {
+    const on = (url: string) => legacyRedirectOrigin({ EVERDOER_REDIRECT_LEGACY_HOSTS: "1", EVERDOER_APP_BASE_URL: url });
+    for (const bad of ["https://quotes.a1marinecare.ca", "https://evil.example", "https://everdoer.com.evil.example", "https://app.empirevu.com"]) {
+      expect(on(bad), bad).toBeNull();
+    }
+    expect(on("https://app.everdoer.com")).toBe("https://app.everdoer.com");
+    expect(on("https://everdoer.com")).toBe("https://everdoer.com");
+    expect(on("http://app.everdoer.localhost:5173")).toBe("http://app.everdoer.localhost:5173");
+    expect(on("https://app.everdoer.test")).toBe("https://app.everdoer.test");
+    expect(on("http://localhost:3000")).toBe("http://localhost:3000");
+  });
+
   it("flag values: only 1/true/yes switch it on", () => {
     expect(legacyRedirectOrigin({ ...ON, EVERDOER_REDIRECT_LEGACY_HOSTS: "0" })).toBeNull();
     expect(legacyRedirectOrigin({ ...ON, EVERDOER_REDIRECT_LEGACY_HOSTS: "" })).toBeNull();

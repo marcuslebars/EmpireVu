@@ -62,7 +62,9 @@ describe("index.html is Everdoer for every host", () => {
     expect(html).toContain('<meta property="og:description" content="Everdoer — the employee who never clocks out." />');
     expect(html).toContain('<meta name="author" content="Everdoer" />');
     expect(html).toContain('<meta property="og:title" content="Everdoer" />');
-    expect(html).toContain('<meta property="og:image" content="/brand/everdoer/everdoer-logo-dark.png" />');
+    // No og:image: index.html also serves customer links (/q, /i, /p…), and a platform image would
+    // newly show in their unfurls.
+    expect(html).not.toMatch(/og:image/);
     expect(html).toContain('<meta name="theme-color" content="#0C0E12" />');
   });
 
