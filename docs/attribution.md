@@ -1,4 +1,4 @@
-# Revenue attribution — "Captured by EmpireVu"
+# Revenue attribution — "Captured by Everdoer"
 
 Task 14 answers one question for the owner: **how much revenue did EmpireVu capture this
 month, and where did it come from?** It is a read-only report — a dashboard card with the
@@ -102,7 +102,7 @@ Filters the view to the org (+ optional company) and the period cohort
 
 ## UI
 
-- **Dashboard card** — "Captured by EmpireVu": collected-this-month headline (paid), with
+- **Dashboard card** — "Captured by Everdoer": collected-this-month headline (paid), with
   approved / quote / voice-AI / automation context. Links to the report.
 - **`/reports/attribution`** — summary tiles, a Recharts bar of collected-by-source, the
   per-quote table, and **Export CSV** built from the already-fetched rows (no export API).

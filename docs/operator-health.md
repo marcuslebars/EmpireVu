@@ -8,9 +8,9 @@ attention, nothing is sent, except a short "all clear" on Mondays so you know it
 
 Subject examples:
 
-- `CrankLeads health: 3 need you (1 guarantee at risk)`
-- `CrankLeads health: 1 needs you`
-- `CrankLeads health: all clear` (Mondays only, when nothing is flagged)
+- `Everdoer health: 3 need you (1 guarantee at risk)`
+- `Everdoer health: 1 needs you`
+- `Everdoer health: all clear` (Mondays only, when nothing is flagged)
 
 ## When it runs
 

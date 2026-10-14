@@ -1,83 +1,67 @@
-# CrankLeads accounts see CrankLeads (per-account platform brand)
+# Everdoer: one platform brand, behaviour on the product line
 
-CrankLeads (crankleads.com) is what Ontario trades businesses buy. Buying it provisions an org
-on this platform. The codebase, API contracts and the house tenants (A1 Marine, Blair, …) stay
-**EmpireVu**. Anyone in an org that bought CrankLeads sees **CrankLeads** everywhere and never
-the word "EmpireVu".
+Everdoer is the platform's one brand ("The employee who never clocks out."). It replaced
+**EmpireVu** (the standard product, used by the house tenants: A1 Marine, Blair's, …) and
+**CrankLeads** (the done-for-you product Ontario trades businesses buy on everdoer.com, formerly
+crankleads.com). Since rebrand PR 2 every org's owner and staff, on every host, signed in or
+signed out, see **Everdoer**: one name, one logo set, one lime theme. Nobody sees "EmpireVu",
+"CrankLeads" or "Syncoree" any more.
 
-This is a **per-account switch, not a rename** (the full rename in PR #127 was reverted).
+What used to be "the brand" also carried the **product line** (standard vs done-for-you), and
+some behaviour still follows that. So the code keeps the product line and branches on it, never
+on a name.
+
+Brand rules: the name is "Everdoer" (one word, capital E only). Colours: lime `#A6EE2B`,
+near-black `#0C0E12`, off-white `#F4F4F1`, deep lime `#4F8A00` for lime on white. Font: Inter.
+Logos and icons: `public/brand/everdoer/` (brand kit) and the root favicons. The old asset
+files stay in `public/brand/` because emails and pages already sent link to them.
 
 ## How it works
 
 | Piece | Where |
 |---|---|
-| The switch | `organizations.platform_brand` (`'empirevu'` default, `'crankleads'`). Migration `20261006150000_platform_brand.sql` backfills it from `crankleads_tier`. CrankLeads provisioning writes `'crankleads'` (`crankleads/provision.ts` → `organizations.ts createOrganization`). |
-| One source of truth | `src/lib/platform-brand.ts`: brand configs (name, logo, mark, favicon, PNG icons, support email, default app host, theme hex) plus `brandForOrg(org)`, `brandForHost(hostname)` and `withProductName()`. Shared by the SPA and the server. `brandForOrg` also treats a non-null `crankleads_tier` as CrankLeads, so a buyer is never shown EmpireVu, even from a row read before the migration. |
-| Server links | `src/server/services/platform-brand.ts`: `appBaseUrlFor(brand)` (EmpireVu → `APP_BASE_URL` exactly as before; CrankLeads → `CRANKLEADS_APP_BASE_URL` once set, otherwise the same `APP_BASE_URL`), `configuredAppBaseUrlFor()` (null when nothing is configured), and `loadOrganizationBrand()`. |
-| SPA | `src/lib/brand-context.tsx` `BrandProvider`. **Signed out:** the brand comes from the hostname (`app.crankleads.com`, `*.crankleads.com`, `crankleads.localhost` → CrankLeads). **Signed in:** it comes from the active org's `platformBrand` (sent in `/api/session/context`). It sets `data-brand="crankleads"` on `<html>` (`index.css` swaps the colour tokens to lime on near-black, with dark text on lime), and sets the tab title and favicon. `index.html` runs the same host check inline, so the CrankLeads host never flashes EmpireVu before React loads. |
-| Customer pages | `/q /i /p /v /f /book` are the **company's** pages. They carry no platform theme, title, icon or "Powered by" line. The tab icon is the company logo, or a neutral icon (`public/brand/neutral-favicon.svg`) when the company has none. |
+| The product line | `organizations.platform_brand` (`'empirevu'` = standard, `'crankleads'` = done-for-you; Phase 3 renames the values to `'standard'` / `'done_for_you'`). Every read goes through `src/lib/product-line.ts` (`productLineForOrg`, `isDoneForYou`), which understands both. |
+| One source of truth | `src/lib/platform-brand.ts`: `EVERDOER_BRAND` (name, logo, mark, favicon, PNG icons, `hello@everdoer.com`, theme hex), `EVERDOER_COLORS`, `EVERDOER_ENTITY_LINE`, and `PLATFORM_BRANDS`: both old keys, each the same Everdoer display config plus `productLine`. `brandForOrg`, `brandForHost`, `withProductName()`. Shared by the SPA and the server. |
+| Behaviour switches | Branch on `brand.productLine` (`isDoneForYouBrand`): `receptionistCopy` ("Marina" for standard orgs, "the AI receptionist" for done-for-you), plan copy, weekly-report defaults, the scorecard env override, generated-site links, the owner SMS prefix. |
+| Server links | `src/server/services/platform-brand.ts`: `appBaseUrlFor(brand)` (`EVERDOER_APP_BASE_URL` for every org once set; until then standard orgs use `APP_BASE_URL` and done-for-you orgs the old `CRANKLEADS_APP_BASE_URL`, then `APP_BASE_URL`), `configuredAppBaseUrlFor()`, `loadOrganizationBrand()`. |
+| SPA | `src/lib/brand-context.tsx` `BrandProvider`: tab title and favicon. One theme for everyone (`index.css` `:root`). `index.html` is static Everdoer. |
+| Customer pages | `/q /i /p /v /f /book`, quotes, invoices, PDFs, the portal and review pages are the **company's** pages. They carry no platform theme, title, icon, name or "Powered by" line. The tab icon is the company logo, or a neutral icon (`public/brand/neutral-favicon.svg`). |
 
-### What a CrankLeads account's people see as CrankLeads
+### Where people see Everdoer
 
-* Sidebar and all auth pages (sign in, sign up "Get started with CrankLeads", forgot/update password, phone, OAuth callback): CrankLeads logo, title, favicon and lime theme.
-* Loading and error screens are now generic ("Loading…", "The app failed to load"), because the brand isn't known yet at that point.
-* Onboarding ("Welcome to CrankLeads", "Set up CrankLeads", phone forwarding copy, forwarding test), the Dashboard and Reports "Captured by CrankLeads" card, the command palette, Voice, Accounting and Integrations settings text, the Help panel, help articles (`{{product}}` in `src/content/help/articles.ts`, filled in by `brandHelpArticle`) and the diagnostics page title.
-* Emails and texts: team invite, the default subject of the workflow "notify owner" email ("CrankLeads alert"), the voicemail email, the forwarding-test "test again" link, the owner digest link, the monthly scorecard (sender, footer and link), the purchase welcome email, setup reminders and the "you're live" message ("log in to CrankLeads at <the host of the link>"), the help assistant prompt, its canned reply and the support email subject, and accounting memos ("Card via CrankLeads", "Expenses (CrankLeads)").
-* The `/welcome/crankleads` page: "Open CrankLeads", which leads to CrankLeads sign-in.
-* Stripe plan Checkout from Settings → Billing uses the same branding as the crankleads.com purchase (`crankleadsCheckoutBranding()`), and its success and cancel URLs point at the CrankLeads host. Stripe Connect onboarding sends people back to the CrankLeads host too.
+* Sidebar, auth pages, onboarding, Dashboard and Reports ("Captured by Everdoer"), the command palette, settings text, the Help panel (with the D10 line "Everdoer is a product of Thinker Holdings Inc." at its foot), help articles (`{{product}}`, filled in by `brandHelpArticle`) and the help assistant.
+* `/privacy` and `/delete-account` (same paths on every host; they're in the app-store listings), with `hello@everdoer.com` and the D10 line.
+* Emails and texts to owners and staff: invites, the workflow "notify owner" subject ("Everdoer alert"), voicemail emails, digests, the monthly scorecard, the purchase welcome email, setup reminders, "you're live", the support email subject ("[Everdoer Help] …"), and accounting memos ("From Everdoer"; already-synced memos stay as they were).
+* Owner texts from the platform number start with **"Everdoer: "**: always for done-for-you orgs; for every other org only when `EVERDOER_SMS_PREFIX_ALL_ORGS=1` (see below). Strangers who text the platform number get "Everdoer: this number is for Everdoer account owners…".
+* Generated done-for-you sites (`/s/<slug>`) end with a small "Powered by Everdoer" link to https://everdoer.com. This is the only place the platform is credited to end customers, and it replaced the old "Site by CrankLeads".
+* The `/welcome/crankleads` purchase page and the `/forward/<token>` page: Everdoer logo, title and icon.
+* Stripe Checkout (purchase and Settings → Billing) shows Everdoer (`crankleadsCheckoutBranding()`).
+* Operator-only: the Concierge list ("Everdoer setups"), operator emails ("Everdoer health", "Everdoer ops", purchase and failure notices), the waitlist notice.
 
-## Still EmpireVu by design
+## Still an old name, by design
 
 | What | Why |
 |---|---|
-| `x-empirevu-*` headers, `empirevu_*` / `empirevu.*` storage keys, bundle ids, DB/package names | API and storage contracts. Renaming them would break clients. Nobody sees them. |
-| Mobile app (`mobile/`) | It's a separate store listing and binary. A per-account brand switch there is follow-up work. The help article no longer names the app ("In the mobile app…"). |
-| Stripe **billing portal** header | The portal API has no per-session branding. The portal shows the Stripe account's portal settings (EmpireVu name/logo). Only its return URL follows the org's host. To fix it, use a separate Stripe portal configuration or account. |
-| Stripe receipts, statement descriptor, legal name in Checkout terms | These are set per Stripe account, not per session. |
-| Supabase Auth emails (confirm sign-up, reset password, magic link) | The templates are global for the project. Use the brand-neutral copy below. |
-| House-only pages: `/privacy`, `/delete-account` (store-review pages for the EmpireVu app), `/internal/ops`, operator emails (`OWNER_EMAIL`), the waitlist, A1 imports, the demo seed, Retell/Marina health | Only the platform operator or the EmpireVu app listing sees these. |
-| `PLATFORM_BRAND_NAME` env | Still overrides the scorecard name, but only for EmpireVu orgs. |
+| `x-empirevu-*` headers (still accepted), `empirevu*` storage keys (still read and cleared), `crankleads_*` tables, `platform_brand` values, identifiers, file and package names | API, storage and DB contracts. Nobody sees them. Renamed in PR 5 (code) and PR 7 (DB). |
+| Mobile app (`mobile/`) | A separate store listing and binary, rebranded in PR 6. |
+| Stripe **billing portal** header, receipts, statement descriptor, legal name in Checkout terms | Set per Stripe account, not per session. Change them in the Stripe dashboard. |
+| Old asset files (`public/brand/crankleads-*`) | Already-sent emails and pages link to them. |
+| `/welcome/crankleads`, `/api/public/crankleads/*` paths | Already in buyers' emails and Stripe success URLs. |
 
-## Setup you need to do
+## Env switches
 
-**It is safe to merge and deploy before any of this.** Until `CRANKLEADS_APP_BASE_URL` is set,
-every CrankLeads link uses the same origin as EmpireVu (`APP_BASE_URL`), so nobody is sent to a
-host that doesn't exist yet. CrankLeads users still see CrankLeads on the EmpireVu host:
-signed-in users are branded by their org, and the purchase welcome page always shows CrankLeads.
-Only the signed-out sign-in page on the EmpireVu host shows EmpireVu, because nothing tells it
-who is signing in. Emails print the host of the actual link, never a hard-coded one.
-
-Do these steps in order. **Set the env var last.**
-
-1. **Run the migration** (`20261006150000_platform_brand.sql`). You can do this any time.
-2. **Supabase email templates.** Replace them with the brand-neutral copy below. You can do this
-   any time.
-3. **Domain (Railway).** In the web service → Settings → Networking → Custom Domain, add
-   `app.crankleads.com`. Railway shows a CNAME target.
-4. **DNS (crankleads.com registrar).** Add `CNAME app → <the Railway target>`. Wait until
-   Railway shows the certificate as issued and `https://app.crankleads.com/signin` loads (it
-   should show the CrankLeads sign-in).
-5. **Supabase → Authentication → URL Configuration → Redirect URLs.** Add
-   `https://app.crankleads.com/**`, or at least `/update-password` and `/oauth/callback`, and
-   keep the Site URL as the EmpireVu app. This list only matters for flows **started on that
-   host**: "Forgot password" (the reset link redirects to `/update-password` on the host it was
-   requested from) and Google sign-in (`/oauth/callback`). If a `redirectTo` isn't listed,
-   Supabase falls back to the Site URL. The set-password link in the welcome email and the
-   setup reminders does **not** depend on this list: it points straight at our own
-   `/update-password?token_hash=…`, and the page verifies it with `verifyOtp`.
-6. **Google OAuth** (if Google sign-in is enabled): add `https://app.crankleads.com` to the
-   Google Cloud OAuth client's *Authorized JavaScript origins*. The redirect URI is Supabase's,
-   so it is unchanged.
-7. **Last step, the env var:** set `CRANKLEADS_APP_BASE_URL=https://app.crankleads.com` on
-   **web, worker, billing-worker and monthly-scorecard**, then redeploy. From then on, CrankLeads
-   links point at the CrankLeads host: Stripe Checkout success/return URLs, welcome and
-   set-password emails, setup reminders (including those to already-provisioned buyers),
-   invites, digests, voicemail and crew links, Connect and accounting returns. Never set it
-   before steps 3–5 are live. To roll back, unset it.
+* `EVERDOER_SMS_PREFIX_ALL_ORGS=1` [web, worker]: prefix owner texts with "Everdoer: " for every
+  org, not just done-for-you ones. **Off by default**, so house orgs' (A1's) owner texts are
+  unchanged. Before turning it on, update the A2P 10DLC campaign's sample messages in Twilio to
+  show the "Everdoer: " prefix. Unset it to roll back.
+* `PLATFORM_BRAND_NAME` [monthly-scorecard]: still overrides the scorecard name for standard
+  orgs. Defaults to "Everdoer". Leave it unset (or set it to `Everdoer`); if it is set to
+  `EmpireVu` today, remove it.
+* `EVERDOER_APP_BASE_URL`: see `REBRAND_CHECKLIST.md` for the host move.
 
 ### Brand-neutral Supabase Auth templates
 
-These templates go to EmpireVu and CrankLeads users alike, so they name neither brand.
+These templates are global for the Supabase project. They name no brand.
 `{{ .ConfirmationURL }}` already points at the host the user started from.
 
 **Confirm signup.** Subject: `Confirm your email`
@@ -122,16 +106,19 @@ These templates go to EmpireVu and CrankLeads users alike, so they name neither 
 <p><a href="{{ .ConfirmationURL }}">Confirm the change</a></p>
 ```
 
-Set the sender name (Authentication → SMTP Settings) to something neutral, such as "Account
-team", or to the support mailbox name. Don't use "EmpireVu".
+Set the sender name (Authentication → SMTP Settings) to "Everdoer" once the everdoer.com
+sending domain is verified.
 
 ## Local development
 
-`http://crankleads.localhost:5173` gives you the CrankLeads brand before login. Chromium resolves
-`*.localhost` by itself. Other browsers may need a hosts entry.
+`http://everdoer.localhost:5173` (or `crankleads.localhost`) gives you the done-for-you product
+line before login; `localhost` gives you the standard line. Both display Everdoer. Chromium
+resolves `*.localhost` by itself. Other browsers may need a hosts entry.
 
 ## Adding copy
 
 * SPA: `const brand = useBrand()`, then `brand.name`. In shared text, write `{{product}}` and pass it through `withProductName(text, brand)`.
 * Server, for owner and staff messages: `loadOrganizationBrand(supabase, orgId)`, then `brand.name` and `appBaseUrlFor(brand)`.
-* Customer-facing copy names the **company** and never either platform.
+* Behaviour that differs between the product lines: branch on `brand.productLine` / `isDoneForYou()`, never on a name or the stored key.
+* Customer-facing copy names the **company** and never the platform.
+* AI-written text runs through the platform-name filters (`sms-agent/guard.ts`, `email-clerk/parse.ts`, marketer, estimator, purchasing, recruiter, `voice/post-call.ts`), which strip Everdoer, EmpireVu and CrankLeads.

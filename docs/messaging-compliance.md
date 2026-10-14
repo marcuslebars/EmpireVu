@@ -41,7 +41,7 @@ Every outbound message is written to `message_log` (channel, direction, to/from,
 
 A missed call caught by the [missed-call catcher](missed-call-catcher.md) is an inquiry: the caller phoned the business, so intake stamps **implied consent** (`implied_inquiry`) on the contact, exactly as for a Retell call or a web form. The `missed-call-text-back` recipe's message names the business (`{{company.name}} here`) and is the first SMS, so it carries `Reply STOP to opt out`. It is sent **from the company's own catcher number**, so a STOP reply lands on that number and opts the contact out of that company. A caller who opted out is never texted back on a later missed call (`checkConsent` at send time), a withheld caller ID is never texted, and a repeat call within `MISSED_CALL_TEXTBACK_WINDOW_MINUTES` doesn't trigger a second text.
 
-## CrankLeads setup reminders (owner, transactional)
+## Done-for-you setup reminders (owner, transactional)
 
 The setup follow-ups ([crankleads-purchase.md](crankleads-purchase.md#setup-follow-ups-automatic-chasing-until-the-buyer-is-live))
 message the **account owner who just bought the service**, about finishing that purchase's
@@ -52,3 +52,13 @@ the account is live or the subscription is cancelled. Every text ends "Reply STO
 texts" and is sent from the platform number (`TWILIO_FROM_NUMBER`), so Twilio's carrier-level
 STOP handling stops them without touching the company's own number; every email has a "stop
 these reminders" link (sets `crankleads_purchases.setup_reminders_stopped_at`).
+
+## Owner texts from the platform number: the "Everdoer: " prefix
+
+Texts to a business owner from the platform number (approvals, alerts, the 07:00 briefing,
+setup reminders) are signed `Everdoer: ` so the owner knows who is texting
+(`owner-channel/common.ts` `signaturePrefix`). Done-for-you orgs always get it. Every other org
+(the house tenants, e.g. A1) gets it only when `EVERDOER_SMS_PREFIX_ALL_ORGS=1` is set on web and
+worker. **Before setting it, update the A2P 10DLC campaign's sample messages in the Twilio
+console** to show the `Everdoer: ` prefix, so live traffic matches the registered samples.
+Texts to end customers never carry a platform name; they name the company.

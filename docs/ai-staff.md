@@ -453,7 +453,7 @@ One text to the owner each morning: today's jobs, weather risk, money, what's wa
 At 07:00 (Tuesday), from the platform number to the verified owner cell:
 
 ```
-CrankLeads: Morning Dana - Northshore Roofing, Tue Oct 13.
+Everdoer: Morning Dana - Northshore Roofing, Tue Oct 13.
 Today: 4 jobs, first at 8am. Mike 2, Sam 1, 1 unassigned.
 Weather: today rain 90%, 12 mm - 4 jobs at risk.
 Money: $1,250 came in yesterday, $2,480 overdue (2 invoices).
@@ -482,7 +482,7 @@ Each part is read on its own. A part with nothing to say is left out. A failed r
 
 "Yesterday" is everything since the previous briefing day, local midnight to midnight: Monday after a Saturday briefing says "Since Saturday" and covers Saturday and Sunday (49 hours across the November DST change).
 
-**Length.** At most 4 SMS segments: 612 GSM-7 characters including the "CrankLeads: " prefix (extension characters count double). The text is flattened to plain ASCII (accents, curly quotes, dashes, emoji), so it is never sent as UCS-2. When it's too long, in order: approval one-liners are shortened, then cut to one, the Yesterday line goes, heads-ups are cut to two, the crew breakdown goes, tomorrow's weather goes, the approvals become a count, heads-ups are cut to one and then none, and last the folded money lines are dropped from the end. Money lines that didn't fit are not marked reported, so they come the next morning.
+**Length.** At most 4 SMS segments: 612 GSM-7 characters including the "Everdoer: " prefix, when the org gets one (extension characters count double). The text is flattened to plain ASCII (accents, curly quotes, dashes, emoji), so it is never sent as UCS-2. When it's too long, in order: approval one-liners are shortened, then cut to one, the Yesterday line goes, heads-ups are cut to two, the crew breakdown goes, tomorrow's weather goes, the approvals become a count, heads-ups are cut to one and then none, and last the folded money lines are dropped from the end. Money lines that didn't fit are not marked reported, so they come the next morning.
 
 ### Once a day (`briefing.ts`)
 
@@ -570,7 +570,7 @@ None of its own. No model calls: every line is built in code. Weather uses the D
 
 A new business brings its existing customer list, so the Bookkeeper, Marketer and Dispatcher have history on day one. Code: `src/server/services/staff/importer/`. Migration: `20261012110000_staff_importer.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Customer import** (`src/components/settings/staff/ImporterSettingsSection.tsx`). Pages: **Import customers** (`/import`, signed in, owners/admins; `src/screens/ImportCustomersPage.tsx`) and the texted link `/import/:token` (no login; `src/screens/PublicImportPage.tsx`). Both use `src/components/import/ImportWizard.tsx`.
 
-**What the owner sees.** Dana texts "can I bring my customers over from Jobber?" → "Sent you the link." and a separate text: "CrankLeads: Bring your customer list over: upload a spreadsheet (CSV or Excel) from Jobber, QuickBooks, Housecall Pro, Square or your own. You'll see a preview before anything is saved, and nobody gets texted. https://…/import/…". She uploads `clients.csv`; a few seconds later the page shows her columns with our guess for each (she can change any of them) and a preview: "272 new customers · 40 you already have (blanks filled) · 1,104 past jobs · 14 open balances · $8,420", 9 rows that will be skipped and why, and sample rows. She presses **Import 312 customers**; she can close the page. When it's done: "CrankLeads: Imported 312 customers (272 new, 40 you already had - blanks filled, nothing overwritten), 1,104 past jobs, 14 open balances ($8,420) from clients.csv. 9 rows skipped - see the import page. Nobody was texted or emailed.\n#12 14 imported balances, $8,420 owing (oldest from Mar 3, 2026). Nobody has been reminded yet. Y to let the Bookkeeper start reminders on them (texts and emails, your usual schedule). Reply Y 12 to approve, N 12 to skip."
+**What the owner sees.** Dana texts "can I bring my customers over from Jobber?" → "Sent you the link." and a separate text: "Everdoer: Bring your customer list over: upload a spreadsheet (CSV or Excel) from Jobber, QuickBooks, Housecall Pro, Square or your own. You'll see a preview before anything is saved, and nobody gets texted. https://…/import/…". She uploads `clients.csv`; a few seconds later the page shows her columns with our guess for each (she can change any of them) and a preview: "272 new customers · 40 you already have (blanks filled) · 1,104 past jobs · 14 open balances · $8,420", 9 rows that will be skipped and why, and sample rows. She presses **Import 312 customers**; she can close the page. When it's done: "CrankLeads: Imported 312 customers (272 new, 40 you already had - blanks filled, nothing overwritten), 1,104 past jobs, 14 open balances ($8,420) from clients.csv. 9 rows skipped - see the import page. Nobody was texted or emailed.\n#12 14 imported balances, $8,420 owing (oldest from Mar 3, 2026). Nobody has been reminded yet. Y to let the Bookkeeper start reminders on them (texts and emails, your usual schedule). Reply Y 12 to approve, N 12 to skip."
 
 ### Upload (`batches.ts`, `deps.ts`, `links.ts`)
 
@@ -1877,12 +1877,12 @@ Tells the owner where the money is going: a short money text each week, a monthl
 
 - **Friday 15:00** (setting: day and time), from the platform number, only when 2+ jobs were finished in the last 7 days or the next 30 days look tight:
 
-  > CrankLeads: This week: 6 jobs done, $8,420 billed, profit about $3,100 (37%). Best: Jones roof $1,200. Watch: Smith deck lost $180 (labour 9h over). Next 30 days: about $11k in, $7k out - fine. Text 'profit' for more.
+  > Everdoer: This week: 6 jobs done, $8,420 billed, profit about $3,100 (37%). Best: Jones roof $1,200. Watch: Smith deck lost $180 (labour 9h over). Next 30 days: about $11k in, $7k out - fine. Text 'profit' for more.
 
   When the numbers are a guess it says so ("3 crew have no pay rate - profit is a guess.", "2 jobs have no price yet.", "4 jobs have no hours or receipts logged."). An owner with more than one business gets the business name first ("Northshore Roofing: This week: …"). Tight: "… Next 30 days: about $4k in, $7k out - tight around Nov 6 (about $2,400 short)."
 - **The first Tuesday of the month**, when a service makes well under the business's average margin but customers still say yes to it:
 
-  > CrankLeads: #12 Price check - Gutter cleaning: 18 jobs in 6 months, 12% margin (you average 35%), and you win 92% of quotes. Y raises it from $189 to $215 (+14%) for new quotes. Estimates from your app data - not financial advice. Reply Y 12 to raise it, N 12 to leave it.
+  > Everdoer: #12 Price check - Gutter cleaning: 18 jobs in 6 months, 12% margin (you average 35%), and you win 92% of quotes. Y raises it from $189 to $215 (+14%) for new quotes. Estimates from your app data - not financial advice. Reply Y 12 to raise it, N 12 to leave it.
 
   `Y 12` → "Done - Gutter cleaning is now $215 on your price list (was $189). New quotes use it; quotes already sent keep their price. I'll show you how it does in next month's price check." `N 12` → "OK - Gutter cleaning stays at $189. I won't ask about it again for 90 days."
 - **The 07:00 briefing** (Office manager, via `briefingItems`), only when cash looks tight in the next 30 days: "Cash looks tight around Nov 6 (about $2,400 short)".

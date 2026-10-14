@@ -34,7 +34,7 @@ Every outcome is logged in `help_chat_events`, so we can see how much the assist
 
 | id | Title |
 | --- | --- |
-| `getting-started` | Finish setting up EmpireVu |
+| `getting-started` | Finish setting up Everdoer |
 | `phone-setup` | Choosing your phone setup and missed-call number |
 | `call-forwarding` | Turn call forwarding on and off (codes from `src/lib/carrier-forwarding.ts`) |
 | `test-forwarding` | Test that missed calls are caught |
@@ -123,7 +123,7 @@ assume one model.
 1. **Saves first** — `support_requests` (org, profile = the caller, their email, question,
    last ≤10 turns, account context, reason, session). If this insert fails the route 500s and
    the user is told it didn't go through.
-2. **Emails the operator** at `OWNER_EMAIL` (plain text, sender name "EmpireVu Help",
+2. **Emails the operator** at `OWNER_EMAIL` (plain text, sender name "Everdoer Help",
    Reply-To = the user's email): organization and company, user email, plan / CrankLeads
    tier / status / role / setup progress, the reason, request id, the question and the
    transcript. The subject is flattened to one line.
