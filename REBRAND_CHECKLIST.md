@@ -220,7 +220,7 @@ After PR 2 deploys, **every org, A1 included, sees the lime Everdoer app.** Cust
 - If the job deletes the org but fails to delete the old login, delete `demo@empirevu.com` by hand in Supabase → Authentication → Users.
 
 ### 2.8 What's still EmpireVu or CrankLeads after PR 2 (by design)
-- The mobile app in the stores: that's PR 6 (a new `com.everdoer.app` app). The privacy and delete-account pages say "(formerly EmpireVu)" until a follow-up (6.9).
+- The mobile app in the stores: that's PR 6 (a new `com.everdoer.app` app). The privacy and delete-account pages dropped "(formerly EmpireVu)" in PR 6 (6.9).
 - crankleads.com and empirevu.com marketing: PR 3.
 - Internal code names, log prefixes, `crankleads_*` tables and `platform_brand` values: PR 5 and PR 7.
 - Old asset files (`/empirevu-*`, `/brand/crankleads-*`), kept because sent emails link to them.
@@ -447,8 +447,8 @@ Push isn't live yet, so set all of these together when you turn it on; until the
 ### 6.8 Review account
 - [ ] `demo@everdoer.com` already exists (PR 2, 2.7). Put it and its password into **Play Console → App content → App access** and **App Store Connect → App Review Information**, with the review notes in `mobile/STORE.md` §3. Take the store screenshots signed in as it (`mobile/STORE.md` §4).
 
-### 6.9 Web follow-up (not in PR 6)
-- The privacy and delete-account pages still say "the Everdoer app (formerly EmpireVu)". With a new listing nobody has the EmpireVu app, so a small web PR can drop "(formerly EmpireVu)" from `PrivacyPolicyPage.tsx`, `DeleteAccountPage.tsx` and `rebrand-pr2-copy.test.tsx`.
+### 6.9 Web pages
+- [x] Done in PR 6: the privacy and delete-account pages no longer say "(formerly EmpireVu)". The privacy policy is dated 15 October 2026, which also covers the Everdoer Technologies Inc. entity line.
 
 ## PR 7: database object renames
 To be filled in: the migration and rollback that you run.
