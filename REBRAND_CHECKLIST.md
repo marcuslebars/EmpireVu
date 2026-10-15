@@ -220,7 +220,7 @@ After PR 2 deploys, **every org, A1 included, sees the lime Everdoer app.** Cust
 - If the job deletes the org but fails to delete the old login, delete `demo@empirevu.com` by hand in Supabase → Authentication → Users.
 
 ### 2.8 What's still EmpireVu or CrankLeads after PR 2 (by design)
-- The mobile app in the stores: that's PR 6. The privacy and delete-account pages say "(formerly EmpireVu)" until then.
+- The mobile app in the stores: that's PR 6 (a new `com.everdoer.app` app). The privacy and delete-account pages say "(formerly EmpireVu)" until a follow-up (6.9).
 - crankleads.com and empirevu.com marketing: PR 3.
 - Internal code names, log prefixes, `crankleads_*` tables and `platform_brand` values: PR 5 and PR 7.
 - Old asset files (`/empirevu-*`, `/brand/crankleads-*`), kept because sent emails link to them.
@@ -399,10 +399,56 @@ Wire and stored names were deliberately kept; PR 7/8 decide them:
 - [ ] Remove `a1marinestorage: "a1-marine-storage"` from `lead-intake/routing.ts`, once the audit shows no Storage traffic (D.4).
 
 ## PR 6: new mobile app
-To be filled in once you've confirmed the store install counts. It covers:
-- `com.everdoer.app` listings and the APNS key/topic
-- the final old-app update
-- the review notes
+PR 6 ships a **new** app, `com.everdoer.app`, display name **Everdoer**, scheme `com.everdoer.app://`
+(REBRAND_PLAN D5 superseded: the old app has no installs apart from yours). There is no "final
+old-app update" and no migration: on the new app you sign in once. Do these in order; nothing in
+code needs to change after the merge.
+
+### 6.1 Apple (developer.apple.com → Certificates, Identifiers & Profiles; then App Store Connect)
+- [ ] **Identifiers → + → App IDs → App:** Description `Everdoer`, Bundle ID (explicit) `com.everdoer.app`. Capabilities: **Push Notifications** and **Sign in with Apple**.
+- [ ] **Keys:** if you have no APNs key yet, **Keys → + →** name `Everdoer APNs`, tick **Apple Push Notifications service (APNs)**, download the `.p8` once and note the **Key ID** and your **Team ID**. (An APNs key is team-wide; an existing one also works for the new bundle id.)
+- [ ] **Profiles → + → App Store Connect (Distribution)** → App ID `com.everdoer.app` → your Apple Distribution certificate → name `Everdoer App Store`. Download it.
+- [ ] **GitHub → Settings → Secrets and variables → Actions:** replace the value of `IOS_PROVISIONING_PROFILE_BASE64` with `base64 -i Everdoer_App_Store.mobileprovision` of the new profile. The secret **names stay the same** (none embeds the old brand); `IOS_DIST_CERT_P12_BASE64`, `IOS_DIST_CERT_PASSWORD`, `IOS_TEAM_ID`, `IOS_KEYCHAIN_PASSWORD` are unchanged if the certificate is the same. The workflow now looks the profile up under the key `com.everdoer.app`.
+- [ ] **App Store Connect → Apps → + → New App:** platform iOS, name `Everdoer`, primary language English (Canada or U.S.), bundle ID `com.everdoer.app`, SKU `everdoer-ios`, full access. Fill the listing from `mobile/STORE.md` §3.
+- Sign in with Apple runs as web OAuth in the system browser (Services ID), so the Supabase Apple provider needs no change for the new bundle id; only the redirect URL in 6.5.
+
+### 6.2 Google Play (play.google.com/console)
+- [ ] **Create app:** name `Everdoer`, default language English, App, Free. Package name is set by the first upload: `com.everdoer.app`.
+- [ ] **Play App Signing:** accept Google-managed signing on the first upload. Make a new upload key for it (`keytool -genkeypair -v -keystore upload.keystore -alias everdoer -keyalg RSA -keysize 2048 -validity 10000`) and set the GitHub secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS=everdoer`, `ANDROID_KEY_PASSWORD` (same names as before; `mobile/STORE.md` §1.3 has the steps).
+- [ ] **App content:** data safety, privacy policy `https://app.everdoer.com/privacy`, account deletion `https://app.everdoer.com/delete-account`, content rating, target audience 18+. Answers are in `mobile/STORE.md` §2.
+- [ ] Upload the first AAB from CI to **Internal testing**.
+
+### 6.3 Firebase (console.firebase.google.com → the project you use for push)
+- [ ] **Project settings → Your apps → Add app → Android:** package `com.everdoer.app`, nickname `Everdoer`.
+- [ ] Download the new `google-services.json` and put its whole contents in the GitHub secret `ANDROID_GOOGLE_SERVICES_JSON` (replacing the old one). Locally it goes in `mobile/android/app/google-services.json` (git-ignored).
+- [ ] `FCM_SERVICE_ACCOUNT_JSON` stays as it is if it's the same Firebase project; if you made a new project, generate a new key under **Service accounts** and use that.
+
+### 6.4 Railway (project "Everdoer" → services **Everdoer** (web) and **Everdoer worker**)
+Push isn't live yet, so set all of these together when you turn it on; until then none are needed.
+- [ ] `APNS_BUNDLE_ID=com.everdoer.app`
+- [ ] `APNS_KEY_ID=<Key ID from 6.1>`, `APNS_TEAM_ID=<Team ID>`, `APNS_PRIVATE_KEY=<contents of the .p8>`
+- [ ] `APNS_PRODUCTION=true` (TestFlight and App Store builds)
+- [ ] `FCM_SERVICE_ACCOUNT_JSON=<service-account JSON, one line>` (6.3)
+
+### 6.5 Supabase (Authentication → URL Configuration → Redirect URLs)
+- [ ] Add `com.everdoer.app://auth-callback`. Password reset, email confirmation and Google/Apple sign-in in the app all return through it.
+- [ ] Leave `com.empirevu.app://auth-callback` until 6.7 is done, then remove it.
+
+### 6.6 GitHub repository variable (Settings → Secrets and variables → Actions → Variables)
+- [ ] `VITE_API_BASE_URL=https://api.everdoer.com`. CI bakes it into the app; if it's unset the app now defaults to the same host. Check first that `https://api.everdoer.com/api/health` (or any `/api/*`) answers. `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are unchanged.
+
+### 6.7 Retire the old app
+- [ ] **App Store Connect → EmpireVu (`com.empirevu.app`) → Pricing and Availability → Remove from sale** (or, if it was never released, delete the app record). Expire its TestFlight builds.
+- [ ] **Play Console → EmpireVu (`com.empirevu.app`) → Publishing overview / Advanced settings → Unpublish.** If it only ever lived in internal testing, remove the testers instead.
+- [ ] Delete `com.empirevu.app` from your own phone after installing Everdoer.
+- [ ] Optional cleanup afterwards: the old App ID's provisioning profile, and the Android app `com.empirevu.app` in Firebase.
+- Once the old app is gone nothing calls `app.empirevu.com/api` from a phone; the host row in 1.8 still waits on A1's sites and Retell.
+
+### 6.8 Review account
+- [ ] `demo@everdoer.com` already exists (PR 2, 2.7). Put it and its password into **Play Console → App content → App access** and **App Store Connect → App Review Information**, with the review notes in `mobile/STORE.md` §3. Take the store screenshots signed in as it (`mobile/STORE.md` §4).
+
+### 6.9 Web follow-up (not in PR 6)
+- The privacy and delete-account pages still say "the Everdoer app (formerly EmpireVu)". With a new listing nobody has the EmpireVu app, so a small web PR can drop "(formerly EmpireVu)" from `PrivacyPolicyPage.tsx`, `DeleteAccountPage.tsx` and `rebrand-pr2-copy.test.tsx`.
 
 ## PR 7: database object renames
 To be filled in: the migration and rollback that you run.

@@ -1,6 +1,6 @@
 name: Mobile
 
-# Builds EmpireVu Mobile. Store-signed artifacts are produced only when the signing
+# Builds Everdoer Mobile (com.everdoer.app). Store-signed artifacts are produced only when the signing
 # secrets below exist; otherwise the jobs still prove the app compiles on both platforms.
 #
 # Repository variables:  VITE_API_BASE_URL, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
@@ -154,7 +154,7 @@ jobs:
             <key>method</key><string>app-store-connect</string>
             <key>teamID</key><string>$TEAM_ID</string>
             <key>signingStyle</key><string>manual</string>
-            <key>provisioningProfiles</key><dict><key>com.empirevu.app</key><string>$PROFILE_UUID</string></dict>
+            <key>provisioningProfiles</key><dict><key>com.everdoer.app</key><string>$PROFILE_UUID</string></dict>
           </dict></plist>
           PLIST
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/App.xcarchive" \

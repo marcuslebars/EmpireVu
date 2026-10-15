@@ -58,7 +58,7 @@ So the plan is:
 | D2 | One marketing site | everdoer.com = today's **crankleads.com** site (the live offer), rebranded. empirevu.com and crankleads.com both 301 to everdoer.com. The empirevu.com waitlist page retires; its form endpoint keeps answering. |
 | D3 | App theme | One Everdoer theme for **every** tenant: lime on near-black, Inter. That changes the app's look for house tenants' staff (A1 etc. see lime, not blue). It is platform branding, so it's allowed by your rules, but it's visible to them. |
 | D4 | Internal brand key | `organizations.platform_brand` today means "which product line": `'empirevu'` = standard, `'crankleads'` = done-for-you (turns on the AI staff defaults). After the rebrand both *display* Everdoer, but the behaviour split stays. Rename the **values** to neutral names in Phase 3, `'empirevu'` → `'standard'` and `'crankleads'` → `'done_for_you'`, with a dual-read shim first. The column name itself has no old name. |
-| D5 | Mobile app | Keep bundle id `com.empirevu.app` and the `com.empirevu.app://` scheme forever (changing them publishes a *new* app; installs, push tokens and keychain sessions are lost). Rename only the display name, strings, icons and store listing. |
+| D5 | Mobile app | ~~Keep bundle id `com.empirevu.app` and the `com.empirevu.app://` scheme forever (changing them publishes a *new* app; installs, push tokens and keychain sessions are lost). Rename only the display name, strings, icons and store listing.~~ **Superseded 2026-10-15 (owner decision, PR 6):** the old app has no installs apart from the owner, so PR 6 ships a **new** app: bundle/package id, Android namespace and Java package, iOS bundle id and APNS topic `com.everdoer.app`, scheme `com.everdoer.app://`, display name Everdoer. No migration of old installs; in-app storage keys renamed outright (a re-login is fine). The `com.empirevu.app` listing is retired (checklist, PR 6). |
 | D6 | Wire headers | Add `x-everdoer-key`, `-signature`, `-retell-secret`, `-telnyx-secret`. Accept both forever. Docs and snippets show the new ones. |
 | D7 | Email senders | Today *all* mail (A1's customer mail and platform mail alike) goes from one `OUTBOUND_FROM_EMAIL`. Docs say `quotes@a1marinestorage.ca`, an **A1 domain**. Add a per-company sender (`companies.email_from_address`, null = platform default `hello@everdoer.com`). A migration pins A1 companies to their current A1 addresses, so A1 customer mail is byte-identical and everyone else moves to @everdoer.com once the domain is verified. |
 | D8 | Tenant repos | Don't edit A1 or boatnames repos (tenant-owned). Their env and URLs keep working because old hosts and headers keep working. The checklist lists optional env updates. |
@@ -148,7 +148,7 @@ Other changes:
 - Icons and splash regenerated from the kit (~60 generated PNGs via `@capacitor/assets`).
 - `mobile/STORE.md` listing copy.
 
-Keep: bundle id, URL scheme, Java package path, APNS topic (D5).
+~~Keep: bundle id, URL scheme, Java package path, APNS topic (D5).~~ Superseded: PR 6 changes all four to `com.everdoer.app` (D5).
 
 ### 1.7 Marketing sites
 - **crankleads.com → everdoer.com** (L), 13 strings:
@@ -326,7 +326,7 @@ Never edit applied migrations; rollbacks for Phase 3 are new files. The full loc
 | Railway: project "EmpireVu" (services: EmpireVu, EmpireVu worker, workflow-events, crankleads-sweep, billiing-worker [sic], billing-reconcile, quote-maintenance, monthly-scorecard, jobber-sync [dead]); project "CrankLeads" (service `crankleads-system`); project "EmpireVu Frontend" | rename in the dashboard (checklist): "Everdoer", "Everdoer worker", "dfy-sweep", "everdoer-site"; fix "billiing-worker"; delete jobber-sync | L |
 | Logging: `[crankleads/provision]`, `[crankleads-sweep]`, etc.; UA strings | rename | L |
 | Stripe catalog ids `crankleads_<tier>`, lookup keys, coupon ids | **keep** (live objects; renaming makes new products). Display names change in Stripe | — |
-| Mobile bundle id, Java package dir, URL scheme, APNS topic | **keep** (D5) | C if changed |
+| Mobile bundle id, Java package dir, URL scheme, APNS topic | ~~keep~~ → `com.everdoer.app` in PR 6 (D5 superseded: new app, no installs to migrate) | L |
 | CI: `.github/workflows/mobile.yml` (build header, provisioning profile key name), `ci.yml` | rename labels; keep the profile key value | L |
 | e2e harness: DB names `empirevu_e2e`/`empirevu_sqltest`, host `app.crankleads.localhost` checks in 6 scripts, `@crankleads.test` fixtures | `everdoer_e2e`, `app.everdoer.localhost` + a test that old hosts still answer `/api/*` and 301 pages | L |
 | Docs: ~430 lines across 30 docs; `EMPIREVU_RUNBOOK.md` (filename referenced 40×), `EMPIREVU_AUDIT.md`, `empirevu-hub-setup.md`, `crankleads-*.md`, `NEXT_LEVEL_PLAN.md` (14), README | rename files + prose; leave a one-line redirect note in the old filenames for one release | L |
@@ -396,7 +396,7 @@ Each PR is deployable alone, with full tests plus the local Postgres/PostgREST E
 5. **PR 5, internal renames** (EmpireVu; no behaviour change)
    - Identifiers, directories, packages, env-var names (fallbacks retained), npm scripts (old aliases), docs, e2e harness, CI labels.
    - Then the GitHub and Railway renames.
-6. **PR 6, mobile release:** display name, icons, splash, strings, store listing. Bundle id unchanged.
+6. **PR 6, mobile release:** new app `com.everdoer.app` (D5 superseded): display name, icons, splash, strings, store listing, bundle id, scheme, APNS topic.
 7. **PR 7, Phase 3 DB object renames** (after 1–5 are stable)
    - `crankleads_purchases`, `crankleads_setup_followups`, `crankleads_tier`, `platform_brand` values, with compat views and widened CHECKs.
    - Migration + rollback for you to run; full E2E + isolation tests on the migrated DB.
