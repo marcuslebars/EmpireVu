@@ -1,10 +1,10 @@
-# EmpireVu
+# Everdoer
 
-The central hub for my companies — the CRM and **central lead record** for the A1 family (A1 Marine Care, A1 Marine Storage, A1 Coatings) and my productivity/scheduling workspace across them.
+The central hub for my companies — the CRM and **central lead record** for the A1 family (A1 Marine Care, A1 Coatings; A1 Marine Storage was decommissioned on 2026-10-14) and my productivity/scheduling workspace across them.
 
 Multi-tenant on Supabase/Postgres: one organization → many companies → contacts / bookings / tasks, with an activity-event trace backbone and a DB-backed workflow automation engine.
 
-> Renamed from **Syncoree**. See `docs/EVERDOER_AUDIT.md` for the full Phase 0 audit (live-vs-mock inventory, backend surface, workflow engine, architecture decision, and the completion plan).
+> Formerly **EmpireVu** (the standard product) and **CrankLeads** (the done-for-you product), and before that **Syncoree**; see `REBRAND_PLAN.md`. See `docs/EVERDOER_AUDIT.md` for the full Phase 0 audit of the Syncoree → EmpireVu rename (live-vs-mock inventory, backend surface, workflow engine, architecture decision, and the completion plan).
 
 ## Architecture
 
