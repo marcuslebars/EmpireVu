@@ -1,6 +1,6 @@
 # Industry starter packs
 
-A **starter pack** makes a brand-new company look like a business in its trade within a few clicks. It is how the operator installs a new CrankLeads client in about 30 minutes.
+A **starter pack** makes a brand-new company look like a business in its trade within a few clicks. It is how the operator installs a new done-for-you client in about 30 minutes.
 
 Applying a pack to a company gives it:
 

@@ -1,6 +1,6 @@
 # QuickBooks Online / Xero sync
 
-One-way sync from EmpireVu into the business's accounting file, per company (brand):
+One-way sync from Everdoer into the business's accounting file, per company (brand):
 sent invoices (with their customer), payments, refunds and voids, and expenses with
 their receipt files. Owners/admins connect in **Settings → Accounting**.
 
@@ -22,6 +22,9 @@ Redirect URIs to register:
 - QuickBooks: `https://app.empirevu.com/api/accounting/callback/quickbooks`
 - Xero: `https://app.empirevu.com/api/accounting/callback/xero`
 
+The rebrand registers the `app.everdoer.com` twins of both alongside these; keep the old ones
+registered while the old host is in use.
+
 A provider is offered in Settings only when its id/secret and `ACCOUNTING_TOKEN_KEY` are set.
 `npm run job:accounting-sync` runs a sync pass by hand (the worker does it every minute).
 
@@ -32,7 +35,7 @@ invoices / invoice_payments / expenses ──(DB triggers, only if the company i
                                                                                                    │
 worker scheduler pass (≈ every minute) ── claim_accounting_sync_jobs (skip-locked) ─▶ engine.ts ─▶ QuickBooks / Xero
                                                                                                    │
-                                                                         accounting_links (EmpireVu id ↔ remote id + hash)
+                                                                         accounting_links (Everdoer id ↔ remote id + hash)
 ```
 
 - **Triggers** fire only on changes that matter to the books (e.g. not on a notes edit) and
@@ -43,12 +46,12 @@ worker scheduler pass (≈ every minute) ── claim_accounting_sync_jobs (skip
 - **Start date**: records dated before it are skipped (so books already entered by hand aren't
   duplicated). Saving the mapping queues everything from the start date not yet synced.
 - **Dependencies**: a payment pushes its invoice first; an invoice finds-or-creates its
-  customer (by name — a name already linked to a different EmpireVu customer gets "Name
+  customer (by name — a name already linked to a different Everdoer customer gets "Name
   (email)"); an expense its vendor (Xero needs a contact on every spend; QuickBooks doesn't).
 - **Deposits**: an online-booking deposit was its own invoice, so the job invoice gets a
   negative, untaxed "Deposit received" line. A quote deposit (paid before any invoice) is
   booked as a payment on the invoice.
-- **Tax**: EmpireVu's one rate is split across the taxed lines (exact to the cent). Xero gets
+- **Tax**: Everdoer's one rate is split across the taxed lines (exact to the cent). Xero gets
   our per-line tax amounts, so totals match exactly. QuickBooks computes its own (TaxExcluded
   with the chosen code); a different total is noted on the link and shown in Activity. US
   QuickBooks files use TAX/NON and QuickBooks' sales tax; expenses there go over at full cost.

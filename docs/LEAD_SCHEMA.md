@@ -1,19 +1,21 @@
-# EmpireVu Lead Envelope — schemaVersion 1
+# Everdoer Lead Envelope — schemaVersion 1
 
-This is the **contract** every lead source (spoke) emits and the EmpireVu intake endpoint accepts. It is what the future **A1 Coatings** spoke implements. Keep it stable; version it (`schemaVersion`) rather than mutating it.
+This is the **contract** every lead source (spoke) emits and the Everdoer intake endpoint accepts. It is what the future **A1 Coatings** spoke implements. Keep it stable; version it (`schemaVersion`) rather than mutating it.
 
 ## Endpoint
 
 ```
 POST /api/intake
 Content-Type: application/json
-X-EmpireVu-Key: <per-tenant intake key>              # key mode (preferred)
-X-EmpireVu-Signature: sha256=<hex HMAC-SHA256 of the raw request body>
+X-Everdoer-Key: <per-tenant intake key>              # key mode (preferred)
+X-Everdoer-Signature: sha256=<hex HMAC-SHA256 of the raw request body>
 ```
+
+The old header names `X-EmpireVu-Key` / `X-EmpireVu-Signature` are still accepted.
 
 - **Auth is HMAC**, not a bare shared secret: the spoke signs the exact bytes it sends. A missing/invalid signature → `401` (this is the only rejection the endpoint makes).
 - **Two modes** (Task 7 — [tenant provisioning](tenant-provisioning.md)):
-  - **Key mode (preferred):** send `X-EmpireVu-Key`; the **org + company are pinned by the key** (nothing in the payload can change them), and the body signature is keyed by **that intake key**. A brand-new tenant works with no env change or deploy — issue it a key in Settings → Integrations.
+  - **Key mode (preferred):** send `X-Everdoer-Key` (or the old `X-EmpireVu-Key`); the **org + company are pinned by the key** (nothing in the payload can change them), and the body signature is keyed by **that intake key**. A brand-new tenant works with no env change or deploy — issue it a key in Settings → Integrations.
   - **Legacy mode:** no key header; the body signature is keyed by `LEAD_INTAKE_SECRET` and the company is resolved from `sourceSite`. This is the A1 spokes until they are cut over; each use logs `intake.legacy_auth_used` (once/hour/sourceSite).
 - In **both** modes the body signature is mandatory, and `sourceSite` is stored on the lead as a **free-text tag** — in key mode it does NOT choose the tenant; in legacy mode it still routes.
 - **A valid signature is never rejected for schema reasons** (see *Never drop a lead*).
@@ -26,8 +28,8 @@ X-EmpireVu-Signature: sha256=<hex HMAC-SHA256 of the raw request body>
 {
   "schemaVersion": 1,                     // required, literal 1
 
-  "source":      "a1marinestorage-contact", // required — brand-form tag (freeform, e.g. "<brand>-<form>")
-  "sourceSite":  "a1marinestorage",         // REQUIRED — brand id; routes the lead to a company. (Fix for the
+  "source":      "a1marinecare-contact",    // required — brand-form tag (freeform, e.g. "<brand>-<form>")
+  "sourceSite":  "a1marinecare",            // REQUIRED — brand id; routes the lead to a company. (Fix for the
                                             //   pre-existing defect where Care quote/booking carried no brand tag.)
   "formType":    "contact",                 // required — one of: "quote" | "contact" | "booking"
   "receivedAt":  "2026-07-06T14:03:00.000Z",// required — ISO 8601; the spoke's capture time
@@ -53,11 +55,11 @@ X-EmpireVu-Signature: sha256=<hex HMAC-SHA256 of the raw request body>
   },
 
   "meta": {                                 // optional — capture context
-    "site":          "a1marinestorage.ca",
-    "page":          "/calculator",
+    "site":          "a1marinecare.ca",
+    "page":          "/contact",
     "preferredDate": "2026-10-15",          // booking forms only; drives the bookings row for formType=booking
     "preferredTime": "09:00",               // booking forms only
-    "utm": { "utm_source": "google", "utm_campaign": "fall-storage" }
+    "utm": { "utm_source": "google", "utm_campaign": "fall-shrink-wrap" }
   }
 }
 ```
@@ -70,7 +72,7 @@ X-EmpireVu-Signature: sha256=<hex HMAC-SHA256 of the raw request body>
 | `source` | ✓ | Brand-form tag; used in the notification subject and stored for reporting. |
 | `sourceSite` | ✓ | **Brand id** — the routing key to a company. Required so no lead is company-ambiguous. |
 | `formType` | ✓ | `quote` \| `contact` \| `booking`. |
-| `receivedAt` | ✓ | ISO 8601. EmpireVu also stamps its own server receive time. |
+| `receivedAt` | ✓ | ISO 8601. Everdoer also stamps its own server receive time. |
 | `contact` | ✓ | Object; **email or phone required** (name alone is not enough to be a lead). |
 | `message` | — | Single free-text field. Spokes must fold their `message`/`notes` into this one. |
 | `lineItems[]` | — | `{description, quantity, unitPriceCents}` — integer cents. |
@@ -80,7 +82,7 @@ X-EmpireVu-Signature: sha256=<hex HMAC-SHA256 of the raw request body>
 
 ### Reconciled spoke deviations (from the Phase 0 audit)
 
-- **`sourceSite` is now required** — Care quote/booking previously sent no brand tag, making Care and Storage quotes indistinguishable. The shared spoke pipeline sets it for every send.
+- **`sourceSite` is now required** — Care quote/booking previously sent no brand tag, making Care and Storage quotes indistinguishable (A1 Marine Storage is now decommissioned). The shared spoke pipeline sets it for every send.
 - **One free-text field (`message`)** — replaces the `message` vs `notes` inconsistency.
 - **No duplicate `site`/`sourceSite`** — the storage payload's redundant `site` is dropped; brand lives only in `sourceSite`, capture host in `meta.site`.
 - **One boat/asset shape** — `asset.makeModel` / `asset.type` normalize `boatName`/`boatMakeModel`/`boatMakeModelYear` and `boatType`/`hullType`.
@@ -96,9 +98,9 @@ The intake **always returns `200 {"ok":true,"leadId":"..."}`** to an authenticat
 
 Validation sorts; it never gatekeeps. A malformed lead is still a customer.
 
-## Mapping to the EmpireVu schema
+## Mapping to the Everdoer schema
 
-| Envelope | EmpireVu |
+| Envelope | Everdoer |
 |---|---|
 | `sourceSite` | resolves the **company** (by `companies.slug`/brand map) within the A1 org; unresolved → `raw_leads` with null company, flagged |
 | `contact` (email/phone normalized) | **match or create** `contacts` under that company (see *Matching*) |
@@ -115,7 +117,7 @@ On each valid lead, before creating a new contact:
 
 - Normalize **email** (lowercase, trim) and **phone** (digits only, compare last 10).
 - Look for an existing contact in the **org** matching **either** normalized key.
-- **Match** → link the lead to that contact (no duplicate), record a cross-company `activity_event`, and flag **returning / cross-brand** in the notification (a storage quote from a past Marine Care contact is the headline case).
+- **Match** → link the lead to that contact (no duplicate), record a cross-company `activity_event`, and flag **returning / cross-brand** in the notification (a quote to one A1 brand from a past contact of another — e.g. an A1 Coatings quote from a past Marine Care contact — is the headline case; it was Storage ↔ Care before A1 Marine Storage was decommissioned).
 - **No match** → create the contact under the `sourceSite`'s company.
 - Matching is **enrichment only** — if it errors, log and record the lead unenriched. It never blocks or delays the durable write.
 

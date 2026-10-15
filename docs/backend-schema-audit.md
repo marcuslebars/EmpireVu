@@ -1,5 +1,7 @@
 # Syncoree Backend Schema Audit
 
+> Historical record from when the platform was called Syncoree (later EmpireVu, now Everdoer).
+
 ## Scope
 
 This audit strengthens the Supabase/Postgres backend foundation before any workflow execution engine is introduced.

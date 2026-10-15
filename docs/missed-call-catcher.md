@@ -1,13 +1,13 @@
 # Missed-call catcher (no AI)
 
-The CrankLeads **Catch** plan sells "missed-call text-back in seconds" **without** the AI
+The done-for-you **Catch** plan sells "missed-call text-back in seconds" **without** the AI
 receptionist. The missed-call catcher is how that works for a business that keeps answering
 its own phone.
 
 ## How it works
 
 The business keeps its existing number. On their carrier they turn on **conditional call
-forwarding** (no answer / busy / unreachable) to a CrankLeads Twilio number — the *catcher
+forwarding** (no answer / busy / unreachable) to an Everdoer Twilio number — the *catcher
 number*. A call only reaches the catcher number when the business didn't pick up, so **every
 call that arrives there is a missed call**.
 
@@ -115,11 +115,12 @@ provisioning refuses a number when:
 - it is the shared fallback sender `TWILIO_FROM_NUMBER` (E.164-normalised);
 - it has a `voice_numbers` row in **any** org (active or not) that isn't this same company's
   Twilio row — checked with a service-role, cross-org lookup (`findVoiceNumberOwner`);
-- its Twilio FriendlyName is `EmpireVu catcher <other companyId>`;
+- its Twilio FriendlyName is `EmpireVu catcher <other companyId>` or `Everdoer catcher <other companyId>`;
 - (attach) it is untagged and already has a non-demo Voice/SMS webhook configured — clear it
   in the Twilio console first if it really is free.
 
-Claimed numbers are tagged `EmpireVu catcher <companyId>`. DB backstop: `voice_numbers.phone_e164`
+Claimed numbers are tagged `EmpireVu catcher <companyId>` (`Everdoer catcher <companyId>` once
+`EVERDOER_WRITE_NEW_NAMES` is on; readers recognise both). DB backstop: `voice_numbers.phone_e164`
 is globally `UNIQUE` (since `20260904180000`).
 
 ### Owner alerts
@@ -169,7 +170,7 @@ is globally `UNIQUE` (since `20260904180000`).
    carrier** — plans differ, and some carriers want 10/11 digits instead of `+1`. Never use
    *unconditional* forwarding (`**21*`) — the business phone would stop ringing.
 3. **Test — automatic.** Once the number exists, the Phone step (and, for a catcher-mode
-   company, the wizard's *Test call* step) shows **Test my forwarding**. EmpireVu calls the
+   company, the wizard's *Test call* step) shows **Test my forwarding**. Everdoer calls the
    business line, the owner lets it ring, and the result shows live in the wizard **and** is
    texted to the owner — see [Forwarding verification](#forwarding-verification) below.
    The manual test (call the business number from another phone and let it ring out) still
@@ -177,7 +178,7 @@ is globally `UNIQUE` (since `20260904180000`).
 
 ## Forwarding verification
 
-If the owner gets forwarding wrong, text-back silently never fires. So EmpireVu **proves**
+If the owner gets forwarding wrong, text-back silently never fires. So Everdoer **proves**
 forwarding works, on demand and on a schedule, and tells the owner without them watching.
 
 ```
@@ -220,7 +221,7 @@ The test call's caller ID is **`TWILIO_FORWARDING_TEST_FROM` when set** (a dedic
   full STIR/SHAKEN attestation (a spoofed / unverified caller ID is what carriers block or label
   "Spam likely").
 - The catcher number works with zero setup, and the owner recognises it ("we're calling you from
-  your EmpireVu number"). Its one weakness: the forwarded leg arrives with `From == To` (the
+  your Everdoer number"). Its one weakness: the forwarded leg arrives with `From == To` (the
   number calls itself via the carrier). We know of no carrier or Twilio rule that blocks that,
   but some PBX/VoIP forwarding loops treat "caller = forward target" as a loop.
 - A dedicated verifier avoids that edge, is never a customer, and makes the forwarded leg
@@ -314,7 +315,7 @@ the Test call step shows the forwarding test instead of "call Marina".
 
 Only the company's **own stored** number — never a request parameter: `companies.brand_reply_phone`
 (the public business phone on quotes/branding), else `companies.owner_phone_e164` (Business step
-"Owner phone"; for a CrankLeads buyer, the phone given at checkout — for most small trades that is
+"Owner phone"; for a done-for-you buyer, the phone given at checkout — for most small trades that is
 the business line). Must be +1 (NANP), not 900/976, and not the catcher, the verifier,
 `TWILIO_FROM_NUMBER`, or any `voice_numbers` row in any org. If the owner's mobile is not the
 line customers call, set the business phone in Settings → Company.

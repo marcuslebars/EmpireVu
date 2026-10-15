@@ -1,6 +1,6 @@
 # Invoicing
 
-Brands invoice customers and business accounts (marinas) from EmpireVu, convert
+Brands invoice customers and business accounts (marinas) from Everdoer, convert
 quotes and bookings into invoices, and get paid by card, Apple Pay / Google Pay,
 Canadian pre-authorized debit, Interac e-Transfer, cheque or cash.
 
@@ -22,8 +22,8 @@ Canadian pre-authorized debit, Interac e-Transfer, cheque or cash.
    Without the async and payment-intent events, a bank debit can stay "clearing" forever.
 3. **Bank debit (PAD)** — per brand: turn on *ACSS Debit* in that brand's Stripe
    dashboard (Settings → Payment methods), then switch on "Bank debit" in
-   EmpireVu → Settings → Invoices.
-4. **Per-brand settings** — EmpireVu → Settings → Invoices: HST/GST number, business
+   Everdoer → Settings → Invoices.
+4. **Per-brand settings** — Everdoer → Settings → Invoices: HST/GST number, business
    address, invoice prefix, default terms and tax rate, e-Transfer address, cheque payee,
    reminder days.
 

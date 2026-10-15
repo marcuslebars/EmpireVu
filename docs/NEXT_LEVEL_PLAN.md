@@ -1,4 +1,4 @@
-# EmpireVu — Next Level Plan v2 (Claude Code execution file, Tasks 0–26)
+# Everdoer (formerly EmpireVu) — Next Level Plan v2 (Claude Code execution file, Tasks 0–26)
 
 > **This file supersedes the previous `docs/NEXT_LEVEL_PLAN.md` and `docs/AI_TEAM_PLAN.md`.** One protocol, one task list, one numbering. If those files exist in the repo, replace them with this one and update any references.
 >
@@ -16,7 +16,7 @@
 
 **Phase 2 (Tasks 8–17): the product.** Workflow engine v2 (messaging actions, delays, time triggers), playbook library, inbound SMS + realtime, unified inbox, self-serve onboarding, attribution, digest, mobile PWA, hardening.
 
-**Phase 3 (Tasks 18–26): the AI team.** EmpireVu stops being "a CRM with automations" and becomes a roster of **named AI employees** a small-business owner hires one at a time. Each employee has a role, a persona, working hours, an **autonomy level per action type** (draft-only → act-with-approval → act-and-report), and a **monthly scoreboard** proving what it earned. The workflow engine remains the deterministic spine; Claude sits at the edges (classify, extract, draft, judge). Nothing in this plan introduces free-roaming agents.
+**Phase 3 (Tasks 18–26): the AI team.** Everdoer stops being "a CRM with automations" and becomes a roster of **named AI employees** a small-business owner hires one at a time. Each employee has a role, a persona, working hours, an **autonomy level per action type** (draft-only → act-with-approval → act-and-report), and a **monthly scoreboard** proving what it earned. The workflow engine remains the deterministic spine; Claude sits at the edges (classify, extract, draft, judge). Nothing in this plan introduces free-roaming agents.
 
 The roster and where each comes from:
 
@@ -33,14 +33,14 @@ The roster and where each comes from:
 
 ## Working Protocol (applies to every task)
 
-You are working in the EmpireVu repository: a multi-tenant CRM / AI-front-office platform. Vite + React SPA (`src/screens`, `src/components`, `src/lib`) served single-origin by a Next.js 14 API runtime (`src/app/api/**`), Supabase/Postgres with RLS on every business table, a DB-backed job queue with Railway polling workers (`src/server/workers/*`), and cron jobs (`src/server/jobs/*`). The service layer is `src/server/services/**`. Tests are Vitest in `src/test/*.test.ts`.
+You are working in the Everdoer repository: a multi-tenant CRM / AI-front-office platform. Vite + React SPA (`src/screens`, `src/components`, `src/lib`) served single-origin by a Next.js 14 API runtime (`src/app/api/**`), Supabase/Postgres with RLS on every business table, a DB-backed job queue with Railway polling workers (`src/server/workers/*`), and cron jobs (`src/server/jobs/*`). The service layer is `src/server/services/**`. Tests are Vitest in `src/test/*.test.ts`.
 
-**Before you write anything, read:** `README.md`, `docs/EMPIREVU_RUNBOOK.md`, `docs/EMPIREVU_AUDIT.md`, and every `docs/*.md` relevant to the task. Then read the actual files the task names. Line numbers in this plan are approximate — always `grep` for the symbol rather than trusting the number.
+**Before you write anything, read:** `README.md`, `docs/EVERDOER_RUNBOOK.md`, `docs/EVERDOER_AUDIT.md`, and every `docs/*.md` relevant to the task. Then read the actual files the task names. Line numbers in this plan are approximate — always `grep` for the symbol rather than trusting the number.
 
 **Non-negotiable conventions — violating any of these fails the task:**
 
 1. **Tenancy.** Every new table gets `organization_id uuid not null references public.organizations(id) on delete cascade`, RLS enabled in the same migration, and policies built on `public.is_organization_member()` / `public.is_organization_admin()`. Company-scoped tables use the composite FK `(company_id, organization_id) references public.companies(id, organization_id)`. Follow the existing pattern in `supabase/migrations/20260321090000_initial_multi_tenant_foundation.sql` exactly.
-2. **Service role.** `createSupabaseAdminClient()` may only be imported from modules that already carry a "SANCTIONED EXCEPTION" header comment (lead-intake, public-booking, telnyx, retell, quotes public/checkout/connect, billing, jobber, waitlist, invitations, workers, jobs). If a task needs a new one, add the same header comment explaining why there is no RLS identity, resolve the tenant server-side from something the request cannot forge, and list it in `docs/EMPIREVU_RUNBOOK.md`.
+2. **Service role.** `createSupabaseAdminClient()` may only be imported from modules that already carry a "SANCTIONED EXCEPTION" header comment (lead-intake, public-booking, telnyx, retell, quotes public/checkout/connect, billing, jobber, waitlist, invitations, workers, jobs). If a task needs a new one, add the same header comment explaining why there is no RLS identity, resolve the tenant server-side from something the request cannot forge, and list it in `docs/EVERDOER_RUNBOOK.md`.
 3. **Queue.** Use the existing Postgres queue pattern (`workflow_event_jobs` + `FOR UPDATE SKIP LOCKED` claim RPC). Never add BullMQ, Redis, or any external queue.
 4. **Prices are data.** No dollar amounts in code. Customer prices live in Stripe or the per-company catalog. Provider cost rates (Retell, Twilio, Anthropic) may live in env with documented defaults.
 5. **Durable-first.** Any inbound webhook or public write persists the raw payload before doing anything else, and before ACKing.
@@ -48,7 +48,7 @@ You are working in the EmpireVu repository: a multi-tenant CRM / AI-front-office
 7. **Migrations.** Filename `supabase/migrations/YYYYMMDDHHMMSS_short_name.sql` using today's date, strictly after the newest existing file. Additive only. Write the matching `supabase/rollback/<same_name>.down.sql`. If the migration adds tables, regenerate types (Task 2).
 8. **Env.** Every new env var goes into `.env.example` with a comment tagging which service consumes it (`[web]`, `[worker]`, `[billing-worker]`, `[reconcile]`, `[quote-maintenance]`, `[jobber-sync]`) — traced from code, not assumed.
 9. **Tests.** Every task adds Vitest coverage for its new behavior in `src/test/`. Follow the mocking patterns already in `src/test/setup.ts` and neighbouring tests. Golden fixtures for anything that prices, formats, or routes.
-10. **Docs.** Update or create the relevant `docs/*.md`. If the task changes deploy topology or env, update `docs/EMPIREVU_RUNBOOK.md`.
+10. **Docs.** Update or create the relevant `docs/*.md`. If the task changes deploy topology or env, update `docs/EVERDOER_RUNBOOK.md`.
 11. **A1 must keep working.** A1 Marine Care / Storage / Coatings / boatnames.ca / a1marineinsurance.ca spokes sign intake with the global `LEAD_INTAKE_SECRET` and send `sourceSite`. That path stays functional until Task 7's cutover checklist is explicitly completed by the owner.
 12. **Windows/PowerShell.** The owner runs Windows. Prefer `npm run <script>` over raw shell. If you must chain commands, use `;` not `&&`. No bash-isms in scripts under `scripts/`.
 13. **Type escape hatches.** Do not add new `as any` / `as unknown as`. If a table is untyped, that is a signal to run the gen-types script (Task 2), not to cast.
@@ -113,7 +113,7 @@ You are working in the EmpireVu repository: a multi-tenant CRM / AI-front-office
 **Goal:** Stop the `as any` erosion. Every table is typed; the server tree typechecks under `strict`.
 
 **Do:**
-1. Add `scripts/gen-types.mjs` (Node, cross-platform) that runs `supabase gen types typescript` against either `--local` or `--project-id $SUPABASE_PROJECT_REF` (env-selected) and writes `src/server/db/database.types.ts`. Add `npm run gen:types`. Document both modes in `docs/EMPIREVU_RUNBOOK.md`.
+1. Add `scripts/gen-types.mjs` (Node, cross-platform) that runs `supabase gen types typescript` against either `--local` or `--project-id $SUPABASE_PROJECT_REF` (env-selected) and writes `src/server/db/database.types.ts`. Add `npm run gen:types`. Document both modes in `docs/EVERDOER_RUNBOOK.md`.
 2. Run it (or, if no Supabase is reachable in this environment, hand-write the missing table types **from the migrations** using the exact shape the generator produces — and say so in the handoff so the owner re-runs `gen:types`). Missing today: `quote_events`, `retell_calls`, `jobber_connections`, `jobber_sync_jobs`, `company_voice_profiles`, `waitlist`, `service_catalog_items`, `service_catalog_bundles`, `service_catalog_surcharges`, `company_branding`, `company_stripe_customers`, `quote_number_counters`, and any others Task 0 found.
 3. Replace every `(supabase as any).from("…")` / `tbl(ctx, "…")` / `as unknown as` cast in `src/server/**` with typed access. Work file by file; do not change behavior.
 4. Add `tsconfig.server.json` extending the base with `strict: true`, `noImplicitAny: true`, `include: ["src/server/**", "src/app/**", "src/middleware.ts"]`. Add `npm run typecheck:server`. Fix what it surfaces. Add it to CI. Leave `tsconfig.app.json` strictness as-is for the SPA (Task 17 tightens it).
@@ -231,7 +231,7 @@ You are working in the EmpireVu repository: a multi-tenant CRM / AI-front-office
    - `intake_keys (id, organization_id, company_id, key_prefix text (first 8 chars, for display), key_hash text (sha256 of the full key), label, active bool, last_used_at, created_by, created_at)` + `unique (key_hash)` + RLS (admins manage, members read). Composite FK on company.
    - `voice_numbers (id, organization_id, company_id, phone_e164 text unique, provider text check (provider in ('retell','telnyx')), provider_agent_id text, brand_label text, active bool, created_at)`. Migrate existing `telnyx_numbers` rows into it (keep the old table one release for rollback; mark deprecated in docs).
    - Index `voice_numbers (provider_agent_id)`.
-2. Intake route: read the key from `x-empirevu-key` header. Resolution order: (a) `intake_keys` by hash → org+company pinned from the row; (b) **legacy fallback**: if no key header and the `x-empirevu-signature` HMAC verifies against `LEAD_INTAKE_SECRET`, resolve via the existing `LEAD_INTAKE_ORG_SLUG` + `SOURCE_SITE_TO_COMPANY_SLUG` path and log `intake.legacy_auth_used` once per hour per sourceSite. The HMAC body signature stays mandatory in both modes (sign with the intake key itself in mode (a)). `sourceSite` becomes a free-text tag stored on the lead in both modes.
+2. Intake route: read the key from `x-empirevu-key` header (the rebrand added `x-everdoer-key` / `x-everdoer-signature`; both names are accepted). Resolution order: (a) `intake_keys` by hash → org+company pinned from the row; (b) **legacy fallback**: if no key header and the `x-empirevu-signature` HMAC verifies against `LEAD_INTAKE_SECRET`, resolve via the existing `LEAD_INTAKE_ORG_SLUG` + `SOURCE_SITE_TO_COMPANY_SLUG` path and log `intake.legacy_auth_used` once per hour per sourceSite. The HMAC body signature stays mandatory in both modes (sign with the intake key itself in mode (a)). `sourceSite` becomes a free-text tag stored on the lead in both modes.
 3. Retell tenant resolution (`resolveRetellTenant`): inbound → lookup `voice_numbers` by `to_number` (E.164), then by `agent_id`, then legacy `RETELL_SOURCE_SITE` env with a deprecation warning. Outbound → keep metadata-based resolution (already correct). `company_voice_profiles` remains the per-company prompt/voice config; `voice_numbers.provider_agent_id` links a number to its Retell agent.
 4. Telnyx: point `resolveTenantByCalledNumber` at `voice_numbers where provider='telnyx'`.
 5. Settings UI → new "Integrations" tab: create/revoke intake keys (show full key **once** on creation), copy-paste snippet for the site (`POST … x-empirevu-key`), list voice numbers per company (add/deactivate; API provisioning arrives in Task 13 — here it's manual entry).
@@ -375,14 +375,14 @@ You are working in the EmpireVu repository: a multi-tenant CRM / AI-front-office
 
 ## Task 14 — Revenue attribution report
 
-**Goal:** "Revenue captured by EmpireVu this month" is a number on the dashboard, with a drill-down, per company.
+**Goal:** "Revenue captured by Everdoer this month" is a number on the dashboard, with a drill-down, per company.
 
 **Read first:** `raw_leads`, `contacts`, `quotes` (`source_lead_id`, `auto_generated`, `source`), `quote_events`, `retell_calls`, `message_log`, Stripe checkout/webhook code for paid amounts, `live-data.ts` automation-impact.
 
 **Do:**
 1. Migration: view `revenue_attribution_v` — one row per approved/paid quote with: `first_touch_source` (intake sourceSite / retell / public_booking / manual), `first_touch_channel` (web/voice/sms/email), `marina_involved bool` (a `retell_calls` row for the contact before approval), `automation_involved bool` (a `workflow_runs` succeeded row targeting the contact before approval), `approved_cents`, `paid_cents` (from Stripe payment events; define precisely), `approved_at`, `paid_at`, `company_id`, `organization_id`. `security_invoker`.
 2. RPC `ui_attribution_summary(org_id, company_id, from, to)` → totals by source/channel + AI/automation splits + count of quotes.
-3. Dashboard card "Captured by EmpireVu" (approved + paid, AI-involved and automation-involved, vs total) with a link to `/reports/attribution` (new screen: table + a Recharts bar by source; CSV export).
+3. Dashboard card "Captured by Everdoer" (approved + paid, AI-involved and automation-involved, vs total) with a link to `/reports/attribution` (new screen: table + a Recharts bar by source; CSV export).
 4. Add `estimated_time_saved` total for the period next to it (already computed on runs).
 
 **Tests:** attribution rules on a fixture graph (lead → call → quote → approve → pay); a quote with no lead attributes to `manual`; period boundaries in local time.
@@ -538,7 +538,7 @@ You are working in the EmpireVu repository: a multi-tenant CRM / AI-front-office
 
 ## Task 22 — The Money Person: receivables + collections playbooks
 
-**Goal:** EmpireVu knows who owes the business money and chases it — politely, first-party, escalating, with the owner in the loop by default. Recovered dollars land on Dana's scoreboard.
+**Goal:** Everdoer knows who owes the business money and chases it — politely, first-party, escalating, with the owner in the loop by default. Recovered dollars land on Dana's scoreboard.
 
 **Prerequisites:** Tasks 18–20, 8–9, 6; Stripe Connect (`quotes/{connect,checkout,company-stripe}.ts`); Jobber sync optional (degrade gracefully if the org has no Jobber connection).
 
@@ -611,7 +611,7 @@ You are working in the EmpireVu repository: a multi-tenant CRM / AI-front-office
 
 ## Task 25 — Missed-call audit mode (the sales wedge)
 
-**Goal:** A prospect forwards their line for a week; EmpireVu produces a "here's what you missed and what it was worth" report. Software does the selling.
+**Goal:** A prospect forwards their line for a week; Everdoer produces a "here's what you missed and what it was worth" report. Software does the selling.
 
 **Prerequisites:** Tasks 13, 4, 9, 18.
 
@@ -639,7 +639,7 @@ You are working in the EmpireVu repository: a multi-tenant CRM / AI-front-office
 
 **Do:**
 1. Migration: `organizations.referral_code text unique` (generated: short, unambiguous alphabet, on org create + backfill), `organizations.referred_by_code text`; `referrals (id, referrer_organization_id, referred_organization_id unique, code, status text check (status in ('signed_up','activated','rewarded')) default 'signed_up', rewarded_at, created_at)` + RLS (each side sees its own rows).
-2. Footer: public quote and public booking pages get a small "Powered by EmpireVu — an AI team for your business" link → `APP_BASE_URL/?ref={code}` (the **tenant's** code, so the tenant gets credit). Config: on for all plans by default; a `feature_flags` key `hide_powered_by` can turn it off per org (admin sets it manually for now — no self-serve removal in this task). SMS footers: **do not** add powered-by to SMS (character budget + it's the customer's relationship — decided, documented).
+2. Footer: public quote and public booking pages get a small "Powered by Everdoer — an AI team for your business" link → `APP_BASE_URL/?ref={code}` (the **tenant's** code, so the tenant gets credit). Config: on for all plans by default; a `feature_flags` key `hide_powered_by` can turn it off per org (admin sets it manually for now — no self-serve removal in this task). SMS footers: **do not** add powered-by to SMS (character budget + it's the customer's relationship — decided, documented).
 3. Signup: `?ref=` persisted through the auth flow (cookie or signup metadata — check how the SPA carries state through Supabase auth redirects and use the durable option), written to `organizations.referred_by_code` + a `referrals` row on org creation.
 4. Reward: when the billing worker processes the referred org's **first successful subscription payment** (`invoice.paid` / equivalent event already handled — hook there), mark `activated`, then apply the coupon `STRIPE_COUPON_REFERRAL_MONTH` (env; created manually in Stripe, doc it) to **both** subscriptions via the API, mark `rewarded`, notify both owners via `notify_owner`. Idempotent; if either subscription can't take the coupon (canceled), skip that side with a logged reason.
 5. UI: Settings → "Refer a business": the org's link, copy button, referral list with statuses, months earned.

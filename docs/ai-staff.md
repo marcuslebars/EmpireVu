@@ -1,6 +1,6 @@
 # AI staff
 
-CrankLeads replaces everyone in the office except the owner. The AI front desk (docs/front-desk-ai.md) answers calls and texts; the AI staff roles below take the rest of the office jobs. They share the front desk's plumbing:
+Everdoer replaces everyone in the office except the owner. The AI front desk (docs/front-desk-ai.md) answers calls and texts; the AI staff roles below take the rest of the office jobs. They share the front desk's plumbing:
 
 - **Owner by text** — every sensitive action is an `owner_approvals` row the owner answers with `Y 12` / `N 12` from the platform number.
 - **One registry** — `src/server/services/staff/registry.ts` merges each role module (`staff/<role>/index.ts`, type `StaffRoleModule` in `staff/types.ts`) into:
@@ -169,7 +169,7 @@ It's read-only, and the owner agent is told it can't approve an estimate itself.
 
 `companies.ai_settings.estimator = { enabled?, follow_ups?, cadence_days? }`, read only by
 `settings.ts readEstimatorSettings`:
-- `enabled`: default **on** for CrankLeads orgs, **off** for house orgs (A1 is unchanged unless
+- `enabled`: default **on** for done-for-you orgs, **off** for house orgs (A1 is unchanged unless
   switched on).
 - `follow_ups`: same default, and only runs while the estimator is on.
 - `cadence_days`: 1–3 ascending whole days from 1 to 30, default `[2, 5, 10]`.
@@ -231,9 +231,9 @@ Gets invoices paid and keeps the owner's money picture straight. Code: `src/serv
 
 ### Reminder texts (`reminders.ts`, `deliver.ts`, `texts.ts`)
 
-Sweep `bookkeeper:reminder-texts`, every 15 min. It first loads the companies with the Bookkeeper on (every company of a CrankLeads org unless switched off, plus house-org companies whose `ai_settings.collections.enabled` is true, filtered at the query; `loadActiveCompanies`), then reads each company's own overdue invoices and plans in 1000-row pages. A read error for a company (e.g. its collections state) skips that company for the run, never texting without its holds:
+Sweep `bookkeeper:reminder-texts`, every 15 min. It first loads the companies with the Bookkeeper on (every company of a done-for-you org unless switched off, plus house-org companies whose `ai_settings.collections.enabled` is true, filtered at the query; `loadActiveCompanies`), then reads each company's own overdue invoices and plans in 1000-row pages. A read error for a company (e.g. its collections state) skips that company for the run, never texting without its holds:
 
-- **Schedule:** `reminderDays` (default **3, 10, 20, 30** days past due, between the email reminders' default 1, 7, 14). Tone by step: gentle → nudge → firm → last (firm + "reply to set up a payment plan"). Texts are built in code: plain GSM, the business's name, the pay link (`/i/{token}` on the brand's quote host; the CrankLeads domain for CrankLeads orgs). Never anything beyond "final reminder": no legal threats, agencies, fees or credit talk (tested).
+- **Schedule:** `reminderDays` (default **3, 10, 20, 30** days past due, between the email reminders' default 1, 7, 14). Tone by step: gentle → nudge → firm → last (firm + "reply to set up a payment plan"). Texts are built in code: plain GSM, the business's name, the pay link (`/i/{token}` on the brand's quote host; the done-for-you domain for done-for-you orgs). Never anything beyond "final reminder": no legal threats, agencies, fees or credit talk (tested).
 - **When:** 09:00–20:00 company local, **Monday–Saturday** only. At most one scheduled text per invoice per **5 days**, one Bookkeeper text per customer per **20 h**, never on a day a reminder (email or text) already went out.
 - **Coordination with email:** every text stamps `invoices.last_reminder_at`, which the email sweep (`invoices/reminders.ts`) already reads as "reminded today", so an email and a text never land on the same day. A Bookkeeper **hold** (promise to pay / payment plan, `invoice_collections.hold_until`) pauses the email reminders too (`hold.ts`, one check in the email sweep; tolerant: no table → no hold).
 - **Skipped:** `reminders_paused` invoices, money clearing for the whole balance, opted-out contacts, no consent, a conversation the owner took over in the last 14 days (or paused), invoices more than 150 days late, house orgs (default off).
@@ -292,7 +292,7 @@ One optional line in the email, "Still owed to you: $X ($Y overdue (N invoices))
 
 ### Settings (`settings.ts`, route, UI)
 
-`companies.ai_settings.collections = { enabled?, textReminders?, reminderDays?, finalNotice?, dailyAlert? }`. `enabled` defaults **on** for CrankLeads orgs and **off** for house orgs (A1: nothing changes unless it's switched on). The rest default on; `reminderDays` defaults to [3, 10, 20, 30] (1–6 days in 1..120). Route: `GET|PATCH /api/organizations/:org/companies/:company/ai-settings/collections` (members read; owners/admins PATCH with a strict schema, merging only `collections` via `updateAiSettings`). The UI shows what's owed, texts sent in 30 days, plans and promises, the email schedule it works around, and a warning when no verified owner cell is on file.
+`companies.ai_settings.collections = { enabled?, textReminders?, reminderDays?, finalNotice?, dailyAlert? }`. `enabled` defaults **on** for done-for-you orgs and **off** for house orgs (A1: nothing changes unless it's switched on). The rest default on; `reminderDays` defaults to [3, 10, 20, 30] (1–6 days in 1..120). Route: `GET|PATCH /api/organizations/:org/companies/:company/ai-settings/collections` (members read; owners/admins PATCH with a strict schema, merging only `collections` via `updateAiSettings`). The UI shows what's owed, texts sent in 30 days, plans and promises, the email schedule it works around, and a warning when no verified owner cell is on file.
 
 ### Data (migration `20261011110000_staff_bookkeeper.sql`)
 
@@ -335,7 +335,7 @@ If a summary would pass 500 characters, fewer jobs are included ("(3 more not in
 - **Location.** `companies.latitude / longitude` (+ `location_source`, `location_checked_at`). Geocoded once (`geocode.ts`): Places API (New) place details with field mask `location` for `google_place_id`, else a text search on `business_address`, else the first town of `service_area` + ", Ontario". A miss is retried after 7 days. Jobs use the company's location (local service areas). The HTTP calls sit behind the `Geocoder` seam.
 - **Weather.** `weather.ts`: a `WeatherProvider` interface; `openMeteoProvider` calls the forecast API with `hourly=precipitation_probability,precipitation,wind_speed_10m,temperature_2m`, `timezone=GMT&timeformat=unixtime` (job windows are matched by instant — DST-proof). `OPEN_METEO_API_KEY` set → `customer-api.open-meteo.com` + `apikey`; unset → the free `api.open-meteo.com`. One forecast per company per hour (memory, then `dispatch_weather_cache`, shared across workers).
 - **At risk** (`assessWindow`, pure): over the hours the job touches (min 1h): rain = max probability ≥ `rain_probability` (60%) **and** total ≥ `rain_mm` (2 mm); wind ≥ `wind_kmh` (50 km/h); temperature ≤ `min_temp_c` (−25) or ≥ `max_temp_c` (35).
-- **Which jobs:** `weather.sensitive` = `"all"` | `"none"` | `[service keys]` (matched on `bookings.service_item_id` → `service_catalog_items.service_key`, or the listed service's label in the job title). Default by trade: the industry pack (roofing, landscaping → all; HVAC/plumbing, property maintenance & snow, marine → none), else words in the business name / CrankLeads business type (paving, painting, decks, fencing, exterior / pressure / window cleaning, gutters, siding, masonry … → all; snow, plumbing, HVAC, electrical, interior … → none). Unknown → none (never move jobs on a guess).
+- **Which jobs:** `weather.sensitive` = `"all"` | `"none"` | `[service keys]` (matched on `bookings.service_item_id` → `service_catalog_items.service_key`, or the listed service's label in the job title). Default by trade: the industry pack (roofing, landscaping → all; HVAC/plumbing, property maintenance & snow, marine → none), else words in the business name / done-for-you checkout business type (paving, painting, decks, fencing, exterior / pressure / window cleaning, gutters, siding, masonry … → all; snow, plumbing, HVAC, electrical, interior … → none). Unknown → none (never move jobs on a guess).
 - **Weather source** (`environment-canada.ts`, default): Environment Canada's citypage forecasts from the MSC Datamart — free for commercial use under the ECCC Data Server End-use Licence (credit: *Data Source: Environment and Climate Change Canada*, shown in Settings and the weather-check output). The company's location → the nearest of ~800 forecast towns (site list cached a day; none within 150 km → no forecast) → the newest `…_MSC_CitypageWeather_<site>_en.xml` in `today/citypage_weather/<prov>/<UTC hour>/` (that hour, then the 2 before) → hourly points: the next 24 h from the hourly forecast (chance of precipitation, wind/gusts, temperature — no amounts, so **chance of rain alone decides** there), then the day/night periods (06–18 / 18–06 local) with chance, rain accumulation (mm, spread over the period; snow in cm ignored), wind incl. gusts and high/low. Unreadable data gives fewer hours, never invented ones (a window with no hours is never moved). `OPEN_METEO_API_KEY` switches to Open-Meteo's commercial API; the free Open-Meteo API is never used.
 - **Weather check** (`weather-sweep.ts`, sweep every 5 min, at most 8 forecast checks per pass — the rest are picked up next pass; `WEATHER_PROVIDER=off` turns it off): from `check_at` (15:00) to 20:00 local, claimed in `dispatch_runs (company, 'weather', local date)` (unique; a failed pass is retried after 30 min). Open jobs (pending/confirmed, nobody en route) in the next 48h that are weather-sensitive and at risk get the first open time (same rules as the owner channel: `scheduling/rules.ts openTimes` over booking windows or hourly online-booking settings, company-wide busy) at least an hour after the job starts, within 14 days, whose own forecast is fine, never a slot already promised to another job in the batch.
 - **On our way** (`on-our-way.ts`, every minute): `booking.en_route` activity events from the last 20 minutes. `markEnRoute(ctx, id, { etaMinutes })` now puts the ETA (1–240) on the event; the job-sheet "On my way" button asks for it only when this text will go (`JobSheet.askEta`, from `dispatcherOnOurWayActive`). **No double texts:** if the company has an active `booking.en_route` automation that texts (the `crew-on-the-way` recipe, draft by default), the Dispatcher stays quiet and the recipe texts. One text per booking (`dispatch_messages` key = booking id). Only between 07:00 and 20:00 local (a crew heading out at 06:30 doesn't wake the customer; the event is marked skipped).
@@ -368,7 +368,7 @@ dispatch = {
 }
 ```
 
-Every `enabled` defaults **on** for CrankLeads orgs and **off** for house orgs. Route: `GET | PATCH /api/organizations/:org/companies/:company/ai-settings/dispatch` (members read; owners/admins PATCH `{ weather?: { enabled, sensitive (null = trade default), rainProbability, rainMm, windKmh, minTempC, maxTempC }, onOurWay?: { enabled }, crewTexts?: { enabled, time }, fillGap?: { enabled } }`, merged into `ai_settings.dispatch` only with the optimistic `updateAiSettings`). UI: `src/components/settings/staff/DispatcherSettingsSection.tsx` — four switches, which jobs weather affects (all / some services / none, or back to the trade default), the limits, the crew text time, how many team members have a cell, and a note when the "On my way" automation is the one texting.
+Every `enabled` defaults **on** for done-for-you orgs and **off** for house orgs. Route: `GET | PATCH /api/organizations/:org/companies/:company/ai-settings/dispatch` (members read; owners/admins PATCH `{ weather?: { enabled, sensitive (null = trade default), rainProbability, rainMm, windKmh, minTempC, maxTempC }, onOurWay?: { enabled }, crewTexts?: { enabled, time }, fillGap?: { enabled } }`, merged into `ai_settings.dispatch` only with the optimistic `updateAiSettings`). UI: `src/components/settings/staff/DispatcherSettingsSection.tsx` — four switches, which jobs weather affects (all / some services / none, or back to the trade default), the limits, the crew text time, how many team members have a cell, and a note when the "On my way" automation is the one texting.
 
 **Crew cells:** `organization_memberships.phone_e164` (E.164, check constraint; service-role writes only). Settings → Members shows each member's cell with **Add / Edit** (`MemberPhoneField`): members edit their own, owners/admins anyone's — except that only an owner can change an owner's number (same rule as roles). Routes: `GET /api/organizations/:org/members/phones` (members), `PUT /api/organizations/:org/members/:profileId/phone { phone: string | null }` (self, or owner/admin — not an owner's number unless you're an owner; 10-digit NANP or +E.164).
 
@@ -389,13 +389,13 @@ Table types live in `staff/dispatcher/db-types.ts` until they're merged into `da
 
 ### Sweeps
 
-`dispatcher:on-our-way` (1 min), `dispatcher:queue` (1 min), `dispatcher:fill-gap` (2 min), `dispatcher:crew-texts` (5 min), `dispatcher:weather` (5 min) — through `runStaffSweeps`. The companies are loaded once per tick (cached ~1 minute per worker, `loadDispatchCompaniesCached`) and filtered server-side to feature-on companies: every company of a CrankLeads org, plus house-org companies that switched something on (`ai_settings.dispatch.any_on`, written by `mergeDispatchSettings`); reads page past PostgREST's 1000-row cap. The queue sweep looks at the queue first and loads nothing when nothing is due.
+`dispatcher:on-our-way` (1 min), `dispatcher:queue` (1 min), `dispatcher:fill-gap` (2 min), `dispatcher:crew-texts` (5 min), `dispatcher:weather` (5 min) — through `runStaffSweeps`. The companies are loaded once per tick (cached ~1 minute per worker, `loadDispatchCompaniesCached`) and filtered server-side to feature-on companies: every company of a done-for-you org, plus house-org companies that switched something on (`ai_settings.dispatch.any_on`, written by `mergeDispatchSettings`); reads page past PostgREST's 1000-row cap. The queue sweep looks at the queue first and loads nothing when nothing is due.
 
 `dispatcherActiveFor(admin, { organizationId, companyId })` (`settings.ts`) says whether any Dispatcher feature is on for a company (for showing the role's prompt notes only where relevant).
 
 ### Tests
 
-`src/test/staff-dispatcher.test.ts` (fake DB, real services; Twilio, the weather provider and the geocoder faked): settings defaults (CrankLeads on / house off, trade sensitivity), DST day lengths and local hours for America/Toronto, geocoding fallbacks and retry, Open-Meteo parsing / thresholds / endpoint / hourly cache, the weather check end to end through owner-channel `decideApproval` (one per day, Y moves + texts, idempotent re-run, N, re-checks at Y, late Y queues customer texts until 09:00), on-our-way (ETA on the event, one text, no double with the recipe, opt-out, hours, house org), crew texts across the Nov 1 DST change (25h day, 18:00 EST = 23:00Z, updates only on change, no-phone skip), fill the gap (7-day rule, refilled slot, setting off, re-check at Y), owner tools (`move_day` → Y via `decideApproval`, scoping, `crew_plan`, `weather_outlook`), member cells.
+`src/test/staff-dispatcher.test.ts` (fake DB, real services; Twilio, the weather provider and the geocoder faked): settings defaults (done-for-you on / house off, trade sensitivity), DST day lengths and local hours for America/Toronto, geocoding fallbacks and retry, Open-Meteo parsing / thresholds / endpoint / hourly cache, the weather check end to end through owner-channel `decideApproval` (one per day, Y moves + texts, idempotent re-run, N, re-checks at Y, late Y queues customer texts until 09:00), on-our-way (ETA on the event, one text, no double with the recipe, opt-out, hours, house org), crew texts across the Nov 1 DST change (25h day, 18:00 EST = 23:00Z, updates only on change, no-phone skip), fill the gap (7-day rule, refilled slot, setting off, re-check at Y), owner tools (`move_day` → Y via `decideApproval`, scoping, `crew_plan`, `weather_outlook`), member cells.
 
 ### Not yet
 
@@ -434,7 +434,7 @@ The Marketer brings past customers back and keeps the Google listing active. It 
 
 **Google posts** (`posts.ts`): Monday 09:00–17:00 local (Tuesday catch-up), one `google_post_drafts` row per company per week, rotating service spotlight → seasonal tip → recent-job highlight (job title only, no names/addresses; falls back to a tip). Same copy checks. `google_post` approval (72h); Y texts the owner the copy + the GBP link.
 
-**Settings** — `marketerActiveFor(admin, { organizationId, companyId })` (settings.ts) says whether the Marketer works for a company (any feature on, company active). `companies.ai_settings.marketing = { win_back: { enabled, months_min, months_max, weekly_cap, per_hour, start_hour, end_hour, days }, review_replies: { enabled }, google_posts: { enabled } }`, read only by `staff/marketer/settings.ts` (`readMarketingSettings`). Every feature defaults **on for CrankLeads orgs, off for house orgs** (A1) unless turned on. Route `GET|PATCH /api/organizations/:org/companies/:company/ai-settings/marketing` (members read; owners/admins PATCH `{ winBack: { enabled, monthsMin, monthsMax, weeklyCap }, reviewReplies: { enabled }, googlePosts: { enabled } }`, merging only `marketing`; the send throttle isn't owner-editable). UI: `src/components/settings/staff/MarketerSettingsSection.tsx`.
+**Settings** — `marketerActiveFor(admin, { organizationId, companyId })` (settings.ts) says whether the Marketer works for a company (any feature on, company active). `companies.ai_settings.marketing = { win_back: { enabled, months_min, months_max, weekly_cap, per_hour, start_hour, end_hour, days }, review_replies: { enabled }, google_posts: { enabled } }`, read only by `staff/marketer/settings.ts` (`readMarketingSettings`). Every feature defaults **on for done-for-you orgs, off for house orgs** (A1) unless turned on. Route `GET|PATCH /api/organizations/:org/companies/:company/ai-settings/marketing` (members read; owners/admins PATCH `{ winBack: { enabled, monthsMin, monthsMax, weeklyCap }, reviewReplies: { enabled }, googlePosts: { enabled } }`, merging only `marketing`; the send throttle isn't owner-editable). UI: `src/components/settings/staff/MarketerSettingsSection.tsx`.
 
 **Schema** — `marketing_campaigns`, `marketing_campaign_recipients` (unique `campaign_id, contact_id`), `google_reviews`, `google_post_drafts` (members read, service role writes), `marketing_sweep_claims` (service role only). Local types in `staff/marketer/db-types.ts`.
 
@@ -486,7 +486,7 @@ Each part is read on its own. A part with nothing to say is left out. A failed r
 
 ### Once a day (`briefing.ts`)
 
-Sweep `office-manager:briefing`, every 2 minutes. Companies are loaded the Bookkeeper's way (every company of a CrankLeads org, plus house-org companies with `ai_settings.office_manager.enabled = true`, filtered at the query; paused / archived companies skipped). A company is due from its set time until 11:00 local, on its briefing days, with a verified owner cell. Today's rows for the due companies are read in one query per 200 companies, so a company already done costs nothing per pass.
+Sweep `office-manager:briefing`, every 2 minutes. Companies are loaded the Bookkeeper's way (every company of a done-for-you org, plus house-org companies with `ai_settings.office_manager.enabled = true`, filtered at the query; paused / archived companies skipped). A company is due from its set time until 11:00 local, on its briefing days, with a verified owner cell. Today's rows for the due companies are read in one query per 200 companies, so a company already done costs nothing per pass.
 
 - **Claim, then send.** `owner_briefings` is unique on `(company_id, local_date)`. The row is inserted before anything is read or sent, so two workers send one text (tested with two concurrent passes).
 - **A failed send** marks the row `failed`, which releases it: a later pass re-claims it (conditional update on `status = 'failed'` and the attempt count — one winner) 10 minutes later, up to 3 tries, and only before 11:00. A read error after the claim (or an unreadable jobs / approvals / money-alert part, see above) also releases it.
@@ -496,7 +496,7 @@ Sweep `office-manager:briefing`, every 2 minutes. Companies are loaded the Bookk
 
 ### The Bookkeeper's 8am alert
 
-- `staff/bookkeeper/daily-alert.ts` (minimal edit): `runDailyMoneyAlerts` skips a company when `briefingTakesMoneyAlert` (`office-manager/settings.ts`) is true. That means the briefing is on, today (local) is a briefing day, the company is active and the owner cell is verified, and today's `owner_briefings` row hasn't ended without the items. A row that is `sent` with `money_fold 'failed'` (the items couldn't be read on the last try), `skipped`, or `failed` with every try used lets the alert go alone. No row, `claimed`, `failed` with tries left, or `sent` with `money_fold 'included'` defers. The settings are checked first (one company read, using the alert's own CrankLeads flag), and the row only on a briefing day. Because the briefing marks items only after a send that carried them, and a final row never folds again, the two never report the same items.
+- `staff/bookkeeper/daily-alert.ts` (minimal edit): `runDailyMoneyAlerts` skips a company when `briefingTakesMoneyAlert` (`office-manager/settings.ts`) is true. That means the briefing is on, today (local) is a briefing day, the company is active and the owner cell is verified, and today's `owner_briefings` row hasn't ended without the items. A row that is `sent` with `money_fold 'failed'` (the items couldn't be read on the last try), `skipped`, or `failed` with every try used lets the alert go alone. No row, `claimed`, `failed` with tries left, or `sent` with `money_fold 'included'` defers. The settings are checked first (one company read, using the alert's own done-for-you flag), and the row only on a briefing day. Because the briefing marks items only after a send that carried them, and a final row never folds again, the two never report the same items.
 - On other days (Sunday by default), or with the briefing off, the alert goes alone as before.
 - The briefing reads the untold items with the alert's own `collectAlertEntries` + `newEntries`, words them with `moneyAlertLineGroups` (also used by `composeMoneyAlert`), and only after its text went out calls `markMoneyAlertReported`. That records the keys in `money_alert_items`, marks told promises `missed`, and writes the day's `money_alerts` row (`sent`, or `skipped` when there was nothing).
 - A failed briefing leaves the items untold for the retry or the next day.
@@ -506,7 +506,7 @@ Sweep `office-manager:briefing`, every 2 minutes. Companies are loaded the Bookk
 ### Email copy
 
 With `channels: ["sms", "email"]` the owner also gets an email (`deliverMessage`, Resend) right after the text, to `resolveOwnerContacts` without the platform fallback (`companies.owner_email`, else the org owner / admin). It holds the same summary plus every job by crew member, the weather numbers, who's late paying and each approval in full.
-- Sender name: "CrankLeads" for CrankLeads orgs, the business name otherwise.
+- Sender name: "Everdoer" for done-for-you orgs, the business name otherwise.
 - The outcome is stored in `owner_briefings.email_status`.
 - The email is only ever a copy: it isn't retried, and it never holds up the text.
 
@@ -520,7 +520,7 @@ Prompt note: when the owner texts "today", "details", "briefing" or "what's on t
 
 `companies.ai_settings.office_manager = { enabled?, time?, days?, channels? }`, read only by `settings.ts readOfficeManagerSettings`:
 
-- `enabled`: default **on** for CrankLeads orgs, **off** for house orgs (A1 is unchanged unless switched on).
+- `enabled`: default **on** for done-for-you orgs, **off** for house orgs (A1 is unchanged unless switched on).
 - `time`: `"HH:MM"` from 06:00 to 09:00, default 07:00.
 - `days`: local weekdays, 0 = Sunday, default Monday–Saturday.
 - `channels`: default `["sms"]`.
@@ -576,7 +576,7 @@ A new business brings its existing customer list, so the Bookkeeper, Marketer an
 
 - CSV or XLSX, ≤ 10 MB, ≤ 25,000 rows, ≤ 60 columns. The browser asks for a batch (`POST …/imports` or `POST /api/public/import/:token`), gets a one-time signed upload URL for the private bucket **`customer-imports`** (path `{org}/{batch}.csv|xlsx`, no storage policies; same pattern as receipts) and uploads straight to storage, then says `uploaded`. ≤ 20 uploads per company per day.
 - **The link** (`/import/:token`): one row per company in `import_links` (service role only), a 32-character random token, valid 14 days after it was last sent (an expired one gets a new token when it's sent again). Same pattern as the setup link: the token is the credential, one 404 for every miss, rate-limited per token and IP, and the link only works while the import is on for that company. Sent by the owner tool `send_import_link`, the "Text me the link" buttons (page + Settings), and the concierge action **Send import link**.
-- The dashboard's setup card (CrankLeads, until live) lists **Bring your customer list** as an optional extra (`dfy/progress-view.ts`), ticked once an import is done.
+- The dashboard's setup card (done-for-you, until live) lists **Bring your customer list** as an optional extra (`dfy/progress-view.ts`), ticked once an import is done.
 
 ### Reading the file (`parse.ts`)
 
@@ -637,7 +637,7 @@ From the import page (a done batch, or a failed one that started importing): the
 
 ### Settings, routes
 
-`companies.ai_settings.import = { enabled? }` — **on** for CrankLeads orgs, **off** for house orgs (A1 sees no tools or notes, can't upload, and the sweep leaves any batch of a company that has it off alone until it started importing). Routes (owners/admins; the overview is readable by members):
+`companies.ai_settings.import = { enabled? }` — **on** for done-for-you orgs, **off** for house orgs (A1 sees no tools or notes, can't upload, and the sweep leaves any batch of a company that has it off alone until it started importing). Routes (owners/admins; the overview is readable by members):
 
 - `GET|PATCH …/companies/:company/ai-settings/import`
 - `GET|POST …/companies/:company/imports`, `GET|POST …/imports/:batch` (`uploaded`, `mapping`, `import`, `undo`, `cancel`), `POST …/imports/send-link`, `POST …/imports/start-reminders`
@@ -713,8 +713,8 @@ Linked from the concierge list header. Every open port (ready first), each with:
 
 For each `submitted` / `foc_scheduled` port, each number not yet attached is looked up with the injected Twilio provision client's `listIncoming({ phoneNumber })`. When it appears in the account:
 1. **Mark submitted snapshots the Twilio account** (`listIncoming` for each number, `twilio_snapshot_at`, `preexisting_numbers`; it refuses to submit if Twilio can't be checked). Only numbers that **arrive** after that are attached: one already in the account at submit, or a port with no snapshot, is never auto-attached (the Ports page warns; an operator attaches it by hand).
-2. Guards before anything is touched (each refusal logged): not a platform number; no `voice_numbers` row unless it's this company's `business_line`; not FriendlyName-tagged `EmpireVu catcher …` or `EmpireVu line <another company>`; webhooks unset (or Twilio's demo URLs) or already pointing at our `/business-line` route — anything else means the number is in use.
-3. Its Voice URL → `/api/twilio/voice/business-line`, SMS URL → `/api/twilio/sms/inbound`, FriendlyName `EmpireVu line <companyId>` (distinct from the catcher tag, so it can never be claimed as a catcher).
+2. Guards before anything is touched (each refusal logged): not a platform number; no `voice_numbers` row unless it's this company's `business_line`; not FriendlyName-tagged `Everdoer catcher …` / `EmpireVu catcher …` or `Everdoer line <another company>` / `EmpireVu line <another company>` (both prefixes are recognised); webhooks unset (or Twilio's demo URLs) or already pointing at our `/business-line` route — anything else means the number is in use.
+3. Its Voice URL → `/api/twilio/voice/business-line`, SMS URL → `/api/twilio/sms/inbound`, FriendlyName `EmpireVu line <companyId>` (`Everdoer line <companyId>` once `EVERDOER_WRITE_NEW_NAMES` is on; distinct from the catcher tag, so it can never be claimed as a catcher).
 4. A `voice_numbers` row (`provider = 'twilio'`, **`mode = 'business_line'`**, the number's SID, active) for the company.
 5. When every number is in: `completed` + the owner's "Done" text. Idempotent (a second pass finds nothing to do). Missing Twilio credentials or `APP_BASE_URL` → the pass is skipped and logged.
 
@@ -737,7 +737,7 @@ The only change to that path: `resolveCatcherTenant` (twilio/missed-call.ts) now
 
 ```
 porting = {
-  enabled,                                   // CrankLeads on, house orgs off
+  enabled,                                   // done-for-you on, house orgs off
   ring: { enabled: true, seconds: 20,        // 10–40
           crew: false, screen: true }
 }
@@ -800,7 +800,7 @@ The Recruiter does the office's hiring and payroll paperwork. It turns the crew'
 
   > #14 Job post "Labourer" - $22/hr, Full-time, start Monday, Midland. Duties: …; …. Needs: …; …. Form also asks: "Do you have your Working at Heights ticket?". Y publishes it on your website with an apply form and texts you copy for Indeed/Facebook. Reply Y 14 to post it, N 14 to skip.
 
-  **Y 14** opens `/s/<slug>/jobs/<id>` (or `pages.crankleads.com/<slug>/jobs/<id>`). The owner gets "Posted the Labourer job: <link>. Copy for Indeed/Facebook is in my other text. …", plus a second text: "Copy for Indeed/Facebook: Northshore Roofing is hiring: Labourer ($22/hr, …). You'll: …. You need: …. Apply here: <link>".
+  **Y 14** opens `/s/<slug>/jobs/<id>` (or `<PAGES_BASE_URL>/<slug>/jobs/<id>`). The owner gets "Posted the Labourer job: <link>. Copy for Indeed/Facebook is in my other text. …", plus a second text: "Copy for Indeed/Facebook: Northshore Roofing is hiring: Labourer ($22/hr, …). You'll: …. You need: …. Apply here: <link>".
 - **Applicants** fill in the form: name, cell, email, experience, availability, driver's licence and own vehicle (yes/no), plus up to 3 job questions. Each one gets "Hi Jo, thanks for applying for the Labourer job at Northshore Roofing. We got your application and we'll be in touch." from the business number.
 - **08:30 the next morning** (only when there are new applicants):
 
@@ -920,7 +920,7 @@ recruiter = {
 }
 ```
 
-- Both switches default **on** for CrankLeads orgs and **off** for house orgs.
+- Both switches default **on** for done-for-you orgs and **off** for house orgs.
 - The defaults are bi-weekly from 2026-01-05. The CSV goes to the org owner's email when no `csv_email` is set.
 - Route: `GET | PATCH /api/organizations/:org/companies/:company/ai-settings/recruiter`.
   - Members read the settings only. Pay periods, jobs and the fallback email are for owners/admins.
@@ -954,7 +954,7 @@ Types: `staff/recruiter/db-types.ts` until merged into `database.types.ts`.
 
 `recruiter:payroll` (5 min), `recruiter:applicants` (2 min: screening, confirmation texts, invites queued overnight), `recruiter:digest` (5 min).
 
-- The companies are loaded at most once per 30 s per worker (`loadRecruiterCompanies`). That's every company of a CrankLeads org, plus house-org companies with `any_on`, active ones only. Reads page past the 1000-row cap.
+- The companies are loaded at most once per 30 s per worker (`loadRecruiterCompanies`). That's every company of a done-for-you org, plus house-org companies with `any_on`, active ones only. Reads page past the 1000-row cap.
 
 ### Tests
 
@@ -1122,7 +1122,7 @@ tax_clerk = {
 }
 ```
 
-- **Defaults**: everything **on** for CrankLeads orgs and **off** for house orgs; quarterly, Dec 31, corporation, registrant when the HST # is set. HST reminders only run for a registrant.
+- **Defaults**: everything **on** for done-for-you orgs and **off** for house orgs; quarterly, Dec 31, corporation, registrant when the HST # is set. HST reminders only run for a registrant.
 - **`taxClerkActiveFor`** (receipts on, or HST reminders on) gates the owner tools, the prompt notes and the media handler.
 - **Routes** (`ai-settings/tax-clerk/…`, guard in `staff/tax-clerk/route-guard.ts`):
   - `GET | PATCH /api/organizations/:org/companies/:company/ai-settings/tax-clerk`. Members read the switches only; the accountant email is hidden from them. Owners/admins also get this period's figures, the pictures to finish (1-hour links) and recently texted receipts. The PATCH `{ receipts?, hst?: { registrant (null = follow the HST #), frequency, fiscalYearEndMonth, filer, reminders, accountantEmail ("" / null clears) }, nudges? }` is strict and merged into `ai_settings.tax_clerk` only.
@@ -1157,7 +1157,7 @@ Types: `staff/tax-clerk/db-types.ts` until merged into `database.types.ts`.
 
 `tax_clerk:hst` (15 min) and `tax_clerk:nudges` (15 min).
 
-- The companies are loaded at most once per 30 s per worker (`loadTaxClerkCompanies`). That's every company of a CrankLeads org, plus house-org companies with `any_on`, active ones only, with something on.
+- The companies are loaded at most once per 30 s per worker (`loadTaxClerkCompanies`). That's every company of a done-for-you org, plus house-org companies with `any_on`, active ones only, with something on.
 
 ### Tests
 
@@ -1179,7 +1179,7 @@ Types: `staff/tax-clerk/db-types.ts` until merged into `database.types.ts`.
 - `fix_receipt` (change, show, delete 24 h) and `receipts_summary`.
 - **HST**: periods and due dates (quarterly with Dec / Mar year ends, monthly, annual individual / corporation / June year end); the worksheet (draft, void, imported, credit note, meals 50%); the CSV files.
 - **The reminder and `accountant_packet` end to end through `decideApproval`**: the exact owner text, Y emails the PDF + 2 CSVs once, the second Y is "already"; owner email fallback; N; expiry; a note on the Y; a typed email; no email anywhere (plain text).
-- `hst_summary`, briefing items, the sweep (once, CrankLeads only), nudges (Monday, once, nothing to say; the tip), and the Settings view (member vs owner, finish / discard, email now).
+- `hst_summary`, briefing items, the sweep (once, done-for-you only), nudges (Monday, once, nothing to say; the tip), and the Settings view (member vs owner, finish / discard, email now).
 - `readReceipt` extension: PNG/webp media types, `withKind`, the default call unchanged.
 
 `src/test/owner-media-hook.test.ts` is unchanged and green.
@@ -1196,7 +1196,7 @@ Types: `staff/tax-clerk/db-types.ts` until merged into `database.types.ts`.
 
 Sells and runs maintenance agreements ("Spring + Fall Lawn Care, $420/yr"): customers sign up on the company site, their visits book themselves, the owner OKs renewals by text, and an unpaid plan lapses on its own. Code: `src/server/services/staff/service-plans/`. Migration: `20261013110000_staff_service_plans.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Service plans** (`src/components/settings/staff/ServicePlansSettingsSection.tsx`).
 
-**Off until the owner creates a plan** (`servicePlansActiveFor` = CrankLeads org, switched on, company active, at least one active plan). **House orgs (A1 …) are always off**, whatever is stored: no section, no tools, no prompt notes, no pages, no sweeps work.
+**Off until the owner creates a plan** (`servicePlansActiveFor` = done-for-you org, switched on, company active, at least one active plan). **House orgs (A1 …) are always off**, whatever is stored: no section, no tools, no prompt notes, no pages, no sweeps work.
 
 ### What the owner and customers see
 
@@ -1265,7 +1265,7 @@ Owner prompt note: relay `tell_owner_exactly` word for word; plans are created i
 
 ### Settings
 
-`companies.ai_settings.service_plans = { enabled?, heads_up?: { enabled }, renewals?: { enabled } }`, read only by `settings.ts readServicePlansSettings`: `enabled` defaults **on** for CrankLeads orgs and is **always off** for house orgs; the other two default on.
+`companies.ai_settings.service_plans = { enabled?, heads_up?: { enabled }, renewals?: { enabled } }`, read only by `settings.ts readServicePlansSettings`: `enabled` defaults **on** for done-for-you orgs and is **always off** for house orgs; the other two default on.
 
 Route `GET | PATCH | POST /api/organizations/:org/companies/:company/ai-settings/service-plans`: members read (plans, counts, the sign-up link, whether cards are taken online — not the customer list); owners/admins PATCH `{ enabled?, headsUp?: { enabled }, renewals?: { enabled } }` (strict, merges only `service_plans` via `updateAiSettings`) and POST `{ action: "create_plan", plan }`, `{ action: "update_plan", planId, plan }` or `{ action: "cancel_agreement", agreementId }`. House orgs: `available: false`, every write 403.
 
@@ -1287,7 +1287,7 @@ None of its own, and no model calls (every text is built in code). Uses the exis
 
 ### Sweeps
 
-`service-plans:payments` (5 min), `service-plans:renewals` (30 min; the batch Monday 09:00–17:00 local, lapses 09:00–20:00), `service-plans:heads-up` (30 min), `service-plans:queue` (2 min). They scan agreements only (which exist only for CrankLeads companies with a plan), so house orgs cost nothing; a company no longer CrankLeads, paused / archived or switched off is skipped.
+`service-plans:payments` (5 min), `service-plans:renewals` (30 min; the batch Monday 09:00–17:00 local, lapses 09:00–20:00), `service-plans:heads-up` (30 min), `service-plans:queue` (2 min). They scan agreements only (which exist only for done-for-you companies with a plan), so house orgs cost nothing; a company no longer done-for-you, paused / archived or switched off is skipped.
 
 ### Shared files edited
 
@@ -1386,7 +1386,7 @@ SPA page `src/screens/PublicComplianceUploadPage.tsx` (public; in `public-routes
 
 ### Settings
 
-`companies.ai_settings.compliance = { enabled?, reminders?, sharing? }`, read only by `settings.ts readComplianceSettings`: `enabled` defaults **on** for CrankLeads orgs (passive until a document exists) and **off** for house orgs; `reminders` and `sharing` default on. `complianceActiveFor` = `enabled`, so house orgs never see the tools, prompt notes or the photo intake.
+`companies.ai_settings.compliance = { enabled?, reminders?, sharing? }`, read only by `settings.ts readComplianceSettings`: `enabled` defaults **on** for done-for-you orgs (passive until a document exists) and **off** for house orgs; `reminders` and `sharing` default on. `complianceActiveFor` = `enabled`, so house orgs never see the tools, prompt notes or the photo intake.
 
 Route `GET | PATCH | POST /api/organizations/:org/companies/:company/ai-settings/compliance`: members read the switches and counts; owners/admins see the documents, crew, subs and links, PATCH `{ enabled?, reminders?, sharing? }` (strict, merged into `ai_settings.compliance` only via `updateAiSettings`) and POST actions `upload_url`, `file_upload` (read + filed under the chosen holder, else guessed from the name on it), `update_doc` (kind, title, holder, issuer, number, dates, notes; a changed expiry re-arms the reminders), `delete_doc` (the file too; the one it had replaced comes back), `file_url` (a 2-minute signed URL, audited), `save_sub`, `revoke_share`.
 
@@ -1405,7 +1405,7 @@ UI: on/off, reminders, sharing, the documents by holder (expired in red, expirin
 
 ### Env
 
-`AI_MODEL_COMPLIANCE` (optional, default `claude-sonnet-5-5`; price it with `AI_PRICE_SONNET_*`), `ANTHROPIC_API_KEY` (without it nothing is read: worded texts are still saved and the owner is asked for the details), `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` (the MMS download), `RESEND_API_KEY` + `OUTBOUND_FROM_EMAIL` (email links to subs), `CRANKLEADS_APP_BASE_URL` / `APP_BASE_URL` (the link host).
+`AI_MODEL_COMPLIANCE` (optional, default `claude-sonnet-5-5`; price it with `AI_PRICE_SONNET_*`), `ANTHROPIC_API_KEY` (without it nothing is read: worded texts are still saved and the owner is asked for the details), `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` (the MMS download), `RESEND_API_KEY` + `OUTBOUND_FROM_EMAIL` (email links to subs), `EVERDOER_APP_BASE_URL` (old `CRANKLEADS_APP_BASE_URL` still read) / `APP_BASE_URL` (the link host).
 
 ### Sweeps
 
@@ -1496,7 +1496,7 @@ Purchasing **never writes `job_materials` or `expenses`**. The PO keeps its own 
 
 ```
 purchasing = {
-  enabled,                         // CrankLeads on, house orgs off
+  enabled,                         // done-for-you on, house orgs off
   lead_days: 2,                    // 1-14: only jobs at least this far out are drafted (and at most 14 days out)
   max_per_day: 3,                  // 1-20: materials_order questions per company per local day (the sweep's)
   default_fulfilment: "pickup",    // or "delivery"
@@ -1544,7 +1544,7 @@ Job sheet: `GET /api/organizations/:org/jobs/:bookingId/materials-orders` (`crew
 
 ### Sweeps
 
-The companies are loaded at most once per 30 s per worker (`loadPurchasingCompanies`): every CrankLeads company with the feature on, plus house-org companies with `any_on`. Active ones only, filtered at the query.
+The companies are loaded at most once per 30 s per worker (`loadPurchasingCompanies`): every done-for-you company with the feature on, plus house-org companies with `any_on`. Active ones only, filtered at the query.
 - **`purchasing:draft`** (10 min). Confirmed bookings with a `quote_id`, starting from now + `lead_days` to now + 14 days, at most 25 jobs per company per pass. Jobs that already have a non-cancelled PO are skipped. The claim (`purchase_order_drafts`) is inserted before any work. A failure is retried after 30 min, up to 3 tries. "No materials" is remembered, so the model is asked once per job.
 - **`purchasing:reminders`** (10 min). First the job-change check (08:00–21:00 local): orders that are out whose job moved to another local day, or was cancelled or deleted, get one owner text each (claimed by a conditional update on `job_scheduled_for`; a failed text is given back), and a move clears `reminder_sent_at`. Then the reminder, 15:00–20:00 local: POs `approved | sent | confirmed | ready` whose job (pending/confirmed) is tomorrow, claimed by `reminder_sent_at` (released if the text fails).
 
@@ -1580,12 +1580,12 @@ Answers the business's email the way the front desk answers its texts, without r
 
 ### What the owner sees
 
-- **Setting it up.** In Settings the owner taps **Get my inbox address** (a page view never makes one), or texts "set up email" (`email_setup`). They get the business inbox (`northshore-roofing-k3j9x2ab@in.crankleads.com`) with a copy button and the Gmail and Outlook steps. Gmail then emails its confirmation to the inbox, and the owner gets, at any hour (they're setting it up right then): `Gmail (dana@gmail.com) wants to confirm forwarding to your business inbox. Code: 123456789. In Gmail: Settings > See all settings > Forwarding and POP/IMAP, enter the code, Verify, then choose "Forward a copy of incoming mail to" northshore-roofing-k3j9x2ab@in.crankleads.com and Save. Didn't ask for this? Ignore it.` The mailbox that asked is recorded as the forwarding mailbox. The code is redacted from the stored email (`[code]`) and kept nowhere. A Microsoft forwarding code gets the same treatment. **No link in any email is ever opened.** Forwarding counts as working once real mail (not spam, bounces, auto-replies or no-reply) arrives *through* that mailbox: addressed to it, or naming it in X-Forwarded-For / X-Forwarded-To / X-Original-To / Delivered-To. Without a recorded mailbox, any real mail that wasn't addressed to the inbox directly counts, and the mailbox is read from those headers.
+- **Setting it up.** In Settings the owner taps **Get my inbox address** (a page view never makes one), or texts "set up email" (`email_setup`). They get the business inbox (`northshore-roofing-k3j9x2ab@in.everdoer.com`) with a copy button and the Gmail and Outlook steps. Gmail then emails its confirmation to the inbox, and the owner gets, at any hour (they're setting it up right then): `Gmail (dana@gmail.com) wants to confirm forwarding to your business inbox. Code: 123456789. In Gmail: Settings > See all settings > Forwarding and POP/IMAP, enter the code, Verify, then choose "Forward a copy of incoming mail to" northshore-roofing-k3j9x2ab@in.everdoer.com and Save. Didn't ask for this? Ignore it.` The mailbox that asked is recorded as the forwarding mailbox. The code is redacted from the stored email (`[code]`) and kept nowhere. A Microsoft forwarding code gets the same treatment. **No link in any email is ever opened.** Forwarding counts as working once real mail (not spam, bounces, auto-replies or no-reply) arrives *through* that mailbox: addressed to it, or naming it in X-Forwarded-For / X-Forwarded-To / X-Original-To / Delivered-To. Without a recorded mailbox, any real mail that wasn't addressed to the inbox directly counts, and the mailbox is read from those headers.
 - **A customer emails** ("Can you quote a full roof on 12 Bay St?"). The email shows in the app inbox like a text, and the owner gets (08:00–21:00, otherwise in the morning):
 
-  > #12 Email from Dana Jones: "Can you quote a full roof on 12 Bay St?" Draft: "Hi Dana, Thanks for reaching out to Northshore Roofing. Dana will get back to you with a price for the full roof - could you send a few photos? Thanks, Northshore Roofing" Full draft: https://app.crankleads.com/settings?section=front-desk&email=… Reply Y 12 to send it, N 12 to skip.
+  > #12 Email from Dana Jones: "Can you quote a full roof on 12 Bay St?" Draft: "Hi Dana, Thanks for reaching out to Northshore Roofing. Dana will get back to you with a price for the full roof - could you send a few photos? Thanks, Northshore Roofing" Full draft: https://app.everdoer.com/settings?section=front-desk&email=… Reply Y 12 to send it, N 12 to skip.
 
-  **Y 12** sends the reply exactly as drafted (`Sent your reply to Dana Jones (dana@example.com).`). **N 12** sends nothing, and the email waits in the inbox for the owner to answer by hand. With no model, drafts off, or a customer who unsubscribed from email, the owner just gets `Email from Dana Jones: "Roof quote" Answer it in the app: https://app.crankleads.com/inbox`.
+  **Y 12** sends the reply exactly as drafted (`Sent your reply to Dana Jones (dana@example.com).`). **N 12** sends nothing, and the email waits in the inbox for the owner to answer by hand. With no model, drafts off, or a customer who unsubscribed from email, the owner just gets `Email from Dana Jones: "Roof quote" Answer it in the app: https://app.everdoer.com/inbox`.
 - **A bid invite** from a GC: `Bid invite: Smith Build - roof, due Fri. It's on your task list.` (plus a high-priority task due that day).
 - **A supplier about one of our POs**: `Rona (Midland) emailed about PO-3: "PO-3 confirmed"`.
 - **Everything else** comes once a day at 16:00: `Email today: 2 suppliers (PO-3 confirmed; Kent: Price list update), 1 bill (Rona $412 due Oct 30), 5 newsletters ignored. Text "email status" for more.` Bills are only reported; v1 doesn't file them as expenses.
@@ -1646,7 +1646,7 @@ The owner prompt note tells the agent the Y/N forms, that it can't approve or ed
 
 ```
 email_clerk = {
-  enabled,              // CrankLeads on (inert until mail arrives), house orgs off unless switched on
+  enabled,              // done-for-you on (inert until mail arrives), house orgs off unless switched on
   draft_replies: true,  // draft customer replies for the owner's Y
   digest: true,         // the daily text
   digest_time: "16:00", // 12:00-19:30, on the half hour
@@ -1692,14 +1692,14 @@ All four tables have RLS on, the composite FK to `companies (id, organization_id
 - `INBOUND_EMAIL_DOMAINS` (comma list, e.g. `in.everdoer.com`; the FIRST is used for new inbox addresses, and a recipient on ANY listed domain is matched, so keep an old domain listed while addresses on it are in use; the old single `INBOUND_EMAIL_DOMAIN` is still read for one release) and `RESEND_WEBHOOK_SECRET` (the webhook's `whsec_…` signing secret). Without either, the role is inert: the webhook answers 503, no inbox is made, there are no sweeps or tools, and Settings says so.
 - `RESEND_API_KEY` must be allowed to read received emails (full access), plus `OUTBOUND_FROM_EMAIL` for replies (already set).
 - `AI_MODEL_EMAIL_CLERK` (optional, default `claude-sonnet-5-5`) and `ANTHROPIC_API_KEY`. Without the key, emails are sorted by rules and keywords, and customers get a heads-up text instead of a draft.
-- `TWILIO_FROM_NUMBER` (owner texts) and `CRANKLEADS_APP_BASE_URL` / `APP_BASE_URL` (the app links).
+- `TWILIO_FROM_NUMBER` (owner texts) and `EVERDOER_APP_BASE_URL` (old `CRANKLEADS_APP_BASE_URL` still read) / `APP_BASE_URL` (the app links).
 
 ### Operator setup (once)
 
-1. Resend dashboard → **Domains** → add `in.crankleads.com` (a **subdomain**, so the main domain's mail is untouched) → turn on **Receiving**, then add the MX record Resend shows at the DNS host (it must be the lowest-priority MX for that subdomain), and wait for "verified".
-2. Resend → **Webhooks** → add `https://app.crankleads.com/api/webhooks/email/inbound` with the event `email.received`, then copy its signing secret.
+1. Resend dashboard → **Domains** → add `in.everdoer.com` (a **subdomain**, so the main domain's mail is untouched) → turn on **Receiving**, then add the MX record Resend shows at the DNS host (it must be the lowest-priority MX for that subdomain), and wait for "verified".
+2. Resend → **Webhooks** → add `https://app.crankleads.com/api/webhooks/email/inbound` (the old host still answers `/api/*`; use `app.everdoer.com` once that host is live) with the event `email.received`, then copy its signing secret.
 3. Set `INBOUND_EMAIL_DOMAINS=in.everdoer.com` (old name `INBOUND_EMAIL_DOMAIN` still read for one release) and `RESEND_WEBHOOK_SECRET=whsec_…` on the web service and the workers (the sweeps run there). Make sure `RESEND_API_KEY` has full access (receiving reads), then redeploy.
-4. Check it: open Settings → AI front desk → Email inbox on a CrankLeads test business, send an email to the address shown, and it appears under "Last 7 days" within a minute.
+4. Check it: open Settings → AI front desk → Email inbox on a done-for-you test business, send an email to the address shown, and it appears under "Last 7 days" within a minute.
 
 ### Sweeps
 
@@ -1742,7 +1742,7 @@ Nothing else shared: `outbound/email.ts` / `messaging.ts` already pass the threa
 
 Checks in with every customer after a job, gets an unhappy customer in front of the owner the same day, and runs callbacks and warranty visits with the owner's OK. Keeps a workmanship warranty for every finished job and the equipment the business installed. Code: `src/server/services/staff/customer-care/`. Migration: `20261014110000_staff_customer_care.sql` (rollback in `supabase/rollback/`). Settings: Settings → AI front desk → **Customer care & warranty** (`src/components/settings/staff/CustomerCareSettingsSection.tsx`).
 
-**On for CrankLeads companies where the texting assistant (SMS agent) is on** — customers answer the check-in and pick visit times through it (`careActiveFor` = switched on + SMS agent active + company active). **House orgs (A1 …) are off** unless they switch both on: no check-ins, no warranties recorded, no tools, no prompt notes, no sweeps touch them, and their invoices and review requests are exactly as before.
+**On for done-for-you companies where the texting assistant (SMS agent) is on** — customers answer the check-in and pick visit times through it (`careActiveFor` = switched on + SMS agent active + company active). **House orgs (A1 …) are off** unless they switch both on: no check-ins, no warranties recorded, no tools, no prompt notes, no sweeps touch them, and their invoices and review requests are exactly as before.
 
 **Google review policy (hard rule).** The check-in never gates review requests. Nothing here reads a rating to decide whether, when or whom to ask for a review; `reviews/*` and `review_requests` are untouched (tested: a 5/5 and a 2/5 leave the review rows byte-for-byte the same). The only link is the other way round: a check-in moves a day so it doesn't land on top of a review request. The SMS agent is told never to ask for a review.
 
@@ -1825,7 +1825,7 @@ Every case text is a `care_messages` row (unique company + kind + dedupe key = t
 
 ```
 customer_care = {
-  enabled,                                            // CrankLeads on, house orgs off unless switched on
+  enabled,                                            // done-for-you on, house orgs off unless switched on
   checkins: { enabled: true, time: "10:00",           // 09:00–19:00 local
               delay_days: 1, min_job_cents: 0 },      // 1–7 days; 0 = every job
   warranty: { months: 12, terms: null },              // 0–600 months
@@ -1850,7 +1850,7 @@ None of its own, and no model calls: every text is built in code; replies are re
 
 ### Sweeps
 
-`customer_care:jobs` (5 min), `customer_care:checkins` (5 min), `customer_care:outbox` (2 min). Companies are loaded at most once a minute per worker (`loadCareCompanies`: every CrankLeads company with the role and the SMS agent on, plus house-org companies with `any_on`, filtered at the query).
+`customer_care:jobs` (5 min), `customer_care:checkins` (5 min), `customer_care:outbox` (2 min). Companies are loaded at most once a minute per worker (`loadCareCompanies`: every done-for-you company with the role and the SMS agent on, plus house-org companies with `any_on`, filtered at the query).
 
 ### Shared files edited
 
@@ -1858,7 +1858,7 @@ None of its own, and no model calls: every text is built in code; replies are re
 
 ### Tests
 
-`src/test/staff-customer-care.test.ts` (fake DB, real services; Twilio and the calendar faked): settings and words, DST times, reply lines; the registry and gating (CrankLeads on, SMS agent off → off, A1 off / opted in); check-ins (planned once, the 12-month warranty, sent once from the business number with `sent_by`, A1 untouched, per-service override, 0 months, the review clash moves the check-in and leaves the review row untouched, skips, never at night, no check-in for care visits); `record_job_feedback` (5/5 → nothing but thanks and the review rows unchanged; not a check-in answer; 2/5 → one case and ONE owner text with both codes, a second text adds to it; at night the alert and the codes wait for 08:00); **`care_followup` end to end through `handleOwnerInboundSms` → `decideApproval`** (Y visit → times → `book_care_visit` books the "Callback: …" visit linked to the case, owner told, idempotent; a taken time; Y call → text + takeover + the sibling superseded; N; expiry; a late Y waits for 9am; no open times); **`warranty_claim` end to end** (exact owner text, one open claim, Y → no-charge times → "Warranty visit: …" booking; N; expiry; nothing under warranty → hand off; equipment; A1 off); owner tools; briefing items (incl. a failed read → []); the Settings view and actions; the review fixes (hourly: "2pm" books 14:00, a bare date asks which one, a local `starts_at`; a done visit resolves its case, a cancelled one reopens it and tells the owner; the review rule moves once then sends; one check-in per customer per day; 14-day offers and stuck claims; no fallback to an unrelated job; the default counts for items without an override; switched off after asking; owner takeover; a STOPped owner; the business name for multi-business owners). `src/test/customer-care-route.test.ts`: the route (roles, strict PATCH, actions) and job done → invoice (a care visit skipped; other jobs and A1's invoiced; tolerant). `src/test/customer-care-settings-section.test.tsx`: the Settings section.
+`src/test/staff-customer-care.test.ts` (fake DB, real services; Twilio and the calendar faked): settings and words, DST times, reply lines; the registry and gating (done-for-you on, SMS agent off → off, A1 off / opted in); check-ins (planned once, the 12-month warranty, sent once from the business number with `sent_by`, A1 untouched, per-service override, 0 months, the review clash moves the check-in and leaves the review row untouched, skips, never at night, no check-in for care visits); `record_job_feedback` (5/5 → nothing but thanks and the review rows unchanged; not a check-in answer; 2/5 → one case and ONE owner text with both codes, a second text adds to it; at night the alert and the codes wait for 08:00); **`care_followup` end to end through `handleOwnerInboundSms` → `decideApproval`** (Y visit → times → `book_care_visit` books the "Callback: …" visit linked to the case, owner told, idempotent; a taken time; Y call → text + takeover + the sibling superseded; N; expiry; a late Y waits for 9am; no open times); **`warranty_claim` end to end** (exact owner text, one open claim, Y → no-charge times → "Warranty visit: …" booking; N; expiry; nothing under warranty → hand off; equipment; A1 off); owner tools; briefing items (incl. a failed read → []); the Settings view and actions; the review fixes (hourly: "2pm" books 14:00, a bare date asks which one, a local `starts_at`; a done visit resolves its case, a cancelled one reopens it and tells the owner; the review rule moves once then sends; one check-in per customer per day; 14-day offers and stuck claims; no fallback to an unrelated job; the default counts for items without an override; switched off after asking; owner takeover; a STOPped owner; the business name for multi-business owners). `src/test/customer-care-route.test.ts`: the route (roles, strict PATCH, actions) and job done → invoice (a care visit skipped; other jobs and A1's invoiced; tolerant). `src/test/customer-care-settings-section.test.tsx`: the Settings section.
 
 ### Not yet
 
@@ -1965,7 +1965,7 @@ Every tool refuses for a paused / archived business. Prompt note: when to use ea
 
 ```
 profit_advisor = {
-  enabled,                                       // CrankLeads on, house orgs off
+  enabled,                                       // done-for-you on, house orgs off
   weekly: { enabled: true, day: 5, time: "15:00" },  // 0 = Sunday; 07:00–19:30 in half hours (sent until 20:00)
   pricing_check: { enabled: true },
   tight_cushion_cents: 0,                        // 0–$100,000
@@ -1992,7 +1992,7 @@ None of its own, and **no model calls** (no `AI_MODEL_PROFIT_ADVISOR`): money is
 
 ### Sweeps
 
-The companies are loaded at most once per 30 s per worker (`loadProfitCompanies`): every CrankLeads company with the advisor on, plus house-org companies with `any_on`; active ones only, filtered at the query.
+The companies are loaded at most once per 30 s per worker (`loadProfitCompanies`): every done-for-you company with the advisor on, plus house-org companies with `any_on`; active ones only, filtered at the query.
 - **`profit_advisor:weekly`** (10 min): on the owner's day from their time until 20:00 local, with a verified owner cell. Claimed in `profit_advisor_runs` (`weekly`, ISO week) before anything is read. Fewer than 2 jobs (free visits don't count) and cash fine → `skipped`. A failed text → `failed`, and a run stuck at `claimed` (a dead worker) — both re-claimed after 30 min (3 tries in all, conditional on status, attempts and `updated_at`) inside the window; a platform STOP → `skipped`.
 - **`profit_advisor:pricing`** (30 min): every pass first finishes price changes stuck in `applying` 10+ minutes (any day). Then the first Tuesday of the month, caught up through Friday, 09:00–17:00 local: claimed per month (`pricing`, `YYYY-MM`; failed or stuck → retried after 30 min, 3 tries), the check (which records the price watch), up to 2 `price_change` questions.
 
@@ -2088,7 +2088,7 @@ A bare picture, or words that don't qualify, is never claimed (old behaviour: "G
 
 ### Settings
 
-`companies.ai_settings.fleet = { enabled?, reminders? }`, read only by `settings.ts readFleetSettings`: `enabled` defaults **on** for CrankLeads orgs (inert until something is added) and **off** for house orgs; `reminders` defaults on. `fleetActiveFor` = active company + `enabled`, so house orgs never see the tools, prompt note or photo handling.
+`companies.ai_settings.fleet = { enabled?, reminders? }`, read only by `settings.ts readFleetSettings`: `enabled` defaults **on** for done-for-you orgs (inert until something is added) and **off** for house orgs; `reminders` defaults on. `fleetActiveFor` = active company + `enabled`, so house orgs never see the tools, prompt note or photo handling.
 
 Route `GET | PATCH | POST /api/organizations/:org/companies/:company/ai-settings/fleet`: members read (but **not** Compliance's vehicle insurance — Compliance documents are owner/admin-read, so `vehicleInsurance` is `null` for members); owners/admins PATCH `{ enabled?, reminders? }` (strict, merged into `ai_settings.fleet` only via `updateAiSettings`) and POST actions `save_vehicle`, `save_service_item` (add / edit / `active: false`), `service_done` (vehicle or equipment, today), `save_equipment`, `equipment_status` (out / back / in shop), `save_rental` (`dueBackLocal` "YYYY-MM-DDTHH:MM" in the company's zone), `return_rental`. POST is refused while Fleet is off. Everything is re-checked against the company before a service-role write.
 

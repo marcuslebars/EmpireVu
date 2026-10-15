@@ -1,8 +1,8 @@
-# Marina's tools in EmpireVu
+# Marina's tools in Everdoer
 
 Marina (the Retell phone receptionist) used to get her *abilities* from the A1 Marine Care
 website: quoting, booking, deposit links and the returning-caller greeting all ran on
-`a1marinecare.ca/api/retell/*` against that site's own database. They now live in EmpireVu,
+`a1marinecare.ca/api/retell/*` against that site's own database. They now live in Everdoer,
 where they work for **any** company with a Marina number: the tenant is resolved from the
 call itself (dialled number → Retell agent id), prices come from that company's catalog, and
 everything lands in the same contacts, quotes and bookings as the rest of the app.
@@ -20,12 +20,12 @@ Marina exactly as it does today.
 | `send_deposit_link` | `POST /api/retell/functions/deposit-link` | **Ready** (PR 1b) |
 | Owner text per call, customer follow-ups, deposit alerts, reply relay | Automations (recipes) | **Ready** (PR 2) |
 | Call-back lists in the morning digest, setup health check | Digest + `GET /api/organizations/{org}/voice/health` | **Ready** (PR 2) |
-| Speed-to-lead (Marina calls a new web lead) | — | Later: needs the Care site's forms to post to EmpireVu first (PR 5) |
+| Speed-to-lead (Marina calls a new web lead) | — | Later: needs the Care site's forms to post to Everdoer first (PR 5) |
 
 ## Pricing parity
 
 The Care site priced shrink wrap with its own calculator (`src/lib/shrink-wrap-pricing.ts`).
-EmpireVu prices it from A1 Marine Care's service catalog, seeded by
+Everdoer prices it from A1 Marine Care's service catalog, seeded by
 [`supabase/seeds/a1-care-shrink-wrap.sql`](../supabase/seeds/a1-care-shrink-wrap.sql):
 
 - shrink wrap $28/ft, $400 minimum, up to 40 ft (longer, or under 8 ft → the owner quotes it)
@@ -48,7 +48,8 @@ Two new platform features came out of this, both off by default so no existing t
 
 ## `POST /api/retell/functions/quote`
 
-Header `x-empirevu-retell-secret: <RETELL_FUNCTION_SECRET>` (same secret as `capture-lead`).
+Header `x-everdoer-retell-secret: <RETELL_FUNCTION_SECRET>` (same secret as `capture-lead`; the old
+`x-empirevu-retell-secret` name is still accepted).
 **Payload: args only must be OFF** — the tenant and the caller's number come from Retell's
 trusted `call` object, never from the model's arguments.
 
@@ -205,7 +206,7 @@ switched on, off or reworded per company under **Automations**:
 | **Quote follow-up** *(existing, improved)* | quote sent | Now includes the quote link and **stops once they've paid or booked**; only sends 9am–8pm | 20-hour nudge |
 | **Booking reminder** *(existing)* | booking upcoming | The day-before text; reword it for crew-prep instructions | reminder text |
 
-The owner's call summary is built from what actually happened on the call in EmpireVu (the quote
+The owner's call summary is built from what actually happened on the call in Everdoer (the quote
 created, the booking made, the deposit):
 
 ```
@@ -266,12 +267,14 @@ follow-up and Booking reminder keep their current wording; edit them under Autom
    will fail at checkout once the deposit tool is live.
 4. Add a `voice_numbers` row for Marina's Care number (Settings → Integrations → Voice numbers,
    provider `retell`, with the Care agent id) — this is what routes her calls to Care instead
-   of the legacy Storage default. **Without it the quote tool refuses to price** (it will not
+   of the legacy Storage default (`RETELL_SOURCE_SITE`'s code default is `a1marinestorage`; A1
+   Marine Storage is decommissioned, and `RETELL_SOURCE_SITE=a1marinecare` is now set — see
+   REBRAND_CHECKLIST.md D.3). **Without it the quote tool refuses to price** (it will not
    quote Storage's $25/ft to a Care caller) and the inbound webhook greets neutrally.
 5. Set the two greeting templates above on the Care voice profile to keep today's opener word
    for word.
 6. Test without touching the live agent: duplicate the Care agent in Retell, point the copy's
-   four tools at the EmpireVu URLs below with the `x-empirevu-retell-secret` header, set the copy's
+   four tools at the Everdoer URLs below with the `x-everdoer-retell-secret` header, set the copy's
    phone number's inbound webhook to `/api/retell/inbound`, map that number in `voice_numbers`,
    and call it from your own phone.
 
@@ -285,18 +288,18 @@ you paid. Each step can be undone by putting the old value back.
    ```
    # on the Care site's Railway service (read-only)
    railway run npx tsx scripts/export-for-empirevu.ts > a1-care-export.json
-   # on EmpireVu — dry run first, read the report, then apply
+   # on Everdoer — dry run first, read the report, then apply
    railway run npm run job:import-a1-care -- --file a1-care-export.json
    railway run npm run job:import-a1-care -- --file a1-care-export.json --apply
    ```
    It brings over every upcoming, non-cancelled booking (shrink wraps into their morning or
    afternoon window, other services at their time slot) and the last 45 days of shrink-wrap
    quotes, with deposits already paid. The import is **silent**: no customer emails or texts,
-   no automations, and imported quotes are marked as already reminded. If EmpireVu would price a
+   no automations, and imported quotes are marked as already reminded. If Everdoer would price a
    quote differently from what the customer was told, the dry run lists it and the customer's
    number is kept. Re-running skips what's already imported. The file holds customer details,
    so delete it afterwards.
-   Until the Care site's own booking page books through EmpireVu too (PR 5), keep an eye on
+   Until the Care site's own booking page books through Everdoer too (PR 5), keep an eye on
    double bookings from the website.
 2. In Retell, on the live Care agent, change each custom function:
 
@@ -307,8 +310,8 @@ you paid. Each step can be undone by putting the old value back.
    | `book_wrap_date` | `https://api.empirevu.com/api/retell/functions/book` |
    | `send_deposit_link` | `https://api.empirevu.com/api/retell/functions/deposit-link` |
 
-   Replace the header `x-a1-retell-secret` with `x-empirevu-retell-secret: <RETELL_FUNCTION_SECRET>`
-   (the EmpireVu value). Keep **Payload: args only** OFF.
+   Replace the header `x-a1-retell-secret` with `x-everdoer-retell-secret: <RETELL_FUNCTION_SECRET>`
+   (the Everdoer value; the old `x-empirevu-retell-secret` name is also accepted). Keep **Payload: args only** OFF.
 3. Prompt edits (two lines):
    - In PRICING RULES, replace "The deposit link is good for the rest of the day — never quote any
      other window for it." with "The deposit link opens their quote; they approve it and pay there."
@@ -316,7 +319,7 @@ you paid. Each step can be undone by putting the old value back.
      opens their quote to approve and pay".
 4. Phone number → **Inbound webhook URL** = `https://api.empirevu.com/api/retell/inbound`.
 5. Agent **Webhook URL** → `https://api.empirevu.com/api/retell/webhook` (enable
-   `call_analyzed`). EmpireVu now sends the per-call texts itself, so the Care site no longer
+   `call_analyzed`). Everdoer now sends the per-call texts itself, so the Care site no longer
    needs to sit in the middle. Before you flip it, turn on **Text me after every call** and set
    the Care company's **owner phone**. Otherwise you'd get no per-call texts, or two sets if the
    Care site's `OWNER_SMS_NUMBER` is still set.

@@ -1,6 +1,6 @@
-# Done-for-you CrankLeads
+# Done-for-you
 
-A CrankLeads buyer never sets anything up. They pay, answer three questions on their phone,
+A done-for-you buyer (Catch, Close or Front Desk) never sets anything up. They pay, answer three questions on their phone,
 tap one link, and we tell them they're live. Four parts make that happen; they meet only
 through database state, so each can be read on its own below.
 
@@ -13,7 +13,7 @@ due at night waits for the morning.
 
 | When | They get | Sent by |
 | --- | --- | --- |
-| **0 min** — they pay | `/welcome/crankleads` page: *"Check your texts — we'll finish setting things up for you"* and the four steps below. **Welcome email**: we're setting things up, the quick-setup link, the set-password link (no DIY steps, no time estimate). Their number is bought in the background. | billing worker (`crankleads/provision.ts`) |
+| **0 min** — they pay | `/welcome/crankleads` page: *"Check your texts — we'll finish setting things up for you"* and the four steps below. **Welcome email**: we're setting things up, the quick-setup link, the set-password link (no DIY steps, no time estimate). Their number is bought in the background. | billing worker (`done-for-you/provision.ts`) |
 | **0 min** (08:00–21:00 their time) | **Quick-setup text**: *"CrankLeads: you're in. 60 seconds and we'll set the rest up for you: …/setup/<token>"*. Bought at night → the text waits for the retry sweep from 08:00 (the welcome email already carries the link; an email copy goes now only if the welcome email failed). Retried up to 3× if it didn't go. The concierge resend outside hours sends the email only and says so. | `dfy/intake.ts` |
 | **~1–5 min after they answer** | Nothing to read — we look up their Google listing + website, switch every automation on and build + publish their page. | enrichment → orchestrator (page built inline) |
 | **right after that** | **Forwarding text + email** (once): *"… is almost live. Last step: turn on call forwarding … It's one tap: …/forward/<token>"*. | orchestrator |
@@ -39,8 +39,8 @@ live"), or the page link twice.
 - **New-flow purchases only.** Every purchase provisioned with this feature gets a
   `setup_intakes` row at provisioning (step 3b — a required, retried step). That row is the
   marker: switch-on, number buying, site generation / publishing and the page text run only for
-  companies that have one (`dfy/eligibility.ts`). CrankLeads companies bought before
-  done-for-you ("legacy") are never switched on, sold a number, auto-published or texted. An
+  companies that have one (`dfy/eligibility.ts`). Done-for-you companies bought before
+  this flow ("legacy") are never switched on, sold a number, auto-published or texted. An
   operator can build a legacy company a **draft** page from the concierge ("Build / rebuild
   website" publishes only for new-flow companies); "Resend quick-setup link", "Send forwarding
   text" and "Run switch-on now" refuse legacy accounts with a plain message.
@@ -50,12 +50,12 @@ live"), or the page link twice.
   forwarding-test result notice and "You're live".
 - **Only the tier's automations run.** After provisioning (and at switch-on) every catalog
   recipe outside `packRecipesForTier(tier) ∪ dfyRecipeSlugs(tier)` is draft
-  (`crankleads/tier-automations.ts`). Existing orgs: see "Repair: tier automations" below.
+  (`done-for-you/tier-automations.ts`). Existing orgs: see "Repair: tier automations" below.
 
-### Repair: tier automations (one-off, existing CrankLeads orgs)
+### Repair: tier automations (one-off, existing done-for-you orgs)
 
 Orgs provisioned before the tier rule may have Close / Front Desk automations running.
-`npm run job:crankleads-repair-automations` lists, per CrankLeads company, every ACTIVE catalog
+`npm run job:crankleads-repair-automations` lists, per done-for-you company, every ACTIVE catalog
 recipe outside its tier (dry run — changes nothing). `npm run job:crankleads-repair-automations -- --apply`
 sets those to draft. Idempotent; custom workflows and house orgs are never touched; nothing is
 turned on. Needs `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`. Run the dry run first
@@ -158,7 +158,7 @@ skipped and recorded.
 
 ## Automatic switch-on
 
-A CrankLeads buyer never works through a wizard. After they pay we buy their number, switch
+A done-for-you buyer never works through a wizard. After they pay we buy their number, switch
 everything on as soon as we know enough about the business, text them ONE link that turns on
 call forwarding, test it ourselves, and tell them "You're live". If they aren't live 24 hours
 after buying, an operator gets a task to call them.
@@ -167,8 +167,8 @@ after buying, an operator gets a task to call them.
 
 | When | What | Where |
 | --- | --- | --- |
-| Purchase provisioned (billing worker) | An active number of either kind already there → ready (a Front Desk buyer on the catcher path is never sold an AI number on top). Otherwise buy the tier's number right after the company exists: **Catch / Close** → the missed-call text-back (Twilio catcher) number; **Front Desk** → the AI receptionist's (Retell) number. Area code = the checkout phone's NPA (fallback 705; then any). Never fails provisioning — a failure is recorded and retried. | `crankleads/provision.ts` step 6b → `dfy/numbers.ts` `ensureDfyNumber` |
-| Every minute (worker scheduler, `runDoneForYouSweep`) | `processDoneForYou` advances up to 25 provisioned, not-live CrankLeads companies (least recently advanced first, purchases from the last 30 days). | `dfy/orchestrator.ts` |
+| Purchase provisioned (billing worker) | An active number of either kind already there → ready (a Front Desk buyer on the catcher path is never sold an AI number on top). Otherwise buy the tier's number right after the company exists: **Catch / Close** → the missed-call text-back (Twilio catcher) number; **Front Desk** → the AI receptionist's (Retell) number. Area code = the checkout phone's NPA (fallback 705; then any). Never fails provisioning — a failure is recorded and retried. | `done-for-you/provision.ts` step 6b → `dfy/numbers.ts` `ensureDfyNumber` |
+| Every minute (worker scheduler, `runDoneForYouSweep`) | `processDoneForYou` advances up to 25 provisioned, not-live done-for-you companies (least recently advanced first, purchases from the last 30 days). | `dfy/orchestrator.ts` |
 | Number missing | Retry with backoff (1 min, 5 min, 20 min, 1 h; own area code ×2, then 705, then any). After 5 failed attempts: `number_flagged_at` + one operator email; shows in the daily health email. | `ensureDfyNumber` |
 | `setup_intakes.status = 'enriched'` — or the intake is ≥ 2 h old and unanswered, or stuck in submitted/enriching ≥ 6 h (no intake row = legacy: never) | **Switch on, once** (`switched_on_at`, details in `switch_on_detail`). A run that throws or whose automations step fails clears `switched_on_at` and is retried on the next sweeps, at most 3 runs (`switch_on_attempts`, then `switch_on_gave_up` — the 24 h escalation / console picks it up); the console's "Run switch-on now" always runs it again (even after a success): install + activate the tier's automations (drafts only; a channel that isn't configured keeps it draft; paused ones are never touched); review requests on when `brand_review_url` exists and the owner never chose; online-booking hours from `companies.hours` while the booking hours are still the defaults; Front Desk: rebuild the AI receptionist prompt (hours, service area, services with any prices) and re-push it to Retell — an update of the same LLM/agent/number, never a new purchase. | `dfy/switch-on.ts` |
 | Right after switch-on (same pass) | **Build + publish their page** with `generateSite(…, { publish: true })` unless one exists, so it is usually live before the forwarding / live texts. A failure is logged; the sites sweep is the backstop. An intake enriched AFTER the page was built (the 2 h fallback) rebuilds it once (keeps slug, status, owner edits). | orchestrator `buildSiteInline` |
@@ -176,9 +176,9 @@ after buying, an operator gets a task to call them.
 | Owner taps (Android) / confirms (iPhone, landline) | `forward_tapped_at`. ~45 s later (next page poll or sweep) ONE automatic forwarding test via the existing owner-test path (rate-limited, the company's own business line). Outside 08:00–21:00 their time nothing is claimed: the test goes on the first sweep after 08:00 and the page says "we'll call … after 8am". Each new tap allows another (max 5); the existing daily/weekly re-tests carry on. Catcher path only — see Front Desk below. | `dfy/forwarding.ts` |
 | Not live at purchase + 24 h, moved into operator hours (Mon–Fri 08–18, `BUSINESS_TIMEZONE`) | **Escalation, once** (`escalated_at`): email to `OWNER_EMAIL` — "Call <name> <phone> to finish setup — <business>" with what's done / left and `${APP_BASE_URL}/concierge/<organizationId>`. Also listed in the daily operator health email ("Finish setup for them (concierge)"). | orchestrator step 5, `operator-health/*` |
 | "Have us set it up — we'll call you" on the forwarding page | `forward_help_requested_at` + one operator email (same format, with the line kind/carrier). Listed in the daily health email. | `forwardingHelpHandler` |
-| Forwarding verified (a passing forwarding test — immediately, from `completeForwardingTest`; or the next orchestrator tick; the 5-min follow-up pass is the backstop) | `crankleads_purchases.live_at` + ONE "You're live" text + email (08:00–21:00): what now works, their number, their page if published (`siteUrl(slug)`; the site's `owner_notified_at` is stamped so the sites sweep never sends its own page text), a login link (the email carries a one-time set-password link if they never signed in — buyer's checkout email only; the text never does). When this message covers the pass, the forwarding test's "✅ text-back is live" note is NOT sent. All paths share the same claims (`live_at`, the `(purchase, 'live')` follow-up row), so it goes once. | `crankleads/setup-followups.ts` `processSetupFollowupForCompany` |
+| Forwarding verified (a passing forwarding test — immediately, from `completeForwardingTest`; or the next orchestrator tick; the 5-min follow-up pass is the backstop) | `crankleads_purchases.live_at` + ONE "You're live" text + email (08:00–21:00): what now works, their number, their page if published (`siteUrl(slug)`; the site's `owner_notified_at` is stamped so the sites sweep never sends its own page text), a login link (the email carries a one-time set-password link if they never signed in — buyer's checkout email only; the text never does). When this message covers the pass, the forwarding test's "✅ text-back is live" note is NOT sent. All paths share the same claims (`live_at`, the `(purchase, 'live')` follow-up row), so it goes once. | `done-for-you/setup-followups.ts` `processSetupFollowupForCompany` |
 
-### "Live" (new definition — `crankleads/setup-checklist.ts`)
+### "Live" (new definition — `done-for-you/setup-checklist.ts`)
 
 - **Catch / Close** (and Front Desk that chose the catcher): text-back number active **+** forwarding verified (`voice_numbers.forwarding_verified_at`: a passing test or a real forwarded call) **+** the missed-call text-back automation active.
 - **Front Desk**: AI number active **+** forwarding verified on that number **or** a call to the AI receptionist that shows forwarding from the business line (rule under "Front Desk" below — a call alone doesn't count).
@@ -196,7 +196,7 @@ A failed automatic test (`not_forwarded`) texts the fix with a link to the one-t
 
 ### In the app
 
-CrankLeads orgs see **"We're setting you up"** at `/onboarding` instead of the 8-step wizard, and a small card on the dashboard instead of "Finish setting up": ✓ number bought, ✓ business details found, ✓ automations on, ✓ your page is live with its link (only when a `company_sites` row exists), the one thing left (turn on forwarding → the same one-tap page), and optional extras (add prices, connect payments). Data: `GET /api/organizations/{orgId}/setup-progress` (`dfy/progress-view.ts`). Non-CrankLeads orgs keep the wizard.
+Done-for-you orgs see **"We're setting you up"** at `/onboarding` instead of the 8-step wizard, and a small card on the dashboard instead of "Finish setting up": ✓ number bought, ✓ business details found, ✓ automations on, ✓ your page is live with its link (only when a `company_sites` row exists), the one thing left (turn on forwarding → the same one-tap page), and optional extras (add prices, connect payments). Data: `GET /api/organizations/{orgId}/setup-progress` (`dfy/progress-view.ts`). Standard orgs keep the wizard.
 
 ### The one-tap forwarding page (`/forward/:token`)
 
@@ -242,7 +242,7 @@ Reads (owned by other parts): `setup_intakes` (status, token), `company_sites` (
 
 ## Generated sites
 
-Every CrankLeads buyer gets a hosted, phone-first page built from the facts we hold about their
+Every done-for-you buyer gets a hosted, phone-first page built from the facts we hold about their
 business. If they have **no website**, the page *is* their website (`full` mode). If they **have
 one**, it's their services, prices and booking page they can link to (`price_page` mode), with a
 "Visit our main site" link back.
@@ -304,14 +304,14 @@ Migration `20261008130000_company_sites_owner_notified.sql` adds
 `runGeneratedSitesPass` is registered with one line in `runScheduler`
 (workflow-engine/scheduler.ts); it runs every 5 minutes per worker and never throws.
 
-1. `generatePendingSites` — CrankLeads orgs (not canceled), companies with **no**
+1. `generatePendingSites` — done-for-you orgs (not canceled), companies with **no**
    `company_sites` row and either `setup_intakes.status = 'enriched'`, or **no intake at all**
    (older buyers) plus enough data (a phone and one of: service area, hours, ≥ 3 active
    services). Generates **and publishes**. At most 10 per pass. Idempotent (a company with a row
    is skipped; a racing insert returns the existing row).
    Plus companies the orchestrator switched on (`dfy_progress.switched_on_at`) that still have
    no page — the backstop for the inline build (including the 2 h "no answer" fallback).
-2. `notifyPublishedSites` — every published CrankLeads site with `owner_notified_at` null, between
+2. `notifyPublishedSites` — every published done-for-you site with `owner_notified_at` null, between
    08:00 and 21:00 company time: claim, then text the owner from `TWILIO_FROM_NUMBER`
    (`smsFrom: "platform"`): "Your new page is live: <url>. Want changes? <app>/settings?section=website".
    A landline business number gets the same by email. Publishing from Settings stamps
@@ -356,23 +356,26 @@ Help article: `your-website`.
 `appBaseUrlFor(brand)/s/<slug>`. It is the ONLY builder of a page URL: the "You're live"
 message, the page text, the in-app progress view, Settings and the concierge console all use it.
 
-### Turning on pages.crankleads.com (Railway + DNS)
+### Turning on pages.everdoer.com (Railway + DNS)
+
+Not live today: no pages host has ever been set, so every page link is `<app>/s/<slug>`.
+`pages.everdoer.com` is the pages host (rebrand plan D1). `pages.crankleads.com` was never
+turned on, so there are no old pages links to keep and `PAGES_LEGACY_HOSTS` stays unset.
 
 Do these in order; **set the env var last** so no link points at a host that doesn't resolve.
 
-1. Deploy this branch (migration `20261008130000` applied). Sites already work at
-   `<app>/s/<slug>`.
+1. Deploy (migration `20261008130000` applied). Sites already work at `<app>/s/<slug>`.
 2. **Railway:** web service → Settings → Networking → Custom Domain → add
-   `pages.crankleads.com`. Railway shows a CNAME target.
-3. **DNS (crankleads.com):** `CNAME pages → <the Railway target>`. Wait until Railway shows the
-   certificate issued and `https://pages.crankleads.com/<a published slug>` loads the page
-   (the middleware only rewrites once `PAGES_BASE_URL` is set, so before step 5 you'll see the
-   app; that's expected).
-4. **Turnstile** (if used): add `pages.crankleads.com` to the site's allowed hostnames.
-5. Set `PAGES_BASE_URL=https://pages.crankleads.com` on **web and worker**, redeploy. New
-   links, canonical URLs and the "page is live" text use the pages host; old `/s/<slug>` links
-   keep working (canonical points at the pages host).
-6. Optional: put Cloudflare in front of `pages.crankleads.com` to honour `s-maxage`.
+   `pages.everdoer.com`. Railway shows a CNAME target.
+3. **DNS (everdoer.com zone):** `CNAME pages → <the Railway target>`. Wait until Railway shows the
+   certificate issued and `https://pages.everdoer.com/<a published slug>` loads (the middleware
+   only rewrites once `PAGES_BASE_URL` is set, so before step 5 you'll see the app; that's
+   expected).
+4. **Turnstile** (if used): add `pages.everdoer.com` to the site's allowed hostnames.
+5. Set `PAGES_BASE_URL=https://pages.everdoer.com` on **web and worker**, redeploy. New links,
+   canonical URLs and the "page is live" text use the pages host; old `/s/<slug>` links keep
+   working (canonical points at the pages host).
+6. Optional: put Cloudflare in front of `pages.everdoer.com` to honour `s-maxage`.
 
 Rollback: unset `PAGES_BASE_URL` (links go back to `/s/<slug>`); the migration's down file is
 `supabase/rollback/20261008130000_company_sites_owner_notified.down.sql`.
@@ -392,7 +395,7 @@ console's existence isn't revealed. `GET /api/session/context` returns `isOperat
 shows a **Concierge** entry only when it's true. `OPS_ADMIN_TOKEN` routes are unchanged.
 Helper: `requireOperator(request)` in `src/server/services/concierge/auth.ts`.
 
-**Screens.** `/concierge` — CrankLeads orgs (`platform_brand = 'crankleads'`), newest first, filter
+**Screens.** `/concierge` — done-for-you orgs (`platform_brand = 'crankleads'`), newest first, filter
 chips *Needs a call / Setting up / Live*, tap-to-call/text, tier, hours since purchase with an SLA
 badge (green < 12h, amber 12–24h, red > 24h) and progress dots. `/concierge/:orgId` — a *Call
 script* header (owner, phone, what's missing in plain words incl. the exact forwarding code for
@@ -422,7 +425,7 @@ with the exact code / provider words for their line, the text-back automation), 
 | `POST /api/concierge/accounts/:orgId/actions` | `{ action, companyId?, input }` — JSON only (415) and same-origin (`Sec-Fetch-Site` / `Origin` must match, else 403) |
 
 Any org can be opened by explicit id. A `companyId` is honoured only if it belongs to that org
-(else 404 — no write, no audit); by default the org's CrankLeads company is used.
+(else 404 — no write, no audit); by default the org's done-for-you company is used.
 
 **Actions** (`src/server/services/concierge/actions.ts`, a registry `name → { label, schema, run }`):
 `update_business_facts` (website, hours — `{summary}` or per-day `{mon:{open,close}}`, service area,
@@ -485,7 +488,7 @@ pass), `src/test/concierge.test.ts`.
 | Variable | Service | Needed for |
 | --- | --- | --- |
 | `GOOGLE_PLACES_API_KEY` | web, worker | Quick setup "find your business" + enrichment. A Google Cloud key with **Places API (New)** enabled (Text Search + Place Details), restricted to that API. Unset → website / no-website only. |
-| `PAGES_BASE_URL` | web, worker | e.g. `https://pages.crankleads.com` (no trailing slash). Set LAST, after the DNS step below. Unset → pages live at `<CrankLeads app>/s/<slug>`. |
+| `PAGES_BASE_URL` | web, worker | e.g. `https://pages.everdoer.com` (no trailing slash). Set LAST, after the DNS step below. Unset → pages live at `<done-for-you app base URL>/s/<slug>`. |
 | `OPERATOR_EMAILS` | web | Comma-separated operator emails for `/concierge` (owner + closers; confirmed accounts only). Unset → console off (404). |
 | `TURNSTILE_SITE_KEY` *(optional)* | web | Turnstile widget on the page's quote form (or reuse `VITE_TURNSTILE_SITE_KEY`; needs `TURNSTILE_SECRET_KEY`). Add the pages host to the widget's hostnames. |
 | `ANTHROPIC_API_KEY` *(existing)* | web, worker | Prices from their website + page copy. Unset → those steps are skipped / template copy. |
@@ -497,11 +500,11 @@ pass), `src/test/concierge.test.ts`.
 
 `COMPANY_SITE_BASE_URL` is gone — page links come only from `PAGES_BASE_URL` (via `siteUrl`).
 
-### DNS for pages.crankleads.com
+### DNS for pages.everdoer.com
 
-Follow "Turning on pages.crankleads.com" above: deploy → Railway custom domain on the web
-service → `CNAME pages → <Railway target>` on crankleads.com → certificate issued → Turnstile
-hostname (if used) → set `PAGES_BASE_URL` on web **and** worker → redeploy.
+Follow "Turning on pages.everdoer.com" above: deploy → Railway custom domain on the web
+service → `CNAME pages → <Railway target>` in the everdoer.com zone → certificate issued →
+Turnstile hostname (if used) → set `PAGES_BASE_URL` on web **and** worker → redeploy.
 
 ### Migrations, in order
 

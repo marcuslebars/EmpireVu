@@ -19,7 +19,7 @@ Drop these in the site root and add to <head>:
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
-COLORS (matched to CrankLeads)
+COLORS (matched to the former CrankLeads palette)
   Electric lime   #A6EE2B   icon, "doer", accents
   Near-black      #0C0E12   backgrounds
   Off-white       #F4F4F1   "Ever" on dark

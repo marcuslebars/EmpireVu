@@ -3,7 +3,7 @@
 `/reports` (sidebar → Reports) is one page that answers "how is the business doing?"
 for a date range. Owners and admins only; crew see a short "Reports are for owners and
 admins" note. The older pages are still linked from its header: Monthly results
-(`/reports/monthly`) and Captured by EmpireVu (`/reports/attribution`).
+(`/reports/monthly`) and Captured by Everdoer (`/reports/attribution`).
 
 ## Ranges
 

@@ -1,6 +1,6 @@
 # Stripe-native quotes
 
-EmpireVu is replacing Jobber's client-hub checkout for NEW quotes with a Stripe-native flow:
+Everdoer is replacing Jobber's client-hub checkout for NEW quotes with a Stripe-native flow:
 price a quote → customer approves online → pays a 25% deposit → balance invoice on
 completion. This made the A1 stack independent of Jobber, which has since been removed
 (Oct 2026).

@@ -1,6 +1,6 @@
-# Telnyx Voice AI Assistant → EmpireVu
+# Telnyx Voice AI Assistant → Everdoer
 
-EmpireVu exposes four endpoints that a Telnyx Voice AI Assistant (AI receptionist)
+Everdoer exposes four endpoints that a Telnyx Voice AI Assistant (AI receptionist)
 calls across a call's lifecycle.
 
 ## Endpoints
@@ -20,8 +20,10 @@ Telnyx does not HMAC-sign these requests, so all four are protected by a shared
 secret header. Configure it on the Telnyx side for every endpoint:
 
 ```
-x-empirevu-telnyx-secret: <value of TELNYX_WEBHOOK_SECRET>
+x-everdoer-telnyx-secret: <value of TELNYX_WEBHOOK_SECRET>
 ```
+
+The old header name `x-empirevu-telnyx-secret` is still accepted.
 
 Any request without an exactly matching header gets `401`. The comparison is
 timing-safe and fails closed (a missing `TELNYX_WEBHOOK_SECRET` rejects everything).
@@ -30,7 +32,7 @@ timing-safe and fails closed (a missing `TELNYX_WEBHOOK_SECRET` rejects everythi
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `TELNYX_WEBHOOK_SECRET` | yes | Shared secret for the `x-empirevu-telnyx-secret` header |
+| `TELNYX_WEBHOOK_SECRET` | yes | Shared secret for the `x-everdoer-telnyx-secret` header (old `x-empirevu-telnyx-secret` still accepted) |
 | `TELNYX_DEFAULT_TENANT_ID` | recommended | Company (brand) UUID used when the dialled number isn't in `telnyx_numbers` |
 | `TELNYX_DEBUG_PAYLOADS` | no | `true` logs full raw payloads — use on first deploy to confirm field names, then turn off (payloads contain caller PII) |
 | `TELNYX_DEPOSIT_CENTS` | no | Flat booking deposit in cents (default `10000` = $100) |
@@ -51,11 +53,13 @@ Seed `telnyx_numbers` with one row per Telnyx number:
 insert into public.telnyx_numbers
   (organization_id, company_id, phone_e164, source_site, brand_label)
 values
-  ('<org-uuid>', '<company-uuid>', '+19055550123', 'a1marinestorage', 'A1 Marine Storage');
+  ('<org-uuid>', '<company-uuid>', '<the Telnyx number, E.164>', 'a1marinecare', 'A1 Marine Care');
 ```
 
 `source_site` must be one of `a1marinecare`, `a1marinestorage`, `a1coatings` —
-the same brand keys the existing web-form lead routing uses, so a phone lead
+the same brand keys the existing web-form lead routing uses (`a1marinestorage` is A1 Marine
+Storage, decommissioned 2026-10-14 — see REBRAND_CHECKLIST.md "A1 Marine Storage
+decommission"; don't map new numbers to it), so a phone lead
 flows through the identical intake path. Unmapped numbers fall back to
 `TELNYX_DEFAULT_TENANT_ID`.
 

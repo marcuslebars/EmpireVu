@@ -1,6 +1,6 @@
 # Billing (Stripe) — Phase 1
 
-The Stripe subscription-billing layer for EmpireVu. **Phase 1 is plumbing
+The Stripe subscription-billing layer for Everdoer. **Phase 1 is plumbing
 only, in Stripe TEST MODE**: a subscription can be created, upgraded, downgraded,
 and canceled against an `organization`, with local state always kept correct. No
 customer-facing UI ships here, and gating is **not** yet wired into existing
@@ -26,7 +26,7 @@ creates the webhook endpoint for you.
 - [ ] Create a **Webhook endpoint** → URL `https://<your-app-host>/api/webhooks/stripe`.
       Subscribe at least to: `checkout.session.completed`, `invoice.paid`,
       `invoice.payment_failed`, `customer.subscription.updated`,
-      `customer.subscription.deleted` — and, for CrankLeads purchases,
+      `customer.subscription.deleted` — and, for done-for-you purchases,
       `checkout.session.async_payment_succeeded` + `customer.subscription.created`.
 - [ ] Copy the endpoint's **Signing secret** (`whsec_...`).
 - [ ] Copy your **Secret key** (`sk_test_...`) and **Publishable key** (`pk_test_...`).
@@ -68,25 +68,25 @@ existing workflow worker already relies on).
 
 ---
 
-## CrankLeads purchases
+## Done-for-you purchases
 
-Businesses that buy CrankLeads on crankleads.com go through a public Checkout
-(`POST /api/public/crankleads/checkout`) and are **provisioned automatically by this
+Businesses that buy a done-for-you tier on everdoer.com (formerly crankleads.com) go through a
+public Checkout (`POST /api/public/crankleads/checkout`, also at `/api/public/everdoer/checkout`) and are **provisioned automatically by this
 billing worker** on `checkout.session.completed` — see
-[crankleads-purchase.md](crankleads-purchase.md). In short:
+[done-for-you-purchase.md](done-for-you-purchase.md). In short:
 
 - Tier → plan: `catch` / `close` → `operate`, `front_desk` → `front_desk`
-  (`src/server/services/crankleads/config.ts`). The CrankLeads monthly prices
-  (`STRIPE_PRICE_CL_*`) are recognised by `planForStripePriceId`, so
+  (`src/server/services/done-for-you/config.ts`). The done-for-you monthly prices
+  (`STRIPE_PRICE_EVERDOER_*`, old `STRIPE_PRICE_CL_*`) are recognised by `planForStripePriceId`, so
   `customer.subscription.updated` maps them to the right plan (and keeps
   `organizations.crankleads_tier` in step).
-- Newly handled events: `checkout.session.async_payment_succeeded` (CrankLeads only) and
+- Newly handled events: `checkout.session.async_payment_succeeded` (done-for-you only) and
   `customer.subscription.created` (same as `.updated` for a known org; still a no-op for an
-  unknown non-CrankLeads customer). **Add both to the webhook endpoint.**
-- Unknown customer + a CrankLeads purchase still being provisioned → the job is re-queued with
+  unknown non-done-for-you customer). **Add both to the webhook endpoint.**
+- Unknown customer + a done-for-you purchase still being provisioned → the job is re-queued with
   backoff (`retryBillingEventJob`, bounded by `max_attempts`) instead of dead-lettering.
 - The billing worker therefore now also needs `APP_BASE_URL`, `RESEND_API_KEY`,
-  `OUTBOUND_FROM_EMAIL`, `OWNER_EMAIL`, `TWILIO_*` (recipe activation only) and `STRIPE_PRICE_CL_*`.
+  `OUTBOUND_FROM_EMAIL`, `OWNER_EMAIL`, `TWILIO_*` (recipe activation only) and `STRIPE_PRICE_EVERDOER_*` (old `STRIPE_PRICE_CL_*` still read).
 
 ## Environment variables (per service)
 
@@ -100,14 +100,14 @@ Traced from the code, not assumed. Legend: ✅ required · ➕ recommended · �
 | `STRIPE_PRICE_LAUNCH` / `_OPERATE` / `_FRONT_DESK` | ✅ | ✅ | ➕ | — |
 | `STRIPE_SETUP_FEE_*` | ○ | — | — | — |
 | `BILLING_PAST_DUE_GRACE_DAYS` (def 7) | ○ | — | — | — |
-| `STRIPE_PRICE_EVERDOER_CATCH` / `_CLOSE` / `_FRONT_DESK` (old `STRIPE_PRICE_CL_*` still read for one release) | ✅ (CrankLeads) | ✅ (CrankLeads) | ➕ | — |
-| `STRIPE_SETUP_FEE_EVERDOER_*`, `STRIPE_COUPON_EVERDOER_FOUNDING`, `EVERDOER_SITE_ORIGINS`, `EVERDOER_CANCEL_URL` (old `STRIPE_SETUP_FEE_CL_*` / `STRIPE_COUPON_CL_FOUNDING` / `CRANKLEADS_*` names still read for one release), `STRIPE_AUTOMATIC_TAX` | ✅/○ (CrankLeads) | — | — | — |
-| `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`, `OWNER_EMAIL`, `TWILIO_*` | ✅ | ✅ (CrankLeads provisioning) | — | ✅ |
+| `STRIPE_PRICE_EVERDOER_CATCH` / `_CLOSE` / `_FRONT_DESK` (old `STRIPE_PRICE_CL_*` still read for one release) | ✅ (done-for-you) | ✅ (done-for-you) | ➕ | — |
+| `STRIPE_SETUP_FEE_EVERDOER_*`, `STRIPE_COUPON_EVERDOER_FOUNDING`, `EVERDOER_SITE_ORIGINS`, `EVERDOER_CANCEL_URL` (old `STRIPE_SETUP_FEE_CL_*` / `STRIPE_COUPON_CL_FOUNDING` / `CRANKLEADS_*` names still read for one release), `STRIPE_AUTOMATIC_TAX` | ✅/○ (done-for-you) | — | — | — |
+| `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`, `OWNER_EMAIL`, `TWILIO_*` | ✅ | ✅ (done-for-you provisioning) | — | ✅ |
 | `BILLING_EVENT_WORKER_ID` / `_BATCH_SIZE` / `_POLL_MS` / `_STALE_AFTER_SECONDS` | — | ○ | — | — |
 | `NEXT_PUBLIC_SUPABASE_URL` | ✅ | ✅ | ✅ | ✅ |
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | ✅ | ✅ | ✅ |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or `_PUBLISHABLE_KEY`) | ✅ | — | — | — |
-| `APP_BASE_URL` | ✅ | ✅ (CrankLeads emails) | — | — |
+| `APP_BASE_URL` | ✅ | ✅ (done-for-you emails) | — | — |
 
 Why the non-obvious cells:
 - **`STRIPE_SECRET_KEY` is NOT on the billing worker.** The worker
@@ -238,7 +238,7 @@ of that org for the internal routes.
 ## Applying / rolling back the migration
 
 Migrations are applied **by hand** in the Supabase SQL editor (see
-`docs/EMPIREVU_RUNBOOK.md`). For billing:
+`docs/EVERDOER_RUNBOOK.md`). For billing:
 
 - **Up:** paste `supabase/migrations/20260804120000_add_billing.sql`.
 - **Verify:** run `supabase/tests/verify-billing.sql` (schema + RLS + payload
