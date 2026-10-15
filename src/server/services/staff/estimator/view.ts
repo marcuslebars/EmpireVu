@@ -18,7 +18,7 @@ export interface EstimatorSettingsView {
   followUps: boolean;
   cadenceDays: number[];
   enabledIsDefault: boolean;
-  /** What "default" means for this org (on for CrankLeads, off for house orgs). */
+  /** What "default" means for this org (on for done-for-you, off for house orgs). */
   defaultEnabled: boolean;
   stats: { waitingOnYou: number; sent30d: number; followingUp: number };
 }

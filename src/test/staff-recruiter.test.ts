@@ -260,7 +260,7 @@ describe("hours and Ontario overtime", () => {
 // ── Settings ────────────────────────────────────────────────────────────────
 
 describe("settings", () => {
-  it("defaults on for CrankLeads, off for house orgs; merges only the recruiter key", () => {
+  it("defaults on for done-for-you, off for house orgs; merges only the recruiter key", () => {
     expect(readRecruiterSettings({}, { doneForYou: true })).toMatchObject({ payroll: { enabled: true, frequency: "biweekly", anchorDate: "2026-01-05", csvEmail: null }, hiring: { enabled: true } });
     expect(readRecruiterSettings({}, { doneForYou: false })).toMatchObject({ payroll: { enabled: false }, hiring: { enabled: false } });
     const merged = mergeRecruiterSettings({ sms_agent: { x: 1 } }, { payroll: { frequency: "weekly", anchorDate: "2026-02-30", csvEmail: "Books@X.test" }, hiring: { enabled: true } });

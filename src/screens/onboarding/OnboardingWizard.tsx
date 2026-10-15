@@ -557,7 +557,7 @@ function SelfServeWizard() {
   const [searchParams] = useSearchParams();
   const { session } = useAuth();
   const { organizationId, setOrganizationId } = useOrg();
-  // Deep links (`/onboarding?step=phone&org=<orgId>`) from CrankLeads setup reminders, the
+  // Deep links (`/onboarding?step=phone&org=<orgId>`) from done-for-you setup reminders, the
   // forwarding-test SMS and the dashboard setup card: switch to that org (only one the user belongs to) and open the step.
   const requestedOrg = searchParams.get("org");
   const requestedStep = searchParams.get("step");
@@ -707,7 +707,7 @@ function SelfServeWizard() {
 }
 
 /**
- * /onboarding. CrankLeads orgs are set up FOR them (docs/done-for-you.md): they get the
+ * /onboarding. Done-for-you orgs are set up FOR them (docs/done-for-you.md): they get the
  * "We're setting you up" progress view instead of the wizard. Everyone else (self-serve
  * signups, house orgs, an account with no org yet) keeps the wizard.
  */

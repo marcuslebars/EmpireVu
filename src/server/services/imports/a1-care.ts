@@ -1,14 +1,14 @@
 /**
- * Importing the A1 Marine Care site's live calendar into EmpireVu — the PURE half.
+ * Importing the A1 Marine Care site's live calendar into Everdoer — the PURE half.
  *
  * The Care site exports a JSON file (a1marinecare/scripts/export-for-empirevu.ts); this
- * module validates it and turns each row into what EmpireVu will write, so the plan can be
+ * module validates it and turns each row into what Everdoer will write, so the plan can be
  * printed, reviewed and tested before anything touches the database. The job that applies
  * it is src/server/jobs/import-a1-care.ts.
  *
  * Mapping:
  *   quote_leads (shrink-wrap)  → quotes, priced from the Care catalog (shrink_wrap + the
- *                                winterization add-on + hull surcharge). If EmpireVu's price
+ *                                winterization add-on + hull surcharge). If Everdoer's price
  *                                differs from what the customer was quoted, the customer's
  *                                number wins (one custom line at the quoted amount).
  *   paid deposits              → deposit_paid_at on the quote (paid on the Care site's Stripe)
@@ -24,7 +24,7 @@ export const IMPORT_SOURCE = "import:a1marinecare";
 
 /**
  * The approval snapshot for a quote whose deposit was paid on the Care site. Paying the
- * deposit there WAS the customer's acceptance, but it happened outside EmpireVu's
+ * deposit there WAS the customer's acceptance, but it happened outside Everdoer's
  * approve step, so nothing froze approved_*. Invoicing (and the public page) bill only
  * from that snapshot, so an imported paid quote gets one built from its own stored
  * lines and totals — the amounts it was imported at. Pure.

@@ -8,7 +8,7 @@
  *
  *  1. NEW FLOW ONLY. The automatic parts — switch-on, number buying, site generation and
  *     publishing, the page text — apply only to purchases that went through the done-for-you
- *     flow, i.e. the company has a `setup_intakes` row (created at provisioning). CrankLeads
+ *     flow, i.e. the company has a `setup_intakes` row (created at provisioning). Done-for-you
  *     companies bought before this feature ("legacy") are never auto-published or texted; an
  *     operator may build them a DRAFT page from the concierge ("Build / rebuild website").
  *  2. OWNER TEXTS RESPECT THE STOP FLAGS. `crankleads_purchases.setup_followups_exempt_at` and
@@ -33,7 +33,7 @@ export function ownerTextBlockFor(purchase: PurchaseStopFlags | null | undefined
   return null;
 }
 
-/** The latest CrankLeads purchase's stop flags for a company → why texts are off (null = allowed). */
+/** The latest done-for-you purchase's stop flags for a company → why texts are off (null = allowed). */
 export async function loadOwnerTextBlock(admin: AdminClient, organizationId: string, companyId: string): Promise<OwnerTextBlock | null> {
   const { data, error } = await admin
     .from("crankleads_purchases")

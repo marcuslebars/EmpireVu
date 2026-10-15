@@ -7,7 +7,7 @@ import { createSupabaseAdminClient } from "@/server/supabase/admin";
 /**
  * A company's service plans (docs/ai-staff.md → "Service plans"). Served at /s/<slug>/plans, and at
  * /<slug>/plans on the PAGES_BASE_URL host (src/middleware.ts rewrites it here). Only published sites
- * of CrankLeads businesses with Service plans on and an active plan render; anything else is the
+ * of done-for-you businesses with Service plans on and an active plan render; anything else is the
  * neutral 404.
  */
 export const dynamic = "force-dynamic";

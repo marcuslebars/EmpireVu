@@ -111,10 +111,10 @@ export function derivePageState(row: Db, now: Date): QuotePageState {
 /**
  * Brand identity for the customer-facing page, resolved from the COMPANY.
  *
- * EmpireVu is the backend. A customer looking at a quote sees the brand they
+ * Everdoer is the backend. A customer looking at a quote sees the brand they
  * hired and nothing about the platform running it — so there is deliberately no
  * platform fallback here. A company with no branding set renders neutral (plain
- * text, default palette), never anything EmpireVu-shaped.
+ * text, default palette), never anything Everdoer-shaped.
  */
 function companyBrand(company: Db | null): PublicQuote["brand"] {
   const str = (v: unknown): string | null =>

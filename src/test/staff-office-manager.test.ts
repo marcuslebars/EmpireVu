@@ -1,6 +1,6 @@
 /**
  * The AI Office manager (docs/ai-staff.md → "Office manager"): the owner's morning briefing.
- * Settings defaults (on for CrankLeads, off for house orgs like A1), the composer (parts, quiet
+ * Settings defaults (on for done-for-you, off for house orgs like A1), the composer (parts, quiet
  * day, the 4-segment cap), DST for America/Toronto, the sweep against the fake DB (once per day
  * with two workers, retry after a failed send, house org off), the Bookkeeper's 8am alert folded
  * in, weather only when the Dispatcher's check is on, the email copy, briefing_now and the route.
@@ -213,7 +213,7 @@ afterEach(() => {
 // ── Settings ─────────────────────────────────────────────────────────────────────
 
 describe("settings", () => {
-  it("on by default for CrankLeads, off for house orgs (A1); 07:00 Monday-Saturday, text only", () => {
+  it("on by default for done-for-you, off for house orgs (A1); 07:00 Monday-Saturday, text only", () => {
     expect(readOfficeManagerSettings({}, { doneForYou: true })).toEqual({ enabled: true, enabledIsDefault: true, time: "07:00", days: [1, 2, 3, 4, 5, 6], channels: ["sms"] });
     expect(readOfficeManagerSettings({}, { doneForYou: false }).enabled).toBe(false);
     expect(readOfficeManagerSettings({ office_manager: { enabled: true } }, { doneForYou: false }).enabled).toBe(true);
@@ -823,7 +823,7 @@ describe("ai-settings/office-manager route", () => {
   const params = { params: { organizationId: ORG, companyId: CO } };
   const patch = (body: unknown) => new Request("http://localhost/x", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
-  it("GET shows the CrankLeads default, the fold-in and the last briefing", async () => {
+  it("GET shows the done-for-you default, the fold-in and the last briefing", async () => {
     await run();
     const res = await GET(new Request("http://localhost/x"), params);
     expect(res.status).toBe(200);

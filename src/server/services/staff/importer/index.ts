@@ -13,7 +13,7 @@
  *   • approval chase_imported_balances: Y lets reminders start on imported balances   approvals.ts
  *   • owner tools send_import_link / import_status         owner-tools.ts
  *
- * Settings: companies.ai_settings.import (settings.ts) — on by default for CrankLeads orgs, off
+ * Settings: companies.ai_settings.import (settings.ts) — on by default for done-for-you orgs, off
  * for house orgs (A1 never sees the tools or gets a sweep step unless switched on).
  */
 import type { StaffRoleModule } from "@/server/services/staff/types";

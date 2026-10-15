@@ -6,7 +6,7 @@
  * session; it reads bookings whose hold has run out across tenants and cancels each one
  * pinned to that booking's own organization_id (no request input). `onDepositInvoicePaid`
  * runs on whatever client marked the invoice paid (staff session or the Stripe webhook's),
- * pinned to the invoice's organization. Listed in docs/EMPIREVU_RUNBOOK.md.
+ * pinned to the invoice's organization. Listed in docs/EVERDOER_RUNBOOK.md.
  */
 import type { Tables } from "@/server/db/database.types";
 import { createActivityEvent } from "@/server/services/activity-events";

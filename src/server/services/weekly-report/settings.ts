@@ -3,9 +3,9 @@ import type { Json } from "@/server/db/database.types";
 /**
  * Weekly report settings — the ONE reader of companies.ai_settings.weekly_report
  * (docs/front-desk-ai.md → "Weekly report"). Missing keys = defaults here:
- *   - enabled: ON for CrankLeads orgs (it's the proof of value), OFF for everyone else.
- *   - channels: CrankLeads → ["sms", "email"]; others → ["email"].
- * SMS goes from the platform number and is CrankLeads-only, so a non-CrankLeads org's
+ *   - enabled: ON for done-for-you orgs (it's the proof of value), OFF for everyone else.
+ *   - channels: done-for-you → ["sms", "email"]; others → ["email"].
+ * SMS goes from the platform number and is done-for-you-only, so a non-done-for-you org's
  * channels are always filtered down to email.
  */
 

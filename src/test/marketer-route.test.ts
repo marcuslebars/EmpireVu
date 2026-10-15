@@ -51,7 +51,7 @@ beforeEach(() => {
 });
 
 describe("/ai-settings/marketing route", () => {
-  it("GET: CrankLeads defaults on; house org defaults off", async () => {
+  it("GET: done-for-you defaults on; house org defaults off", async () => {
     const res = await GET(new Request("http://x/api"), ctx);
     expect(res.status).toBe(200);
     const { data } = await res.json();

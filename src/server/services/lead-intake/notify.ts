@@ -2,8 +2,8 @@
  * The OPERATOR copy of a new lead, via Resend. Never throws — the caller treats it as best-effort.
  *
  * Privacy: this mailbox (LEAD_NOTIFY_EMAIL / OWNER_EMAIL) belongs to the platform operator. Only
- * HOUSE orgs (EmpireVu-branded tenants such as A1, and leads we couldn't route to any org) may
- * be copied here. A CrankLeads org's leads never are — its owner is alerted by the org's own
+ * HOUSE orgs (Everdoer-branded tenants such as A1, and leads we couldn't route to any org) may
+ * be copied here. A done-for-you org's leads never are — its owner is alerted by the org's own
  * new-lead automation (new-lead-owner-alert). The caller decides with `leadNotifyAudience`.
  * The sender name is the company's own brand, never "EmpireVu".
  */
@@ -71,8 +71,8 @@ function buildText(lead: NotifyLead): string {
 export type LeadNotifyAudience = "operator" | "none";
 
 /**
- * Who may get the operator copy: house orgs (platform_brand not 'crankleads', no CrankLeads
- * tier) and unrouted leads → "operator"; any CrankLeads org → "none". PURE.
+ * Who may get the operator copy: house orgs (platform_brand not 'crankleads', no done-for-you
+ * tier) and unrouted leads → "operator"; any done-for-you org → "none". PURE.
  */
 export function leadNotifyAudience(org: { platform_brand: string | null; crankleads_tier: string | null } | null, routed: boolean): LeadNotifyAudience {
   if (!routed) return "operator";

@@ -113,7 +113,7 @@ async function findOrCreateNamed(s: ProviderSession, entity: "Customer" | "Vendo
     const found = await query<Obj>(s, entity, `select Id, SyncToken, DisplayName from ${entity} where DisplayName = '${q(name)}'`);
     const hit = found.find((r) => typeof r.Id === "string" && !taken.has(r.Id as string));
     if (hit) return { id: hit.Id as string, version: (hit.SyncToken as string) ?? null };
-    if (found.length) continue; // that name belongs to a different EmpireVu customer; try the next
+    if (found.length) continue; // that name belongs to a different Everdoer customer; try the next
     try {
       const body = await call(s, entity.toLowerCase(), { json: { DisplayName: name, ...extra } });
       const r = remote(body[entity] as Obj);

@@ -9,7 +9,7 @@
  *     any_on:  boolean   // marker for the sweeps' server-side filter (house orgs that opted in)
  *   }
  *
- * Both switches default ON for CrankLeads orgs and OFF for house orgs (A1 …) unless turned on.
+ * Both switches default ON for done-for-you orgs and OFF for house orgs (A1 …) unless turned on.
  * The anchor is the first day of any one pay period (weekly / bi-weekly); semi-monthly periods
  * are always the 1st–15th and 16th–end of month. The CSV goes to `csv_email`, else the org
  * owner's email.
@@ -34,7 +34,7 @@ export interface RecruiterSettings {
     csvEmail: string | null;
   };
   hiring: { enabled: boolean };
-  /** The org's default for every switch (CrankLeads → on). */
+  /** The org's default for every switch (done-for-you → on). */
   defaultEnabled: boolean;
 }
 
@@ -102,7 +102,7 @@ export function mergeRecruiterSettings(aiSettings: unknown, patch: RecruiterSett
   return all;
 }
 
-/** organizations row → CrankLeads? PURE. */
+/** organizations row → done-for-you? PURE. */
 export function isDoneForYouOrg(org: unknown): boolean {
   return isDoneForYou(record(org).platform_brand);
 }
@@ -195,7 +195,7 @@ async function readAll<T>(make: (from: number, to: number) => PromiseLike<{ data
 }
 
 /**
- * Companies where the Recruiter may work: every company of a CrankLeads org, plus house-org
+ * Companies where the Recruiter may work: every company of a done-for-you org, plus house-org
  * companies that switched something on (ai_settings.recruiter.any_on). House orgs are filtered
  * out at the query, so A1-style tenants never enter a sweep unless they opted in.
  */

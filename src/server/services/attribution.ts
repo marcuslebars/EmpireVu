@@ -5,7 +5,7 @@ import {
 } from "@/server/services/shared";
 
 /**
- * Revenue attribution (Task 14): "Revenue captured by EmpireVu" — the summary card + the
+ * Revenue attribution (Task 14): "Captured by {brand}" — the summary card + the
  * per-quote drill-down that reads `revenue_attribution_v` / `ui_attribution_summary`.
  *
  * The SQL is the source of truth for first-touch and involvement; `deriveFirstTouch` here

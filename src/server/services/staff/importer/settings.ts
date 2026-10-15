@@ -2,7 +2,7 @@
  * Customer import settings: companies.ai_settings.import, read with defaults. The ONE typed reader
  * (docs/ai-staff.md → "Customer import").
  *
- *   enabled   the import page, the texted link and the owner tools. Default ON for CrankLeads
+ *   enabled   the import page, the texted link and the owner tools. Default ON for done-for-you
  *             orgs, OFF for house orgs (A1…) unless the owner turns it on.
  *
  * PURE apart from loadImportCompany / importerActiveFor.

@@ -332,7 +332,7 @@ describe("parsing", () => {
 });
 
 describe("settings", () => {
-  it("on for CrankLeads, off for house orgs unless switched on; merge only touches email_clerk", () => {
+  it("on for done-for-you, off for house orgs unless switched on; merge only touches email_clerk", () => {
     expect(readEmailClerkSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, draftReplies: true, digest: true, digestTime: "16:00", enabledIsDefault: true });
     expect(readEmailClerkSettings({}, { doneForYou: false }).enabled).toBe(false);
     expect(readEmailClerkSettings({ email_clerk: { digest_time: "03:00" } }, { doneForYou: true }).digestTime).toBe("16:00");

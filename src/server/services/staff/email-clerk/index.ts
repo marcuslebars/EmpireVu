@@ -12,7 +12,7 @@
  *   Out       Y sends the reply from the business name, Reply-To the inbox, threaded.
  *   Owner     email_setup, email_status, email_find; briefing items (briefing-items.ts).
  *
- * On for CrankLeads (inert until mail arrives), off for house orgs unless switched on, and inert
+ * On for done-for-you (inert until mail arrives), off for house orgs unless switched on, and inert
  * on a server without INBOUND_EMAIL_DOMAIN + RESEND_WEBHOOK_SECRET.
  */
 import { emptyRole, type StaffRoleModule, type StaffSweep } from "@/server/services/staff/types";

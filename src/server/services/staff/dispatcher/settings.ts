@@ -11,7 +11,7 @@
  *     customer_hours: { from: "HH:MM", until: "HH:MM" }   // proactive customer texts
  *   }
  *
- * Every switch defaults ON for CrankLeads orgs and OFF for house orgs (A1 etc.) unless the
+ * Every switch defaults ON for done-for-you orgs and OFF for house orgs (A1 etc.) unless the
  * owner turns it on. Weather sensitivity defaults by trade: outdoor trades → all jobs, indoor
  * trades and snow removal → none.
  */
@@ -48,7 +48,7 @@ export interface DispatchSettings {
   crewTexts: { enabled: boolean; time: string };
   fillGap: { enabled: boolean };
   customerHours: { from: string; until: string };
-  /** The org's default for every switch (CrankLeads → on). */
+  /** The org's default for every switch (done-for-you → on). */
   defaultEnabled: boolean;
 }
 
@@ -100,7 +100,7 @@ const INDOOR_WORDS = /\b(snow|plumb\w*|hvac|heating|furnace|electric\w*|interior
  * Default weather sensitivity for a company: outdoor trades (roofing, landscaping, painting,
  * paving, decks, fencing, exterior cleaning, pressure washing) → "all"; indoor trades and snow
  * removal → "none". The industry pack decides when there is one; otherwise words in the
- * business name / CrankLeads business type. Unknown → "none" (never move jobs on a guess). PURE.
+ * business name / done-for-you business type. Unknown → "none" (never move jobs on a guess). PURE.
  */
 export function defaultWeatherSensitivity(input: { industryPack?: unknown; hints?: Array<string | null | undefined> }): "all" | "none" {
   const applied = parseAppliedIndustryPack(input.industryPack ?? null);
@@ -123,7 +123,7 @@ function readSensitivity(raw: unknown): WeatherSensitivity | null {
 export interface DispatchSettingsContext {
   doneForYou: boolean;
   industryPack?: unknown;
-  /** Business name, CrankLeads business type … (for the trade default). */
+  /** Business name, done-for-you business type … (for the trade default). */
   hints?: Array<string | null | undefined>;
 }
 

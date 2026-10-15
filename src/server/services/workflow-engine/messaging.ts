@@ -239,7 +239,7 @@ export interface DeliverMessageInput {
   /**
    * SMS sender. "company" (default): the company's own Twilio number (catcher first), else
    * TWILIO_FROM_NUMBER. "platform": always TWILIO_FROM_NUMBER — for platform messages to the
-   * owner (CrankLeads setup reminders), so a STOP reply to them can never block the company's
+   * owner (done-for-you setup reminders), so a STOP reply to them can never block the company's
    * own number from texting the owner its lead alerts.
    */
   smsFrom?: "company" | "platform";

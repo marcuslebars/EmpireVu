@@ -2,7 +2,7 @@
  * The Bookkeeper's settings: companies.ai_settings.collections, read with defaults. The ONE typed
  * reader (docs/ai-staff.md → "Bookkeeper").
  *
- *   enabled        master switch. Default ON for CrankLeads orgs, OFF for house orgs (A1…) unless
+ *   enabled        master switch. Default ON for done-for-you orgs, OFF for house orgs (A1…) unless
  *                  the owner turns it on. Off → no texts, no alerts, and the tools say so.
  *   textReminders  overdue invoices get reminder texts with the pay link (default on).
  *   reminderDays   days past due for each text (default 3, 10, 20, 30 — between the email
@@ -97,7 +97,7 @@ export async function loadCollectionsSettings(admin: AdminClient, organizationId
   return { ...readCollectionsSettings((data as { ai_settings: unknown }).ai_settings, { doneForYou }), organizationId, companyId, doneForYou };
 }
 
-/** organizations row → CrankLeads? (platform_brand 'crankleads', like the front desk's readers). PURE. */
+/** organizations row → done-for-you? (platform_brand 'crankleads', like the front desk's readers). PURE. */
 export function isDoneForYouOrg(org: unknown): boolean {
   return isDoneForYou(record(org).platform_brand);
 }
@@ -144,7 +144,7 @@ export interface ActiveCompany {
 }
 
 /**
- * Companies with the Bookkeeper on: every company of a CrankLeads org (unless switched off), plus
+ * Companies with the Bookkeeper on: every company of a done-for-you org (unless switched off), plus
  * house-org companies that switched it on (ai_settings.collections.enabled = true). House orgs are
  * filtered out at the query, so A1-style tenants never enter a sweep unless they opted in.
  */

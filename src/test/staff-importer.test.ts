@@ -342,7 +342,7 @@ describe("row cleaning", () => {
 // ── Settings / house orgs ─────────────────────────────────────────────────────
 
 describe("settings and house orgs", () => {
-  it("on by default for CrankLeads, off for house orgs; merge touches only ai_settings.import", async () => {
+  it("on by default for done-for-you, off for house orgs; merge touches only ai_settings.import", async () => {
     expect(readImportSettings({}, { doneForYou: true })).toEqual({ enabled: true, enabledIsDefault: true });
     expect(readImportSettings({}, { doneForYou: false })).toEqual({ enabled: false, enabledIsDefault: true });
     expect(readImportSettings({ import: { enabled: true } }, { doneForYou: false }).enabled).toBe(true);

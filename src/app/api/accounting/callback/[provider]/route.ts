@@ -29,7 +29,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
   }
   try {
     const { companyId, organizationId } = await completeConnect(provider, url.searchParams);
-    // Back to the owner's own app host (the CrankLeads host for a CrankLeads org, once configured).
+    // Back to the owner's own app host (the done-for-you host for a done-for-you org, once configured).
     const ownBase = configuredAppBaseUrlFor(await loadOrganizationBrand(createSupabaseAdminClient(), organizationId));
     if (ownBase) back = new URL(`${ownBase}/settings`);
     back.searchParams.set("section", "accounting");

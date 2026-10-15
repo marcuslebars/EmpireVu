@@ -71,13 +71,13 @@ export function normalizeBaseUrl(raw: string): string {
 
 /**
  * The quote-link origin for ONE company: its own `quote_public_base_url` when set
- * (e.g. https://quotes.a1marinecare.ca); else, for a CrankLeads org (pass its
+ * (e.g. https://quotes.a1marinecare.ca); else, for a done-for-you org (pass its
  * `platform_brand`), QUOTE_PUBLIC_BASE_URL_EVERDOER (old name QUOTE_PUBLIC_BASE_URL_CRANKLEADS), else
  * EVERDOER_APP_BASE_URL (old name CRANKLEADS_APP_BASE_URL, e.g. https://app.crankleads.com)
- * — so a CrankLeads business's customers never land on the EmpireVu domain; else the
+ * — so a done-for-you business's customers never land on the EmpireVu domain; else the
  * platform-wide publicBaseUrl.
  *
- * Several brands share one EmpireVu deployment, so a single env origin would put
+ * Several brands share one Everdoer deployment, so a single env origin would put
  * every brand's customer links on one brand's domain. Tolerates a company row from
  * before the column existed (undefined → the platform default).
  *
@@ -90,7 +90,7 @@ export function quotePublicBaseUrlFor(company: { quote_public_base_url?: unknown
   const own = typeof company?.quote_public_base_url === "string" ? company.quote_public_base_url.trim() : "";
   if (own) return normalizeBaseUrl(own);
   if (isDoneForYou(company?.platform_brand)) {
-    // CrankLeads customers' links live on the CrankLeads domain (app.crankleads.com serves the
+    // Done-for-you customers' links live on the done-for-you domain (app.crankleads.com serves the
     // same public /q and /book pages). QUOTE_PUBLIC_BASE_URL_EVERDOER overrides it.
     // Rebrand shim (remove in PR 8 once legacy_usage shows no env/QUOTE_PUBLIC_BASE_URL_CRANKLEADS or env/CRANKLEADS_APP_BASE_URL for 30 days)
     const doneForYouBase =

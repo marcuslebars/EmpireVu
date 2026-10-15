@@ -62,7 +62,7 @@ async function loadContext(quoteId: string): Promise<QuoteEmailContextRow | null
   const email = typeof contact?.email === "string" ? contact.email.trim() : "";
   return {
     quote,
-    // + the org's platform brand: a CrankLeads company's quote link uses its neutral host.
+    // + the org's platform brand: a done-for-you company's quote link uses its neutral host.
     company: company ? await withPlatformBrand(db, company) : null,
     recipient: email ? { email, firstName: contact?.first_name ?? null } : null,
   };

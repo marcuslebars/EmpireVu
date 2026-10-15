@@ -3,7 +3,7 @@
  * reader (docs/ai-staff.md → "Customer care & warranty").
  *
  *   customer_care = {
- *     enabled,                       // CrankLeads on, house orgs (A1 …) off unless switched on
+ *     enabled,                       // Done-for-you on, house orgs (A1 …) off unless switched on
  *     checkins: {
  *       enabled: true,               // one "how did it go?" text after each completed job
  *       time: "10:00",               // local send time, 09:00–19:00
@@ -32,7 +32,7 @@ export interface CustomerCareSettings {
   enabled: boolean;
   checkins: { enabled: boolean; time: string; delayDays: number; minJobCents: number };
   warranty: { months: number; terms: string | null };
-  /** The org's default for the switch (CrankLeads → on). */
+  /** The org's default for the switch (done-for-you → on). */
   defaultEnabled: boolean;
   enabledIsDefault: boolean;
 }
@@ -211,7 +211,7 @@ async function readAll<T>(make: (from: number, to: number) => PromiseLike<{ data
 }
 
 /**
- * Companies where Customer care works: every company of a CrankLeads org with it on, plus
+ * Companies where Customer care works: every company of a done-for-you org with it on, plus
  * house-org companies that switched it on (ai_settings.customer_care.any_on). House orgs are
  * filtered out at the query, so A1-style tenants never enter a sweep unless they opted in.
  */

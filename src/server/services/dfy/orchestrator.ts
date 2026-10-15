@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // SANCTIONED EXCEPTION (service role): the done-for-you orchestrator.
 // Runs in the workflow-event worker's scheduler pass (processDoneForYou, cross-tenant by
-// design: it walks provisioned, not-yet-live CrankLeads purchases) — no user session. Each
+// design: it walks provisioned, not-yet-live done-for-you purchases) — no user session. Each
 // company is handled with a context pinned to its OWN organization_id (from the companies
 // row, never from input); owner messages go only to that company's owner (platform sender),
 // operator emails only to OWNER_EMAIL. docs/done-for-you.md → "Automatic switch-on".
@@ -440,7 +440,7 @@ export async function advanceDoneForYou(
     const state = await loadState(admin, companyId);
     if ("skip" in state) return { companyId, skipped: state.skip, steps };
     const { company, tier, purchase } = state;
-    // Legacy CrankLeads companies (bought before the done-for-you flow — no quick-setup intake)
+    // Legacy done-for-you companies (bought before the done-for-you flow — no quick-setup intake)
     // are never switched on, sold a number, auto-published or texted by this sweep.
     if (!state.intake) return { companyId, skipped: "legacy_no_intake", steps };
     const ctx: TenantServiceContext = { organizationId: company.organization_id, actorProfileId: null, supabase: admin };
@@ -576,7 +576,7 @@ export async function advanceDoneForYou(
 
 /**
  * One sweep (from the worker scheduler): advance up to DFY_BATCH_SIZE provisioned, not-yet-live
- * CrankLeads companies, least-recently-advanced first. Never throws.
+ * done-for-you companies, least-recently-advanced first. Never throws.
  */
 export async function processDoneForYou(
   admin: AdminClient,

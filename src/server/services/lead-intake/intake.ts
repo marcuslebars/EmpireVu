@@ -619,7 +619,7 @@ export async function handleLeadIntake(
     }
   }
 
-  // (3) Notify the operator — best-effort, house orgs only. A CrankLeads org's lead (customer
+  // (3) Notify the operator — best-effort, house orgs only. A done-for-you org's lead (customer
   //     name / phone / email) never goes to the platform mailbox; its owner gets the org's own
   //     new-lead alert. Fail closed: if we can't tell whose org it is, don't send.
   let audience: LeadNotifyAudience = "none";

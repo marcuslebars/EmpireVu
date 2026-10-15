@@ -1,5 +1,5 @@
 /**
- * Done-for-you UI: the "We're setting you up" view (replaces the wizard for CrankLeads orgs)
+ * Done-for-you UI: the "We're setting you up" view (replaces the wizard for done-for-you orgs)
  * and the one-tap forwarding page (/forward/:token) — Android tel: link vs iPhone copy-code,
  * and the landline "Have us set it up" path.
  */

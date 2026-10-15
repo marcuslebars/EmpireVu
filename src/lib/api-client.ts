@@ -1,5 +1,5 @@
 /**
- * Centralized API client for EmpireVu UI endpoints.
+ * Centralized API client for Everdoer UI endpoints.
  * All requests are organization-scoped under:
  *   /api/organizations/:organizationId/ui/...
  */
@@ -155,7 +155,7 @@ export function fetchAutomationImpact(
   return apiFetch(buildUrl(`/api/organizations/${orgId}/ui/dashboard/automation-impact`, params));
 }
 
-// ─── Attribution ("Captured by EmpireVu") ─────────────────────────────────────
+// ─── Attribution ("Captured by {brand}") ─────────────────────────────────────
 
 export interface AttributionBreakdownEntry {
   key: string;
@@ -951,7 +951,7 @@ export interface BillingState {
     subscription_status: string;
     stripe_customer_id: string | null;
     trial_ends_at: string | null;
-    /** CrankLeads offer bought (catch | close | front_desk), null otherwise. */
+    /** Done-for-you offer bought (catch | close | front_desk), null otherwise. */
     crankleads_tier?: string | null;
   };
   subscription: {
@@ -1683,7 +1683,7 @@ export function fetchOnboardingProgress(orgId: string): Promise<OnboardingProgre
   return apiFetch(`/api/organizations/${orgId}/onboarding/progress`);
 }
 
-/** CrankLeads setup checklist (server: services/done-for-you/setup-checklist.ts). */
+/** Done-for-you setup checklist (server: services/done-for-you/setup-checklist.ts). */
 export interface SetupChecklistStep {
   key: "services" | "phone" | "forwarding" | "test_call" | "payments" | "website" | "automations";
   title: string;
@@ -1705,7 +1705,7 @@ export interface SetupChecklist {
   nextStep: SetupChecklistStep | null;
 }
 
-/** null for orgs that aren't CrankLeads purchases. */
+/** null for orgs that aren't done-for-you purchases. */
 export function fetchSetupChecklist(orgId: string): Promise<SetupChecklist | null> {
   return apiFetch(`/api/organizations/${orgId}/setup-checklist`);
 }

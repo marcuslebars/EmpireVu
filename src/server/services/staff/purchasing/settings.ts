@@ -3,7 +3,7 @@
  * reader (docs/ai-staff.md → "Purchasing").
  *
  *   purchasing = {
- *     enabled,                       // CrankLeads on, house orgs (A1 …) off unless switched on
+ *     enabled,                       // Done-for-you on, house orgs (A1 …) off unless switched on
  *     lead_days: 2,                  // 1–14: draft only for jobs at least this many days out
  *     max_per_day: 3,                // 1–20: materials_order questions per company per local day
  *     default_fulfilment: "pickup",  // or "delivery"
@@ -28,7 +28,7 @@ export interface PurchasingSettings {
   maxPerDay: number;
   defaultFulfilment: Fulfilment;
   aiEstimate: boolean;
-  /** The org's default for the switch (CrankLeads → on). */
+  /** The org's default for the switch (done-for-you → on). */
   defaultEnabled: boolean;
   enabledIsDefault: boolean;
 }
@@ -175,7 +175,7 @@ async function readAll<T>(make: (from: number, to: number) => PromiseLike<{ data
 }
 
 /**
- * Companies where Purchasing works: every company of a CrankLeads org with it on, plus house-org
+ * Companies where Purchasing works: every company of a done-for-you org with it on, plus house-org
  * companies that switched it on (ai_settings.purchasing.any_on). House orgs are filtered out at
  * the query, so A1-style tenants never enter a sweep unless they opted in.
  */

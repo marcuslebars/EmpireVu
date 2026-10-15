@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // SANCTIONED EXCEPTION (service role): done-for-you number purchase.
-// Called from CrankLeads purchase provisioning (billing worker) right after the company
+// Called from done-for-you purchase provisioning (billing worker) right after the company
 // exists, and retried by the done-for-you sweep (worker scheduler). Neither has a user
 // session; the tenant is the purchase's own organization_id + company_id (never request
 // input), and the work runs through the same tenant services the wizard routes use

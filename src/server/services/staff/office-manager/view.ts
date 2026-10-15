@@ -16,7 +16,7 @@ export interface OfficeManagerView {
   companyId: string;
   companyName: string;
   settings: OfficeManagerSettings & { emailCopy: boolean };
-  /** What the default is for this org (on for CrankLeads, off for house orgs). */
+  /** What the default is for this org (on for done-for-you, off for house orgs). */
   defaultEnabled: boolean;
   ownerPhoneOnFile: boolean;
   ownerEmailOnFile: boolean;

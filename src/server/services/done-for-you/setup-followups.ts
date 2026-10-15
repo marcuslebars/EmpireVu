@@ -5,7 +5,7 @@
 // service-role-only table) and, per purchase, the purchase's OWN organization_id +
 // company_id (stamped by provisioning, never taken from input); every tenant read/write is
 // filtered by that org (+ company). Messages go only to that company's owner contacts and
-// to the operator (OWNER_EMAIL). Listed in docs/EMPIREVU_RUNBOOK.md.
+// to the operator (OWNER_EMAIL). Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import { randomBytes } from "node:crypto";
 

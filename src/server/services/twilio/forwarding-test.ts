@@ -21,7 +21,7 @@
 //   • scheduled retests: the worker's scheduler pass (cross-tenant by design), each test
 //     scoped to the voice_numbers row's own organization_id + company_id; cancelled orgs are
 //     skipped.
-// Listed in docs/EMPIREVU_RUNBOOK.md → "Service-role (sanctioned) surfaces".
+// Listed in docs/EVERDOER_RUNBOOK.md → "Service-role (sanctioned) surfaces".
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Json, Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
@@ -137,7 +137,7 @@ function fallbackTimeZone(): string {
 /**
  * The number we test-call: the company's public business phone (companies.brand_reply_phone,
  * the number on quotes/branding), else the owner phone captured at signup / in the Business
- * step (for a CrankLeads buyer that is the phone they gave at checkout — for most small
+ * step (for a done-for-you buyer that is the phone they gave at checkout — for most small
  * trades it IS the business line). E.164 or null. Never a request parameter.
  */
 export function resolveBusinessLine(company: Pick<Tables<"companies">, "brand_reply_phone" | "owner_phone_e164"> | null): string | null {
@@ -501,7 +501,7 @@ export async function completeForwardingTest(
   const updated: ForwardingTestRow = { ...test, ...extra, status: next, completed_at: nowIso };
   if (finalOutcome === "passed") await markOnboardingTestStep(admin, updated, nowIso);
   if (shouldNotifyOwner({ trigger: test.trigger as ForwardingTestTrigger, outcome: finalOutcome, wasVerified })) {
-    // Done-for-you: a pass that makes a CrankLeads buyer live sends the ONE "You're live"
+    // Done-for-you: a pass that makes a done-for-you buyer live sends the ONE "You're live"
     // message right now (it says text-back works) — the "✅ text-back is live" note would be a
     // second text for the same moment, so it is skipped when the live message covers it.
     const coveredByLive = finalOutcome === "passed" && !wasVerified && (await goLiveOnVerification(admin, test, nowMs));
@@ -511,7 +511,7 @@ export async function completeForwardingTest(
 }
 
 /**
- * Forwarding just got verified: run the CrankLeads go-live check for the company now (stamps
+ * Forwarding just got verified: run the done-for-you go-live check for the company now (stamps
  * crankleads_purchases.live_at + sends the "You're live" text/email once). True when that
  * message covers this moment. Lazy import: setup-followups → provisioning → the done-for-you
  * orchestrator → this module. Best-effort — false (send the usual note) on any problem.
@@ -560,7 +560,7 @@ async function ownerAppBaseUrl(admin: AdminClient, organizationId: string): Prom
 }
 
 /**
- * A done-for-you (CrankLeads) company has no wizard: "test again" points at its no-login one-tap
+ * A done-for-you company has no wizard: "test again" points at its no-login one-tap
  * forwarding page (/forward/<token>) instead. null when it has none.
  */
 async function doneForYouForwardLink(admin: AdminClient, test: ForwardingTestRow): Promise<string | null> {
@@ -587,7 +587,7 @@ async function notifyOwnerOfResult(admin: AdminClient, test: ForwardingTestRow, 
     if ((claimed ?? []).length === 0) return;
 
     const ctx: TenantServiceContext = { organizationId: test.organization_id, actorProfileId: null, supabase: admin };
-    // A CrankLeads buyer who stopped setup texts (or is exempt) gets no result notice either.
+    // A done-for-you buyer who stopped setup texts (or is exempt) gets no result notice either.
     const blocked = await loadOwnerTextBlock(admin, test.organization_id, test.company_id).catch(() => null);
     if (blocked) {
       console.log(`[forwarding-test] owner notice skipped for company ${test.company_id} (${blocked})`);

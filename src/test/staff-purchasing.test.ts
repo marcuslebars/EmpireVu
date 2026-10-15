@@ -178,7 +178,7 @@ const ROOF_LINES = [L("shingles", 22, "bundles", 3850), L("underlay", 3, "rolls"
 // ── Pure ─────────────────────────────────────────────────────────────────────────
 
 describe("settings", () => {
-  it("on for CrankLeads, off for house orgs unless switched on; merge only touches purchasing", () => {
+  it("on for done-for-you, off for house orgs unless switched on; merge only touches purchasing", () => {
     expect(readPurchasingSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, leadDays: 2, maxPerDay: 3, defaultFulfilment: "pickup", aiEstimate: true, enabledIsDefault: true });
     expect(readPurchasingSettings({}, { doneForYou: false }).enabled).toBe(false);
     expect(readPurchasingSettings({ purchasing: { enabled: true, lead_days: 99, max_per_day: 0 } }, { doneForYou: false })).toMatchObject({ enabled: true, leadDays: 2, maxPerDay: 3 });
@@ -186,7 +186,7 @@ describe("settings", () => {
     expect(merged).toEqual({ sms_agent: { autonomy: "ask_first" }, purchasing: { enabled: true, lead_days: 4, max_per_day: 5, default_fulfilment: "delivery", ai_estimate: false, any_on: true } });
   });
 
-  it("activeFor: CrankLeads yes, A1 no (so its owner agent never sees the tools)", async () => {
+  it("activeFor: done-for-you yes, A1 no (so its owner agent never sees the tools)", async () => {
     expect(await purchasingActiveFor(db.client, { organizationId: ORG, companyId: CO })).toBe(true);
     expect(await purchasingActiveFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO })).toBe(false);
     const house = await activeRolesFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO });

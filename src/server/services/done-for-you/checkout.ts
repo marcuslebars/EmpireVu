@@ -5,7 +5,7 @@
 // service-role-only staging table crankleads_purchases (via ./purchases.ts) and creates a
 // Stripe Checkout Session from env price ids. It never reads or writes tenant data; the
 // tier/price can only be one of the three configured done-for-you prices.
-// Listed in docs/EMPIREVU_RUNBOOK.md.
+// Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import type Stripe from "stripe";
 import { z } from "zod";
@@ -99,9 +99,9 @@ export class DoneForYouCheckoutUnavailableError extends Error {}
  *
  * The account has Stripe Managed Payments (Stripe as merchant of record) ON by default.
  * It only supports digital products and rejects `automatic_tax`; the done-for-you offer includes a
- * setup service and EmpireVu runs its own invoicing, so every done-for-you
+ * setup service and Everdoer runs its own invoicing, so every done-for-you
  * session opts out explicitly. HST is then handled by `automatic_tax` (Stripe Tax) when
- * STRIPE_AUTOMATIC_TAX=true. See docs/crankleads-purchase.md.
+ * STRIPE_AUTOMATIC_TAX=true. See docs/done-for-you-purchase.md.
  */
 export type DoneForYouSessionCreateParams = Stripe.Checkout.SessionCreateParams & {
   managed_payments: { enabled: boolean };

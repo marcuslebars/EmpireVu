@@ -3,7 +3,7 @@
 // site (/s/<slug>/plans, /s/<slug>/plans/<id>, /s/<slug>/plans/renew/<token>) and their forms.
 // No session. The company is resolved FROM THE SLUG ROW ONLY (status 'published'); a plan only
 // renders when it's that company's and active; a renewal page only for the exact token of an
-// agreement of that same company. Service plans must be on (CrankLeads org, switched on).
+// agreement of that same company. Service plans must be on (done-for-you org, switched on).
 // docs/ai-staff.md → "Service plans".
 // ─────────────────────────────────────────────────────────────────────────────
 import { localDate } from "@/server/services/booking-windows";

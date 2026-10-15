@@ -80,7 +80,7 @@ describe("renderTemplate", () => {
   });
 });
 
-describe("effectiveVoiceForProfile — EmpireVu-managed prompt", () => {
+describe("effectiveVoiceForProfile — Everdoer-managed prompt", () => {
   it("renders the stored system prompt with the call's variables and injects {{system_prompt}}", () => {
     const { dynamicVariables } = effectiveVoiceForProfile(
       GLOBAL,

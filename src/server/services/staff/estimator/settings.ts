@@ -2,7 +2,7 @@
  * The estimator's settings: companies.ai_settings.estimator, read with defaults (the one reader).
  *
  *   enabled      — the AI may draft estimates for work the price list can't price. Default ON for
- *                  CrankLeads orgs, OFF for house orgs (A1 etc.) unless the owner turns it on.
+ *                  done-for-you orgs, OFF for house orgs (A1 etc.) unless the owner turns it on.
  *   follow_ups   — text front-desk quotes until they're booked. Same default as `enabled`, and
  *                  only runs while the estimator is enabled.
  *   cadence_days — days after the quote was sent for each nudge (1–3 nudges, ascending, 1–30).

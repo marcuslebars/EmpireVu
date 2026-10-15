@@ -209,7 +209,7 @@ describe("text-back sends from the company's own Twilio number", () => {
     });
   });
 
-  it("smsFrom 'platform' (CrankLeads setup reminders to the owner) never uses the company's number", async () => {
+  it("smsFrom 'platform' (done-for-you setup reminders to the owner) never uses the company's number", async () => {
     sendSms.mockClear();
     const context = ctxWith([
       { organization_id: "org-1", company_id: "co-1", provider: "twilio", active: true, phone_e164: "+17055550100", mode: "missed_call_catcher" },

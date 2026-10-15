@@ -14,7 +14,7 @@
  * Writes go through the normal booking services (rescheduleBooking / updateBookingStatus)
  * with a context pinned to the booking's organization, so activity, automations and
  * reminder re-timing behave exactly as for a staff change.
- * Listed in docs/EMPIREVU_RUNBOOK.md (service-role surfaces).
+ * Listed in docs/EVERDOER_RUNBOOK.md (service-role surfaces).
  */
 import { z } from "zod";
 

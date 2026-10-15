@@ -1,5 +1,5 @@
 /**
- * Done-for-you links. Buyer-facing pages live on the CrankLeads app host
+ * Done-for-you links. Buyer-facing pages live on the done-for-you app host
  * (appBaseUrlFor("crankleads")); the concierge console is operator-only, on the house app
  * origin (APP_BASE_URL). Generated-site URLs come from ONE helper: siteUrl(slug, brand) in
  * dfy/site-url.ts (PAGES_BASE_URL/<slug>, else <app>/s/<slug>).

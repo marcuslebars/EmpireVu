@@ -2,7 +2,7 @@
 // SANCTIONED EXCEPTION (service role): concierge console — reads.
 // Cross-tenant on purpose: the console is for platform operators only (OPERATOR_EMAILS,
 // enforced by requireOperator before any of this runs — everyone else gets a 404). The list
-// reads CrankLeads orgs (organizations.platform_brand = 'crankleads'); the detail reads ONE org
+// reads done-for-you orgs (organizations.platform_brand = 'crankleads'); the detail reads ONE org
 // named by the operator, and every per-account query is filtered by that org's id (+ the
 // company that belongs to it, resolved here — never trusted from input without checking it
 // belongs to the org). Listed in docs/done-for-you.md → "Concierge console".
@@ -386,7 +386,7 @@ function latestByOrg(purchases: PurchaseRow[]): Map<string, PurchaseRow> {
   return map;
 }
 
-/** The org's CrankLeads company: the purchase's company, else its newest company (same as the setup checklist). */
+/** The org's done-for-you company: the purchase's company, else its newest company (same as the setup checklist). */
 function pickCompany(orgId: string, purchase: PurchaseRow | null, companies: CompanyRow[]): CompanyRow | null {
   const own = companies.filter((c) => c.organization_id === orgId);
   if (purchase?.company_id) {
@@ -401,7 +401,7 @@ export interface ListOptions {
   limit?: number;
 }
 
-/** CrankLeads orgs, newest first, each with its setup state. */
+/** Done-for-you orgs, newest first, each with its setup state. */
 export async function listConciergeAccounts(admin: AdminClient, options: ListOptions = {}): Promise<ConciergeAccountSummary[]> {
   const nowMs = options.nowMs ?? Date.now();
   const { data: orgData, error: orgError } = await admin

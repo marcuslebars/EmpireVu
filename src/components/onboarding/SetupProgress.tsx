@@ -1,8 +1,8 @@
 /**
  * Done-for-you "We're setting you up" view (docs/done-for-you.md). Replaces the 8-step wizard
- * and the dashboard "Finish setting up" card for CrankLeads orgs: what we did automatically,
+ * and the dashboard "Finish setting up" card for done-for-you orgs: what we did automatically,
  * the ONE thing only the owner can do (turn on forwarding — the same one-tap page the text
- * links to), and optional extras. Non-CrankLeads orgs keep the wizard.
+ * links to), and optional extras. Non-done-for-you orgs keep the wizard.
  */
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Check, ChevronRight, Circle, Loader2, PhoneForwarded, Sparkles } from "lucide-react";
@@ -156,7 +156,7 @@ export function SetupProgressPanel({
   );
 }
 
-/** Full-page version for /onboarding (CrankLeads orgs). */
+/** Full-page version for /onboarding (done-for-you orgs). */
 export function SetupProgressScreen({ view }: { view: SetupProgressView }) {
   const navigate = useNavigate();
   return (
@@ -177,7 +177,7 @@ export function SetupProgressScreen({ view }: { view: SetupProgressView }) {
   );
 }
 
-/** Dashboard card (CrankLeads orgs, until live). */
+/** Dashboard card (done-for-you orgs, until live). */
 export function SetupProgressCard({ orgId }: { orgId: string }) {
   const navigate = useNavigate();
   const { data } = useSetupProgress(orgId);

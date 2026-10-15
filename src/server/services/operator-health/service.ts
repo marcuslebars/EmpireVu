@@ -4,7 +4,7 @@
 // `npm run job:operator-health` CLI with the service-role client; neither has a user session.
 // Cross-tenant by design (operator-only, aggregate, no request input — see ./load.ts). Writes
 // only the platform-level operator_health_reports row (counts + subject, no tenant content)
-// and emails only OWNER_EMAIL. Listed in docs/EMPIREVU_RUNBOOK.md.
+// and emails only OWNER_EMAIL. Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import { sendEmail as defaultSendEmail, isEmailSendConfigured, type SendEmailInput, type SendEmailResult } from "@/server/outbound/email";
 import { getPastDueGraceDays } from "@/server/services/billing/env";

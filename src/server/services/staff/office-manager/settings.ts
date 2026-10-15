@@ -2,7 +2,7 @@
  * The Office manager's settings: companies.ai_settings.office_manager, read with defaults. The ONE
  * typed reader (docs/ai-staff.md → "Office manager").
  *
- *   enabled   the morning briefing. Default ON for CrankLeads orgs, OFF for house orgs (A1…)
+ *   enabled   the morning briefing. Default ON for done-for-you orgs, OFF for house orgs (A1…)
  *             unless the owner turns it on.
  *   time      local "HH:MM" between 06:00 and 09:00 (default 07:00).
  *   days      local weekdays (0 = Sunday … 6 = Saturday). Default Monday–Saturday.
@@ -201,7 +201,7 @@ export async function loadBriefingCompany(admin: AdminClient, organizationId: st
 }
 
 /**
- * Companies with the briefing on: every active company of a CrankLeads org (unless switched off),
+ * Companies with the briefing on: every active company of a done-for-you org (unless switched off),
  * plus house-org companies that switched it on (ai_settings.office_manager.enabled = true).
  * House orgs are filtered out at the query, so A1-style tenants never enter the sweep unless
  * they opted in.
@@ -245,7 +245,7 @@ export async function officeManagerActiveFor(admin: AdminClient, scope: { organi
  *
  * The briefing marks items reported only after a send that carried them, and never folds again
  * once the day's row is final, so the two can't both report the same items. Cheap: the settings
- * are checked first (one company read; the org read only when `hint.crankleads` isn't given),
+ * are checked first (one company read; the org read only when `hint.doneForYou` isn't given),
  * and today's row only on a briefing day. Never throws (false → the alert goes as usual).
  */
 export async function briefingTakesMoneyAlert(

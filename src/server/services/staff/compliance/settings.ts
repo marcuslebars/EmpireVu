@@ -8,7 +8,7 @@
  *     sharing,     // the texting assistant may offer to send a certificate (owner approves each)
  *   }
  *
- * `enabled` defaults ON for CrankLeads orgs (passive until a document exists) and OFF for house
+ * `enabled` defaults ON for done-for-you orgs (passive until a document exists) and OFF for house
  * orgs (A1 etc.). `reminders` and `sharing` default on and only matter while `enabled`.
  */
 import { isDoneForYou } from "@/lib/product-line";

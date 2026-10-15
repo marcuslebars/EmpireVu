@@ -1,13 +1,13 @@
 /**
- * Done-for-you offer → EmpireVu configuration. The ONE place that maps a done-for-you tier
- * (what the buyer picked on crankleads.com) onto an EmpireVu plan, Stripe price ids,
+ * Done-for-you offer → Everdoer configuration. The ONE place that maps a done-for-you tier
+ * (what the buyer picked on crankleads.com) onto an Everdoer plan, Stripe price ids,
  * industry pack and starter automations.
  *
  * NO DOLLAR AMOUNTS (Working Protocol #4). The done-for-you prices (CAD setup fee + monthly)
  * live in Stripe — created by `npm run stripe:setup-done-for-you` — and are referenced here
  * only by their Price ids from env.
  *
- * Done-for-you is the offer; EmpireVu is the product the buyer logs into. Nothing here
+ * Done-for-you is the offer; Everdoer is the product the buyer logs into. Nothing here
  * rebrands the app.
  */
 import type { PurchasablePlan } from "@/server/services/billing/config";
@@ -32,7 +32,7 @@ export const PLAN_TIER_LABELS: Record<PlanTier, string> = {
 };
 
 /**
- * Tier → EmpireVu plan. Catch needs workflows + SMS (missed-call text-back, instant replies),
+ * Tier → Everdoer plan. Catch needs workflows + SMS (missed-call text-back, instant replies),
  * which `launch` lacks, so Catch and Close both run on `operate`. Only Front Desk includes
  * the AI receptionist (`marina_reception`, 500 included minutes — billing/config.ts).
  */
@@ -110,7 +110,7 @@ export function planTierForPriceId(priceId: string | null | undefined): PlanTier
   return null;
 }
 
-/** A done-for-you monthly Price id → the EmpireVu plan it buys, or null (used by billing/env.ts). */
+/** A done-for-you monthly Price id → the Everdoer plan it buys, or null (used by billing/env.ts). */
 export function doneForYouPlanForPriceId(priceId: string | null | undefined): PurchasablePlan | null {
   const tier = planTierForPriceId(priceId);
   return tier ? DONE_FOR_YOU_TIER_PLAN[tier] : null;

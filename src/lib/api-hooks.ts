@@ -1,5 +1,5 @@
 /**
- * React Query hooks for all EmpireVu UI endpoints.
+ * React Query hooks for all Everdoer UI endpoints.
  * Each hook is typed, deduped, and cached via @tanstack/react-query.
  */
 
@@ -953,7 +953,7 @@ export function useOnboardingProgress(orgId: string) {
   });
 }
 
-/** CrankLeads setup checklist for the dashboard card (null data → not a CrankLeads org). */
+/** Done-for-you setup checklist for the dashboard card (null data → not a done-for-you org). */
 export function useSetupChecklist(orgId: string) {
   return useQuery<SetupChecklist | null>({
     queryKey: ["setup-checklist", orgId],

@@ -326,7 +326,7 @@ describe("reminders don't land on top of a setup text", () => {
 });
 
 describe("one site URL", () => {
-  it("siteUrl is the only builder: pages host when PAGES_BASE_URL is set, else <CrankLeads app>/s/<slug>", () => {
+  it("siteUrl is the only builder: pages host when PAGES_BASE_URL is set, else <done-for-you app>/s/<slug>", () => {
     expect(siteUrl("janes-roofing", "crankleads")).toBe(`${PAGES}/janes-roofing`);
     vi.stubEnv("PAGES_BASE_URL", "");
     expect(siteUrl("janes-roofing", "crankleads")).toBe(`${APP}/s/janes-roofing`);

@@ -1,7 +1,7 @@
 /**
  * The SMS agent's settings: companies.ai_settings.sms_agent, read with defaults.
  *
- *   enabled   — default ON for CrankLeads orgs (organizations.platform_brand = 'crankleads'),
+ *   enabled   — default ON for done-for-you orgs (organizations.platform_brand = 'crankleads'),
  *               OFF for every other (house) org unless the owner turns it on.
  *   autonomy  — "standard" (default): answers from facts, quotes from the price list, books open
  *               slots; asks the owner for anything else.

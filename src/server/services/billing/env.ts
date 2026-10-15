@@ -60,7 +60,7 @@ export function getStripeSetupFeePriceId(plan: PurchasablePlan): string | null {
  * derive the plan straight from the subscription's price (source of truth in
  * Stripe) rather than trusting event metadata.
  *
- * Also recognises the CrankLeads monthly prices (STRIPE_PRICE_CL_*): Catch/Close →
+ * Also recognises the done-for-you monthly prices (STRIPE_PRICE_CL_*): Catch/Close →
  * `operate`, Front Desk → `front_desk` (src/server/services/done-for-you/config.ts).
  */
 export function planForStripePriceId(priceId: string | null | undefined): PurchasablePlan | null {

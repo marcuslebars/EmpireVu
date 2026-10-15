@@ -21,7 +21,7 @@ export const createOrganizationInputSchema = z.object({
 export type CreateOrganizationInput = z.infer<typeof createOrganizationInputSchema>;
 
 /**
- * Billing fields for an org that is created ALREADY PAID (a CrankLeads purchase provisioned
+ * Billing fields for an org that is created ALREADY PAID (a done-for-you purchase provisioned
  * by the billing worker) instead of on the self-serve trial. Server-only: never accept these
  * from a request body.
  */
@@ -31,7 +31,7 @@ export interface PaidOrganizationBilling {
   stripeCustomerId: string;
   billingEmail: string | null;
   planTier: PlanTier | null;
-  /** Brand the org's own people see (docs/everdoer-branding.md). CrankLeads purchases → "crankleads". */
+  /** Brand the org's own people see (docs/everdoer-branding.md). Done-for-you purchases → "crankleads". */
   platformBrand: PlatformBrandKey;
   /** Make it the owner's default org. False when grafting onto an EXISTING user. */
   setAsDefaultOrganization: boolean;
@@ -69,7 +69,7 @@ export async function createOrganization(
   // A brand-new self-serve org starts on a time-boxed trial — NOT the `internal`
   // house default (billing-exempt), which would hand every signup the whole
   // product free. Gating enforces the trial's expiry from trial_ends_at.
-  // A paid org (CrankLeads purchase) skips the trial: it starts active on the bought plan,
+  // A paid org (done-for-you purchase) skips the trial: it starts active on the bought plan,
   // already linked to its Stripe customer.
   const trial = newOrgTrialFields(new Date());
   const billing: Inserts<"organizations"> = paid

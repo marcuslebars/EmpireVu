@@ -19,7 +19,7 @@ interface RouteContext {
   params: { token: string };
 }
 
-/** The signed-in EmpireVu user behind this request, if any. Best-effort: null on any doubt. */
+/** The signed-in Everdoer user behind this request, if any. Best-effort: null on any doubt. */
 async function signedInUserId(request: Request): Promise<string | null> {
   const cookie = request.headers.get("cookie") ?? "";
   const hasSession = /(^|;\s*)sb-[^=]*-auth-token/.test(cookie) || /^Bearer\s+\S+/i.test(request.headers.get("authorization") ?? "");

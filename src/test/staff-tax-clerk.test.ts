@@ -273,7 +273,7 @@ describe("the owner's words", () => {
 // ── Settings / registry ───────────────────────────────────────────────────────
 
 describe("settings and registry", () => {
-  it("defaults: on for CrankLeads, off for house orgs; registrant follows the HST number", () => {
+  it("defaults: on for done-for-you, off for house orgs; registrant follows the HST number", () => {
     const cl = readTaxClerkSettings({}, { doneForYou: true, hasHstNumber: true });
     expect(cl).toMatchObject({ receipts: { enabled: true }, hst: { registrant: true, frequency: "quarterly", fiscalYearEndMonth: 12, filer: "corporation", reminders: true, accountantEmail: null }, nudges: { weekly: true, tip: true } });
     expect(readTaxClerkSettings({}, { doneForYou: true, hasHstNumber: false }).hst.registrant).toBe(false);
@@ -672,7 +672,7 @@ describe("the HST reminder and the accountant packet", () => {
     expect(await briefingItems(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO }, "2026-10-21")).toEqual([]);
   });
 
-  it("the sweep: CrankLeads registrants only, once", async () => {
+  it("the sweep: done-for-you registrants only, once", async () => {
     seedQ3();
     const sweep = TAX_CLERK_SWEEPS[0];
     await sweep.run(db.client, REMIND);

@@ -2,7 +2,7 @@
  * Public quote page — /q/:token
  *
  * The customer-facing surface. Everything on it is the BRAND's: logo, colours,
- * policy text, reply contact. EmpireVu is the backend and is never named here.
+ * policy text, reply contact. Everdoer is the backend and is never named here.
  *
  * Mobile-first, because almost every open is a phone tap from an email or text.
  *
@@ -177,7 +177,7 @@ export default function PublicQuotePage() {
   /**
    * The tab says the COMPANY's name, not the platform's.
    *
-   * index.html ships a single static <title>EmpireVu</title> for the whole SPA,
+   * index.html ships a single static <title>Everdoer</title> for the whole SPA,
    * which is right for the hub and wrong here: this is the one page a customer
    * sees, on the company's own domain, at the moment they are about to enter a
    * card. A tab reading the name of a business they have never heard of

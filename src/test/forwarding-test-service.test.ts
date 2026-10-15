@@ -422,7 +422,7 @@ describe("outcomes", () => {
 });
 
 describe("done-for-you: a forwarding pass sends ONE message, not two", () => {
-  /** A CrankLeads Catch buyer mid-setup: number + text-back automation on, not live yet. */
+  /** A done-for-you Catch buyer mid-setup: number + text-back automation on, not live yet. */
   function doneForYouBuyer(purchase: Record<string, unknown> = {}, followups: Array<Record<string, unknown>> = []) {
     const base = seed({ org: { crankleads_tier: "catch", platform_brand: "crankleads" } });
     Object.assign(base.tables, {

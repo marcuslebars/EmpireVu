@@ -66,7 +66,7 @@ describe("metadata.source readers accept both values", () => {
     expect(isDoneForYouStripeSource(undefined)).toBe(false);
   });
 
-  it("isCrankleadsObject: session, subscription_details and parent.subscription_details, either value", async () => {
+  it("isDoneForYouObject: session, subscription_details and parent.subscription_details, either value", async () => {
     for (const source of ["crankleads", "everdoer"]) {
       expect(isDoneForYouObject({ metadata: { source } } as never)).toBe(true);
       expect(isDoneForYouObject({ subscription_details: { metadata: { source } } } as never)).toBe(true);

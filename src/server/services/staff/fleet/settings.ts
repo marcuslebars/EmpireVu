@@ -7,7 +7,7 @@
  *     reminders,  // the daily heads-up text (service, plate sticker, safety, equipment, rentals)
  *   }
  *
- * `enabled` defaults ON for CrankLeads orgs (inert until a vehicle, machine or rental is added) and
+ * `enabled` defaults ON for done-for-you orgs (inert until a vehicle, machine or rental is added) and
  * OFF for house orgs (A1 etc.). `reminders` defaults on and only matters while `enabled`.
  */
 import { isDoneForYou } from "@/lib/product-line";
@@ -20,7 +20,7 @@ export const DEFAULT_TIMEZONE = "America/Toronto";
 export interface FleetSettings {
   enabled: boolean;
   reminders: boolean;
-  /** The org's default for the switch (CrankLeads → on). */
+  /** The org's default for the switch (done-for-you → on). */
   defaultEnabled: boolean;
   enabledIsDefault: boolean;
 }

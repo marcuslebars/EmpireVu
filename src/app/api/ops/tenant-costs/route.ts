@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 // The app has no platform-admin identity, so this is gated by a static bearer token
 // (OPS_ADMIN_TOKEN) rather than a session — same convention as the waitlist admin read.
 // Service-role so usage_monthly_v (member-RLS) can be read across all tenants; it reads
-// aggregates only and never mutates. Listed in docs/EMPIREVU_RUNBOOK.md.
+// aggregates only and never mutates. Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import { listPlanPricing } from "@/server/services/billing/plans";
 import { torontoMonthStart } from "@/server/services/usage";

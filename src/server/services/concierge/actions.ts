@@ -79,7 +79,7 @@ export function listConciergeActions(): ConciergeActionInfo[] {
 
 export const actionRequestSchema = z.object({
   action: z.string().min(1).max(64),
-  /** Optional: must belong to the org (else 404). Defaults to the org's CrankLeads company. */
+  /** Optional: must belong to the org (else 404). Defaults to the org's done-for-you company. */
   companyId: z.string().uuid().optional(),
   input: z.record(z.string(), z.unknown()).default({}),
 });

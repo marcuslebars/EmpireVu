@@ -464,7 +464,7 @@ describe("the weekly text", () => {
 // ── Settings + registry ──────────────────────────────────────────────────────────────
 
 describe("settings and registry", () => {
-  it("on for CrankLeads, off for house orgs unless switched on; merge only touches profit_advisor", () => {
+  it("on for done-for-you, off for house orgs unless switched on; merge only touches profit_advisor", () => {
     expect(readProfitAdvisorSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, weekly: { enabled: true, day: 5, time: "15:00" }, pricingCheck: { enabled: true }, tightCushionCents: 0, enabledIsDefault: true });
     expect(readProfitAdvisorSettings({}, { doneForYou: false }).enabled).toBe(false);
     expect(readProfitAdvisorSettings({ profit_advisor: { weekly: { day: 9, time: "03:00" }, tight_cushion_cents: -5 } }, { doneForYou: true })).toMatchObject({ weekly: { day: 5, time: "15:00" }, tightCushionCents: 0 });
@@ -472,7 +472,7 @@ describe("settings and registry", () => {
     expect(merged).toEqual({ sms_agent: { autonomy: "ask_first" }, profit_advisor: { enabled: true, weekly: { day: 1, time: "07:30" }, pricing_check: { enabled: false }, tight_cushion_cents: 250_000, any_on: true } });
   });
 
-  it("activeFor: CrankLeads yes, A1 no; registered after purchasing; no duplicate kinds/tools", async () => {
+  it("activeFor: done-for-you yes, A1 no; registered after purchasing; no duplicate kinds/tools", async () => {
     expect(await profitAdvisorActiveFor(db.client, { organizationId: ORG, companyId: CO })).toBe(true);
     expect(await profitAdvisorActiveFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO })).toBe(false);
     const house = await activeRolesFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO });

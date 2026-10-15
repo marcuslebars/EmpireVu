@@ -12,8 +12,8 @@ interface RouteContext {
 }
 
 /**
- * The CrankLeads setup checklist for the dashboard card ("Setup: 3 of 5 done → next step").
- * Normal RLS auth (org member). `data` is null for orgs that aren't CrankLeads purchases.
+ * The done-for-you setup checklist for the dashboard card ("Setup: 3 of 5 done → next step").
+ * Normal RLS auth (org member). `data` is null for orgs that aren't done-for-you purchases.
  * Same checklist the setup follow-up reminders use (services/done-for-you/setup-checklist.ts).
  */
 export async function GET(_request: Request, context: RouteContext): Promise<NextResponse> {

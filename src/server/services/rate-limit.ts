@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 // This module never reads tenant business data; it only increments a per-key counter.
 // Keys are derived from the client IP and the targeted resource (company id / quote
 // token), never from anything the caller can spoof into another tenant's scope.
-// Listed in docs/EMPIREVU_RUNBOOK.md.
+// Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
@@ -43,7 +43,7 @@ const PRIVATE_IP = [
  * added. Internal/private hops (Railway's mesh, localhost) are skipped from the right.
  * Falls back to x-real-ip, then null. If a CDN is ever put in front of Railway, the
  * rightmost public hop becomes the CDN — switch to that CDN's verified client header.
- * See docs/EMPIREVU_RUNBOOK.md (Abuse controls).
+ * See docs/EVERDOER_RUNBOOK.md (Abuse controls).
  */
 export function trustedClientIp(request: Request): string | null {
   const forwarded = request.headers.get("x-forwarded-for");

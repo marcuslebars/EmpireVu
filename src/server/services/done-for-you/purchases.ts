@@ -7,7 +7,7 @@
 // service-role client. Rows are keyed by the server-generated purchase id and the Stripe
 // Checkout Session id — never by anything a later request can choose — and the public
 // status endpoint exposes only status, business name and a MASKED email.
-// Listed in docs/EMPIREVU_RUNBOOK.md.
+// Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Inserts, Json, Tables, Updates } from "@/server/db/database.types";
 import type { PlanTier } from "@/server/services/done-for-you/config";

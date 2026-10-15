@@ -238,7 +238,7 @@ describe("quotePublicBaseUrlFor", () => {
 
   it("PR 2: EVERDOER_APP_BASE_URL never moves a standard org's customer links off QUOTE_PUBLIC_BASE_URL", () => {
     // Customer links (quotes, invoices, portal) are company-branded; the platform-wide quote origin
-    // may be a tenant domain (docs/empirevu-hub-setup.md), so only a company's own column or the
+    // may be a tenant domain (docs/everdoer-hub-setup.md), so only a company's own column or the
     // owner's env changes it.
     vi.stubEnv("QUOTE_PUBLIC_BASE_URL", "https://quotes.a1marinestorage.ca");
     vi.stubEnv("EVERDOER_APP_BASE_URL", "https://app.everdoer.com");

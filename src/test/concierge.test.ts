@@ -196,7 +196,7 @@ describe("non-operators get 404 from every concierge route and nothing is touche
 });
 
 describe("GET /api/concierge/accounts (operator)", () => {
-  it("lists only CrankLeads orgs, newest first, with setup state and a needs-a-call flag", async () => {
+  it("lists only done-for-you orgs, newest first, with setup state and a needs-a-call flag", async () => {
     const res = await listGET(listReq());
     expect(res.status).toBe(200);
     const { data } = await res.json();

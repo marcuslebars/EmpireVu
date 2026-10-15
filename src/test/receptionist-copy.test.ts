@@ -17,7 +17,7 @@ describe("PR 2: the receptionist copy follows the PRODUCT LINE, not the brand na
 });
 
 describe("the AI receptionist's name by brand", () => {
-  it("house tenants keep Marina; CrankLeads owners never see the name", () => {
+  it("house tenants keep Marina; done-for-you owners never see the name", () => {
     expect(receptionistName(PLATFORM_BRANDS.empirevu)).toBe("Marina");
     expect(receptionistName(PLATFORM_BRANDS.crankleads)).toBe("AI receptionist");
     expect(receptionistCopy("Call with Marina", PLATFORM_BRANDS.empirevu)).toBe("Call with Marina");

@@ -31,7 +31,7 @@ interface SessionContextResponse {
     name: string;
     slug: string;
     membershipRole: string;
-    /** "empirevu" | "crankleads" — absent from an older server (treated as EmpireVu). */
+    /** "empirevu" | "crankleads" — absent from an older server (treated as standard). */
     platformBrand?: string;
   }>;
   profile: { id: string; email: string; fullName: string | null } | null;
@@ -49,7 +49,7 @@ interface AuthContextValue {
   verifyOtp: (phone: string, token: string) => Promise<{ error: string | null }>;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
   updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
-  /** Exchange a `token_hash` recovery link (admin-generated, e.g. the CrankLeads welcome email) for a session. */
+  /** Exchange a `token_hash` recovery link (admin-generated, e.g. the done-for-you welcome email) for a session. */
   verifyRecoveryLink: (tokenHash: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   isLoading: boolean;
