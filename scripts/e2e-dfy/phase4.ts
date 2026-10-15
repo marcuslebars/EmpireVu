@@ -524,7 +524,7 @@ async function main(): Promise<void> {
     console.log(`clock now ${new Date().toISOString()} (${torontoTime(Date.now())} Toronto); M0 = ${M0}; HST ${hst.label} ${hst.start}..${hst.end} due ${hst.due}`);
   }
 
-  await step("0. seed: a live CrankLeads Close company (purchase → switch-on → live, site published, Stripe Connect ready, HST registrant with an accountant), Q3 invoices + expenses, a sub with a WSIB clearance, a supplier + a recipe; a house tenant (A1) with a recurring series and job-done invoicing", async () => {
+  await step("0. seed: a live done-for-you Close company (purchase → switch-on → live, site published, Stripe Connect ready, HST registrant with an accountant), Q3 invoices + expenses, a sub with a WSIB clearance, a supplier + a recipe; a house tenant (A1) with a recurring series and job-done invoicing", async () => {
     await seedHouse();
     await buy(dana);
     const { data: numbers } = await admin.from("voice_numbers").select("phone_e164, mode").eq("company_id", dana.companyId!);
@@ -836,11 +836,11 @@ async function main(): Promise<void> {
     got = sinceMark();
     const link = smsTo(got, LEE.phone);
     console.log(`   Lee: ${short(link[0]?.body)}`);
-    check(link.length === 1 && link[0].from === dana.catcher && new RegExp(`^Hi Lee, it's Northshore Snow & Lawn\\. Here's our liability insurance certificate \\(valid to ${esc(monYear(D(38)))}\\): http://app\\.crankleads\\.localhost:\\d+/api/public/compliance/doc/[A-Za-z0-9_-]+ The link works for 7 days\\.`).test(String(link[0].body)), "the customer's link text from the business number");
+    check(link.length === 1 && link[0].from === dana.catcher && new RegExp(`^Hi Lee, it's Northshore Snow & Lawn\\. Here's our liability insurance certificate \\(valid to ${esc(monYear(D(38)))}\\): http://app\\.everdoer\\.localhost:\\d+/api/public/compliance/doc/[A-Za-z0-9_-]+ The link works for 7 days\\.`).test(String(link[0].body)), "the customer's link text from the business number");
     const own = smsTo(got, dana.phone);
     check(own.length === 1 && /Texted Lee Park the link to your liability insurance certificate \(works 7 days\)\. You can turn it off in Settings > AI front desk > Compliance\./.test(String(own[0].body)), `owner: "${short(own[0]?.body, 200)}"`);
     const url = String(link[0]?.body ?? "").match(/(http\S+\/compliance\/doc\/[A-Za-z0-9_-]+)/)?.[1] ?? "";
-    ids.share1Url = url.replace(/^http:\/\/app\.crankleads\.localhost/, "http://127.0.0.1");
+    ids.share1Url = url.replace(/^http:\/\/app\.everdoer\.localhost/, "http://127.0.0.1");
     const open = await fetch(ids.share1Url, { redirect: "manual" });
     const loc = open.headers.get("location") ?? "";
     check(open.status === 302 && /\/storage\/v1\/object\/sign\/compliance-docs\//.test(loc) && /no-store/.test(open.headers.get("cache-control") ?? ""), `link → ${open.status} to a signed URL (${short(loc, 120)})`);
@@ -918,7 +918,7 @@ async function main(): Promise<void> {
     got = sinceMark();
     const toPat = smsTo(got, PAT.phone);
     console.log(`   Pat: ${short(toPat[0]?.body)}`);
-    check(toPat.length === 1 && toPat[0].from === dana.catcher && new RegExp(`^Hi Pat, it's Northshore Snow & Lawn\\. Your Winter Property Checks plan renews ${esc(mon(D(19)))} \\(\\$420 \\+ HST for the next year\\)\\. Pay here to keep your .+ visit: http://app\\.crankleads\\.localhost:\\d+/s/${esc(slug)}/plans/renew/[a-f0-9]{32}`).test(String(toPat[0].body)), "Pat's renewal text with the link");
+    check(toPat.length === 1 && toPat[0].from === dana.catcher && new RegExp(`^Hi Pat, it's Northshore Snow & Lawn\\. Your Winter Property Checks plan renews ${esc(mon(D(19)))} \\(\\$420 \\+ HST for the next year\\)\\. Pay here to keep your .+ visit: http://app\\.everdoer\\.localhost:\\d+/s/${esc(slug)}/plans/renew/[a-f0-9]{32}`).test(String(toPat[0].body)), "Pat's renewal text with the link");
     const own = smsTo(got, dana.phone);
     check(own.length === 1 && /Texted 1 customer their renewal link \(\$420\)\./.test(String(own[0].body)), `owner: "${short(own[0]?.body, 160)}"`);
     const { data: ag } = await db.from("service_agreements").select("status, renewal_texted_at, renewal_token").eq("id", ids.patAgreement).single();
@@ -955,7 +955,7 @@ async function main(): Promise<void> {
     await text(dana.phone, PLATFORM, `Y ${appr?.short_code}`);
     got = sinceMark();
     const link = smsTo(got, LEE.phone).find((m) => /compliance\/doc\//.test(String(m.body)));
-    const url = (String(link?.body ?? "").match(/(http\S+\/compliance\/doc\/[A-Za-z0-9_-]+)/)?.[1] ?? "").replace(/^http:\/\/app\.crankleads\.localhost/, "http://127.0.0.1");
+    const url = (String(link?.body ?? "").match(/(http\S+\/compliance\/doc\/[A-Za-z0-9_-]+)/)?.[1] ?? "").replace(/^http:\/\/app\.everdoer\.localhost/, "http://127.0.0.1");
     const open = await fetch(url, { redirect: "manual" });
     check(open.status === 302, `the new link works (${open.status})`);
     const { data: share } = await db.from("compliance_shares").select("id").eq("approval_id", appr?.id).single();
@@ -1002,7 +1002,7 @@ async function main(): Promise<void> {
     const g2 = sinceMark();
     const toMike = smsTo(g2, MIKE.phone);
     console.log(`   Mike: ${short(toMike[0]?.body)}`);
-    check(toMike.length === 1 && toMike[0].from === dana.catcher && new RegExp(`^Hi Mike, it's Northshore Snow & Lawn\\. Your WSIB clearance on file with us expires ${wd}\\. Please upload a new WSIB clearance and your liability insurance here: http://app\\.crankleads\\.localhost:\\d+/compliance/upload/[A-Za-z0-9_-]+ \\(the link works for 14 days\\)\\. Thanks!`).test(String(toMike[0].body)), "Mike's text with the upload link");
+    check(toMike.length === 1 && toMike[0].from === dana.catcher && new RegExp(`^Hi Mike, it's Northshore Snow & Lawn\\. Your WSIB clearance on file with us expires ${wd}\\. Please upload a new WSIB clearance and your liability insurance here: http://app\\.everdoer\\.localhost:\\d+/compliance/upload/[A-Za-z0-9_-]+ \\(the link works for 14 days\\)\\. Thanks!`).test(String(toMike[0].body)), "Mike's text with the upload link");
     ids.subToken = String(toMike[0]?.body ?? "").match(/compliance\/upload\/([A-Za-z0-9_-]+)/)?.[1] ?? "";
     const own = smsTo(g2, dana.phone);
     check(own.length === 1 && /Texted Mike \(Mike's Electric\) a link to upload a new clearance \+ insurance \(works 14 days\)\. I'll tell you when they send it\./.test(String(own[0].body)), `owner: "${short(own[0]?.body, 200)}"`);

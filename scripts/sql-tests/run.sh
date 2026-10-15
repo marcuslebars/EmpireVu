@@ -4,11 +4,11 @@
 # scripts/sql-tests/*.test.sql file. Any failed assertion aborts with a non-zero exit.
 #
 # Usage:  PGHOST=/path/to/socket-or-host PGPORT=5432 PGUSER=postgres scripts/sql-tests/run.sh
-# The target database (default: empirevu_sqltest) is DROPPED and recreated. Never point
+# The target database (default: everdoer_sqltest) is DROPPED and recreated. Never point
 # this at a real Supabase project.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-DB="${SQLTEST_DB:-empirevu_sqltest}"
+DB="${SQLTEST_DB:-everdoer_sqltest}"
 export PGUSER="${PGUSER:-postgres}"
 PSQL=(psql -X -q -v ON_ERROR_STOP=1)
 export PGOPTIONS="${PGOPTIONS:-} -c client_min_messages=warning"

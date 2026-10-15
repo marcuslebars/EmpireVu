@@ -37,7 +37,7 @@ PGHOST=/tmp PGPORT=55432 PGUSER=postgres scripts/sql-tests/run.sh
 psql -h /tmp -p 55432 -U postgres -c "create role authenticator login noinherit" \
   -c "grant anon, authenticated, service_role to authenticator"
 cat > /tmp/pgrst.conf <<'EOF'
-db-uri = "postgres://authenticator@/empirevu_sqltest?host=/tmp&port=55432"
+db-uri = "postgres://authenticator@/everdoer_sqltest?host=/tmp&port=55432"
 db-schemas = "public"
 db-anon-role = "anon"
 jwt-secret = "local-test-secret-local-test-secret-0123"
@@ -48,7 +48,7 @@ POSTGREST_URL=http://127.0.0.1:3999 JWT_SECRET=local-test-secret-local-test-secr
   node scripts/sql-tests/postgrest-smoke.mjs
 ```
 
-`run.sh` honours `SQLTEST_DB` (default `empirevu_sqltest`) and the usual `PG*` variables.
+`run.sh` honours `SQLTEST_DB` (default `everdoer_sqltest`) and the usual `PG*` variables.
 
 ## Adding a column the app writes
 

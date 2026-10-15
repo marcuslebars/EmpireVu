@@ -10,5 +10,5 @@ cd "$(dirname "$0")/../.."
 export SMS_AGENT_COALESCE_MS=200
 [ "${E2E_SKIP_START:-0}" = 1 ] || scripts/e2e-dfy/start.sh
 source scripts/e2e-dfy/env.sh
-getent hosts app.crankleads.localhost >/dev/null || { echo "add: 127.0.0.1 app.crankleads.localhost  to /etc/hosts" >&2; exit 1; }
+getent hosts app.everdoer.localhost >/dev/null || { echo "add: 127.0.0.1 app.everdoer.localhost  to /etc/hosts" >&2; exit 1; }
 exec env $FAKETIME_ENV npx tsx scripts/e2e-dfy/staff.ts
