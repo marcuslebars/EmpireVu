@@ -120,7 +120,7 @@ Until these are set the app works normally and simply sends no pushes.
 > upload themselves when you're back in coverage and file against the booking.
 >
 > **Voice notes become tasks.** Talk, and the note becomes a task — on the job or lead you have
-> open. Speech is transcribed on the device; no recording is uploaded.
+> open. Dictation uses your phone's built-in speech recognition; no recording is sent to Everdoer.
 >
 > **Alerts worth the interruption.** New leads, approved quotes, deposits paid, schedule
 > conflicts, and a morning digest. Every category is a switch, with quiet hours you set.
@@ -146,7 +146,7 @@ Answer it this way — these match what the code actually sends.
 | Name, email address, phone number | Yes | App functionality, account management | Required |
 | Other user content (contacts, bookings, quotes, messages, notes) | Yes | App functionality | Required |
 | Photos | Yes | App functionality (job records) | Optional |
-| Voice / audio | **No** | Dictation is transcribed on-device; no audio leaves the phone | — |
+| Voice / audio | **No** | Dictation uses the phone's built-in speech recognition (Apple / Google); no audio is sent to or stored by Everdoer | — |
 | App activity (in-app actions) | Yes | App functionality, analytics | Required |
 | Device or other IDs | Yes | App functionality (push delivery) | Optional |
 | Location | **No** | Not collected; photo metadata is stripped on upload | — |

@@ -404,6 +404,8 @@ PR 6 ships a **new** app, `com.everdoer.app`, display name **Everdoer**, scheme 
 old-app update" and no migration: on the new app you sign in once. Do these in order; nothing in
 code needs to change after the merge.
 
+> **Order:** swap the GitHub secrets `ANDROID_GOOGLE_SERVICES_JSON` (6.3) and `IOS_PROVISIONING_PROFILE_BASE64` (6.1) for the `com.everdoer.app` versions **before merging PR 6**, or expect the mobile CI's Android and iOS jobs to fail on main until you do. The old values are for `com.empirevu.app`, and the builds reject a package or bundle mismatch.
+
 ### 6.1 Apple (developer.apple.com → Certificates, Identifiers & Profiles; then App Store Connect)
 - [ ] **Identifiers → + → App IDs → App:** Description `Everdoer`, Bundle ID (explicit) `com.everdoer.app`. Capabilities: **Push Notifications** and **Sign in with Apple**.
 - [ ] **Keys:** if you have no APNs key yet, **Keys → + →** name `Everdoer APNs`, tick **Apple Push Notifications service (APNs)**, download the `.p8` once and note the **Key ID** and your **Team ID**. (An APNs key is team-wide; an existing one also works for the new bundle id.)

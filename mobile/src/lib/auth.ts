@@ -127,7 +127,8 @@ export async function signInWithProvider(provider: "google" | "apple"): Promise<
  * link belonged to, or null when the URL was not an auth callback.
  */
 export async function handleAuthCallback(url: string): Promise<{ flow: "signin" | "recovery"; error: string | null } | null> {
-  if (!url.startsWith(AUTH_CALLBACK_URL)) return null;
+  // Exactly the callback (optionally followed by ?query or #fragment), not any URL with that prefix.
+  if (url !== AUTH_CALLBACK_URL && !url.startsWith(`${AUTH_CALLBACK_URL}?`) && !url.startsWith(`${AUTH_CALLBACK_URL}#`)) return null;
   if (isNative) void Browser.close().catch(() => undefined);
 
   const parsed = new URL(url.replace(/^[^:]+:\/\//, "https://callback/"));

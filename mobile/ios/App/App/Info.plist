@@ -46,7 +46,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Everdoer uses the microphone when you dictate a voice note or job note.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Everdoer turns your voice notes into text on this device so you can create tasks hands-free.</string>
+	<string>Everdoer uses speech recognition to turn your voice notes into text so you can create tasks hands-free.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Everdoer uses Face ID to unlock your workspace without typing your password.</string>
 	<key>UIApplicationSceneManifest</key>
