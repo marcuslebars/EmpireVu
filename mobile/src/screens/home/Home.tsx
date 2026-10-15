@@ -332,7 +332,7 @@ function MarinaCard({ lead, count }: { lead: InboxRow; count: number }) {
     : `${lead.contact_name ?? "A lead"} is waiting on a reply${lead.snippet ? `: “${lead.snippet}”` : "."}`;
 
   return (
-    <div style={{ borderRadius: 16, padding: 1, background: "linear-gradient(140deg, hsl(252 80% 62% / .55), hsl(215 100% 55% / .15) 45%, var(--border))" }}>
+    <div style={{ borderRadius: 16, padding: 1, background: "linear-gradient(140deg, hsl(252 80% 62% / .55), hsl(82 85% 55% / .15) 45%, var(--border))" }}>
       <div style={{ borderRadius: 15, background: "var(--card)", padding: 15, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <IconBox icon={Sparkle} tone="vio" size={26} fill tinted />

@@ -3,7 +3,7 @@
 export type Tone = "pri" | "vio" | "suc" | "warn" | "dest" | "neutral";
 
 export const TONE: Record<Tone, { fg: string; bg: string; border: string; solid: string }> = {
-  pri: { fg: "var(--pri-l)", bg: "hsl(215 100% 55% / .13)", border: "hsl(215 100% 55% / .38)", solid: "var(--pri)" },
+  pri: { fg: "var(--pri-l)", bg: "hsl(82 85% 55% / .13)", border: "hsl(82 85% 55% / .38)", solid: "var(--pri)" },
   vio: { fg: "var(--vio-l)", bg: "hsl(252 80% 62% / .12)", border: "hsl(252 80% 62% / .38)", solid: "var(--vio)" },
   suc: { fg: "var(--suc-l)", bg: "hsl(152 60% 48% / .12)", border: "hsl(152 60% 48% / .4)", solid: "var(--suc)" },
   warn: { fg: "var(--warn-l)", bg: "hsl(38 92% 55% / .13)", border: "hsl(38 92% 55% / .35)", solid: "var(--warn)" },

@@ -54,7 +54,7 @@ export function SignUp({ go }: { go: (route: AuthRoute) => void }) {
       <Logo height={28} />
       <div>
         <div style={{ font: "700 21px/1.2 Inter, sans-serif", letterSpacing: "-.03em" }}>Create your account</div>
-        <div className="sub" style={{ fontSize: 13, marginTop: 6 }}>Get started with EmpireVu</div>
+        <div className="sub" style={{ fontSize: 13, marginTop: 6 }}>Get started with Everdoer</div>
       </div>
       {platform === "ios" ? (
         <Btn variant="secondary" size="md" icon={AppleLogo} iconWeight="fill" onClick={() => void signInWithProvider("apple")}>

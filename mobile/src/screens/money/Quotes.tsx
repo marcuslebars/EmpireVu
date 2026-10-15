@@ -31,7 +31,7 @@ export function Quotes() {
   return (
     <Screen title="Quotes" onRefresh={() => query.refetch()} trailing={<Btn size="sm" icon={Plus} onClick={() => nav.push({ name: "quote" })} style={{ marginRight: 4 }}>New</Btn>}>
       {disabled ? (
-        <Empty icon={FileText} title="Quotes aren't on for this organization" body="Stripe-native quotes are enabled per organization. Ask EmpireVu support to turn them on." />
+        <Empty icon={FileText} title="Quotes aren't on for this organization" body="Stripe-native quotes are enabled per organization. Ask Everdoer support to turn them on." />
       ) : (
         <>
           <div className="grid2" style={{ gap: 9 }}>

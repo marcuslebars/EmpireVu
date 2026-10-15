@@ -65,7 +65,7 @@ export function SheetItem({
         <IconCmp size={16} weight={fill ? "fill" : "regular"} />
       </span>
       <span className="label">{label}</span>
-      {checked ? <Check size={16} color="hsl(215 100% 62%)" /> : null}
+      {checked ? <Check size={16} color="hsl(82 85% 62%)" /> : null}
     </button>
   );
 }

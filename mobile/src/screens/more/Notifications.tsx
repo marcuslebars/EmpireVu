@@ -41,7 +41,7 @@ export function Notifications() {
             <span style={{ font: "600 12.5px/1 Inter, sans-serif", color: "hsl(38 92% 72%)" }}>Push notifications are off</span>
           </span>
           <span className="muted-p" style={{ fontSize: 12 }}>
-            {permission === "denied" ? "Turn them on for EmpireVu in your phone's Settings to hear about leads the moment they land." : "Leads, payments and schedule conflicts can reach you even when the app is closed."}
+            {permission === "denied" ? "Turn them on for Everdoer in your phone's Settings to hear about leads the moment they land." : "Leads, payments and schedule conflicts can reach you even when the app is closed."}
           </span>
           {permission === "prompt" ? (
             <Btn

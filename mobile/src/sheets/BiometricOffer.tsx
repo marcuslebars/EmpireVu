@@ -32,10 +32,10 @@ export function BiometricOffer() {
   return (
     <Sheet title={`Use ${info.label} next time?`} onClose={dismiss}>
       <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-        <span style={{ width: 44, height: 44, borderRadius: 14, background: "hsl(215 100% 55% / .14)", color: "hsl(215 100% 68%)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+        <span style={{ width: 44, height: 44, borderRadius: 14, background: "hsl(82 85% 55% / .14)", color: "hsl(82 85% 68%)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
           <Icon size={24} />
         </span>
-        <p className="muted-p">Unlock EmpireVu with {info.label} instead of typing your password. Your password always still works.</p>
+        <p className="muted-p">Unlock Everdoer with {info.label} instead of typing your password. Your password always still works.</p>
       </div>
       <Btn
         size="lg"

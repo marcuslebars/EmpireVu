@@ -29,10 +29,10 @@ export function Billing() {
       ) : billing.isError ? (
         <ErrorBanner error={billing.error} onRetry={() => void billing.refetch()} />
       ) : (
-        <div style={{ borderRadius: 16, padding: 1, background: "linear-gradient(140deg, hsl(215 100% 55% / .5), var(--border))" }}>
+        <div style={{ borderRadius: 16, padding: 1, background: "linear-gradient(140deg, hsl(82 85% 55% / .5), var(--border))" }}>
           <div style={{ borderRadius: 15, background: "var(--raised)", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
             <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
-              <span style={{ font: "700 10px/1 Inter, sans-serif", textTransform: "uppercase", letterSpacing: ".12em", color: "hsl(215 100% 66%)" }}>Current plan</span>
+              <span style={{ font: "700 10px/1 Inter, sans-serif", textTransform: "uppercase", letterSpacing: ".12em", color: "hsl(82 85% 66%)" }}>Current plan</span>
               {status ? <Tag tone={statusTone} style={{ marginLeft: "auto", padding: "6px 8px" }}>{humanize(status)}</Tag> : null}
             </span>
             <span style={{ font: "800 24px/1 Inter, sans-serif", letterSpacing: "-.03em" }}>{humanize(sub?.plan ?? org?.plan ?? "free")}</span>

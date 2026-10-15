@@ -24,7 +24,7 @@ interface SessionValue {
   /** A recovery link was opened — show "Set new password" before anything else. */
   recovery: { active: boolean; error: string | null };
   finishRecovery: () => void;
-  /** An invite link (com.empirevu.app://invite/<token>) waiting to be accepted. */
+  /** An invite link (com.everdoer.app://invite/<token>) waiting to be accepted. */
   inviteToken: string | null;
   clearInvite: () => void;
   /** Error from an email-confirmation / OAuth link, shown on the sign-in screen. */
@@ -178,7 +178,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   });
 
   const unlock = useCallback(async () => {
-    const passed = await authenticate("Unlock your EmpireVu workspace");
+    const passed = await authenticate("Unlock your Everdoer workspace");
     if (passed) setStatus("signedIn");
     return passed;
   }, []);

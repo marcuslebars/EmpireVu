@@ -298,7 +298,7 @@ function Composer({ contactId, hasPhone, hasEmail }: { contactId: string; hasPho
           aria-label="Send"
           disabled={!body.trim() || send.isPending}
           onClick={() => send.mutate()}
-          style={{ width: 44, height: 44, flex: "none", borderRadius: 11, border: 0, background: "var(--pri)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
+          style={{ width: 44, height: 44, flex: "none", borderRadius: 11, border: 0, background: "var(--pri)", color: "var(--pri-ink)", display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           {send.isPending ? <span className="spinner" /> : <PaperPlaneRight size={16} weight="fill" />}
         </button>

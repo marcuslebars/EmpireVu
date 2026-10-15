@@ -61,7 +61,7 @@ export function Voice() {
                   <span className="row-title" style={{ fontSize: 12.5 }}>{row.k}</span>
                   <span className="row-sub" style={{ fontSize: 10.5 }}>{row.sub}</span>
                 </span>
-                <span style={{ font: "600 12px/1 Inter, sans-serif", color: "hsl(215 100% 65%)", flex: "none" }}>{row.v}</span>
+                <span style={{ font: "600 12px/1 Inter, sans-serif", color: "hsl(82 85% 65%)", flex: "none" }}>{row.v}</span>
               </div>
             ))}
           </div>

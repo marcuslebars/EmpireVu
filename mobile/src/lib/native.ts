@@ -13,7 +13,7 @@ export interface DevicePrefs {
   haptics: boolean;
 }
 
-const PREFS_KEY = "empirevu.devicePrefs";
+const PREFS_KEY = "everdoer.devicePrefs";
 export const DEFAULT_PREFS: DevicePrefs = { compact: false, revenue: true, badges: true, haptics: true };
 
 let hapticsEnabled = true;

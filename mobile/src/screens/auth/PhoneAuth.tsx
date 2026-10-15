@@ -95,7 +95,7 @@ export function PhoneAuth({ go }: { go: (route: AuthRoute) => void }) {
                     flex: 1,
                     aspectRatio: ".78",
                     borderRadius: 13,
-                    border: `1.5px solid ${i === code.length ? "hsl(215 100% 55% / .5)" : "hsl(222 14% 16%)"}`,
+                    border: `1.5px solid ${i === code.length ? "hsl(82 85% 55% / .5)" : "hsl(222 14% 16%)"}`,
                     background: filled ? "hsl(222 16% 14%)" : "hsl(222 16% 11%)",
                     display: "flex",
                     alignItems: "center",
