@@ -1,6 +1,6 @@
 # Monthly results scorecard
 
-The CrankLeads promise: **"Monthly results scorecard: leads caught, replies sent, jobs booked,
+The done-for-you promise: **"Monthly results scorecard: leads caught, replies sent, jobs booked,
 and what we're tuning next."** On the 1st of every month each client company's owner gets an
 email with last month's numbers compared with the month before, up to three rule-based
 "what we're tuning next" items, and an optional note from the operator. The same scorecard is
@@ -88,7 +88,7 @@ When no rule fires, the email says "Everything's running well…".
 or from the Monthly results page. An empty value clears it. RLS also limits writes to
 admins (`monthly_scorecard_notes_admins_*` policies). It shows under "A note from your
 account team". The label doesn't use the platform brand, because any org admin can write the
-note, not just CrankLeads staff. To get a note into the email, set it for the month being reported (for
+note, not just Everdoer staff. To get a note into the email, set it for the month being reported (for
 example the October note before the November 1st run).
 
 ## Sending, idempotency, opt-out

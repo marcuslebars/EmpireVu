@@ -178,5 +178,5 @@ A 200 means the durable write and enrichment already completed.
 Intake keys (`evk_…`, `/api/intake`, HMAC-signed) remain for developers and the A1 spokes
 — they're in the "Advanced: server-to-server" disclosure in onboarding and in
 Settings → Integrations. Those leads do **not** dispatch `contact.created` (unchanged);
-website-form leads do, because a CrankLeads client's owner alert and instant reply are
+website-form leads do, because a done-for-you client's owner alert and instant reply are
 `contact.created` recipes.
