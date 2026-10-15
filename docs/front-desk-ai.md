@@ -1,6 +1,6 @@
 # The AI front desk
 
-CrankLeads replaces the front desk: an assistant that texts the business's customers, answers
+Everdoer replaces the front desk: an assistant that texts the business's customers, answers
 the calls the owner can't take, checks with the owner by text before anything they'd want a say
 in, and tells them every Monday what it did. Four parts — [Text conversations](#text-conversations-sms-agent),
 [Owner by text](#owner-by-text), [Phone answering](#phone-answering), [Weekly report](#weekly-report) —
@@ -17,7 +17,7 @@ to me" relay stays quiet while the assistant is handling the customer.
 
 **The customer wants something only the owner can decide** ("can you do it for $500?"). The
 customer hears "Let me check with Dana and get right back to you." Dana gets a text from the
-CrankLeads number, built from what "Y" will actually do: "#1 Jamie Lee (705-555-0123) wants a
+Everdoer number, built from what "Y" will actually do: "#1 Jamie Lee (705-555-0123) wants a
 price. The quote will say "Seasonal snow contract, double driveway" at the price you give + HST.
 Their text: "Can you do it for $500?" Reply Y 1 $price (before HST) to send it, N 1 to skip." She
 replies "Y but $575" — Jamie gets a $575 + HST quote link from the
@@ -30,12 +30,12 @@ right away with the customer's words. The owner replies from the app or by text 
 we'll be there at 9"); the assistant stays out of that conversation for 3 days or until the owner
 turns it back on (inbox **Let AI handle it**, or text "AI back on for Jamie").
 
-**The owner runs the day by text** to the CrankLeads number: "what's on tomorrow", "who's waiting
+**The owner runs the day by text** to the Everdoer number: "what's on tomorrow", "who's waiting
 on me", "move Jamie to Friday 9" (always "…? Reply 4821 to confirm" first — a one-time code, not "Y"),
 "tell Jamie we'll be there at 9" (echoed word for word for a code, then sent from the business
 number), "pause all texts".
 
-**A call the owner can't take** forwards to the business's CrankLeads number. On every plan an AI
+**A call the owner can't take** forwards to the business's Everdoer number. On every plan an AI
 picks up in the business's name, says it's an automated assistant and the call may be recorded,
 takes the message (Front Desk: also quotes from the price list and books). After the call the
 owner gets one text ("📞 Your AI assistant took a call: Casey Morgan · 705-555-0177. Seasonal
@@ -48,7 +48,7 @@ instant text-back as before (and the owner one "minutes used up" notice that mon
 conversations, things it checked with them, quotes, bookings, and an estimate of the time saved
 (stated as an estimate, with its assumptions).
 
-**House (non-CrankLeads) orgs** see none of this unless they switch it on in Settings → AI front
+**House (standard) orgs** see none of this unless they switch it on in Settings → AI front
 desk: no AI texts, calls keep the voicemail behaviour, no weekly report.
 
 **Settings → AI front desk** is one panel per company: Text conversations (on/off, how much it may
@@ -70,9 +70,11 @@ report (on/off, text and/or email, send a test).
    - `RETELL_MESSAGE_AGENT_ID` + `RETELL_MESSAGE_LLM_ID` (web) — from step 4;
    - `AI_PRICE_SONNET_INPUT_PER_MTOK` / `_OUTPUT_` / `_CACHE_READ_` / `_CACHE_WRITE_PER_MTOK` (worker) — Sonnet's list price, so front-desk AI cost isn't booked at Opus rates;
    - optional: `AI_MODEL_SMS_AGENT`, `AI_MODEL_OWNER_AGENT` (default `claude-sonnet-5-5`), `SMS_AGENT_*` caps (incl. `SMS_AGENT_LOOP_WINDOW_MS` / `_LOOP_MAX_REPLIES` / `_LOOP_MAX_INBOUND`), `TWILIO_INBOUND_SMS_URL`, `AI_ANSWER_*` (incl. `AI_ANSWER_MAX_CALLS_PER_CALLER_DAY`, default 3), `RETELL_SIP_DOMAIN`, `VOICE_AI_TOKEN_SECRET`;
-   - Customer quote / booking links for CrankLeads businesses use the CrankLeads domain
-     (`CRANKLEADS_APP_BASE_URL`, i.e. https://app.crankleads.com — already set). Optional override:
-     `QUOTE_PUBLIC_BASE_URL_CRANKLEADS`. A company's own `companies.quote_public_base_url` always wins.
+   - Customer quote / booking links for done-for-you businesses use the done-for-you app host
+     (`EVERDOER_APP_BASE_URL`; old `CRANKLEADS_APP_BASE_URL`, i.e. https://app.crankleads.com, still
+     read). Optional override: `QUOTE_PUBLIC_BASE_URL_EVERDOER` (old
+     `QUOTE_PUBLIC_BASE_URL_CRANKLEADS` still read). A company's own
+     `companies.quote_public_base_url` always wins.
 3. **Platform number:** `PLATFORM_SMS_NUMBER` = the owner channel's own Twilio line (every service
    that sends texts). Unset → `TWILIO_FROM_NUMBER` doubles as it. Set it whenever `TWILIO_FROM_NUMBER`
    is also a business's line (A1's): that number then stays the business's line and default sender.
@@ -144,7 +146,7 @@ throws. It does **not** reply when:
 
 | Case | What happens |
 | --- | --- |
-| The agent is off for the company | Nothing. Default: **on** for CrankLeads orgs (`organizations.platform_brand = 'crankleads'`), **off** for house orgs unless `companies.ai_settings.sms_agent.enabled = true`. Autonomy `off` = off. |
+| The agent is off for the company | Nothing. Default: **on** for done-for-you orgs (`organizations.platform_brand = 'crankleads'`), **off** for house orgs unless `companies.ai_settings.sms_agent.enabled = true`. Autonomy `off` = off. |
 | `ANTHROPIC_API_KEY` missing | Nothing (and the owner's "forward customer texts" relay keeps working). |
 | Contact opted out | Nothing. |
 | Conversation with the owner (`state = 'owner'`) | Silent for **72h** from `owner_takeover_at`, then back to `ai`. `paused` = silent until turned back on. |
@@ -324,7 +326,7 @@ it), `ANTHROPIC_API_KEY` (without it commands reply with a one-line help; approv
 | --- | --- | --- |
 | Platform | anyone, `STOP` | recorded in `platform_sms_opt_outs` (we stop all platform texts to that phone); logged |
 | Platform | anyone, `START`/`UNSTOP`, or `YES`/`Y` **while opted out** | opt-out cleared |
-| Platform | anyone, `HELP`/`INFO` | owner: one-line help; stranger: "this number is for CrankLeads account owners…" (≤ 3/day) |
+| Platform | anyone, `HELP`/`INFO` | owner: one-line help; stranger: "this number is for CrankLeads account owners…" (`Everdoer` once `EVERDOER_SMS_BRANDING=1`; ≤ 3/day) |
 | Platform | an owner (phone = a company's `owner_phone_e164`) | owner channel (`handleOwnerInboundSms`, `viaPlatformNumber: true`) |
 | Platform | a stranger | logged in `owner_command_log` (`unknown_sender`); one short reply per 30 days, else silence |
 | Company | that company's owner | owner channel with that company preferred. No contact is created and nothing is relayed by `customer-text-to-owner` (STOP/START from the owner are only logged — Twilio enforces them) |
@@ -431,7 +433,7 @@ only; plus indexes for the approvals sweep and per-phone `owner_command_log` loo
 
 ## Phone answering
 
-Every CrankLeads plan now has an AI that answers the calls the owner can't take. Catch and
+Every done-for-you plan now has an AI that answers the calls the owner can't take. Catch and
 Close get a **message-taking** assistant; Front Desk keeps its **full receptionist**, which can
 now actually quote from the price list, check availability, book and send the deposit link.
 Owners can switch to **voicemail only** at any time (Settings → AI front desk → Call answering).
@@ -442,7 +444,7 @@ Owners can switch to **voicemail only** at any time (Settings → AI front desk 
 catcher.**
 
 1. The business keeps its own number and conditionally forwards unanswered calls to its
-   CrankLeads **Twilio catcher number** (unchanged — `docs/missed-call-catcher.md`).
+   **Twilio catcher number** (unchanged — `docs/missed-call-catcher.md`).
 2. Twilio calls `POST /api/twilio/voice/inbound` (signature-checked, durable-first exactly as
    before). The route resolves the tenant **from the called catcher number** and decides:
    AI mode + minutes left + Retell configured → AI; otherwise → the existing greeting +
@@ -549,7 +551,7 @@ receptionist agent** (`voice_numbers` provider `retell`), with the same metadata
 ### Settings
 
 - Reader: `src/server/services/voice/answering-settings.ts` — `mode` defaults to `ai` for
-  CrankLeads orgs and `voicemail` for house orgs (A1 etc. unchanged unless their ai_settings
+  done-for-you orgs and `voicemail` for house orgs (A1 etc. unchanged unless their ai_settings
   say `ai`).
 - Route: `GET|PATCH /api/organizations/{org}/companies/{company}/ai-settings/call-answering`
   (members read; owner/admin PATCH `{ mode }` merging ONLY `ai_settings.call_answering`).
@@ -563,7 +565,7 @@ receptionist agent** (`voice_numbers` provider `retell`), with the same metadata
 
 Auto-provisioned receptionists now get `general_tools` at provisioning and on every re-sync
 (`src/server/services/retell/receptionist-tools.ts`), each a custom function to our routes
-with the `x-empirevu-retell-secret` header (Payload: args only OFF):
+with the `x-empirevu-retell-secret` header (`x-everdoer-retell-secret` once `EVERDOER_WRITE_NEW_NAMES` is on; both are accepted) (Payload: args only OFF):
 
 | Tool | Route |
 | --- | --- |
@@ -686,9 +688,9 @@ Code: `src/server/services/weekly-report/send.ts`.
   - If one channel sends and the other fails, the row is `sent`, with the error in `last_error`.
   - The row's `metrics` stores what was sent. The in-app page shows those numbers for sent weeks.
 - **Channels.**
-  - **SMS** goes to CrankLeads orgs only. It is sent from the **platform number** (`smsFrom: "platform"`) to `companies.owner_phone_e164`. It is GSM-7, at most 2 segments, and has 3 lines: who/when, what happened, and hours saved plus a link to `/reports/weekly?week=…`.
+  - **SMS** goes to done-for-you orgs only. It is sent from the **platform number** (`smsFrom: "platform"`) to `companies.owner_phone_e164`. It is GSM-7, at most 2 segments, and has 3 lines: who/when, what happened, and hours saved plus a link to `/reports/weekly?week=…`.
   - **Email** goes to the monthly scorecard's owner resolution: `owner_email`, then the org owner/admin, and never the platform `OWNER_EMAIL`. The template is `src/server/templates/weekly-report.ts`, in the scorecard's house style.
-  - The brand is the org's platform brand (`scorecardPlatformBrandName`), so a CrankLeads org's report never says EmpireVu.
+  - The brand is the org's platform brand (`scorecardPlatformBrandName`), so every org's report says Everdoer.
 - **Who doesn't get one** (skip reasons):
   - `disabled`: the setting is off.
   - `inactive_company`: the company is paused or archived.
@@ -704,8 +706,8 @@ Code: `src/server/services/weekly-report/send.ts`.
 
 The settings live in `companies.ai_settings.weekly_report = { enabled?, channels? }`. The only reader is `weekly-report/settings.ts`. Defaults:
 
-- **On** for CrankLeads orgs, sent by text and email.
-- **Off** for everyone else, email only. For non-CrankLeads orgs, `sms` is always filtered out.
+- **On** for done-for-you orgs, sent by text and email.
+- **Off** for everyone else, email only. For standard orgs, `sms` is always filtered out.
 
 The routes are owner/admin only, and the company must be in the org:
 
@@ -807,6 +809,7 @@ me", "remove me from your list" — the whole text) → opted out + one confirma
 Platform HELP is answered even after STOP (CTIA). MMS redirects are followed by hand to Twilio's
 CDN only, without the account's auth. `ai_settings` read-modify-writes are optimistic everywhere
 (`front-desk/ai-settings-write.ts`). Strangers' platform texts keep 200 characters and are pruned
-after 30 days. CrankLeads owners see "AI receptionist", never "Marina" (house tenants keep
-Marina). Customer links: a company's `quote_public_base_url`, else `QUOTE_PUBLIC_BASE_URL_CRANKLEADS`
-or `CRANKLEADS_APP_BASE_URL` (app.crankleads.com) for CrankLeads orgs, else the platform default.
+after 30 days. Done-for-you owners see "AI receptionist", never "Marina" (house tenants keep
+Marina). Customer links: a company's `quote_public_base_url`, else `QUOTE_PUBLIC_BASE_URL_EVERDOER` or
+`EVERDOER_APP_BASE_URL` (old `QUOTE_PUBLIC_BASE_URL_CRANKLEADS` / `CRANKLEADS_APP_BASE_URL`, e.g.
+app.crankleads.com, still read) for done-for-you orgs, else the platform default.

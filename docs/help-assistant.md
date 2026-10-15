@@ -124,7 +124,7 @@ assume one model.
    last ≤10 turns, account context, reason, session). If this insert fails the route 500s and
    the user is told it didn't go through.
 2. **Emails the operator** at `OWNER_EMAIL` (plain text, sender name "Everdoer Help",
-   Reply-To = the user's email): organization and company, user email, plan / CrankLeads
+   Reply-To = the user's email): organization and company, user email, plan / done-for-you
    tier / status / role / setup progress, the reason, request id, the question and the
    transcript. The subject is flattened to one line.
 3. Logs `escalated` in `help_chat_events` with `metadata.email` = `sent` | `failed` |

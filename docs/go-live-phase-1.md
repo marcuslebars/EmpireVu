@@ -66,13 +66,18 @@ Legend: ✅ required · ➕ recommended · ○ optional · — not needed.
 - [ ] Deploy (merge to `main` triggers the web auto-deploy).
 
 ### 3b. Custom domains — empirevu.com + api.empirevu.com
+
+> Historical: the hub later moved to `app.empirevu.com` (see
+> [everdoer-hub-setup.md](everdoer-hub-setup.md)), and the Everdoer rebrand adds
+> `app.everdoer.com` / `api.everdoer.com` (REBRAND_PLAN.md §3.1). The steps below are kept as
+> they were run.
 The app is served by the Railway **web** service; subdomains point at that running
 service, **not** at the GitHub repo. Railway accepts multiple custom domains on one
 service, so both hosts below can point at the same deployment.
 
 | Host | Serves |
 |---|---|
-| `empirevu.com` | the EmpireVu hub app (sign-in, CRM, quotes admin) |
+| `empirevu.com` | the hub app (sign-in, CRM, quotes admin) |
 | `api.empirevu.com` | inbound webhooks and customer-facing public pages (`/q/{token}`) |
 
 - [ ] Railway → the **web** service → **Settings → Networking → Custom Domain** →
@@ -94,7 +99,7 @@ service, so both hosts below can point at the same deployment.
 - [ ] **Verify:** `nslookup empirevu.com` and `nslookup api.empirevu.com` both
       resolve to the Railway target (a `*.up.railway.app`, and **not**
       `mj0wne3m.up.railway.app` — that's the marketing site), and
-      `https://empirevu.com` loads the EmpireVu app with a valid certificate.
+      `https://empirevu.com` loads the app with a valid certificate.
       Until DNS is created, the lookup returns "Non-existent domain".
 
 ### 4. Verify end-to-end (exit criteria)
