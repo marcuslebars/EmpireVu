@@ -33,9 +33,10 @@ gets paid by its customers.
 - [ ] A1 Marine Care branding set — logo, colours, from-name, reply email, cancellation policy
 - [ ] The domain of Care's from-address verified in Resend, SPF + DKIM published
 - [ ] Care's quote host resolves with a valid certificate: its own
-      `quote_public_base_url` (e.g. `quotes.a1marinecare.ca`) if set, otherwise the
-      platform-wide `QUOTE_PUBLIC_BASE_URL` — which is still
-      `https://quotes.a1marinestorage.ca`, on the decommissioned Storage's domain
+      `quote_public_base_url` (`https://quotes.a1marinecare.ca`, already attached to the
+      web service — REBRAND_CHECKLIST.md D.5) if set, otherwise the platform-wide
+      `QUOTE_PUBLIC_BASE_URL`, which is still `https://quotes.a1marinestorage.ca`, on the
+      decommissioned Storage's domain
 - [ ] Railway env on **Everdoer's** web service: `QUOTE_PUBLIC_BASE_URL`,
       `STRIPE_SECRET_KEY`, `STRIPE_CONNECT_WEBHOOK_SECRET`, and the Resend
       from-address config
@@ -64,7 +65,7 @@ select name,
        exists (select 1 from public.service_catalog_items i
                where i.company_id = c.id)            as catalog_seeded
 from public.companies c
-where id = '<A1 Marine Care company id>';   -- A1 Marine Care
+where id = 'a1000000-0000-4000-8000-000000000002';   -- A1 Marine Care
 ```
 
 All four must be true. The company ids, for reference:
@@ -101,7 +102,7 @@ JSON body — replace the template with this. The single custom line is chosen s
 ```json
 {
   "title": "Deposit flow verification",
-  "companyId": "<A1 Marine Care company id>",
+  "companyId": "a1000000-0000-4000-8000-000000000002",
   "contactId": "<the contact id from above>",
   "services": [],
   "customLines": [
