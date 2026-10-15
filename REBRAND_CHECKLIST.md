@@ -265,7 +265,7 @@ There's also a small platform PR: the kit README is no longer served, plus this 
 - [ ] Merge **thinker-holdings**. The card says Everdoer, links to https://everdoer.com and uses a new 16:9 screenshot. **Its description still says "CRM / Operations Software"**: your call (PR note).
 
 ### 3.5 Open decisions (owner)
-- **CASL mailing address:** add Thinker Holdings Inc.'s mailing address to the site's consent text or privacy page.
+- **CASL mailing address:** a placeholder (`[Mailing address coming soon]`) is on the privacy page (linked from the consent checkbox) and footer. **Replace `MAILING_ADDRESS_PLACEHOLDER` in crankleads-system `src/config.ts` once the business address is secured,** before any commercial email or text goes out from the site's leads.
 - **"Live in 5 business days or first month free":** kept. The platform tracks the deadline, but the first-month waiver is applied by hand.
 
 ## PR 4: provider re-point
