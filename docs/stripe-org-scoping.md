@@ -10,8 +10,8 @@ painful to unwind.
 
 | | Platform billing (Phase 1) | Merchant payments (Phase 3+) |
 |---|---|---|
-| Who charges whom | EmpireVu charges an org for its subscription | A brand charges **its own** customers for deposits and balances |
-| Account | EmpireVu's own Stripe account | The brand's account |
+| Who charges whom | Everdoer charges an org for its subscription | A brand charges **its own** customers for deposits and balances |
+| Account | Everdoer's own Stripe account | The brand's account |
 | Credentials | Global env: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Per-company env refs (below) |
 | Client | `billing/stripe.ts` → `getStripeClient()` | `quotes/company-stripe.ts` → `getCompanyStripeClient(companyId)` |
 | Webhook | `/api/webhooks/stripe` | `/api/webhooks/stripe/merchant/{companyId}` |
@@ -20,13 +20,14 @@ painful to unwind.
 **The quotes path reads no global Stripe env var.** There is no fallback to the
 platform key: an unconfigured company raises `CompanyStripeError` and the
 checkout fails loudly. That is deliberate — a silent fallback would charge a
-customer into EmpireVu's account.
+customer into Everdoer's account.
 
 ## Why the company, not the organization
 
 The tenant unit for Stripe is the **company**. In this schema `a1-group` is the
-organization and A1 Marine Storage / Marine Care / Coatings / Boatnames are
-companies inside it (`lead-intake/routing.ts`). Scoping at the organization would
+organization and A1 Marine Care / Marine Storage / Coatings / Boatnames are
+companies inside it (`lead-intake/routing.ts`; A1 Marine Storage is decommissioned, see
+REBRAND_CHECKLIST.md "A1 Marine Storage decommission"). Scoping at the organization would
 give the whole family one indivisible Stripe identity — no way to give one brand
 its own account, its own statement descriptor, or its own payout schedule.
 
@@ -65,7 +66,7 @@ On `companies`:
 
 | Column | Purpose |
 |---|---|
-| `stripe_account_label` | Human label, e.g. `A1 Marine Storage (live)`. Never a secret. |
+| `stripe_account_label` | Human label, e.g. `A1 Marine Care (live)`. Never a secret. |
 | `stripe_account_id` | `acct_…`, for reconciliation. Indexed, **not** unique — sharing is supported. |
 | `stripe_secret_key_ref` | Env var name holding the secret key |
 | `stripe_webhook_secret_ref` | Env var name holding the webhook signing secret |
@@ -151,10 +152,10 @@ would collide once tenants have separate accounts.
 
 ## Customer-facing branding
 
-EmpireVu is the backend. A customer approving a quote or reading a deposit
+Everdoer is the backend. A customer approving a quote or reading a deposit
 receipt sees the **brand they hired**, never the platform running it. Nothing on
 the hosted quote page, in the quote emails, or on the card statement may carry
-EmpireVu branding.
+Everdoer (or EmpireVu) branding.
 
 Branding lives on the **company**, next to the Stripe credentials and voice
 profiles: `companies.brand_logo_url`, `brand_primary_color`,

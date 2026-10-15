@@ -1,5 +1,10 @@
 # EmpireVu Audit — Phase 0 (Syncoree → EmpireVu)
 
+> **Historical record.** This is the 2026-07-05 audit for the Syncoree → EmpireVu rename. The
+> platform has since been renamed again, to **Everdoer** (see REBRAND_PLAN.md), and A1 Marine
+> Storage has been decommissioned (REBRAND_CHECKLIST.md "A1 Marine Storage decommission"). The
+> names, companies and plans below are kept as they were at the time.
+
 **Repo:** `syncoree` (to be renamed EmpireVu) · **Date:** 2026-07-05 · **Status:** audit only, **no code changed**.
 
 **Method:** five parallel read-only audits (mission pages, secondary/auth pages, backend API + service surface, workflow engine + worker, auth/security/architecture) cross-checked against the Supabase migrations and seed. Every claim below is traceable to `file:line` in the source.
