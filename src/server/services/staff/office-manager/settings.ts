@@ -209,9 +209,9 @@ export async function loadBriefingCompany(admin: AdminClient, organizationId: st
 export async function loadBriefingCompanies(admin: AdminClient): Promise<BriefingCompany[]> {
   const db = admin as Db;
   const orgs = await readAllPages<{ id: string }>((from, to) => db.from("organizations").select("id").in("platform_brand", [...PRODUCT_LINE_DB_VALUES.done_for_you]).order("id", { ascending: true }).range(from, to));
-  const crankOrgs = new Set(orgs.map((o) => o.id));
+  const doneForYouOrgs = new Set(orgs.map((o) => o.id));
   const rows = new Map<string, BriefingCompanyRow>();
-  for (const ids of chunks([...crankOrgs])) {
+  for (const ids of chunks([...doneForYouOrgs])) {
     const page = await readAllPages<BriefingCompanyRow>((from, to) => db.from("companies").select(COMPANY_COLUMNS).in("organization_id", ids).order("id", { ascending: true }).range(from, to));
     for (const r of page) rows.set(r.id, r);
   }
@@ -220,7 +220,7 @@ export async function loadBriefingCompanies(admin: AdminClient): Promise<Briefin
   );
   for (const r of optedIn) rows.set(r.id, r);
   return [...rows.values()]
-    .map((r) => toBriefingCompany(r, crankOrgs.has(r.organization_id) ? "crankleads" : "empirevu"))
+    .map((r) => toBriefingCompany(r, doneForYouOrgs.has(r.organization_id) ? "crankleads" : "empirevu"))
     .filter((c) => c.active && c.settings.enabled);
 }
 

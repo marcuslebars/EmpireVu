@@ -208,11 +208,11 @@ afterEach(() => {
 
 describe("settings", () => {
   it("every switch defaults on for CrankLeads and off for house orgs; explicit choices win", () => {
-    const crank = readDispatchSettings({}, { doneForYou: true, industryPack: { id: "roofing", version: 1 } });
-    expect([crank.weather.enabled, crank.onOurWay.enabled, crank.crewTexts.enabled, crank.fillGap.enabled]).toEqual([true, true, true, true]);
-    expect(crank.weather.thresholds).toEqual({ rainProbability: 60, rainMm: 2, windKmh: 50, minTempC: -25, maxTempC: 35 });
-    expect(crank.crewTexts.time).toBe("18:00");
-    expect(crank.customerHours).toEqual({ from: "09:00", until: "20:00" });
+    const dfySettings = readDispatchSettings({}, { doneForYou: true, industryPack: { id: "roofing", version: 1 } });
+    expect([dfySettings.weather.enabled, dfySettings.onOurWay.enabled, dfySettings.crewTexts.enabled, dfySettings.fillGap.enabled]).toEqual([true, true, true, true]);
+    expect(dfySettings.weather.thresholds).toEqual({ rainProbability: 60, rainMm: 2, windKmh: 50, minTempC: -25, maxTempC: 35 });
+    expect(dfySettings.crewTexts.time).toBe("18:00");
+    expect(dfySettings.customerHours).toEqual({ from: "09:00", until: "20:00" });
     const house = readDispatchSettings({}, { doneForYou: false });
     expect([house.weather.enabled, house.onOurWay.enabled, house.crewTexts.enabled, house.fillGap.enabled]).toEqual([false, false, false, false]);
     // Crew texts go out until 21:00, so 21:00 or later isn't a valid send time.

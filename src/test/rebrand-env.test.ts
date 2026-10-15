@@ -21,6 +21,8 @@ import {
   configuredAppBaseUrlFor,
   resetRejectedEverdoerAppBaseUrls,
 } from "@/server/services/platform-brand";
+import { platformBrand } from "@/lib/platform-brand";
+import { scorecardPlatformBrandName } from "@/server/services/monthly-scorecard/platform-brand";
 import { quotePublicBaseUrlFor } from "@/server/services/quotes/config";
 
 // Everdoer rebrand PR 1: EVERDOER_* env names read first, the old names as a counted fallback.
@@ -36,6 +38,8 @@ const ALL_NAMES = [
   "QUOTE_PUBLIC_BASE_URL",
   "QUOTE_PUBLIC_BASE_URL_EVERDOER",
   "QUOTE_PUBLIC_BASE_URL_CRANKLEADS",
+  "EVERDOER_BRAND_NAME",
+  "PLATFORM_BRAND_NAME",
 ];
 
 beforeEach(() => {
@@ -243,6 +247,25 @@ describe("quotePublicBaseUrlFor", () => {
       "https://quotes.a1marinecare.ca",
     );
     expect(quotePublicBaseUrlFor({ platform_brand: "crankleads" })).toBe("https://app.everdoer.com");
+  });
+});
+
+describe("monthly-scorecard brand name env (PR 5)", () => {
+  it("reads EVERDOER_BRAND_NAME first; the old PLATFORM_BRAND_NAME still works and is counted", async () => {
+    expect(scorecardPlatformBrandName()).toBe("Everdoer");
+    expect(await envRows()).toEqual([]);
+
+    vi.stubEnv("PLATFORM_BRAND_NAME", "  Acme Leads ");
+    expect(scorecardPlatformBrandName()).toBe("Acme Leads");
+    expect(await envRows()).toEqual(["PLATFORM_BRAND_NAME"]);
+
+    vi.stubEnv("EVERDOER_BRAND_NAME", "Acme Pro");
+    expect(scorecardPlatformBrandName()).toBe("Acme Pro");
+  });
+
+  it("a done-for-you org always gets the brand name, whatever the env says", () => {
+    vi.stubEnv("EVERDOER_BRAND_NAME", "Acme Pro");
+    expect(scorecardPlatformBrandName(platformBrand("crankleads"))).toBe("Everdoer");
   });
 });
 

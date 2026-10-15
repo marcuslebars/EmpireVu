@@ -93,14 +93,14 @@ export function quotePublicBaseUrlFor(company: { quote_public_base_url?: unknown
     // CrankLeads customers' links live on the CrankLeads domain (app.crankleads.com serves the
     // same public /q and /book pages). QUOTE_PUBLIC_BASE_URL_EVERDOER overrides it.
     // Rebrand shim (remove in PR 8 once legacy_usage shows no env/QUOTE_PUBLIC_BASE_URL_CRANKLEADS or env/CRANKLEADS_APP_BASE_URL for 30 days)
-    const crank =
+    const doneForYouBase =
       envWithFallback("QUOTE_PUBLIC_BASE_URL_EVERDOER", ["QUOTE_PUBLIC_BASE_URL_CRANKLEADS"]) ||
       // Same host rule as appBaseUrlFor: a non-everdoer EVERDOER_APP_BASE_URL is ignored.
       validEverdoerAppBaseUrl() ||
       envWithFallback("EVERDOER_APP_BASE_URL", ["CRANKLEADS_APP_BASE_URL"], {
         CRANKLEADS_APP_BASE_URL: process.env.CRANKLEADS_APP_BASE_URL,
       });
-    if (crank) return normalizeBaseUrl(crank);
+    if (doneForYouBase) return normalizeBaseUrl(doneForYouBase);
   }
   return getQuotesConfig().publicBaseUrl;
 }

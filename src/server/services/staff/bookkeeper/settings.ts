@@ -152,9 +152,9 @@ export async function loadActiveCompanies(admin: AdminClient): Promise<ActiveCom
   const db = admin as Db;
   const columns = "id, organization_id, timezone, ai_settings";
   const orgs = await readAllPages<{ id: string }>((from, to) => db.from("organizations").select("id").in("platform_brand", [...PRODUCT_LINE_DB_VALUES.done_for_you]).order("id", { ascending: true }).range(from, to));
-  const crankOrgs = new Set(orgs.map((o) => o.id));
+  const doneForYouOrgs = new Set(orgs.map((o) => o.id));
   const rows = new Map<string, { id: string; organization_id: string; timezone: string | null; ai_settings: unknown }>();
-  for (const ids of chunks([...crankOrgs])) {
+  for (const ids of chunks([...doneForYouOrgs])) {
     const page = await readAllPages<{ id: string; organization_id: string; timezone: string | null; ai_settings: unknown }>((from, to) =>
       db.from("companies").select(columns).in("organization_id", ids).order("id", { ascending: true }).range(from, to),
     );
@@ -166,7 +166,7 @@ export async function loadActiveCompanies(admin: AdminClient): Promise<ActiveCom
   for (const r of optedIn) rows.set(r.id, r);
   const out: ActiveCompany[] = [];
   for (const r of rows.values()) {
-    const doneForYou = crankOrgs.has(r.organization_id);
+    const doneForYou = doneForYouOrgs.has(r.organization_id);
     const settings = readCollectionsSettings(r.ai_settings, { doneForYou });
     if (settings.enabled) out.push({ organizationId: r.organization_id, companyId: r.id, timeZone: r.timezone, doneForYou, settings });
   }
