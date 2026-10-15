@@ -31,7 +31,7 @@ import { processBillingEventJob } from "@/server/services/billing/events";
 import { switchOnEverything } from "@/server/services/dfy/switch-on";
 import { processInboundWebhookJobs } from "@/server/services/inbound-webhook-jobs";
 import { allAgentTools } from "@/server/services/sms-agent/tools";
-import { activeRolesFor, resetStaffSweepClock, roleAgentTools, roleOwnerTools } from "@/server/services/staff/registry";
+import { activeRolesFor, resetStaffSweepClock, roleAgentTools, roleOwnerTools, staffRoles } from "@/server/services/staff/registry";
 import { resumeDueWorkflowRuns, runScheduler } from "@/server/services/workflow-engine/scheduler";
 import { claimWorkflowEventJobs, processWorkflowEventJob } from "@/server/services/workflow-event-jobs";
 
@@ -868,8 +868,17 @@ async function main(): Promise<void> {
     const h = houseIds;
     const roles = await activeRolesFor(admin, { organizationId: h.orgId, companyId: h.companyId });
     check(roles.length === 0, `activeRolesFor(house) = [${roles.map((r) => r.role).join(", ")}]`);
-    const danaRoles = await activeRolesFor(admin, { organizationId: dana.orgId!, companyId: dana.companyId! });
-    check(danaRoles.length === 4, `activeRolesFor(done-for-you) = [${danaRoles.map((r) => r.role).join(", ")}]`);
+    // Every registered role is on for the done-for-you buyer except the two gated on setup this run
+    // doesn't do: service_plans needs an active plan (Phase 4 seeds one), email_clerk needs inbound
+    // email configured on the server (INBOUND_EMAIL_DOMAIN + RESEND_WEBHOOK_SECRET; Phase 5 sets
+    // them). Derived from staffRoles() so a role added later is expected on unless it's gated too.
+    const gatedOff = new Set(["service_plans", "email_clerk"]);
+    const expectedDana = staffRoles().map((r) => r.role).filter((r) => !gatedOff.has(r));
+    const danaRoles = (await activeRolesFor(admin, { organizationId: dana.orgId!, companyId: dana.companyId! })).map((r) => r.role);
+    check(
+      ["estimator", "bookkeeper", "dispatcher", "marketer"].every((r) => danaRoles.includes(r)) && JSON.stringify(danaRoles) === JSON.stringify(expectedDana),
+      `activeRolesFor(done-for-you) = [${danaRoles.join(", ")}] (expected [${expectedDana.join(", ")}])`,
+    );
     const houseNumbers = [HOUSE.owner, HOUSE.customer, HOUSE.debtor, HOUSE.past, HOUSE.crew, HOUSE.jobCustomer];
     const toHouse = captured().filter((c) => c.kind === "sms" && houseNumbers.includes(String(c.to)));
     check(toHouse.length === 0, `no text to any house number all week (${toHouse.length}: ${toHouse.map((c) => `${c.to}: ${String(c.body).slice(0, 60)}`).join(" | ")})`);
