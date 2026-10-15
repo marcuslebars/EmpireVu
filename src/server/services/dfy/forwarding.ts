@@ -10,9 +10,9 @@
 import { forwardingPlan, prettyPhone, type ForwardingPlan } from "@/lib/carrier-forwarding";
 import { PLATFORM_BRANDS } from "@/lib/platform-brand";
 import type { Tables } from "@/server/db/database.types";
-import { isCrankleadsTier, type CrankleadsTier } from "@/server/services/crankleads/config";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
-import { phonePathFor, type PhonePath } from "@/server/services/crankleads/setup-checklist";
+import { isDoneForYouTier, type PlanTier } from "@/server/services/done-for-you/config";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
+import { phonePathFor, type PhonePath } from "@/server/services/done-for-you/setup-checklist";
 import { hasFrontDeskForwardingEvidence } from "@/server/services/dfy/front-desk-forwarding";
 import { errorMessage, findProgressByForwardToken, patchProgress, type DfyProgress } from "@/server/services/dfy/progress";
 import type { TenantServiceContext } from "@/server/services/shared";
@@ -33,7 +33,7 @@ type NumberRow = Pick<Tables<"voice_numbers">, "id" | "phone_e164" | "mode" | "p
 
 export interface ForwardTarget {
   company: CompanyRow;
-  tier: CrankleadsTier;
+  tier: PlanTier;
   phonePath: PhonePath;
   /** The number calls forward to (catcher or AI), null until it's bought. */
   forwardTo: NumberRow | null;
@@ -64,7 +64,7 @@ export async function loadForwardTarget(admin: AdminClient, row: Pick<DfyProgres
   if (numbers.error) throw new Error(`numbers lookup failed: ${numbers.error.message}`);
   const companyRow = company.data as CompanyRow | null;
   const tierRaw = (organization.data as { crankleads_tier: string | null } | null)?.crankleads_tier ?? null;
-  if (!companyRow || !isCrankleadsTier(tierRaw)) return null;
+  if (!companyRow || !isDoneForYouTier(tierRaw)) return null;
   const rows = (numbers.data ?? []) as NumberRow[];
   const catcher = rows.find((n) => n.provider === "twilio" && n.mode === CATCHER_MODE) ?? null;
   const ai = rows.find((n) => n.mode === "ai_receptionist") ?? null;

@@ -5,8 +5,8 @@
 import { describe, expect, it } from "vitest";
 
 import { createFakeDb } from "./helpers/fake-supabase";
-import { tierAllowedRecipeSlugs } from "@/server/services/crankleads/config";
-import { repairTierAutomations, restrictAutomationsToTier } from "@/server/services/crankleads/tier-automations";
+import { tierAllowedRecipeSlugs } from "@/server/services/done-for-you/config";
+import { repairTierAutomations, restrictAutomationsToTier } from "@/server/services/done-for-you/tier-automations";
 
 const wf = (id: string, org: string, company: string, slug: string, status = "active") => ({ id, organization_id: org, company_id: company, slug, status });
 

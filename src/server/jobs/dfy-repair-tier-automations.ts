@@ -8,10 +8,10 @@
  * SANCTIONED EXCEPTION (service role) — jobs. Needs NEXT_PUBLIC_SUPABASE_URL and
  * SUPABASE_SERVICE_ROLE_KEY. Dry-run by default; idempotent (re-running finds nothing).
  *
- *   npm run job:crankleads-repair-automations              # dry run: prints what would change
- *   npm run job:crankleads-repair-automations -- --apply   # makes the change
+ *   npm run job:dfy-repair-automations              # dry run: prints what would change
+ *   npm run job:dfy-repair-automations -- --apply   # makes the change
  */
-import { repairTierAutomations } from "@/server/services/crankleads/tier-automations";
+import { repairTierAutomations } from "@/server/services/done-for-you/tier-automations";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 async function main(): Promise<number> {

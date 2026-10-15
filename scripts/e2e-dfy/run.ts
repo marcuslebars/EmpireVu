@@ -11,14 +11,14 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import Stripe from "stripe";
 
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { createCrankleadsCheckout } from "@/server/services/crankleads/checkout";
+import { createDoneForYouCheckout } from "@/server/services/done-for-you/checkout";
 import { claimBillingEventJobs } from "@/server/services/billing/jobs";
 import { processBillingEventJob } from "@/server/services/billing/events";
 import { processPendingEnrichments } from "@/server/services/dfy/enrich";
 import { processDoneForYou } from "@/server/services/dfy/orchestrator";
 import { generatePendingSites, notifyPublishedSites } from "@/server/services/dfy/site-generator";
 import { processPendingIntakeSends } from "@/server/services/dfy/intake";
-import { processSetupFollowups } from "@/server/services/crankleads/setup-followups";
+import { processSetupFollowups } from "@/server/services/done-for-you/setup-followups";
 import { processInboundWebhookJobs } from "@/server/services/inbound-webhook-jobs";
 import { runScheduler } from "@/server/services/workflow-engine/scheduler";
 import { claimWorkflowEventJobs, processWorkflowEventJob } from "@/server/services/workflow-event-jobs";
@@ -182,7 +182,7 @@ function fakeStripe(): Stripe {
 }
 
 async function buy(buyer: Buyer): Promise<void> {
-  const checkout = await createCrankleadsCheckout(
+  const checkout = await createDoneForYouCheckout(
     admin,
     { tier: buyer.tier, name: buyer.name, email: buyer.email, phone: buyer.phone, businessName: buyer.businessName, businessType: buyer.businessType },
     fakeStripe(),

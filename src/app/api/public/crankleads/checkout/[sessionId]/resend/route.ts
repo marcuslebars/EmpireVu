@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { isCheckoutSessionId } from "@/server/services/crankleads/checkout";
-import { resendWelcomeEmail } from "@/server/services/crankleads/provision";
+import { isCheckoutSessionId } from "@/server/services/done-for-you/checkout";
+import { resendWelcomeEmail } from "@/server/services/done-for-you/provision";
 import { enforceRateLimit, trustedClientIp } from "@/server/services/rate-limit";
 import { noteLegacyRoute } from "@/server/services/rebrand/route-alias";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";

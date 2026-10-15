@@ -65,11 +65,11 @@ export function isEmail(value: unknown): value is string {
 const bool = (value: unknown): boolean | null => (typeof value === "boolean" ? value : null);
 
 /** companies.ai_settings (any shape) → the Recruiter section with defaults. PURE. */
-export function readRecruiterSettings(aiSettings: unknown, org: { crankleads: boolean }): RecruiterSettings {
+export function readRecruiterSettings(aiSettings: unknown, org: { doneForYou: boolean }): RecruiterSettings {
   const section = record(record(aiSettings)[SETTINGS_KEY]);
   const payroll = record(section.payroll);
   const hiring = record(section.hiring);
-  const on = org.crankleads;
+  const on = org.doneForYou;
   const frequency = PAY_FREQUENCIES.includes(payroll.frequency as PayFrequency) ? (payroll.frequency as PayFrequency) : DEFAULT_FREQUENCY;
   return {
     payroll: {
@@ -103,7 +103,7 @@ export function mergeRecruiterSettings(aiSettings: unknown, patch: RecruiterSett
 }
 
 /** organizations row → CrankLeads? PURE. */
-export function isCrankleadsOrg(org: unknown): boolean {
+export function isDoneForYouOrg(org: unknown): boolean {
   return isDoneForYou(record(org).platform_brand);
 }
 
@@ -124,7 +124,7 @@ export interface RecruiterCompany {
   companyId: string;
   name: string;
   timeZone: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   platformBrand: string | null;
   ownerPhone: string | null;
   /** Archived / paused companies are skipped by the sweeps. */
@@ -147,17 +147,17 @@ interface CompanyRow {
 }
 
 function toCompany(row: CompanyRow, platformBrand: string | null): RecruiterCompany {
-  const crankleads = isDoneForYou(platformBrand);
+  const doneForYou = isDoneForYou(platformBrand);
   return {
     organizationId: row.organization_id,
     companyId: row.id,
     name: (row.brand_from_name?.trim() || row.name || "").trim() || "the business",
     timeZone: zoneOf(row.timezone),
-    crankleads,
+    doneForYou,
     platformBrand,
     ownerPhone: row.owner_phone_verified_at && row.owner_phone_e164?.trim() ? row.owner_phone_e164.trim() : null,
     active: !row.stage || !["archived", "paused", "cancelled"].includes(row.stage),
-    settings: readRecruiterSettings(row.ai_settings, { crankleads }),
+    settings: readRecruiterSettings(row.ai_settings, { doneForYou }),
   };
 }
 

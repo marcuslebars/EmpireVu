@@ -33,7 +33,7 @@ export async function overviewFor(admin: AdminClient, company: ImportCompany): P
     companyId: company.companyId,
     companyName: company.name,
     settings: company.settings,
-    defaultEnabled: company.crankleads,
+    defaultEnabled: company.doneForYou,
     ownerPhoneOnFile: Boolean(company.ownerPhone),
     batches,
     held: { count: held.count, totalCents: held.totalCents, pendingCode: pending?.short_code ?? null },

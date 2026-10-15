@@ -17,7 +17,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import Stripe from "stripe";
 
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { createCrankleadsCheckout } from "@/server/services/crankleads/checkout";
+import { createDoneForYouCheckout } from "@/server/services/done-for-you/checkout";
 import { claimBillingEventJobs } from "@/server/services/billing/jobs";
 import { processBillingEventJob } from "@/server/services/billing/events";
 import { switchOnEverything } from "@/server/services/dfy/switch-on";
@@ -227,7 +227,7 @@ function fakeStripe(): Stripe {
 }
 
 async function buy(buyer: Buyer): Promise<void> {
-  const checkout = await createCrankleadsCheckout(
+  const checkout = await createDoneForYouCheckout(
     admin,
     { tier: buyer.tier, name: buyer.name, email: buyer.email, phone: buyer.phone, businessName: buyer.businessName, businessType: buyer.businessType },
     fakeStripe(),

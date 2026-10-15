@@ -19,20 +19,20 @@ import { getAppBaseUrl } from "@/server/services/billing/env";
 import { createCompany, listCompanies, updateCompany } from "@/server/services/companies";
 import { setOwnerPhoneVerified } from "@/server/services/owner-channel/owner-phone";
 import {
-  CRANKLEADS_SOURCE,
-  CRANKLEADS_TIER_PLAN,
-  isCrankleadsTier,
+  DONE_FOR_YOU_SOURCE,
+  DONE_FOR_YOU_TIER_PLAN,
+  isDoneForYouTier,
   packIdForBusinessType,
   packRecipesForTier,
-  type CrankleadsTier,
-} from "@/server/services/crankleads/config";
-import { isDoneForYouStripeSource } from "@/server/services/crankleads/stripe-source";
+  type PlanTier,
+} from "@/server/services/done-for-you/config";
+import { isDoneForYouStripeSource } from "@/server/services/done-for-you/stripe-source";
 import {
   renderOperatorFailureEmail,
   renderOperatorNewPurchaseEmail,
   renderWelcomeEmail,
   type RenderedEmail,
-} from "@/server/services/crankleads/emails";
+} from "@/server/services/done-for-you/emails";
 import {
   claimPurchaseForProvisioning,
   findPurchaseById,
@@ -43,8 +43,8 @@ import {
   updatePurchase,
   findPurchaseByCustomer,
   type AdminClient,
-  type CrankleadsPurchase,
-} from "@/server/services/crankleads/purchases";
+  type DoneForYouPurchase,
+} from "@/server/services/done-for-you/purchases";
 import { provisionDoneForYouNumber } from "@/server/services/dfy/orchestrator";
 import { createPublicFormKey, listPublicFormKeys } from "@/server/services/lead-intake/public-form-keys";
 import { upsertOnboardingStep } from "@/server/services/onboarding";
@@ -54,11 +54,11 @@ import { applyIndustryPack, listIndustryPacks } from "@/server/services/packs/ap
 import { toE164 } from "@/server/services/retell/payload";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { createAndSendSetupIntake, ensureSetupIntake } from "@/server/services/dfy/intake";
-import { restrictAutomationsToTier } from "@/server/services/crankleads/tier-automations";
+import { restrictAutomationsToTier } from "@/server/services/done-for-you/tier-automations";
 import { appBaseUrlFor } from "@/server/services/platform-brand";
 
 /** The timezone every CrankLeads company starts in (Ontario). Editable in Settings. */
-export const CRANKLEADS_DEFAULT_TIMEZONE = "America/Toronto";
+export const DONE_FOR_YOU_DEFAULT_TIMEZONE = "America/Toronto";
 
 export interface ProvisionDeps {
   sendEmail: (input: SendEmailInput) => Promise<SendEmailResult>;
@@ -104,12 +104,12 @@ function idOf(value: unknown): string | null {
  * "crankleads" on every live object and "everdoer" on new ones once EVERDOER_WRITE_NEW_NAMES is
  * on; both count (crankleads/stripe-source.ts).
  */
-export function isCrankleadsObject(object: StripeObject | null | undefined): boolean {
-  return crankleadsMetadataOf(object) !== null;
+export function isDoneForYouObject(object: StripeObject | null | undefined): boolean {
+  return doneForYouMetadataOf(object) !== null;
 }
 
 /** The CrankLeads metadata on a session, subscription, or invoice (via its subscription details). */
-function crankleadsMetadataOf(object: StripeObject | null | undefined): Record<string, unknown> | null {
+function doneForYouMetadataOf(object: StripeObject | null | undefined): Record<string, unknown> | null {
   if (!object) return null;
   const candidates = [
     object.metadata,
@@ -131,7 +131,7 @@ function crankleadsMetadataOf(object: StripeObject | null | undefined): Record<s
  * we stamped on the session — and, if it is somehow missing, rebuild it from the session's
  * own metadata so a paid purchase is never lost.
  */
-async function resolvePurchaseForSession(admin: AdminClient, session: StripeObject): Promise<CrankleadsPurchase> {
+async function resolvePurchaseForSession(admin: AdminClient, session: StripeObject): Promise<DoneForYouPurchase> {
   const sessionId = idOf(session.id);
   if (sessionId) {
     const bySession = await findPurchaseBySession(admin, sessionId);
@@ -149,7 +149,7 @@ async function resolvePurchaseForSession(admin: AdminClient, session: StripeObje
 
   const tier = metadata.tier;
   const email = session.customer_details?.email ?? session.customer_email;
-  if (!isCrankleadsTier(tier) || typeof email !== "string" || !email) {
+  if (!isDoneForYouTier(tier) || typeof email !== "string" || !email) {
     throw new Error(`Everdoer session ${sessionId ?? "(no id)"} has no staged purchase and not enough metadata to rebuild it.`);
   }
   console.error(`[crankleads/provision] purchase row missing for session ${sessionId}; rebuilding it from Stripe metadata`);
@@ -165,15 +165,15 @@ async function resolvePurchaseForSession(admin: AdminClient, session: StripeObje
   };
   const { data, error } = await admin.from("crankleads_purchases").insert(row).select("*").single();
   if (error || !data) throw new Error(`Could not rebuild purchase for ${sessionId}: ${error?.message ?? "no row"}`);
-  return data as CrankleadsPurchase;
+  return data as DoneForYouPurchase;
 }
 
 /** Record that Stripe says the session is paid (idempotent; fills ids on later statuses too). */
-async function markPaid(admin: AdminClient, purchase: CrankleadsPurchase, session: StripeObject): Promise<CrankleadsPurchase> {
+async function markPaid(admin: AdminClient, purchase: DoneForYouPurchase, session: StripeObject): Promise<DoneForYouPurchase> {
   const customerId = idOf(session.customer);
   const subscriptionId = idOf(session.subscription);
   const sessionId = idOf(session.id);
-  const patch: Partial<CrankleadsPurchase> = {};
+  const patch: Partial<DoneForYouPurchase> = {};
   if (purchase.status === "checkout_created") {
     patch.status = "paid";
     patch.paid_at = new Date().toISOString();
@@ -346,8 +346,8 @@ async function ensureOwnerMembership(admin: AdminClient, organizationId: string,
 
 async function ensureOrganization(
   admin: AdminClient,
-  purchase: CrankleadsPurchase,
-  tier: CrankleadsTier,
+  purchase: DoneForYouPurchase,
+  tier: PlanTier,
   ownerId: string,
   existingUser: boolean,
 ): Promise<Tables<"organizations">> {
@@ -364,11 +364,11 @@ async function ensureOrganization(
 
   const slug = await uniqueOrgSlug(admin, purchase.business_name);
   return createOrganization(admin, ownerId, ownerId, { name: purchase.business_name, slug }, {
-    plan: CRANKLEADS_TIER_PLAN[tier],
+    plan: DONE_FOR_YOU_TIER_PLAN[tier],
     subscriptionStatus: "active",
     stripeCustomerId: customerId,
     billingEmail: purchase.owner_email,
-    crankleadsTier: tier,
+    planTier: tier,
     // A CrankLeads buyer sees CrankLeads everywhere, never EmpireVu (docs/everdoer-branding.md).
     platformBrand: "crankleads",
     // Never move an existing user's default org out from under them.
@@ -376,11 +376,11 @@ async function ensureOrganization(
   });
 }
 
-async function upsertSubscriptionMirror(admin: AdminClient, organizationId: string, purchase: CrankleadsPurchase, tier: CrankleadsTier): Promise<void> {
+async function upsertSubscriptionMirror(admin: AdminClient, organizationId: string, purchase: DoneForYouPurchase, tier: PlanTier): Promise<void> {
   if (!purchase.stripe_subscription_id) return;
   const row: Inserts<"subscriptions"> = {
     organization_id: organizationId,
-    plan: CRANKLEADS_TIER_PLAN[tier],
+    plan: DONE_FOR_YOU_TIER_PLAN[tier],
     status: "active",
     stripe_subscription_id: purchase.stripe_subscription_id,
   };
@@ -390,7 +390,7 @@ async function upsertSubscriptionMirror(admin: AdminClient, organizationId: stri
 
 // ── Company, pack, form, onboarding ───────────────────────────────────────────
 
-async function ensureCompany(ctx: TenantServiceContext, purchase: CrankleadsPurchase): Promise<string> {
+async function ensureCompany(ctx: TenantServiceContext, purchase: DoneForYouPurchase): Promise<string> {
   let companyId = purchase.company_id;
   if (!companyId) {
     const [first] = await listCompanies(ctx, { limit: 1 });
@@ -403,7 +403,7 @@ async function ensureCompany(ctx: TenantServiceContext, purchase: CrankleadsPurc
   }
   await updateCompany(ctx, companyId, {
     ownerEmail: purchase.owner_email,
-    timezone: CRANKLEADS_DEFAULT_TIMEZONE,
+    timezone: DONE_FOR_YOU_DEFAULT_TIMEZONE,
   });
   // The paying buyer's own number from checkout: the verified owner phone (owner-phone.ts).
   const ownerPhone = toE164(purchase.owner_phone);
@@ -423,7 +423,7 @@ interface WelcomeFacts {
   servicesNeedingPrices: number;
 }
 
-async function welcomeFacts(ctx: TenantServiceContext, purchase: CrankleadsPurchase, companyId: string): Promise<WelcomeFacts> {
+async function welcomeFacts(ctx: TenantServiceContext, purchase: DoneForYouPurchase, companyId: string): Promise<WelcomeFacts> {
   const packId = packIdForBusinessType(purchase.business_type);
   const pack = packId ? getPack(packId) : null;
   const forms = await listPublicFormKeys(ctx, { companyId });
@@ -450,8 +450,8 @@ async function sendRendered(deps: ProvisionDeps, to: string, email: RenderedEmai
 async function sendWelcome(
   admin: AdminClient,
   ctx: TenantServiceContext,
-  purchase: CrankleadsPurchase,
-  tier: CrankleadsTier,
+  purchase: DoneForYouPurchase,
+  tier: PlanTier,
   companyId: string,
   existingUser: boolean,
   deps: ProvisionDeps,
@@ -523,8 +523,8 @@ export async function requeueDeferredBillingEvents(admin: AdminClient, customerI
  * unknown customer. A `failed` purchase is not pending: those dead-letter, and the re-run
  * job re-queues them after it succeeds.
  */
-export async function crankleadsPurchasePendingFor(admin: AdminClient, object: StripeObject): Promise<boolean> {
-  const metadata = crankleadsMetadataOf(object);
+export async function doneForYouPurchasePendingFor(admin: AdminClient, object: StripeObject): Promise<boolean> {
+  const metadata = doneForYouMetadataOf(object);
   const purchaseId = typeof metadata?.purchaseId === "string" ? metadata.purchaseId : null;
   if (purchaseId) {
     const purchase = await findPurchaseById(admin, purchaseId);
@@ -549,9 +549,9 @@ export interface ProvisionOptions {
 }
 
 /** The provisioning steps. Every step is idempotent, so a retry after a crash resumes safely. */
-async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase, deps: ProvisionDeps): Promise<string> {
+async function provisionClaimed(admin: AdminClient, purchase: DoneForYouPurchase, deps: ProvisionDeps): Promise<string> {
   const tier = purchase.tier;
-  if (!isCrankleadsTier(tier)) throw new Error(`Unknown Everdoer tier "${tier}".`);
+  if (!isDoneForYouTier(tier)) throw new Error(`Unknown Everdoer tier "${tier}".`);
 
   // 1) Owner login — create, or attach to the existing EmpireVu user with this email.
   let ownerId = purchase.owner_profile_id;
@@ -602,7 +602,7 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
   // 6) Wizard resumes after what is already done.
   await upsertOnboardingStep(ctx, companyId, "business", {
     completed: true,
-    data: { source: CRANKLEADS_SOURCE, tier },
+    data: { source: DONE_FOR_YOU_SOURCE, tier },
   });
   if (pack) {
     await upsertOnboardingStep(ctx, companyId, "services", { completed: true, data: { packId: pack.id } });
@@ -680,7 +680,7 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
 }
 
 /** Raised after the operator has been alerted (final attempt), so nobody alerts twice. */
-export class CrankleadsProvisioningFailedError extends Error {
+export class DoneForYouProvisioningFailedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "CrankleadsProvisioningFailedError";
@@ -712,7 +712,7 @@ async function handleProvisioningFailure(
   deps: ProvisionDeps,
   context: FailureContext,
 ): Promise<never> {
-  if (err instanceof CrankleadsProvisioningFailedError) throw err;
+  if (err instanceof DoneForYouProvisioningFailedError) throw err;
   const reason = errorMessage(err);
   console.error(
     `[crankleads/provision] PROVISIONING FAILED (session ${context.sessionId ?? "-"}, final=${options.finalAttempt}): ${reason}`,
@@ -727,7 +727,7 @@ async function handleProvisioningFailure(
       await sendRendered(
         deps,
         operator,
-        renderOperatorFailureEmail({ ...context, tier: isCrankleadsTier(context.tier) ? context.tier : null, error: reason }),
+        renderOperatorFailureEmail({ ...context, tier: isDoneForYouTier(context.tier) ? context.tier : null, error: reason }),
       );
     } catch (mailErr) {
       console.error(`[crankleads/provision] operator FAILURE alert could not be sent: ${errorMessage(mailErr)}`);
@@ -735,7 +735,7 @@ async function handleProvisioningFailure(
   } else {
     console.error("[crankleads/provision] OWNER_EMAIL is not set — no operator alert for a failed paid purchase!");
   }
-  throw new CrankleadsProvisioningFailedError(reason);
+  throw new DoneForYouProvisioningFailedError(reason);
 }
 
 /** Claim + run the steps. On a step failure records `failed` (best-effort) and rethrows. */
@@ -779,7 +779,7 @@ async function failureContextForPurchase(admin: AdminClient, purchaseId: string)
 /**
  * Provision a paid purchase exactly once (status-guarded claim + idempotent steps). Failures
  * follow handleProvisioningFailure: retry while attempts remain, operator alert on the last.
- * Re-run: `npm run job:crankleads-provision -- --session cs_...`.
+ * Re-run: `npm run job:dfy-provision -- --session cs_...`.
  */
 export async function provisionPurchase(
   admin: AdminClient,
@@ -801,7 +801,7 @@ export async function provisionPurchase(
  * EVERYTHING in here (resolving/rebuilding the purchase, marking it paid, provisioning) is
  * covered by the same failure policy, so a paid purchase can never dead-letter silently.
  */
-export async function handleCrankleadsCheckoutPaid(
+export async function handleDoneForYouCheckoutPaid(
   admin: AdminClient,
   session: StripeObject,
   options: ProvisionOptions,
@@ -842,7 +842,7 @@ export async function resendWelcomeEmail(
   const deps: ProvisionDeps = { ...defaultDeps, ...depsOverride };
   const purchase = await findPurchaseBySession(admin, sessionId);
   if (!purchase) return "not_found";
-  if (purchase.status !== "provisioned" || !purchase.organization_id || !purchase.company_id || !isCrankleadsTier(purchase.tier)) {
+  if (purchase.status !== "provisioned" || !purchase.organization_id || !purchase.company_id || !isDoneForYouTier(purchase.tier)) {
     return "not_ready";
   }
   // A set-password link is a login credential: once the owner has signed in, or a week after

@@ -6,7 +6,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import CrankleadsWelcomePage from "@/screens/CrankleadsWelcomePage";
+import DoneForYouWelcomePage from "@/screens/DoneForYouWelcomePage";
 
 const SESSION = "cs_test_a1b2c3d4e5f6g7h8i9";
 const fetchMock = vi.fn();
@@ -16,7 +16,7 @@ function renderPage(search = `?session_id=${SESSION}`) {
   return render(
     <MemoryRouter initialEntries={[`/welcome/crankleads${search}`]}>
       <Routes>
-        <Route path="/welcome/crankleads" element={<CrankleadsWelcomePage />} />
+        <Route path="/welcome/crankleads" element={<DoneForYouWelcomePage />} />
       </Routes>
     </MemoryRouter>,
   );

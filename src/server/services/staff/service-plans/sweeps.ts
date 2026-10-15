@@ -38,7 +38,7 @@ async function agreementsWhere(admin: AdminClient, build: (q: Db) => Db, limit =
 }
 
 function usable(company: PlanCompany | undefined): company is PlanCompany {
-  return Boolean(company && company.crankleads && company.active && company.settings.enabled);
+  return Boolean(company && company.doneForYou && company.active && company.settings.enabled);
 }
 
 // ── Payments ────────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ export async function sweepPayments(admin: AdminClient, nowMs: number, deps: Pla
     const states = await invoiceStates(admin, orgId, rows.map((r) => r.pending_invoice_id as string));
     for (const row of rows) {
       const company = companies.get(row.company_id);
-      if (!company?.crankleads) continue;
+      if (!company?.doneForYou) continue;
       let state = states.get(row.pending_invoice_id as string);
       // Paid online but the webhook couldn't issue the draft: issue it now, then settle.
       if (state?.status === "draft" && moneyIn(state)) {
@@ -92,7 +92,7 @@ export async function sweepPayments(admin: AdminClient, nowMs: number, deps: Pla
   const orphanCompanies = await loadPlanCompanies(admin, orphans.map((a) => a.company_id));
   for (const row of orphans) {
     const company = orphanCompanies.get(row.company_id);
-    if (!company?.crankleads) continue;
+    if (!company?.doneForYou) continue;
     try {
       const plan = await loadPlan(admin, company, row.plan_id);
       const contact = await loadContact(admin, company.organizationId, row.contact_id);

@@ -31,15 +31,15 @@ vi.mock("@/server/services/billing/stripe", () => ({
 }));
 
 const resendWelcomeEmail = vi.fn();
-vi.mock("@/server/services/crankleads/provision", () => ({
+vi.mock("@/server/services/done-for-you/provision", () => ({
   resendWelcomeEmail: (...args: unknown[]) => resendWelcomeEmail(...args),
 }));
 
 import { OPTIONS, POST } from "@/app/api/public/crankleads/checkout/route";
 import { GET as STATUS } from "@/app/api/public/crankleads/checkout/[sessionId]/route";
 import { POST as RESEND } from "@/app/api/public/crankleads/checkout/[sessionId]/resend/route";
-import { maskEmail } from "@/server/services/crankleads/purchases";
-import { utmMetadata } from "@/server/services/crankleads/checkout";
+import { maskEmail } from "@/server/services/done-for-you/purchases";
+import { utmMetadata } from "@/server/services/done-for-you/checkout";
 
 const SITE = "https://crankleads.com";
 const URL_ = "https://app.empirevu.test/api/public/crankleads/checkout";

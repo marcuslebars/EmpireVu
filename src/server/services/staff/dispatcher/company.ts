@@ -16,7 +16,7 @@ export interface DispatchCompany {
   businessName: string;
   timeZone: string;
   platformBrand: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   settings: DispatchSettings;
   latitude: number | null;
   longitude: number | null;
@@ -79,15 +79,15 @@ async function build(admin: AdminClient, rows: CompanyRow[]): Promise<DispatchCo
   const typeOf = new Map(purchases.map((p) => [p.company_id, p.business_type]));
   return rows.map((r) => {
     const platformBrand = brandOf.get(r.organization_id) ?? "empirevu";
-    const crankleads = isDoneForYou(platformBrand);
+    const doneForYou = isDoneForYou(platformBrand);
     return {
       organizationId: r.organization_id,
       companyId: r.id,
       businessName: text(r.brand_from_name) ?? r.name,
       timeZone: zoneOf(r.timezone),
       platformBrand,
-      crankleads,
-      settings: readDispatchSettings(r.ai_settings, { crankleads, industryPack: r.industry_pack, hints: [r.name, typeOf.get(r.id) ?? null] }),
+      doneForYou,
+      settings: readDispatchSettings(r.ai_settings, { doneForYou, industryPack: r.industry_pack, hints: [r.name, typeOf.get(r.id) ?? null] }),
       latitude: typeof r.latitude === "number" ? r.latitude : null,
       longitude: typeof r.longitude === "number" ? r.longitude : null,
       locationCheckedAt: r.location_checked_at ?? null,

@@ -14,7 +14,7 @@ import {
   optionalSetupSteps,
   requiredSetupSteps,
   type SetupFacts,
-} from "@/server/services/crankleads/setup-checklist";
+} from "@/server/services/done-for-you/setup-checklist";
 import {
   addBusinessDays,
   inLiveWindow,
@@ -22,20 +22,20 @@ import {
   localClock,
   reminderDueDates,
   selectReminderStage,
-} from "@/server/services/crankleads/followup-schedule";
+} from "@/server/services/done-for-you/followup-schedule";
 import {
   renderLiveEmail,
   renderLiveSms,
   renderReminderEmail,
   renderReminderSms,
   type ReminderMessageInput,
-} from "@/server/services/crankleads/followup-messages";
+} from "@/server/services/done-for-you/followup-messages";
 import {
   isStopToken,
   processSetupFollowups,
   stopSetupReminders,
   type SetupFollowupDeps,
-} from "@/server/services/crankleads/setup-followups";
+} from "@/server/services/done-for-you/setup-followups";
 import type { DeliverMessageInput } from "@/server/services/workflow-engine/messaging";
 
 type Row = Record<string, unknown>;

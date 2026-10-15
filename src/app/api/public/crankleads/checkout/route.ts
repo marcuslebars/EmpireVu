@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
 import {
-  CRANKLEADS_CHECKOUT_MAX_BODY_BYTES,
-  CrankleadsCheckoutUnavailableError,
-  crankleadsCheckoutSchema,
-  createCrankleadsCheckout,
-} from "@/server/services/crankleads/checkout";
-import { crankleadsSiteOrigins } from "@/server/services/crankleads/config";
+  DONE_FOR_YOU_CHECKOUT_MAX_BODY_BYTES,
+  DoneForYouCheckoutUnavailableError,
+  doneForYouCheckoutSchema,
+  createDoneForYouCheckout,
+} from "@/server/services/done-for-you/checkout";
+import { doneForYouSiteOrigins } from "@/server/services/done-for-you/config";
 import { enforceRateLimit, trustedClientIp } from "@/server/services/rate-limit";
 import { noteLegacyRoute } from "@/server/services/rebrand/route-alias";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
@@ -32,7 +32,7 @@ function corsHeaders(origin: string | null): Record<string, string> {
     "Access-Control-Max-Age": "600",
     Vary: "Origin",
   };
-  if (origin && crankleadsSiteOrigins().has(origin)) {
+  if (origin && doneForYouSiteOrigins().has(origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
   }
   return headers;
@@ -80,13 +80,13 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   // (1) Body cap — before anything else.
   const declared = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > CRANKLEADS_CHECKOUT_MAX_BODY_BYTES) {
+  if (Number.isFinite(declared) && declared > DONE_FOR_YOU_CHECKOUT_MAX_BODY_BYTES) {
     return json({ error: "Request too large." }, 413, origin);
   }
 
   // (2) A browser on another site can't start a checkout here. (No Origin = a server-side
   // caller, e.g. a crankleads.com server function — allowed; there are no cookies to ride.)
-  if (origin && !crankleadsSiteOrigins().has(origin)) {
+  if (origin && !doneForYouSiteOrigins().has(origin)) {
     return json({ error: "Origin not allowed." }, 403, origin);
   }
 
@@ -100,7 +100,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   });
   if (ipLimited) return ipLimited;
 
-  const raw = await readBodyCapped(request, CRANKLEADS_CHECKOUT_MAX_BODY_BYTES);
+  const raw = await readBodyCapped(request, DONE_FOR_YOU_CHECKOUT_MAX_BODY_BYTES);
   if (raw === null) {
     return json({ error: "Request too large." }, 413, origin);
   }
@@ -112,7 +112,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     return json({ error: "Invalid JSON." }, 400, origin);
   }
 
-  const parsed = crankleadsCheckoutSchema.safeParse(parsedJson);
+  const parsed = doneForYouCheckoutSchema.safeParse(parsedJson);
   if (!parsed.success) {
     const fields: Record<string, string> = {};
     for (const issue of parsed.error.issues) {
@@ -134,10 +134,10 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const admin = createSupabaseAdminClient();
-    const { url } = await createCrankleadsCheckout(admin, parsed.data);
+    const { url } = await createDoneForYouCheckout(admin, parsed.data);
     return json({ url }, 200, origin);
   } catch (err) {
-    if (err instanceof CrankleadsCheckoutUnavailableError) {
+    if (err instanceof DoneForYouCheckoutUnavailableError) {
       console.error("[crankleads/checkout] not configured:", err.message);
       return json({ error: "Checkout is temporarily unavailable. Please call or email us." }, 503, origin);
     }

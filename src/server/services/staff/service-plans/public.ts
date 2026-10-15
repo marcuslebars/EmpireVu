@@ -48,7 +48,7 @@ export async function loadPlansSite(admin: AdminClient, slug: string): Promise<P
   const content = parseSiteContent(site.content);
   if (!content) return null;
   const company = await loadPlanCompany(admin, site.organization_id, site.company_id);
-  if (!company || !company.crankleads || !company.active || !company.settings.enabled) return null;
+  if (!company || !company.doneForYou || !company.active || !company.settings.enabled) return null;
   return { company, ctx: { content, siteUrl: siteUrl(site.slug, content.facts.brand), turnstileSiteKey: turnstileSiteKey() } };
 }
 

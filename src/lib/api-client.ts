@@ -1683,7 +1683,7 @@ export function fetchOnboardingProgress(orgId: string): Promise<OnboardingProgre
   return apiFetch(`/api/organizations/${orgId}/onboarding/progress`);
 }
 
-/** CrankLeads setup checklist (server: services/crankleads/setup-checklist.ts). */
+/** CrankLeads setup checklist (server: services/done-for-you/setup-checklist.ts). */
 export interface SetupChecklistStep {
   key: "services" | "phone" | "forwarding" | "test_call" | "payments" | "website" | "automations";
   title: string;

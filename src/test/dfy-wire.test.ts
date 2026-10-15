@@ -8,14 +8,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createFakeDb, type FakeDb } from "./helpers/fake-supabase";
-import { processSetupFollowups, reminderQuietReason, REMINDER_QUIET_AFTER_TEXT_MS } from "@/server/services/crankleads/setup-followups";
-import { renderLiveSms } from "@/server/services/crankleads/followup-messages";
+import { processSetupFollowups, reminderQuietReason, REMINDER_QUIET_AFTER_TEXT_MS } from "@/server/services/done-for-you/setup-followups";
+import { renderLiveSms } from "@/server/services/done-for-you/followup-messages";
 import { forwardPageUrl } from "@/server/services/dfy/links";
 import { advanceDoneForYou, type DoneForYouDeps } from "@/server/services/dfy/orchestrator";
 import { buildSetupProgressView } from "@/server/services/dfy/progress-view";
 import { notifyPublishedSites, PAGE_TEXT_HOLD_MS, pendingSiteCompanyIds } from "@/server/services/dfy/site-generator";
 import { siteUrl } from "@/server/services/dfy/site-url";
-import { computeSetupChecklist } from "@/server/services/crankleads/setup-checklist";
+import { computeSetupChecklist } from "@/server/services/done-for-you/setup-checklist";
 import type { DeliverMessageInput } from "@/server/services/workflow-engine/messaging";
 
 type Row = Record<string, unknown>;

@@ -204,10 +204,10 @@ afterEach(() => {
 
 describe("settings and words", () => {
   it("defaults: CrankLeads on (12-month warranty, next day 10am), house orgs off; merge touches only customer_care", () => {
-    const on = readCustomerCareSettings({}, { crankleads: true });
+    const on = readCustomerCareSettings({}, { doneForYou: true });
     expect(on).toMatchObject({ enabled: true, checkins: { enabled: true, time: "10:00", delayDays: 1, minJobCents: 0 }, warranty: { months: 12, terms: null }, enabledIsDefault: true });
-    expect(readCustomerCareSettings({}, { crankleads: false }).enabled).toBe(false);
-    expect(readCustomerCareSettings({ customer_care: { enabled: true } }, { crankleads: false }).enabled).toBe(true);
+    expect(readCustomerCareSettings({}, { doneForYou: false }).enabled).toBe(false);
+    expect(readCustomerCareSettings({ customer_care: { enabled: true } }, { doneForYou: false }).enabled).toBe(true);
     const merged = mergeCustomerCareSettings({ sms_agent: { enabled: true }, customer_care: { checkins: { time: "11:00" } } }, { enabled: true, checkins: { minJobCents: 50_000, time: "21:00" }, warranty: { months: 24, terms: "<b>Leaks</b> from our work" } });
     expect(merged).toEqual({
       sms_agent: { enabled: true },
@@ -236,7 +236,7 @@ describe("settings and words", () => {
   });
 
   it("the check-in time is local and DST-safe (10:00 EDT = 14:00Z; 10:00 EST = 15:00Z)", () => {
-    const c = { timeZone: TZ, settings: readCustomerCareSettings({}, { crankleads: true }) };
+    const c = { timeZone: TZ, settings: readCustomerCareSettings({}, { doneForYou: true }) };
     expect(new Date(plannedSendAt(Date.parse("2026-10-12T13:00:00Z"), c)).toISOString()).toBe("2026-10-13T14:00:00.000Z");
     expect(new Date(plannedSendAt(Date.parse("2026-10-31T20:00:00Z"), c)).toISOString()).toBe("2026-11-01T15:00:00.000Z");
   });
@@ -666,7 +666,7 @@ describe("settings view and actions", () => {
 
 describe("hours", () => {
   it("a check-in is never planned before 09:00 when the job finished late (next day, setting time)", () => {
-    const c = { timeZone: TZ, settings: readCustomerCareSettings({ customer_care: { checkins: { time: "09:30", delay_days: 2 } } }, { crankleads: true }) };
+    const c = { timeZone: TZ, settings: readCustomerCareSettings({ customer_care: { checkins: { time: "09:30", delay_days: 2 } } }, { doneForYou: true }) };
     expect(new Date(plannedSendAt(Date.parse("2026-10-13T03:30:00Z"), c)).toISOString()).toBe("2026-10-14T13:30:00.000Z");
     expect(HOUR).toBe(3_600_000);
   });

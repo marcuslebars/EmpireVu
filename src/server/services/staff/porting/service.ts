@@ -222,7 +222,7 @@ export function ownerTextContext(company: PortingCompany, port: Pick<NumberPortR
     link: portLinkFor(company.platformBrand, port.token),
     ringEnabled: company.settings.ring.enabled,
     ringSeconds: company.settings.ring.seconds,
-    answering: readCallAnsweringSettings(company.aiSettings, { crankleads: isDoneForYou(company.platformBrand) }).mode,
+    answering: readCallAnsweringSettings(company.aiSettings, { doneForYou: isDoneForYou(company.platformBrand) }).mode,
   };
 }
 

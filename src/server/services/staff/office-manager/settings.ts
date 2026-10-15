@@ -13,7 +13,7 @@
  */
 import { isDoneForYou, PRODUCT_LINE_DB_VALUES } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";
-import { chunks, isCrankleadsOrg, readAllPages } from "@/server/services/staff/bookkeeper/settings";
+import { chunks, isDoneForYouOrg, readAllPages } from "@/server/services/staff/bookkeeper/settings";
 import { localParts } from "@/server/services/staff/bookkeeper/format";
 import type { Db } from "./db-types";
 
@@ -74,11 +74,11 @@ function normalizeChannels(value: unknown): BriefingChannel[] {
 }
 
 /** companies.ai_settings (any shape) → the Office manager section with defaults. PURE. */
-export function readOfficeManagerSettings(aiSettings: unknown, org: { crankleads: boolean }): OfficeManagerSettings {
+export function readOfficeManagerSettings(aiSettings: unknown, org: { doneForYou: boolean }): OfficeManagerSettings {
   const s = record(record(aiSettings)[SETTINGS_KEY]);
   const explicit = typeof s.enabled === "boolean" ? s.enabled : null;
   return {
-    enabled: explicit ?? org.crankleads,
+    enabled: explicit ?? org.doneForYou,
     enabledIsDefault: explicit === null,
     time: isBriefingTime(s.time) ? s.time : DEFAULT_TIME,
     days: normalizeDays(s.days) ?? DEFAULT_DAYS,
@@ -160,7 +160,7 @@ export interface BriefingCompany {
   /** The name the owner knows (brand_from_name, else the company name). */
   name: string;
   timeZone: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   platformBrand: string;
   /** The VERIFIED owner cell, else null (no briefing). */
   ownerPhone: string | null;
@@ -174,18 +174,18 @@ function text(v: unknown): string | null {
 }
 
 export function toBriefingCompany(row: BriefingCompanyRow, platformBrand: string): BriefingCompany {
-  const crankleads = isDoneForYou(platformBrand);
+  const doneForYou = isDoneForYou(platformBrand);
   return {
     organizationId: row.organization_id,
     companyId: row.id,
     name: text(row.brand_from_name) ?? text(row.name) ?? "your business",
     timeZone: text(row.timezone) ?? process.env.BUSINESS_TIMEZONE?.trim() ?? "America/Toronto",
-    crankleads,
+    doneForYou,
     platformBrand,
     ownerPhone: text(row.owner_phone_e164) && row.owner_phone_verified_at ? text(row.owner_phone_e164) : null,
     ownerEmail: text(row.owner_email),
     active: row.stage !== "paused" && row.stage !== "archived",
-    settings: readOfficeManagerSettings(row.ai_settings, { crankleads }),
+    settings: readOfficeManagerSettings(row.ai_settings, { doneForYou }),
   };
 }
 
@@ -197,7 +197,7 @@ export async function loadBriefingCompany(admin: AdminClient, organizationId: st
   if (!data) return null;
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", organizationId).maybeSingle();
   const brand = text((org as Record<string, unknown> | null)?.platform_brand) ?? "empirevu";
-  return toBriefingCompany(data as BriefingCompanyRow, isCrankleadsOrg(org) ? "crankleads" : brand);
+  return toBriefingCompany(data as BriefingCompanyRow, isDoneForYouOrg(org) ? "crankleads" : brand);
 }
 
 /**
@@ -252,21 +252,21 @@ export async function briefingTakesMoneyAlert(
   admin: AdminClient,
   scope: { organizationId: string; companyId: string },
   nowMs: number,
-  hint: { crankleads?: boolean } = {},
+  hint: { doneForYou?: boolean } = {},
 ): Promise<boolean> {
   try {
     const db = admin as Db;
     const { data, error } = await db.from("companies").select(COMPANY_COLUMNS).eq("organization_id", scope.organizationId).eq("id", scope.companyId).maybeSingle();
     if (error || !data) return false;
     const row = data as BriefingCompanyRow;
-    let crankleads = hint.crankleads;
-    if (crankleads === undefined) {
+    let doneForYou = hint.doneForYou;
+    if (doneForYou === undefined) {
       const explicit = record(record(row.ai_settings)[SETTINGS_KEY]).enabled;
       if (explicit === false) return false;
       const { data: org } = await db.from("organizations").select("platform_brand").eq("id", scope.organizationId).maybeSingle();
-      crankleads = isCrankleadsOrg(org);
+      doneForYou = isDoneForYouOrg(org);
     }
-    const company = toBriefingCompany(row, crankleads ? "crankleads" : "empirevu");
+    const company = toBriefingCompany(row, doneForYou ? "crankleads" : "empirevu");
     if (!company.active || !company.ownerPhone || !briefingDay(company.settings, nowMs, company.timeZone)) return false;
     const today = localParts(nowMs, company.timeZone).date;
     const { data: brief, error: briefError } = await db

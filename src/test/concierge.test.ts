@@ -39,7 +39,7 @@ vi.mock("@/server/supabase/server", () => ({
 }));
 vi.mock("@/server/services/twilio/provision", () => ({ provisionMissedCallCatcher: (...a: unknown[]) => h.provision(...a) }));
 vi.mock("@/server/services/twilio/forwarding-test", () => ({ startOwnerForwardingTest: (...a: unknown[]) => h.forwardingTest(...a) }));
-vi.mock("@/server/services/crankleads/provision", () => ({ resendWelcomeEmail: (...a: unknown[]) => h.resend(...a) }));
+vi.mock("@/server/services/done-for-you/provision", () => ({ resendWelcomeEmail: (...a: unknown[]) => h.resend(...a) }));
 // The done-for-you actions call into the other parts — stubbed here; their own suites test them.
 vi.mock("@/server/services/dfy/intake", () => ({ resendSetupIntake: (...a: unknown[]) => h.dfy.resendSetupIntake(...a) }));
 vi.mock("@/server/services/dfy/enrich", () => ({ enrichCompany: (...a: unknown[]) => h.dfy.enrichCompany(...a) }));

@@ -6,8 +6,8 @@
 // provisionPhoneForCompany). docs/done-for-you.md → "Automatic switch-on".
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Json, Tables } from "@/server/db/database.types";
-import { CLOSE_EXTRA_RECIPE_SLUGS, dfyRecipeSlugs, type CrankleadsTier } from "@/server/services/crankleads/config";
-import { restrictAutomationsToTier } from "@/server/services/crankleads/tier-automations";
+import { CLOSE_EXTRA_RECIPE_SLUGS, dfyRecipeSlugs, type PlanTier } from "@/server/services/done-for-you/config";
+import { restrictAutomationsToTier } from "@/server/services/done-for-you/tier-automations";
 import { bookingHoursFromCompanyHours } from "@/server/services/dfy/hours";
 import { errorMessage } from "@/server/services/dfy/progress";
 import { currentNumber } from "@/server/services/dfy/numbers";
@@ -36,7 +36,7 @@ export interface AutomationsResult {
  * caller claims dfy_progress.switched_on_at), so an owner who later turns one off keeps it off.
  * Paused workflows are never touched.
  */
-export async function switchOnAutomations(ctx: TenantServiceContext, companyId: string, tier: CrankleadsTier): Promise<AutomationsResult> {
+export async function switchOnAutomations(ctx: TenantServiceContext, companyId: string, tier: PlanTier): Promise<AutomationsResult> {
   const slugs = dfyRecipeSlugs(tier);
   // Only the tier's automations may run: anything else the catalog installed active goes draft.
   const { deactivated } = await restrictAutomationsToTier(ctx, companyId, tier);
@@ -124,7 +124,7 @@ export type ReceptionistOutcome = "rebuilt" | "not_front_desk" | "number_pending
 export async function rebuildReceptionist(
   ctx: TenantServiceContext,
   companyId: string,
-  tier: CrankleadsTier,
+  tier: PlanTier,
   retell?: RetellClient,
 ): Promise<ReceptionistOutcome> {
   if (tier !== "front_desk") return "not_front_desk";
@@ -151,7 +151,7 @@ export interface SwitchOnResult {
 export async function switchOnEverything(
   ctx: TenantServiceContext,
   companyId: string,
-  tier: CrankleadsTier,
+  tier: PlanTier,
   deps: { retell?: RetellClient } = {},
 ): Promise<SwitchOnResult> {
   const { data, error } = await ctx.supabase

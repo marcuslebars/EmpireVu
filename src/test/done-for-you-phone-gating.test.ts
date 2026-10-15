@@ -99,9 +99,9 @@ describe("POST /onboarding/phone (AI receptionist) — real orgCan", () => {
   });
 
   it("the wizard UI follows the same rule", () => {
-    expect(availablePhoneModes({ crankleadsTier: null, aiReceptionistAllowed: false })).toEqual(["ai_receptionist", "missed_call_catcher"]);
-    expect(availablePhoneModes({ crankleadsTier: "catch", aiReceptionistAllowed: false })).toEqual(["missed_call_catcher"]);
-    expect(availablePhoneModes({ crankleadsTier: "close", aiReceptionistAllowed: true })).toEqual(["ai_receptionist", "missed_call_catcher"]);
-    expect(availablePhoneModes({ crankleadsTier: "front_desk", aiReceptionistAllowed: true })).toEqual(["ai_receptionist", "missed_call_catcher"]);
+    expect(availablePhoneModes({ planTier: null, aiReceptionistAllowed: false })).toEqual(["ai_receptionist", "missed_call_catcher"]);
+    expect(availablePhoneModes({ planTier: "catch", aiReceptionistAllowed: false })).toEqual(["missed_call_catcher"]);
+    expect(availablePhoneModes({ planTier: "close", aiReceptionistAllowed: true })).toEqual(["ai_receptionist", "missed_call_catcher"]);
+    expect(availablePhoneModes({ planTier: "front_desk", aiReceptionistAllowed: true })).toEqual(["ai_receptionist", "missed_call_catcher"]);
   });
 });

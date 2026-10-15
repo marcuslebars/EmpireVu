@@ -179,9 +179,9 @@ const ROOF_LINES = [L("shingles", 22, "bundles", 3850), L("underlay", 3, "rolls"
 
 describe("settings", () => {
   it("on for CrankLeads, off for house orgs unless switched on; merge only touches purchasing", () => {
-    expect(readPurchasingSettings({}, { crankleads: true })).toMatchObject({ enabled: true, leadDays: 2, maxPerDay: 3, defaultFulfilment: "pickup", aiEstimate: true, enabledIsDefault: true });
-    expect(readPurchasingSettings({}, { crankleads: false }).enabled).toBe(false);
-    expect(readPurchasingSettings({ purchasing: { enabled: true, lead_days: 99, max_per_day: 0 } }, { crankleads: false })).toMatchObject({ enabled: true, leadDays: 2, maxPerDay: 3 });
+    expect(readPurchasingSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, leadDays: 2, maxPerDay: 3, defaultFulfilment: "pickup", aiEstimate: true, enabledIsDefault: true });
+    expect(readPurchasingSettings({}, { doneForYou: false }).enabled).toBe(false);
+    expect(readPurchasingSettings({ purchasing: { enabled: true, lead_days: 99, max_per_day: 0 } }, { doneForYou: false })).toMatchObject({ enabled: true, leadDays: 2, maxPerDay: 3 });
     const merged = mergePurchasingSettings({ sms_agent: { autonomy: "ask_first" } }, { enabled: true, leadDays: 4, maxPerDay: 5, defaultFulfilment: "delivery", aiEstimate: false });
     expect(merged).toEqual({ sms_agent: { autonomy: "ask_first" }, purchasing: { enabled: true, lead_days: 4, max_per_day: 5, default_fulfilment: "delivery", ai_estimate: false, any_on: true } });
   });

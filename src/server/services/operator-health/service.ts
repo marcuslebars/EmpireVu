@@ -8,8 +8,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { sendEmail as defaultSendEmail, isEmailSendConfigured, type SendEmailInput, type SendEmailResult } from "@/server/outbound/email";
 import { getPastDueGraceDays } from "@/server/services/billing/env";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
-import { localClock } from "@/server/services/crankleads/followup-schedule";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
+import { localClock } from "@/server/services/done-for-you/followup-schedule";
 import { loadOperatorHealthFacts, type LoadFactsInput } from "@/server/services/operator-health/load";
 import { renderOperatorHealthEmail, type RenderedOperatorHealthEmail } from "@/server/services/operator-health/render";
 import {

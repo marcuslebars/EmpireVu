@@ -13,8 +13,8 @@ import { brandForHost, brandForOrg, platformBrand, PLATFORM_BRANDS, withProductN
 import { helpSystemPrompt, HELP_SYSTEM_PROMPT } from "@/server/ai/help-assistant";
 import { depositPaymentDoc, expenseDoc, paymentDoc } from "@/server/services/accounting/mapping";
 import { checkoutBrandingFor } from "@/server/services/billing/checkout";
-import { renderWelcomeEmail } from "@/server/services/crankleads/emails";
-import { renderReminderEmail, renderLiveEmail, renderReminderSms } from "@/server/services/crankleads/followup-messages";
+import { renderWelcomeEmail } from "@/server/services/done-for-you/emails";
+import { renderReminderEmail, renderLiveEmail, renderReminderSms } from "@/server/services/done-for-you/followup-messages";
 import { handoffAnswer, HANDOFF_ANSWER } from "@/server/services/help/assistant";
 import { buildSupportEmail } from "@/server/services/help/support";
 import { EMPTY_ACCOUNT_CONTEXT } from "@/server/services/help/account-context";

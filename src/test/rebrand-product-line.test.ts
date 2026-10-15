@@ -8,7 +8,7 @@ import { PRODUCT_LINE_DB_VALUES } from "@/lib/product-line";
 import { leadNotifyAudience } from "@/server/services/lead-intake/notify";
 import { signaturePrefix } from "@/server/services/owner-channel/common";
 import { quotePublicBaseUrlFor } from "@/server/services/quotes/config";
-import { isCrankleadsOrg, loadActiveCompanies } from "@/server/services/staff/bookkeeper/settings";
+import { isDoneForYouOrg, loadActiveCompanies } from "@/server/services/staff/bookkeeper/settings";
 import { importUrlFor } from "@/server/services/staff/importer/links";
 import { portLinkFor } from "@/server/services/staff/porting/service";
 import { jobUrl } from "@/server/services/staff/recruiter/jobs";
@@ -79,7 +79,7 @@ describe("sweeps pick up both stored values", () => {
     ];
     const got = await loadActiveCompanies(db.client);
     expect(got.map((c) => c.companyId).sort()).toEqual(["c-new", "c-old"]);
-    expect(got.every((c) => c.crankleads)).toBe(true);
+    expect(got.every((c) => c.doneForYou)).toBe(true);
   });
 
   it("the filter values", () => {
@@ -97,7 +97,7 @@ describe("readers treat old and new values the same", () => {
   ] as const)("%s → done for you: %s", (value, dfy) => {
     expect(signaturePrefix(value)).toBe(dfy ? "CrankLeads: " : "");
     expect(leadNotifyAudience({ platform_brand: value, crankleads_tier: null }, true) === "none").toBe(dfy);
-    expect(isCrankleadsOrg({ platform_brand: value })).toBe(dfy);
+    expect(isDoneForYouOrg({ platform_brand: value })).toBe(dfy);
   });
 
   it("links built from a stored value use the done-for-you host for either value", () => {

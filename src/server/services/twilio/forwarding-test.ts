@@ -518,7 +518,7 @@ export async function completeForwardingTest(
  */
 async function goLiveOnVerification(admin: AdminClient, test: ForwardingTestRow, nowMs: number): Promise<boolean> {
   try {
-    const { processSetupFollowupForCompany, liveMessageCovers } = await import("@/server/services/crankleads/setup-followups");
+    const { processSetupFollowupForCompany, liveMessageCovers } = await import("@/server/services/done-for-you/setup-followups");
     return liveMessageCovers(await processSetupFollowupForCompany(admin, { organizationId: test.organization_id, companyId: test.company_id }, nowMs));
   } catch (err) {
     console.error("[forwarding-test] go-live check failed:", err instanceof Error ? err.message : err);

@@ -10,11 +10,11 @@
 // Listed in docs/EMPIREVU_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Inserts, Json, Tables, Updates } from "@/server/db/database.types";
-import type { CrankleadsTier } from "@/server/services/crankleads/config";
+import type { PlanTier } from "@/server/services/done-for-you/config";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 export type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
-export type CrankleadsPurchase = Tables<"crankleads_purchases">;
+export type DoneForYouPurchase = Tables<"crankleads_purchases">;
 
 export const PURCHASE_STATUSES = ["checkout_created", "paid", "provisioning", "provisioned", "failed"] as const;
 export type PurchaseStatus = (typeof PURCHASE_STATUSES)[number];
@@ -30,7 +30,7 @@ function nowIso(): string {
 }
 
 export interface NewPurchaseInput {
-  tier: CrankleadsTier;
+  tier: PlanTier;
   ownerName: string;
   ownerEmail: string;
   ownerPhone: string;
@@ -41,7 +41,7 @@ export interface NewPurchaseInput {
 }
 
 /** Durable-first: stage the purchase BEFORE the Stripe Checkout Session is created. */
-export async function insertPurchase(admin: AdminClient, input: NewPurchaseInput): Promise<CrankleadsPurchase> {
+export async function insertPurchase(admin: AdminClient, input: NewPurchaseInput): Promise<DoneForYouPurchase> {
   const utm: { [key: string]: Json } = {};
   for (const [key, value] of Object.entries(input.utm)) utm[key] = value;
   const row: Inserts<"crankleads_purchases"> = {
@@ -59,7 +59,7 @@ export async function insertPurchase(admin: AdminClient, input: NewPurchaseInput
   if (error || !data) {
     throw new Error(`Could not stage the purchase: ${error?.message ?? "no row returned"}`);
   }
-  return data as CrankleadsPurchase;
+  return data as DoneForYouPurchase;
 }
 
 export async function updatePurchase(
@@ -75,7 +75,7 @@ async function findOne(
   admin: AdminClient,
   column: "id" | "stripe_checkout_session_id" | "stripe_customer_id",
   value: string,
-): Promise<CrankleadsPurchase | null> {
+): Promise<DoneForYouPurchase | null> {
   const { data, error } = await admin
     .from("crankleads_purchases")
     .select("*")
@@ -84,18 +84,18 @@ async function findOne(
     .limit(1)
     .maybeSingle();
   if (error) throw new Error(`crankleads_purchases lookup failed: ${error.message}`);
-  return (data as CrankleadsPurchase | null) ?? null;
+  return (data as DoneForYouPurchase | null) ?? null;
 }
 
-export function findPurchaseById(admin: AdminClient, id: string): Promise<CrankleadsPurchase | null> {
+export function findPurchaseById(admin: AdminClient, id: string): Promise<DoneForYouPurchase | null> {
   return findOne(admin, "id", id);
 }
 
-export function findPurchaseBySession(admin: AdminClient, sessionId: string): Promise<CrankleadsPurchase | null> {
+export function findPurchaseBySession(admin: AdminClient, sessionId: string): Promise<DoneForYouPurchase | null> {
   return findOne(admin, "stripe_checkout_session_id", sessionId);
 }
 
-export function findPurchaseByCustomer(admin: AdminClient, customerId: string): Promise<CrankleadsPurchase | null> {
+export function findPurchaseByCustomer(admin: AdminClient, customerId: string): Promise<DoneForYouPurchase | null> {
   return findOne(admin, "stripe_customer_id", customerId);
 }
 
@@ -108,9 +108,9 @@ export function findPurchaseByCustomer(admin: AdminClient, customerId: string): 
  */
 export async function claimPurchaseForProvisioning(
   admin: AdminClient,
-  purchase: CrankleadsPurchase,
+  purchase: DoneForYouPurchase,
   now: Date = new Date(),
-): Promise<CrankleadsPurchase | null> {
+): Promise<DoneForYouPurchase | null> {
   const status = purchase.status;
   if (status === "provisioned" || status === "checkout_created") return null;
   if (status === "provisioning") {
@@ -132,7 +132,7 @@ export async function claimPurchaseForProvisioning(
   }
   const { data, error } = await query.select("*").maybeSingle();
   if (error) throw new Error(`crankleads_purchases claim failed: ${error.message}`);
-  return (data as CrankleadsPurchase | null) ?? null;
+  return (data as DoneForYouPurchase | null) ?? null;
 }
 
 export async function markPurchaseFailed(admin: AdminClient, purchaseId: string, reason: string): Promise<void> {

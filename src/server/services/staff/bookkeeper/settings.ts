@@ -53,11 +53,11 @@ export function normalizeReminderDays(value: unknown): number[] | null {
 const bool = (value: unknown, fallback: boolean) => (typeof value === "boolean" ? value : fallback);
 
 /** companies.ai_settings (any shape) → the Bookkeeper section with defaults. PURE. */
-export function readCollectionsSettings(aiSettings: unknown, org: { crankleads: boolean }): CollectionsSettings {
+export function readCollectionsSettings(aiSettings: unknown, org: { doneForYou: boolean }): CollectionsSettings {
   const s = record(record(aiSettings)[SETTINGS_KEY]);
   const explicit = typeof s.enabled === "boolean" ? s.enabled : null;
   return {
-    enabled: explicit ?? org.crankleads,
+    enabled: explicit ?? org.doneForYou,
     enabledIsDefault: explicit === null,
     textReminders: bool(s.textReminders, true),
     reminderDays: normalizeReminderDays(s.reminderDays) ?? DEFAULT_REMINDER_DAYS,
@@ -84,7 +84,7 @@ export function mergeCollectionsSettings(aiSettings: unknown, patch: Collections
 export interface CompanyCollectionsSettings extends CollectionsSettings {
   organizationId: string;
   companyId: string;
-  crankleads: boolean;
+  doneForYou: boolean;
 }
 
 /** One company's settings (service role). Null → no such company in that org. */
@@ -93,12 +93,12 @@ export async function loadCollectionsSettings(admin: AdminClient, organizationId
   const { data } = await db.from("companies").select("id, organization_id, ai_settings").eq("organization_id", organizationId).eq("id", companyId).maybeSingle();
   if (!data) return null;
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", organizationId).maybeSingle();
-  const crankleads = isCrankleadsOrg(org);
-  return { ...readCollectionsSettings((data as { ai_settings: unknown }).ai_settings, { crankleads }), organizationId, companyId, crankleads };
+  const doneForYou = isDoneForYouOrg(org);
+  return { ...readCollectionsSettings((data as { ai_settings: unknown }).ai_settings, { doneForYou }), organizationId, companyId, doneForYou };
 }
 
 /** organizations row → CrankLeads? (platform_brand 'crankleads', like the front desk's readers). PURE. */
-export function isCrankleadsOrg(org: unknown): boolean {
+export function isDoneForYouOrg(org: unknown): boolean {
   return isDoneForYou(record(org).platform_brand);
 }
 
@@ -139,7 +139,7 @@ export interface ActiveCompany {
   organizationId: string;
   companyId: string;
   timeZone: string | null;
-  crankleads: boolean;
+  doneForYou: boolean;
   settings: CollectionsSettings;
 }
 
@@ -166,9 +166,9 @@ export async function loadActiveCompanies(admin: AdminClient): Promise<ActiveCom
   for (const r of optedIn) rows.set(r.id, r);
   const out: ActiveCompany[] = [];
   for (const r of rows.values()) {
-    const crankleads = crankOrgs.has(r.organization_id);
-    const settings = readCollectionsSettings(r.ai_settings, { crankleads });
-    if (settings.enabled) out.push({ organizationId: r.organization_id, companyId: r.id, timeZone: r.timezone, crankleads, settings });
+    const doneForYou = crankOrgs.has(r.organization_id);
+    const settings = readCollectionsSettings(r.ai_settings, { doneForYou });
+    if (settings.enabled) out.push({ organizationId: r.organization_id, companyId: r.id, timeZone: r.timezone, doneForYou, settings });
   }
   return out;
 }

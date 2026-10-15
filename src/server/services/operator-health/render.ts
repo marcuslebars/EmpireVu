@@ -2,7 +2,7 @@
  * PURE renderer for the daily operator health email: report → subject / text / html.
  * Golden-tested (snapshots) in src/test/operator-health.test.ts.
  */
-import { CRANKLEADS_OFFER_NAME } from "@/server/services/crankleads/config";
+import { DONE_FOR_YOU_OFFER_NAME } from "@/server/services/done-for-you/config";
 import {
   REPORT_TIME,
   type AllClearMode,
@@ -47,10 +47,10 @@ export function formatReportDate(date: string): string {
 }
 
 export function operatorHealthSubject(report: OperatorHealthReport): string {
-  if (report.totalItems === 0) return `${CRANKLEADS_OFFER_NAME} health: all clear`;
+  if (report.totalItems === 0) return `${DONE_FOR_YOU_OFFER_NAME} health: all clear`;
   const need = `${report.totalItems} ${report.totalItems === 1 ? "needs" : "need"} you`;
   const guarantee = report.guaranteeAtRisk > 0 ? ` (${report.guaranteeAtRisk} guarantee at risk)` : "";
-  return `${CRANKLEADS_OFFER_NAME} health: ${need}${guarantee}`;
+  return `${DONE_FOR_YOU_OFFER_NAME} health: ${need}${guarantee}`;
 }
 
 function headline(report: OperatorHealthReport): string {
@@ -95,7 +95,7 @@ function textItem(item: HealthItem, index: number): string[] {
 }
 
 function renderText(report: OperatorHealthReport, options: RenderOptions): string {
-  const title = `${CRANKLEADS_OFFER_NAME} health — ${formatReportDate(report.reportDate)}`;
+  const title = `${DONE_FOR_YOU_OFFER_NAME} health — ${formatReportDate(report.reportDate)}`;
   if (report.totalItems === 0) {
     return [
       title,
@@ -149,7 +149,7 @@ function htmlFooter(report: OperatorHealthReport, mode: AllClearMode): string {
 
 function renderHtml(report: OperatorHealthReport, options: RenderOptions): string {
   const open = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#101828;max-width:680px;line-height:1.45">`;
-  const title = `<h1 style="font-size:18px;margin:0 0 4px 0">${escapeHtml(CRANKLEADS_OFFER_NAME)} health — ${escapeHtml(formatReportDate(report.reportDate))}</h1>`;
+  const title = `<h1 style="font-size:18px;margin:0 0 4px 0">${escapeHtml(DONE_FOR_YOU_OFFER_NAME)} health — ${escapeHtml(formatReportDate(report.reportDate))}</h1>`;
   if (report.totalItems === 0) {
     return [
       open,
@@ -176,6 +176,6 @@ export function renderOperatorHealthEmail(report: OperatorHealthReport, options:
     subject: operatorHealthSubject(report),
     text: renderText(report, options),
     html: renderHtml(report, options),
-    fromName: `${CRANKLEADS_OFFER_NAME} ops`,
+    fromName: `${DONE_FOR_YOU_OFFER_NAME} ops`,
   };
 }

@@ -179,7 +179,7 @@ function fakeProvider(forecast: Forecast): WeatherProvider & { calls: number } {
 
 const notifyNoop = { notify: vi.fn(async () => ({ notified: true })), now: () => new Date(Date.now()) };
 
-async function crankleads(): Promise<DispatchCompany> {
+async function doneForYou(): Promise<DispatchCompany> {
   return (await loadDispatchCompany(db.client, ORG, CO)) as DispatchCompany;
 }
 
@@ -208,20 +208,20 @@ afterEach(() => {
 
 describe("settings", () => {
   it("every switch defaults on for CrankLeads and off for house orgs; explicit choices win", () => {
-    const crank = readDispatchSettings({}, { crankleads: true, industryPack: { id: "roofing", version: 1 } });
+    const crank = readDispatchSettings({}, { doneForYou: true, industryPack: { id: "roofing", version: 1 } });
     expect([crank.weather.enabled, crank.onOurWay.enabled, crank.crewTexts.enabled, crank.fillGap.enabled]).toEqual([true, true, true, true]);
     expect(crank.weather.thresholds).toEqual({ rainProbability: 60, rainMm: 2, windKmh: 50, minTempC: -25, maxTempC: 35 });
     expect(crank.crewTexts.time).toBe("18:00");
     expect(crank.customerHours).toEqual({ from: "09:00", until: "20:00" });
-    const house = readDispatchSettings({}, { crankleads: false });
+    const house = readDispatchSettings({}, { doneForYou: false });
     expect([house.weather.enabled, house.onOurWay.enabled, house.crewTexts.enabled, house.fillGap.enabled]).toEqual([false, false, false, false]);
     // Crew texts go out until 21:00, so 21:00 or later isn't a valid send time.
-    expect(readDispatchSettings({ dispatch: { crew_texts: { time: "21:30" } } }, { crankleads: true }).crewTexts.time).toBe("18:00");
-    expect(readDispatchSettings({ dispatch: { crew_texts: { time: "20:30" } } }, { crankleads: true }).crewTexts.time).toBe("20:30");
-    const optedIn = readDispatchSettings({ dispatch: { on_our_way: { enabled: true }, crew_texts: { time: "17:00" } } }, { crankleads: false });
+    expect(readDispatchSettings({ dispatch: { crew_texts: { time: "21:30" } } }, { doneForYou: true }).crewTexts.time).toBe("18:00");
+    expect(readDispatchSettings({ dispatch: { crew_texts: { time: "20:30" } } }, { doneForYou: true }).crewTexts.time).toBe("20:30");
+    const optedIn = readDispatchSettings({ dispatch: { on_our_way: { enabled: true }, crew_texts: { time: "17:00" } } }, { doneForYou: false });
     expect(optedIn.onOurWay.enabled).toBe(true);
     expect(optedIn.crewTexts).toEqual({ enabled: false, time: "17:00" });
-    expect(readDispatchSettings({ dispatch: { weather: { enabled: false, rain_probability: 999 } } }, { crankleads: true }).weather).toMatchObject({ enabled: false, thresholds: { rainProbability: 60 } });
+    expect(readDispatchSettings({ dispatch: { weather: { enabled: false, rain_probability: 999 } } }, { doneForYou: true }).weather).toMatchObject({ enabled: false, thresholds: { rainProbability: 60 } });
   });
 
   it("weather sensitivity defaults by trade: outdoor → all jobs, indoor and snow removal → none", () => {
@@ -290,21 +290,21 @@ describe("geocoding (Places API New, behind a seam)", () => {
         return this.search(q);
       },
     };
-    const co = await crankleads();
+    const co = await doneForYou();
     expect(await ensureCompanyLocation(db.client, co, { geocoder: geo, nowMs: NOW })).toEqual({ latitude: 44.7, longitude: -79.9 });
     expect(geo.place).toHaveBeenCalledWith("ChIJplace");
     expect(db.tables.companies[0]).toMatchObject({ latitude: 44.7, longitude: -79.9, location_source: "text_search" });
     // Stored: no more lookups.
-    await ensureCompanyLocation(db.client, await crankleads(), { geocoder: geo, nowMs: NOW });
+    await ensureCompanyLocation(db.client, await doneForYou(), { geocoder: geo, nowMs: NOW });
     expect(geo.search).toHaveBeenCalledTimes(1);
 
     // A miss is stamped and not retried for a week.
     db.tables.companies[0].latitude = null;
     db.tables.companies[0].longitude = null;
     geo.search.mockImplementation(async () => null);
-    expect(await ensureCompanyLocation(db.client, await crankleads(), { geocoder: geo, nowMs: NOW })).toBeNull();
+    expect(await ensureCompanyLocation(db.client, await doneForYou(), { geocoder: geo, nowMs: NOW })).toBeNull();
     const calls = geo.search.mock.calls.length;
-    expect(await ensureCompanyLocation(db.client, await crankleads(), { geocoder: geo, nowMs: NOW + 86_400_000 })).toBeNull();
+    expect(await ensureCompanyLocation(db.client, await doneForYou(), { geocoder: geo, nowMs: NOW + 86_400_000 })).toBeNull();
     expect(geo.search.mock.calls.length).toBe(calls);
   });
 
@@ -364,7 +364,7 @@ describe("weather", () => {
 
   it("caches one forecast per company per hour", async () => {
     const provider = fakeProvider(forecastWith([]));
-    const co = await crankleads();
+    const co = await doneForYou();
     await getCompanyForecast(db.client, co, { latitude: 44.75, longitude: -79.89 }, { provider, nowMs: NOW });
     clearWeatherMemoryCache(); // another worker: served from the DB row
     await getCompanyForecast(db.client, co, { latitude: 44.75, longitude: -79.89 }, { provider, nowMs: NOW + 10 * 60_000 });
@@ -429,7 +429,7 @@ describe("weather reschedule", () => {
 
   it("N moves nothing; the vacated-slot claim means no gap offer for weather moves", async () => {
     const provider = fakeProvider(forecastWith(["2026-10-15"]));
-    const out = await runWeatherCheck(db.client, await crankleads(), NOW, { provider, geocoder: null, approvals: notifyNoop });
+    const out = await runWeatherCheck(db.client, await doneForYou(), NOW, { provider, geocoder: null, approvals: notifyNoop });
     expect(out.status).toBe("asked");
     const res = await decideApproval(db.client, String(approvals()[0].id), { approved: false, decidedVia: "sms", decidedBy: OWNER }, { nowMs: NOW });
     expect(res.message).toBe("OK, nothing moved.");
@@ -439,7 +439,7 @@ describe("weather reschedule", () => {
 
   it("an owner Y after 21:00 moves the jobs now but holds the 'moved' texts until 07:00; a queued text is re-checked against the booking", async () => {
     const provider = fakeProvider(forecastWith(["2026-10-15"]));
-    await runWeatherCheck(db.client, await crankleads(), NOW, { provider, geocoder: null, approvals: notifyNoop });
+    await runWeatherCheck(db.client, await doneForYou(), NOW, { provider, geocoder: null, approvals: notifyNoop });
     const late = Date.parse("2026-10-15T01:30:00Z"); // Wed 21:30 local
     vi.setSystemTime(late);
     const res = await decideApproval(db.client, String(approvals()[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER }, { nowMs: late });
@@ -503,7 +503,7 @@ describe("weather reschedule", () => {
 
   it("re-checks at Y: a job moved meanwhile, or a new time that got taken, is left as is", async () => {
     const provider = fakeProvider(forecastWith(["2026-10-15"]));
-    await runWeatherCheck(db.client, await crankleads(), NOW, { provider, geocoder: null, approvals: notifyNoop });
+    await runWeatherCheck(db.client, await doneForYou(), NOW, { provider, geocoder: null, approvals: notifyNoop });
     bookingRow(B_JO).scheduled_for = "2026-10-20T13:00:00Z"; // the customer moved it themselves
     (db.tables.bookings as Array<Record<string, unknown>>).push(booking(B_LEE, C_LEE, "Inspection", "2026-10-16T15:00:00Z", 60)); // Fri 11 taken
     const res = await decideApproval(db.client, String(approvals()[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER }, { nowMs: NOW });

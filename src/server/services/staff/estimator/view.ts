@@ -35,8 +35,8 @@ export async function getEstimatorView(admin: AdminClient, organizationId: strin
   const row = company as { id: string; ai_settings: unknown } | null;
   if (!row) return null;
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", organizationId).maybeSingle();
-  const crankleads = isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand);
-  const settings = readEstimatorSettings(row.ai_settings, { crankleads });
+  const doneForYou = isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand);
+  const settings = readEstimatorSettings(row.ai_settings, { doneForYou });
   const since = new Date(now.getTime() - 30 * 86_400_000).toISOString();
   const scoped = (table: string) => db.from(table).select("id").eq("organization_id", organizationId).eq("company_id", companyId);
   const [waitingOnYou, sent30d, followingUp] = await Promise.all([
@@ -50,7 +50,7 @@ export async function getEstimatorView(admin: AdminClient, organizationId: strin
     followUps: settings.followUps,
     cadenceDays: settings.cadenceDays,
     enabledIsDefault: settings.enabledIsDefault,
-    defaultEnabled: crankleads,
+    defaultEnabled: doneForYou,
     stats: { waitingOnYou, sent30d, followingUp },
   };
 }

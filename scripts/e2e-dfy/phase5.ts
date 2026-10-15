@@ -29,7 +29,7 @@ import { join } from "node:path";
 import Stripe from "stripe";
 
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { createCrankleadsCheckout } from "@/server/services/crankleads/checkout";
+import { createDoneForYouCheckout } from "@/server/services/done-for-you/checkout";
 import { claimBillingEventJobs } from "@/server/services/billing/jobs";
 import { processBillingEventJob } from "@/server/services/billing/events";
 import { updateBookingStatus } from "@/server/services/bookings";
@@ -341,7 +341,7 @@ function fakeStripe(): Stripe {
   } as unknown as Stripe;
 }
 async function buy(buyer: Buyer): Promise<void> {
-  const checkout = await createCrankleadsCheckout(admin, { tier: buyer.tier, name: buyer.name, email: buyer.email, phone: buyer.phone, businessName: buyer.businessName, businessType: buyer.businessType }, fakeStripe());
+  const checkout = await createDoneForYouCheckout(admin, { tier: buyer.tier, name: buyer.name, email: buyer.email, phone: buyer.phone, businessName: buyer.businessName, businessType: buyer.businessType }, fakeStripe());
   buyer.purchaseId = checkout.purchaseId;
   const suffix = checkout.purchaseId.slice(0, 8);
   const event = {

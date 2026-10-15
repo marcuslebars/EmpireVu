@@ -11,8 +11,8 @@ import { isDoneForYou } from "@/lib/product-line";
 import type { Json, Tables } from "@/server/db/database.types";
 import { writeSiteCopy as defaultWriteSiteCopy, type SiteCopyResult } from "@/server/ai/site-copy";
 import { isAIConfigured } from "@/server/ai/claude";
-import { LIVE_WINDOW, localClock } from "@/server/services/crankleads/followup-schedule";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
+import { LIVE_WINDOW, localClock } from "@/server/services/done-for-you/followup-schedule";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
 import { generatePublicFormKey } from "@/server/services/lead-intake/public-form-keys";
 import { getPack } from "@/server/services/packs";
 import { parseAppliedIndustryPack } from "@/server/services/packs/types";
@@ -351,7 +351,7 @@ export interface SweepResult {
 }
 
 /** Of these org ids, the active CrankLeads ones (bounded batch lookup). */
-async function activeCrankleadsOrgs(admin: AdminClient, orgIds: string[]): Promise<Set<string>> {
+async function activeDoneForYouOrgs(admin: AdminClient, orgIds: string[]): Promise<Set<string>> {
   const unique = [...new Set(orgIds)];
   if (unique.length === 0) return new Set();
   const { data, error } = await admin.from("organizations").select("id, subscription_status, platform_brand").in("id", unique);
@@ -398,7 +398,7 @@ export async function pendingSiteCompanyIds(admin: AdminClient, limit = SITE_SWE
   const consider = async (rows: Array<{ company_id: string; organization_id: string }>, requireIntake: boolean) => {
     if (rows.length === 0) return;
     const [orgs, sites, intakes] = await Promise.all([
-      activeCrankleadsOrgs(admin, rows.map((r) => r.organization_id)),
+      activeDoneForYouOrgs(admin, rows.map((r) => r.organization_id)),
       companiesWithSite(admin, rows.map((r) => r.company_id)),
       requireIntake ? newFlowCompanyIds(admin, rows.map((r) => r.company_id)) : Promise.resolve(null),
     ]);
@@ -542,7 +542,7 @@ export async function notifyPublishedSites(admin: AdminClient, options: { deps?:
   const candidates = (data ?? []) as Array<Pick<CompanySiteRow, "id" | "organization_id" | "company_id" | "slug">>;
   if (candidates.length === 0) return [];
   const [orgs, newFlow] = await Promise.all([
-    activeCrankleadsOrgs(admin, candidates.map((c) => c.organization_id)),
+    activeDoneForYouOrgs(admin, candidates.map((c) => c.organization_id)),
     newFlowCompanyIds(admin, candidates.map((c) => c.company_id)),
   ]);
 

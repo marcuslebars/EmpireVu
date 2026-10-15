@@ -215,9 +215,9 @@ describe("encryption", () => {
 
 describe("settings", () => {
   it("on for CrankLeads, off for house orgs; ring defaults 20 s, screened, owner only", () => {
-    expect(readPortingSettings({}, { crankleads: true })).toMatchObject({ enabled: true, enabledIsDefault: true, ring: { enabled: true, seconds: 20, crew: false, screen: true } });
-    expect(readPortingSettings({}, { crankleads: false }).enabled).toBe(false);
-    expect(readPortingSettings({ porting: { ring: { seconds: 99 } } }, { crankleads: true }).ring.seconds).toBe(40);
+    expect(readPortingSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, enabledIsDefault: true, ring: { enabled: true, seconds: 20, crew: false, screen: true } });
+    expect(readPortingSettings({}, { doneForYou: false }).enabled).toBe(false);
+    expect(readPortingSettings({ porting: { ring: { seconds: 99 } } }, { doneForYou: true }).ring.seconds).toBe(40);
   });
 
   it("merges only ai_settings.porting", () => {

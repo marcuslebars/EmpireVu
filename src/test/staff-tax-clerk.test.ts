@@ -274,17 +274,17 @@ describe("the owner's words", () => {
 
 describe("settings and registry", () => {
   it("defaults: on for CrankLeads, off for house orgs; registrant follows the HST number", () => {
-    const cl = readTaxClerkSettings({}, { crankleads: true, hasHstNumber: true });
+    const cl = readTaxClerkSettings({}, { doneForYou: true, hasHstNumber: true });
     expect(cl).toMatchObject({ receipts: { enabled: true }, hst: { registrant: true, frequency: "quarterly", fiscalYearEndMonth: 12, filer: "corporation", reminders: true, accountantEmail: null }, nudges: { weekly: true, tip: true } });
-    expect(readTaxClerkSettings({}, { crankleads: true, hasHstNumber: false }).hst.registrant).toBe(false);
-    const house = readTaxClerkSettings({}, { crankleads: false, hasHstNumber: true });
+    expect(readTaxClerkSettings({}, { doneForYou: true, hasHstNumber: false }).hst.registrant).toBe(false);
+    const house = readTaxClerkSettings({}, { doneForYou: false, hasHstNumber: true });
     expect(house).toMatchObject({ receipts: { enabled: false }, hst: { reminders: false }, nudges: { weekly: false, tip: false } });
     const merged = mergeTaxClerkSettings({ other: 1 }, { receipts: { enabled: true }, hst: { accountantEmail: " Books@Acct.CA ", frequency: "monthly", registrant: false } });
     expect(merged.other).toBe(1);
-    expect(readTaxClerkSettings(merged, { crankleads: false, hasHstNumber: true })).toMatchObject({ receipts: { enabled: true }, hst: { accountantEmail: "books@acct.ca", frequency: "monthly", registrant: false } });
+    expect(readTaxClerkSettings(merged, { doneForYou: false, hasHstNumber: true })).toMatchObject({ receipts: { enabled: true }, hst: { accountantEmail: "books@acct.ca", frequency: "monthly", registrant: false } });
     expect((merged.tax_clerk as Record<string, unknown>).any_on).toBe(true);
     const cleared = mergeTaxClerkSettings(merged, { hst: { registrant: null, accountantEmail: "" } });
-    expect(readTaxClerkSettings(cleared, { crankleads: true, hasHstNumber: true }).hst).toMatchObject({ registrantSetting: null, registrant: true, accountantEmail: null });
+    expect(readTaxClerkSettings(cleared, { doneForYou: true, hasHstNumber: true }).hst).toMatchObject({ registrantSetting: null, registrant: true, accountantEmail: null });
   });
 
   it("the role is registered with its media handler, kind, tools and sweeps; house orgs never see it", async () => {

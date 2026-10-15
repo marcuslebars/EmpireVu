@@ -31,12 +31,12 @@ function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
-export function readComplianceSettings(aiSettings: unknown, ctx: { crankleads: boolean }): ComplianceSettings {
+export function readComplianceSettings(aiSettings: unknown, ctx: { doneForYou: boolean }): ComplianceSettings {
   const section = asRecord(asRecord(aiSettings).compliance);
   return {
-    enabled: bool(section.enabled, ctx.crankleads),
+    enabled: bool(section.enabled, ctx.doneForYou),
     enabledIsDefault: typeof section.enabled !== "boolean",
-    defaultEnabled: ctx.crankleads,
+    defaultEnabled: ctx.doneForYou,
     reminders: bool(section.reminders, true),
     sharing: bool(section.sharing, true),
   };
@@ -100,7 +100,7 @@ function toCompany(row: CompanyRow, platformBrand: string | null): ComplianceCom
     ownerEmail: row.owner_email?.trim() || null,
     platformBrand,
     active: !row.stage || !["paused", "archived"].includes(row.stage),
-    settings: readComplianceSettings(row.ai_settings, { crankleads: isDoneForYou(platformBrand) }),
+    settings: readComplianceSettings(row.ai_settings, { doneForYou: isDoneForYou(platformBrand) }),
     aiSettings: row.ai_settings,
   };
 }

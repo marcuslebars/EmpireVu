@@ -261,12 +261,12 @@ describe("hours and Ontario overtime", () => {
 
 describe("settings", () => {
   it("defaults on for CrankLeads, off for house orgs; merges only the recruiter key", () => {
-    expect(readRecruiterSettings({}, { crankleads: true })).toMatchObject({ payroll: { enabled: true, frequency: "biweekly", anchorDate: "2026-01-05", csvEmail: null }, hiring: { enabled: true } });
-    expect(readRecruiterSettings({}, { crankleads: false })).toMatchObject({ payroll: { enabled: false }, hiring: { enabled: false } });
+    expect(readRecruiterSettings({}, { doneForYou: true })).toMatchObject({ payroll: { enabled: true, frequency: "biweekly", anchorDate: "2026-01-05", csvEmail: null }, hiring: { enabled: true } });
+    expect(readRecruiterSettings({}, { doneForYou: false })).toMatchObject({ payroll: { enabled: false }, hiring: { enabled: false } });
     const merged = mergeRecruiterSettings({ sms_agent: { x: 1 } }, { payroll: { frequency: "weekly", anchorDate: "2026-02-30", csvEmail: "Books@X.test" }, hiring: { enabled: true } });
     expect(merged.sms_agent).toEqual({ x: 1 });
     expect(merged.recruiter).toEqual({ payroll: { frequency: "weekly", csv_email: "books@x.test" }, hiring: { enabled: true }, any_on: true });
-    expect(readRecruiterSettings(merged, { crankleads: false }).payroll.anchorDate).toBe("2026-01-05"); // not a real date
+    expect(readRecruiterSettings(merged, { doneForYou: false }).payroll.anchorDate).toBe("2026-01-05"); // not a real date
   });
 
   it("house orgs never enter a sweep unless they opted in, and their tools stay hidden", async () => {

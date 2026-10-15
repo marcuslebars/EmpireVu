@@ -7,8 +7,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { NextResponse } from "next/server";
 
-import { CRANKLEADS_OFFER_NAME } from "@/server/services/crankleads/config";
-import { isStopToken, stopSetupReminders } from "@/server/services/crankleads/setup-followups";
+import { DONE_FOR_YOU_OFFER_NAME } from "@/server/services/done-for-you/config";
+import { isStopToken, stopSetupReminders } from "@/server/services/done-for-you/setup-followups";
 import { enforceRateLimit, trustedClientIp } from "@/server/services/rate-limit";
 import { noteLegacyRoute } from "@/server/services/rebrand/route-alias";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
@@ -33,7 +33,7 @@ function page(title: string, inner: string, status = 200): NextResponse {
 }
 
 function notFound(): NextResponse {
-  return page("Link not valid", `<h1>This link isn't valid</h1><p>It may have been copied incompletely. Reply to any ${CRANKLEADS_OFFER_NAME} email and we'll stop the reminders for you.</p>`, 404);
+  return page("Link not valid", `<h1>This link isn't valid</h1><p>It may have been copied incompletely. Reply to any ${DONE_FOR_YOU_OFFER_NAME} email and we'll stop the reminders for you.</p>`, 404);
 }
 
 async function limited(request: Request): Promise<NextResponse | null> {
@@ -69,7 +69,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (outcome === "not_found") return notFound();
     return page(
       "Reminders stopped",
-      `<h1>Done — no more setup reminders</h1><p>You can finish setup any time from your dashboard. Questions? Reply to any ${CRANKLEADS_OFFER_NAME} email.</p>`,
+      `<h1>Done — no more setup reminders</h1><p>You can finish setup any time from your dashboard. Questions? Reply to any ${DONE_FOR_YOU_OFFER_NAME} email.</p>`,
     );
   } catch (err) {
     console.error("[crankleads/stop-reminders] failed:", err instanceof Error ? err.message : err);

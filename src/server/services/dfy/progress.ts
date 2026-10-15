@@ -8,7 +8,7 @@
 import { randomBytes } from "node:crypto";
 
 import type { Tables, Updates } from "@/server/db/database.types";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
 
 export type DfyProgress = Tables<"dfy_progress">;
 

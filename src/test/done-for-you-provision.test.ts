@@ -23,7 +23,7 @@ vi.mock("@/server/outbound/sms", async (importOriginal) => {
 });
 
 import { processBillingEventJob } from "@/server/services/billing/events";
-import { runCrankleadsProvisionJob } from "@/server/services/crankleads/rerun";
+import { runDoneForYouProvisionJob } from "@/server/services/done-for-you/rerun";
 
 type Row = Record<string, unknown>;
 
@@ -512,12 +512,12 @@ describe("provisioning failures", () => {
     expect(job(first.id as string).status).toBe("failed");
     const alert = sendEmail.mock.calls.find(([m]) => m.to === "ops@empirevu.test")?.[0];
     expect(alert?.subject).toContain("ACTION NEEDED");
-    expect(alert?.body).toContain(`npm run job:crankleads-provision -- --session ${SESSION}`);
+    expect(alert?.body).toContain(`npm run job:dfy-provision -- --session ${SESSION}`);
     // The failed attempt never created a second org.
     expect(db.tables.organizations).toHaveLength(1);
 
     // Operator re-run.
-    const result = await runCrankleadsProvisionJob(admin, { sessionId: SESSION, stuck: false, olderThanMinutes: 15 });
+    const result = await runDoneForYouProvisionJob(admin, { sessionId: SESSION, stuck: false, olderThanMinutes: 15 });
     expect(result.outcome).toBe("provisioned");
     expect(purchase().status).toBe("provisioned");
     expect(db.tables.organizations).toHaveLength(1);
@@ -536,12 +536,12 @@ describe("provisioning failures", () => {
         },
       },
     };
-    const unpaid = await runCrankleadsProvisionJob(admin, { sessionId: SESSION, stuck: false, olderThanMinutes: 15 }, { stripe: stripe as never });
+    const unpaid = await runDoneForYouProvisionJob(admin, { sessionId: SESSION, stuck: false, olderThanMinutes: 15 }, { stripe: stripe as never });
     expect(unpaid.outcome).toBe("not_paid");
     expect(db.tables.organizations).toHaveLength(0);
 
     stripe.checkout.sessions.retrieve.mockResolvedValueOnce({ ...sessionObject() });
-    const paid = await runCrankleadsProvisionJob(admin, { sessionId: SESSION, stuck: false, olderThanMinutes: 15 }, { stripe: stripe as never });
+    const paid = await runDoneForYouProvisionJob(admin, { sessionId: SESSION, stuck: false, olderThanMinutes: 15 }, { stripe: stripe as never });
     expect(paid.outcome).toBe("provisioned");
     expect(purchase().status).toBe("provisioned");
   });
@@ -630,7 +630,7 @@ describe("stuck-purchase sweep (--stuck)", () => {
         purchaseRow({ id: "p-fresh", status: "paid", updated_at: "2026-10-02T11:58:00.000Z", created_at: old }),
       ],
     });
-    const { runStuckPurchaseSweep } = await import("@/server/services/crankleads/rerun");
+    const { runStuckPurchaseSweep } = await import("@/server/services/done-for-you/rerun");
     const stripe = {
       checkout: {
         sessions: {
@@ -665,7 +665,7 @@ describe("stuck-purchase sweep (--stuck)", () => {
       crankleads_purchases: [purchaseRow({ status: "paid", stripe_customer_id: CUSTOMER, updated_at: old, created_at: old })],
     });
     db.failNext("organizations", "insert", { message: "boom" });
-    const { runStuckPurchaseSweep } = await import("@/server/services/crankleads/rerun");
+    const { runStuckPurchaseSweep } = await import("@/server/services/done-for-you/rerun");
     const items = await runStuckPurchaseSweep(admin, { stripe: {} as never, now });
     expect(items[0]).toMatchObject({ outcome: "failed" });
     expect(sendEmail.mock.calls.find(([m]) => m.to === "ops@empirevu.test")?.[0]?.subject).toContain("ACTION NEEDED");
@@ -674,7 +674,7 @@ describe("stuck-purchase sweep (--stuck)", () => {
 
 describe("welcome-email resend (L2)", () => {
   it("re-sends a fresh link until the owner signs in; then (or after 7 days) says use Forgot password", async () => {
-    const { resendWelcomeEmail } = await import("@/server/services/crankleads/provision");
+    const { resendWelcomeEmail } = await import("@/server/services/done-for-you/provision");
     await processBillingEventJob(admin, seedEvent("checkout.session.completed", sessionObject()) as never);
     sendEmail.mockClear();
 

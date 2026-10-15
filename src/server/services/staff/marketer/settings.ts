@@ -61,7 +61,7 @@ function bool(value: unknown, fallback: boolean): boolean {
 }
 
 /** PURE: companies.ai_settings (any shape) → the Marketer's settings with defaults. */
-export function readMarketingSettings(aiSettings: unknown, org: { crankleads: boolean }): MarketingSettings {
+export function readMarketingSettings(aiSettings: unknown, org: { doneForYou: boolean }): MarketingSettings {
   const section = asRecord(asRecord(aiSettings).marketing);
   const wb = asRecord(section.win_back);
   const monthsMin = int(wb.months_min, MARKETING_DEFAULTS.monthsMin, 1, 23);
@@ -73,7 +73,7 @@ export function readMarketingSettings(aiSettings: unknown, org: { crankleads: bo
     : [...MARKETING_DEFAULTS.days];
   return {
     winBack: {
-      enabled: bool(wb.enabled, org.crankleads),
+      enabled: bool(wb.enabled, org.doneForYou),
       monthsMin,
       monthsMax,
       weeklyCap: int(wb.weekly_cap, MARKETING_DEFAULTS.weeklyCap, 1, 2000),
@@ -82,8 +82,8 @@ export function readMarketingSettings(aiSettings: unknown, org: { crankleads: bo
       endHour,
       days: days.length ? days : [...MARKETING_DEFAULTS.days],
     },
-    reviewReplies: { enabled: bool(asRecord(section.review_replies).enabled, org.crankleads) },
-    googlePosts: { enabled: bool(asRecord(section.google_posts).enabled, org.crankleads) },
+    reviewReplies: { enabled: bool(asRecord(section.review_replies).enabled, org.doneForYou) },
+    googlePosts: { enabled: bool(asRecord(section.google_posts).enabled, org.doneForYou) },
   };
 }
 
@@ -127,7 +127,7 @@ export interface MarketingCompany {
   /** brand_from_name, else name — what customers see. */
   businessName: string;
   timeZone: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   stage: string | null;
   /** The owner texted "pause all texts" (ai_settings.owner_pause) — nothing proactive goes out. */
   ownerPaused: boolean;
@@ -146,7 +146,7 @@ export function isCompanyHeld(company: Pick<MarketingCompany, "stage" | "ownerPa
   return company.stage === "paused" || company.stage === "archived" || company.ownerPaused;
 }
 
-export function toMarketingCompany(row: Record<string, unknown>, crankleads: boolean): MarketingCompany {
+export function toMarketingCompany(row: Record<string, unknown>, doneForYou: boolean): MarketingCompany {
   const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
   return {
     organizationId: String(row.organization_id),
@@ -154,13 +154,13 @@ export function toMarketingCompany(row: Record<string, unknown>, crankleads: boo
     name: String(row.name ?? ""),
     businessName: text(row.brand_from_name) ?? String(row.name ?? "").trim(),
     timeZone: text(row.timezone) ?? "America/Toronto",
-    crankleads,
+    doneForYou,
     stage: text(row.stage),
     ownerPaused: Object.keys(asRecord(asRecord(row.ai_settings).owner_pause)).length > 0,
     googlePlaceId: text(row.google_place_id),
     googleRating: typeof row.google_rating === "number" ? row.google_rating : null,
     googleReviewCount: typeof row.google_review_count === "number" ? row.google_review_count : null,
-    settings: readMarketingSettings(row.ai_settings, { crankleads }),
+    settings: readMarketingSettings(row.ai_settings, { doneForYou }),
     raw: row,
   };
 }

@@ -24,7 +24,7 @@ export const offerServicePlan: AgentTool<{ interest?: string }> = {
   parse: z.object({ interest: z.string().max(200).optional() }),
   async run(state) {
     const company = await loadPlanCompany(state.admin, state.facts.organizationId, state.facts.companyId);
-    if (!company || !company.crankleads || !company.settings.enabled) {
+    if (!company || !company.doneForYou || !company.settings.enabled) {
       return { ok: false, error: "This business doesn't offer service plans by text. If they want regular visits, use hand_off_to_owner." };
     }
     const plans = await listPlans(state.admin, company, { activeOnly: true });

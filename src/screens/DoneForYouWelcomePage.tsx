@@ -12,7 +12,7 @@ import {
   fetchPurchaseStatus,
   resendPurchaseEmail,
   type PurchaseStatusView,
-} from "@/lib/crankleads-purchase-api";
+} from "@/lib/done-for-you-purchase-api";
 
 /**
  * Where Stripe Checkout sends a CrankLeads buyer after paying:
@@ -28,8 +28,8 @@ const POLL_MS = 3000;
 const MAX_POLLS = 120;
 const RESEND_COOLDOWN_MS = 30_000;
 /** The Everdoer brand kit (public/brand/everdoer/). */
-const CRANKLEADS_LOGO_URL = EVERDOER_BRAND.logoSrc;
-const CRANKLEADS_FAVICON_URL = EVERDOER_BRAND.faviconHref;
+const DONE_FOR_YOU_LOGO_URL = EVERDOER_BRAND.logoSrc;
+const DONE_FOR_YOU_FAVICON_URL = EVERDOER_BRAND.faviconHref;
 
 const openAppClass =
   "flex-1 flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90";
@@ -38,7 +38,7 @@ const openAppClass =
  * "Open CrankLeads": sign in on THIS host — the one Stripe's success URL used
  * (appBaseUrlFor("crankleads")). Signed in, a CrankLeads org is branded CrankLeads on any host.
  */
-function crankleadsSignInHref(): string {
+function doneForYouSignInHref(): string {
   return "/signin";
 }
 
@@ -47,7 +47,7 @@ type View =
   | { kind: "missing" }
   | { kind: "status"; data: PurchaseStatusView; timedOut: boolean };
 
-export default function CrankleadsWelcomePage() {
+export default function DoneForYouWelcomePage() {
   const [params] = useSearchParams();
   const sessionId = params.get("session_id") ?? "";
   const [view, setView] = useState<View>(() => (sessionId ? { kind: "loading" } : { kind: "missing" }));
@@ -56,7 +56,7 @@ export default function CrankleadsWelcomePage() {
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [, rerender] = useState(0);
   const polls = useRef(0);
-  const signInHref = crankleadsSignInHref();
+  const signInHref = doneForYouSignInHref();
 
   // Re-enable the resend button when its cooldown ends.
   useEffect(() => {
@@ -70,7 +70,7 @@ export default function CrankleadsWelcomePage() {
   // into afterwards — is CrankLeads (logo, tab title, icon, theme).
   useBrandOverride("crankleads");
   useDocumentTitle(`Welcome — ${PURCHASED_OFFER_NAME}`);
-  useDocumentFavicon(CRANKLEADS_FAVICON_URL);
+  useDocumentFavicon(DONE_FOR_YOU_FAVICON_URL);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -124,7 +124,7 @@ export default function CrankleadsWelcomePage() {
       <div className="w-full max-w-[480px]">
         <div className="flex items-center justify-center mb-8">
           <img
-            src={CRANKLEADS_LOGO_URL}
+            src={DONE_FOR_YOU_LOGO_URL}
             alt={PURCHASED_OFFER_NAME}
             width={EVERDOER_BRAND.logoWidth}
             height={EVERDOER_BRAND.logoHeight}

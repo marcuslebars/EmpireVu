@@ -418,7 +418,7 @@ export async function loadAnsweringState(admin: AdminClient, organizationId: str
   return {
     company: companyRow,
     org: orgRow,
-    settings: readCallAnsweringSettings(companyRow.ai_settings, { crankleads: isDoneForYou(orgRow.platform_brand) }),
+    settings: readCallAnsweringSettings(companyRow.ai_settings, { doneForYou: isDoneForYou(orgRow.platform_brand) }),
   };
 }
 

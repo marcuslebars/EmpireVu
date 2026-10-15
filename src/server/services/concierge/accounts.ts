@@ -26,9 +26,9 @@ import {
   type NumberStatus,
 } from "@/lib/concierge";
 import type { Tables } from "@/server/db/database.types";
-import { isCrankleadsTier } from "@/server/services/crankleads/config";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
-import { loadSetupChecklist, type SetupChecklist } from "@/server/services/crankleads/setup-checklist";
+import { isDoneForYouTier } from "@/server/services/done-for-you/config";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
+import { loadSetupChecklist, type SetupChecklist } from "@/server/services/done-for-you/setup-checklist";
 import { ConciergeNotFoundError } from "@/server/services/concierge/auth";
 import { siteUrl } from "@/server/services/dfy/site-url";
 import { needsPrice } from "@/server/services/packs/apply";
@@ -369,7 +369,7 @@ async function loadChecklistSafe(
   try {
     return await loadSetupChecklist(tenantCtx(admin, org.id), {
       companyId,
-      tier: isCrankleadsTier(rawTier) ? rawTier : null,
+      tier: isDoneForYouTier(rawTier) ? rawTier : null,
     });
   } catch (err) {
     console.error(`[concierge] checklist for org ${org.id} failed:`, err instanceof Error ? err.message : err);

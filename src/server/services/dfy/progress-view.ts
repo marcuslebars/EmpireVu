@@ -5,8 +5,8 @@
  * the company the RLS read returned (SANCTIONED: dfy_progress is not member-writable).
  */
 import { prettyPhone } from "@/lib/carrier-forwarding";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
-import { loadSetupChecklist, type SetupChecklist } from "@/server/services/crankleads/setup-checklist";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
+import { loadSetupChecklist, type SetupChecklist } from "@/server/services/done-for-you/setup-checklist";
 import { forwardPageUrl, quickSetupUrl } from "@/server/services/dfy/links";
 import { ensureForwardToken, ensureProgress, type DfyProgress } from "@/server/services/dfy/progress";
 import { siteUrl } from "@/server/services/dfy/site-url";

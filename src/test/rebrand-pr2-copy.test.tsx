@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EVERDOER_ENTITY_LINE } from "@/lib/platform-brand";
 import DeleteAccountPage from "@/screens/DeleteAccountPage";
 import PrivacyPolicyPage from "@/screens/PrivacyPolicyPage";
-import { renderLiveSms, renderReminderSms } from "@/server/services/crankleads/followup-messages";
+import { renderLiveSms, renderReminderSms } from "@/server/services/done-for-you/followup-messages";
 import { renderForwardingSms } from "@/server/services/dfy/messages";
 import { LEGACY_OWNER_SMS_PREFIX, OWNER_SMS_PREFIX, signaturePrefix } from "@/server/services/owner-channel/common";
 import { smsBrandingOn, smsPlatformName } from "@/server/services/rebrand/sms-branding";

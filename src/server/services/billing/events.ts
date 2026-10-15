@@ -10,12 +10,12 @@ import {
   failBillingEventJob,
   retryBillingEventJob,
 } from "@/server/services/billing/jobs";
-import { crankleadsTierForPriceId } from "@/server/services/crankleads/config";
+import { planTierForPriceId } from "@/server/services/done-for-you/config";
 import {
-  crankleadsPurchasePendingFor,
-  handleCrankleadsCheckoutPaid,
-  isCrankleadsObject,
-} from "@/server/services/crankleads/provision";
+  doneForYouPurchasePendingFor,
+  handleDoneForYouCheckoutPaid,
+  isDoneForYouObject,
+} from "@/server/services/done-for-you/provision";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -222,7 +222,7 @@ async function requireOrg(
     // A CrankLeads purchase whose org is still being provisioned (the subscription/invoice
     // events can be processed before checkout.session.completed finishes): retry later
     // instead of dead-lettering.
-    if (await crankleadsPurchasePendingFor(supabase, object)) {
+    if (await doneForYouPurchasePendingFor(supabase, object)) {
       throw new DeferBillingEventError(
         `Stripe customer ${customerId ?? "(none)"} on ${eventType} belongs to an Everdoer purchase still being provisioned.`,
       );
@@ -317,7 +317,7 @@ async function handleSubscriptionUpdated(
 
   const patch: Updates<"organizations"> = { plan, subscription_status: status };
   // A CrankLeads tier change (e.g. Catch → Close in the portal) keeps the recorded tier in step.
-  const tier = crankleadsTierForPriceId(priceId);
+  const tier = planTierForPriceId(priceId);
   if (tier) {
     patch.crankleads_tier = tier;
   }
@@ -368,7 +368,7 @@ async function handleSubscriptionCreated(
   object: StripeEventObject,
 ): Promise<string | null> {
   const org = await resolveOrgByCustomer(supabase, customerIdOf(object));
-  if (!org && !(await crankleadsPurchasePendingFor(supabase, object))) {
+  if (!org && !(await doneForYouPurchasePendingFor(supabase, object))) {
     return null;
   }
   return handleSubscriptionUpdated(supabase, object, "customer.subscription.created");
@@ -379,12 +379,12 @@ async function handleSubscriptionCreated(
  * (exactly once — crankleads/provision.ts), then apply the normal checkout transition to
  * the new org. Null while the session is not paid yet.
  */
-async function handleCrankleadsCheckout(
+async function handleDoneForYouCheckout(
   supabase: AdminSupabaseClient,
   object: StripeEventObject,
   options: ApplyBillingEventOptions,
 ): Promise<string | null> {
-  const organizationId = await handleCrankleadsCheckoutPaid(supabase, object, {
+  const organizationId = await handleDoneForYouCheckoutPaid(supabase, object, {
     finalAttempt: options.finalAttempt ?? false,
   });
   if (!organizationId) {
@@ -413,13 +413,13 @@ export async function applyBillingEvent(
 
   switch (ledger.type) {
     case "checkout.session.completed":
-      if (isCrankleadsObject(object)) {
-        return { organizationId: await handleCrankleadsCheckout(supabase, object, options) };
+      if (isDoneForYouObject(object)) {
+        return { organizationId: await handleDoneForYouCheckout(supabase, object, options) };
       }
       return { organizationId: await handleCheckoutCompleted(supabase, object) };
     case "checkout.session.async_payment_succeeded":
-      if (isCrankleadsObject(object)) {
-        return { organizationId: await handleCrankleadsCheckout(supabase, object, options) };
+      if (isDoneForYouObject(object)) {
+        return { organizationId: await handleDoneForYouCheckout(supabase, object, options) };
       }
       return { organizationId: ledger.organization_id };
     case "customer.subscription.created":

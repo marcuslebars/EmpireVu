@@ -11,7 +11,7 @@
  *
  * PowerShell:
  *   $env:STRIPE_SECRET_KEY = "sk_test_..."
- *   npm run stripe:setup-crankleads -- --catch-setup <cents> --catch-monthly <cents> `
+ *   npm run stripe:setup-done-for-you -- --catch-setup <cents> --catch-monthly <cents> `
  *     --close-setup <cents> --close-monthly <cents> --front-desk-setup <cents> --front-desk-monthly <cents> `
  *     [--founding-percent 50 --founding-max 5] [--dry-run] [--replace] [--live]
  *
@@ -195,7 +195,7 @@ async function ensureFoundingCoupon(stripe, founding, setupProductIds, opts, log
  * crankleads_<tier>_setup for the setup fee) so the founding coupon's applies_to can target
  * the setup fees alone.
  */
-export async function setupCrankleads({ stripe, args, keyIsLive, log = console.log }) {
+export async function setupDoneForYou({ stripe, args, keyIsLive, log = console.log }) {
   if (keyIsLive && !args.live) {
     throw new UsageError("Refusing to run against a LIVE Stripe key. Use a test key (sk_test_...) or pass --live deliberately.");
   }
@@ -245,7 +245,7 @@ async function main() {
   } catch (err) {
     console.error(err.message);
     console.error(
-      "Usage: npm run stripe:setup-crankleads -- --catch-setup <cents> --catch-monthly <cents> --close-setup <cents> " +
+      "Usage: npm run stripe:setup-done-for-you -- --catch-setup <cents> --catch-monthly <cents> --close-setup <cents> " +
         "--close-monthly <cents> --front-desk-setup <cents> --front-desk-monthly <cents> " +
         "[--founding-percent <n> --founding-max <n>] [--dry-run] [--replace] [--live]",
     );
@@ -259,7 +259,7 @@ async function main() {
   const { default: Stripe } = await import("stripe");
   const stripe = new Stripe(key);
   try {
-    const env = await setupCrankleads({ stripe, args, keyIsLive: isLiveKey(key) });
+    const env = await setupDoneForYou({ stripe, args, keyIsLive: isLiveKey(key) });
     console.log("\n# Paste into Railway → [web] and [billing-worker] (and [reconcile] for the price ids):");
     console.log(formatEnv(env));
   } catch (err) {

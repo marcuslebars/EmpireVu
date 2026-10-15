@@ -50,13 +50,13 @@ const bool = (value: unknown, fallback: boolean): boolean => (typeof value === "
 const timeOk = (value: unknown): value is string => typeof value === "string" && WEEKLY_TIMES.includes(value);
 
 /** companies.ai_settings (any shape) → the Profit advisor section with defaults. PURE. */
-export function readProfitAdvisorSettings(aiSettings: unknown, org: { crankleads: boolean }): ProfitAdvisorSettings {
+export function readProfitAdvisorSettings(aiSettings: unknown, org: { doneForYou: boolean }): ProfitAdvisorSettings {
   const s = record(record(aiSettings)[SETTINGS_KEY]);
   const weekly = record(s.weekly);
   const pricing = record(s.pricing_check);
   const enabled = typeof s.enabled === "boolean" ? s.enabled : null;
   return {
-    enabled: enabled ?? org.crankleads,
+    enabled: enabled ?? org.doneForYou,
     weekly: {
       enabled: bool(weekly.enabled, true),
       day: intIn(weekly.day, 0, 6) ?? DEFAULT_WEEKLY_DAY,
@@ -64,7 +64,7 @@ export function readProfitAdvisorSettings(aiSettings: unknown, org: { crankleads
     },
     pricingCheck: { enabled: bool(pricing.enabled, true) },
     tightCushionCents: intIn(s.tight_cushion_cents, 0, MAX_CUSHION_CENTS) ?? 0,
-    defaultEnabled: org.crankleads,
+    defaultEnabled: org.doneForYou,
     enabledIsDefault: enabled === null,
   };
 }
@@ -105,7 +105,7 @@ export interface ProfitCompany {
   companyId: string;
   name: string;
   timeZone: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   platformBrand: string | null;
   /** Verified owner cell (the weekly text and the price questions go here), else null. */
   ownerPhone: string | null;
@@ -128,17 +128,17 @@ interface CompanyRow {
 }
 
 function toCompany(row: CompanyRow, platformBrand: string | null): ProfitCompany {
-  const crankleads = isDoneForYou(platformBrand);
+  const doneForYou = isDoneForYou(platformBrand);
   return {
     organizationId: row.organization_id,
     companyId: row.id,
     name: (row.brand_from_name?.trim() || row.name || "").trim() || "the business",
     timeZone: zoneOf(row.timezone),
-    crankleads,
+    doneForYou,
     platformBrand,
     ownerPhone: row.owner_phone_verified_at && row.owner_phone_e164?.trim() ? row.owner_phone_e164.trim() : null,
     active: !row.stage || !["archived", "paused", "cancelled"].includes(row.stage),
-    settings: readProfitAdvisorSettings(row.ai_settings, { crankleads }),
+    settings: readProfitAdvisorSettings(row.ai_settings, { doneForYou }),
   };
 }
 

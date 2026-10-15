@@ -308,9 +308,9 @@ describe("words, dates and lines", () => {
 
 describe("settings and registry", () => {
   it("on for CrankLeads (passive until documents exist), off for house orgs unless switched on", async () => {
-    expect(readComplianceSettings({}, { crankleads: true })).toMatchObject({ enabled: true, reminders: true, sharing: true, enabledIsDefault: true });
-    expect(readComplianceSettings({}, { crankleads: false }).enabled).toBe(false);
-    expect(readComplianceSettings({ compliance: { enabled: true, sharing: false } }, { crankleads: false })).toMatchObject({ enabled: true, sharing: false });
+    expect(readComplianceSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, reminders: true, sharing: true, enabledIsDefault: true });
+    expect(readComplianceSettings({}, { doneForYou: false }).enabled).toBe(false);
+    expect(readComplianceSettings({ compliance: { enabled: true, sharing: false } }, { doneForYou: false })).toMatchObject({ enabled: true, sharing: false });
     expect(mergeComplianceSettings({ sms_agent: { enabled: true }, compliance: { reminders: false } }, { enabled: false })).toEqual({ sms_agent: { enabled: true }, compliance: { reminders: false, enabled: false } });
     expect(await complianceActiveFor(db.client, scope)).toBe(true);
     expect(await complianceActiveFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO })).toBe(false);

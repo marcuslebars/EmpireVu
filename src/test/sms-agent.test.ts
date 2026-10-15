@@ -755,10 +755,10 @@ describe("parseOwnerNote", () => {
 
 describe("settings", () => {
   it("defaults: on for CrankLeads, off for house orgs, standard autonomy", () => {
-    expect(readSmsAgentSettings({}, { crankleads: true })).toMatchObject({ enabled: true, autonomy: "standard", enabledIsDefault: true });
-    expect(readSmsAgentSettings(null, { crankleads: false })).toMatchObject({ enabled: false });
-    expect(readSmsAgentSettings({ sms_agent: { enabled: true, autonomy: "ask_first" } }, { crankleads: false })).toMatchObject({ enabled: true, autonomy: "ask_first", enabledIsDefault: false });
-    expect(readSmsAgentSettings({ sms_agent: { autonomy: "yolo" } }, { crankleads: true }).autonomy).toBe("standard");
+    expect(readSmsAgentSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, autonomy: "standard", enabledIsDefault: true });
+    expect(readSmsAgentSettings(null, { doneForYou: false })).toMatchObject({ enabled: false });
+    expect(readSmsAgentSettings({ sms_agent: { enabled: true, autonomy: "ask_first" } }, { doneForYou: false })).toMatchObject({ enabled: true, autonomy: "ask_first", enabledIsDefault: false });
+    expect(readSmsAgentSettings({ sms_agent: { autonomy: "yolo" } }, { doneForYou: true }).autonomy).toBe("standard");
   });
   it("merging touches only the sms_agent section", () => {
     const merged = mergeSmsAgentSettings({ call_answering: { mode: "ai" }, sms_agent: { enabled: true } }, { autonomy: "ask_first" });

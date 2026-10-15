@@ -30,7 +30,7 @@
  */
 import { prettyPhone } from "@/lib/carrier-forwarding";
 import type { Tables } from "@/server/db/database.types";
-import { isCrankleadsTier, type CrankleadsTier } from "@/server/services/crankleads/config";
+import { isDoneForYouTier, type PlanTier } from "@/server/services/done-for-you/config";
 import type { OnboardingStep } from "@/server/services/onboarding";
 import { businessLineOf, hasFrontDeskForwardingEvidence } from "@/server/services/dfy/front-desk-forwarding";
 import { needsPrice } from "@/server/services/packs/apply";
@@ -96,7 +96,7 @@ export interface SetupChecklistStep {
 export interface SetupChecklist {
   organizationId: string;
   companyId: string;
-  tier: CrankleadsTier;
+  tier: PlanTier;
   phonePath: PhonePath;
   /** The REQUIRED steps (live = all done). */
   steps: SetupChecklistStep[];
@@ -124,19 +124,19 @@ const WIZARD_STEP: Record<SetupStepKey, OnboardingStep> = {
  * Catch / Close only ever get the catcher (AI receptionist is Front Desk only). Front Desk is
  * on the AI path unless the owner chose the catcher instead (catcher number, no AI number).
  */
-export function phonePathFor(tier: CrankleadsTier, facts: Pick<SetupFacts, "catcherNumber" | "aiNumber">): PhonePath {
+export function phonePathFor(tier: PlanTier, facts: Pick<SetupFacts, "catcherNumber" | "aiNumber">): PhonePath {
   if (tier !== "front_desk") return "missed_call_catcher";
   if (!facts.aiNumber && facts.catcherNumber) return "missed_call_catcher";
   return "ai_receptionist";
 }
 
 /** The REQUIRED steps for a tier + phone path ("live" = all done). */
-export function requiredSetupSteps(_tier: CrankleadsTier, phonePath: PhonePath): SetupStepKey[] {
+export function requiredSetupSteps(_tier: PlanTier, phonePath: PhonePath): SetupStepKey[] {
   return phonePath === "missed_call_catcher" ? ["phone", "forwarding", "automations"] : ["phone", "forwarding"];
 }
 
 /** Optional extras, shown but never required (payments only where deposits exist: Close / Front Desk). */
-export function optionalSetupSteps(tier: CrankleadsTier, _phonePath: PhonePath): SetupStepKey[] {
+export function optionalSetupSteps(tier: PlanTier, _phonePath: PhonePath): SetupStepKey[] {
   return tier === "catch" ? ["services", "website"] : ["services", "payments", "website"];
 }
 
@@ -206,7 +206,7 @@ export function setupStepPath(organizationId: string, wizardStep: OnboardingStep
 export interface ComputeSetupChecklistInput {
   organizationId: string;
   companyId: string;
-  tier: CrankleadsTier;
+  tier: PlanTier;
   facts: SetupFacts;
   /** Absolute app origin for deep links (the CrankLeads host), no trailing slash needed. */
   appBaseUrl: string;
@@ -357,7 +357,7 @@ export interface LoadSetupChecklistOptions {
   /** The CrankLeads company (crankleads_purchases.company_id). Default: the org's first company. */
   companyId?: string | null;
   /** Skip the organizations lookup when the caller already knows the tier. */
-  tier?: CrankleadsTier | null;
+  tier?: PlanTier | null;
   appBaseUrl?: string;
   /** One-tap forwarding page for the forwarding step's link (null → the in-app path). */
   forwardUrl?: string | null;
@@ -371,7 +371,7 @@ export async function loadSetupChecklist(
   ctx: TenantServiceContext,
   options: LoadSetupChecklistOptions = {},
 ): Promise<SetupChecklist | null> {
-  let tier: CrankleadsTier | null = options.tier ?? null;
+  let tier: PlanTier | null = options.tier ?? null;
   if (!tier) {
     const { data, error } = await ctx.supabase
       .from("organizations")
@@ -380,7 +380,7 @@ export async function loadSetupChecklist(
       .maybeSingle();
     throwIf(error, "organization");
     const raw = (data as { crankleads_tier: string | null } | null)?.crankleads_tier ?? null;
-    tier = isCrankleadsTier(raw) ? raw : null;
+    tier = isDoneForYouTier(raw) ? raw : null;
   }
   if (!tier) return null;
 

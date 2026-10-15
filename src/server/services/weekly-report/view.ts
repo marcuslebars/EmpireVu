@@ -92,8 +92,8 @@ export async function getWeeklyReportView(
   if (error) throw error;
   const company = companyRow as { id: string; name: string; timezone: string | null; ai_settings: Json; owner_phone_e164: string | null };
   const brand = await loadOrganizationBrand(context.supabase, context.organizationId);
-  const isCrankleads = isDoneForYouBrand(brand);
-  const settings = parseWeeklyReportSettings(company.ai_settings, isCrankleads);
+  const isDoneForYou = isDoneForYouBrand(brand);
+  const settings = parseWeeklyReportSettings(company.ai_settings, isDoneForYou);
   const timeZone = companyTimeZone(company);
 
   const current = weekKeyInTimeZone(timeZone, nowMs);
@@ -131,7 +131,7 @@ export async function getWeeklyReportView(
     companyId,
     companyName: company.name,
     timeZone,
-    isCrankleads,
+    isCrankleads: isDoneForYou,
     brandName: scorecardPlatformBrandName(brand),
     settings: { enabled: settings.enabled, channels: settings.channels },
     ownerPhoneOnFile: Boolean(company.owner_phone_e164?.trim()),
@@ -160,12 +160,12 @@ export async function getWeeklyReportSettingsView(context: TenantServiceContext,
   if (error) throw error;
   const row = data as { ai_settings: Json; owner_phone_e164: string | null; owner_email: string | null };
   const brand = await loadOrganizationBrand(context.supabase, context.organizationId);
-  const isCrankleads = isDoneForYouBrand(brand);
-  const settings = parseWeeklyReportSettings(row.ai_settings, isCrankleads);
+  const isDoneForYou = isDoneForYouBrand(brand);
+  const settings = parseWeeklyReportSettings(row.ai_settings, isDoneForYou);
   return {
     enabled: settings.enabled,
     channels: settings.channels,
-    isCrankleads,
+    isCrankleads: isDoneForYou,
     brandName: scorecardPlatformBrandName(brand),
     ownerPhoneOnFile: Boolean(row.owner_phone_e164?.trim()),
     ownerEmailOnFile: Boolean(row.owner_email?.trim()),
@@ -187,7 +187,7 @@ export async function updateWeeklyReportSettings(
   organizationId: string,
   companyId: string,
   patch: WeeklyReportSettingsPatch,
-  isCrankleads: boolean,
+  isDoneForYou: boolean,
 ): Promise<WeeklyReportSettings> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const { data, error } = await admin
@@ -207,7 +207,7 @@ export async function updateWeeklyReportSettings(
       .eq("updated_at", row.updated_at)
       .select("ai_settings");
     if (writeError) throw writeError;
-    if ((written ?? []).length > 0) return parseWeeklyReportSettings(next, isCrankleads);
+    if ((written ?? []).length > 0) return parseWeeklyReportSettings(next, isDoneForYou);
   }
   throw new Error("Could not save the weekly report settings (the company was being updated) — try again.");
 }

@@ -4,7 +4,7 @@
  * industry pack and starter automations.
  *
  * NO DOLLAR AMOUNTS (Working Protocol #4). The CrankLeads prices (CAD setup fee + monthly)
- * live in Stripe — created by `npm run stripe:setup-crankleads` — and are referenced here
+ * live in Stripe — created by `npm run stripe:setup-done-for-you` — and are referenced here
  * only by their Price ids from env.
  *
  * CrankLeads is the offer; EmpireVu is the product the buyer logs into. Nothing here
@@ -15,17 +15,17 @@ import { EVERDOER_BRAND, EVERDOER_COLORS } from "@/lib/platform-brand";
 import { appBaseUrlFor } from "@/server/services/platform-brand";
 import { envWithFallback } from "@/server/services/rebrand/legacy-usage";
 
-export const CRANKLEADS_TIERS = ["catch", "close", "front_desk"] as const;
-export type CrankleadsTier = (typeof CRANKLEADS_TIERS)[number];
+export const PLAN_TIERS = ["catch", "close", "front_desk"] as const;
+export type PlanTier = (typeof PLAN_TIERS)[number];
 
-export function isCrankleadsTier(value: unknown): value is CrankleadsTier {
-  return typeof value === "string" && (CRANKLEADS_TIERS as readonly string[]).includes(value);
+export function isDoneForYouTier(value: unknown): value is PlanTier {
+  return typeof value === "string" && (PLAN_TIERS as readonly string[]).includes(value);
 }
 
 /** Display name of the purchased offer (emails, SMS, operator mail). Everdoer since PR 2; the identifier is renamed in PR 5. */
-export const CRANKLEADS_OFFER_NAME = "Everdoer";
+export const DONE_FOR_YOU_OFFER_NAME = "Everdoer";
 
-export const CRANKLEADS_TIER_LABELS: Record<CrankleadsTier, string> = {
+export const PLAN_TIER_LABELS: Record<PlanTier, string> = {
   catch: "Catch",
   close: "Close",
   front_desk: "Front Desk",
@@ -36,21 +36,21 @@ export const CRANKLEADS_TIER_LABELS: Record<CrankleadsTier, string> = {
  * which `launch` lacks, so Catch and Close both run on `operate`. Only Front Desk includes
  * the AI receptionist (`marina_reception`, 500 included minutes — billing/config.ts).
  */
-export const CRANKLEADS_TIER_PLAN: Record<CrankleadsTier, PurchasablePlan> = {
+export const DONE_FOR_YOU_TIER_PLAN: Record<PlanTier, PurchasablePlan> = {
   catch: "operate",
   close: "operate",
   front_desk: "front_desk",
 };
 
 /** Stripe metadata `source` stamped on every CrankLeads Checkout Session + Subscription. */
-export const CRANKLEADS_SOURCE = "crankleads";
+export const DONE_FOR_YOU_SOURCE = "crankleads";
 
 // ── Stripe price ids (env only) ───────────────────────────────────────────────
 
 /**
  * Everdoer rebrand: each setting is read by its new name first (STRIPE_*_EVERDOER_*,
  * EVERDOER_*), then the old STRIPE_*_CL_* / CRANKLEADS_* name (counted once per process as kind
- * "env"). `npm run stripe:setup-crankleads` still prints the old names in PR 1.
+ * "env"). `npm run stripe:setup-done-for-you` still prints the old names in PR 1.
  */
 export const ENV_RENAMES = {
   STRIPE_PRICE_EVERDOER_CATCH: ["STRIPE_PRICE_CL_CATCH"],
@@ -69,13 +69,13 @@ export const ENV_RENAMES = {
 } as const satisfies Record<string, readonly string[]>;
 type RenamedEnv = keyof typeof ENV_RENAMES;
 
-const MONTHLY_PRICE_ENV: Record<CrankleadsTier, RenamedEnv> = {
+const MONTHLY_PRICE_ENV: Record<PlanTier, RenamedEnv> = {
   catch: "STRIPE_PRICE_EVERDOER_CATCH",
   close: "STRIPE_PRICE_EVERDOER_CLOSE",
   front_desk: "STRIPE_PRICE_EVERDOER_FRONT_DESK",
 };
 
-const SETUP_PRICE_ENV: Record<CrankleadsTier, RenamedEnv> = {
+const SETUP_PRICE_ENV: Record<PlanTier, RenamedEnv> = {
   catch: "STRIPE_SETUP_FEE_EVERDOER_CATCH",
   close: "STRIPE_SETUP_FEE_EVERDOER_CLOSE",
   front_desk: "STRIPE_SETUP_FEE_EVERDOER_FRONT_DESK",
@@ -87,33 +87,33 @@ function envValue(name: RenamedEnv): string | null {
 }
 
 /** The tier's recurring monthly Price id, or null when its env var is unset. */
-export function crankleadsMonthlyPriceId(tier: CrankleadsTier): string | null {
+export function doneForYouMonthlyPriceId(tier: PlanTier): string | null {
   return envValue(MONTHLY_PRICE_ENV[tier]);
 }
 
 /** The tier's one-time setup-fee Price id, or null when its env var is unset. */
-export function crankleadsSetupPriceId(tier: CrankleadsTier): string | null {
+export function doneForYouSetupPriceId(tier: PlanTier): string | null {
   return envValue(SETUP_PRICE_ENV[tier]);
 }
 
 /** Optional founding-client coupon id (applies to the setup fee only — see the setup script). */
-export function crankleadsFoundingCouponId(): string | null {
+export function doneForYouFoundingCouponId(): string | null {
   return envValue("STRIPE_COUPON_EVERDOER_FOUNDING");
 }
 
 /** Reverse map: a CrankLeads monthly Price id → its tier, or null. */
-export function crankleadsTierForPriceId(priceId: string | null | undefined): CrankleadsTier | null {
+export function planTierForPriceId(priceId: string | null | undefined): PlanTier | null {
   if (!priceId) return null;
-  for (const tier of CRANKLEADS_TIERS) {
-    if (crankleadsMonthlyPriceId(tier) === priceId) return tier;
+  for (const tier of PLAN_TIERS) {
+    if (doneForYouMonthlyPriceId(tier) === priceId) return tier;
   }
   return null;
 }
 
 /** A CrankLeads monthly Price id → the EmpireVu plan it buys, or null (used by billing/env.ts). */
-export function crankleadsPlanForPriceId(priceId: string | null | undefined): PurchasablePlan | null {
-  const tier = crankleadsTierForPriceId(priceId);
-  return tier ? CRANKLEADS_TIER_PLAN[tier] : null;
+export function doneForYouPlanForPriceId(priceId: string | null | undefined): PurchasablePlan | null {
+  const tier = planTierForPriceId(priceId);
+  return tier ? DONE_FOR_YOU_TIER_PLAN[tier] : null;
 }
 
 // ── Public site + checkout settings ───────────────────────────────────────────
@@ -126,7 +126,7 @@ const DEFAULT_CANCEL_URL = "https://crankleads.com/#pricing";
  * name CRANKLEADS_SITE_ORIGINS still read for one release). The default includes everdoer.com
  * and www.everdoer.com alongside today's crankleads.com origins.
  */
-export function crankleadsSiteOrigins(): Set<string> {
+export function doneForYouSiteOrigins(): Set<string> {
   const raw = envValue("EVERDOER_SITE_ORIGINS") || DEFAULT_SITE_ORIGINS;
   return new Set(
     raw
@@ -136,12 +136,12 @@ export function crankleadsSiteOrigins(): Set<string> {
   );
 }
 
-export function crankleadsCancelUrl(): string {
+export function doneForYouCancelUrl(): string {
   return envValue("EVERDOER_CANCEL_URL") || DEFAULT_CANCEL_URL;
 }
 
 /** Stripe Tax on the Checkout Session — OFF unless STRIPE_AUTOMATIC_TAX=true (HST is a manual follow-up). */
-export function crankleadsAutomaticTax(): boolean {
+export function doneForYouAutomaticTax(): boolean {
   return process.env.STRIPE_AUTOMATIC_TAX?.trim().toLowerCase() === "true";
 }
 
@@ -156,7 +156,7 @@ export function crankleadsAutomaticTax(): boolean {
  * (`<app origin>/brand/everdoer/everdoer-logo-dark.png`); Stripe needs an https URL, so a
  * non-https origin (local dev) falls back to the old crankleads.com image.
  */
-export interface CrankleadsCheckoutBranding {
+export interface DoneForYouCheckoutBranding {
   displayName: string;
   logoUrl: string;
   backgroundColor: string;
@@ -188,7 +188,7 @@ function httpsUrlOr(name: RenamedEnv, fallback: string): string {
   return value && value.startsWith("https://") ? value : fallback;
 }
 
-export function crankleadsCheckoutBranding(): CrankleadsCheckoutBranding {
+export function doneForYouCheckoutBranding(): DoneForYouCheckoutBranding {
   return {
     displayName: envValue("EVERDOER_CHECKOUT_DISPLAY_NAME") ?? DEFAULT_CHECKOUT_DISPLAY_NAME,
     logoUrl: httpsUrlOr("EVERDOER_CHECKOUT_LOGO_URL", defaultCheckoutLogoUrl()),
@@ -200,7 +200,7 @@ export function crankleadsCheckoutBranding(): CrankleadsCheckoutBranding {
 // ── Business type → industry pack ─────────────────────────────────────────────
 
 /** The business types offered on the crankleads.com form. */
-export const CRANKLEADS_BUSINESS_TYPES = [
+export const DONE_FOR_YOU_BUSINESS_TYPES = [
   "Property maintenance & snow",
   "Landscaping",
   "Roofing",
@@ -271,7 +271,7 @@ export const CLOSE_EXTRA_RECIPE_SLUGS: readonly string[] = [
  * Close: + quote / lead / no-show follow-ups and invoice alerts. Front Desk: + the AI
  * receptionist ones.
  */
-export function dfyRecipeSlugs(tier: CrankleadsTier): string[] {
+export function dfyRecipeSlugs(tier: PlanTier): string[] {
   const slugs = [...CATCH_RECIPE_SLUGS];
   if (tier !== "catch") slugs.push(...CLOSE_EXTRA_RECIPE_SLUGS);
   if (tier === "front_desk") slugs.push(...RECEPTIONIST_RECIPE_SLUGS);
@@ -283,7 +283,7 @@ export function dfyRecipeSlugs(tier: CrankleadsTier): string[] {
  * (packRecipesForTier) plus the tier's switch-on set (dfyRecipeSlugs). Anything else the
  * recipe catalog installed (e.g. stale-lead-nudge on a Catch buyer) stays draft.
  */
-export function tierAllowedRecipeSlugs(tier: CrankleadsTier, packRecipeSlugs: readonly string[]): Set<string> {
+export function tierAllowedRecipeSlugs(tier: PlanTier, packRecipeSlugs: readonly string[]): Set<string> {
   return new Set([...packRecipesForTier(tier, packRecipeSlugs), ...dfyRecipeSlugs(tier)]);
 }
 
@@ -291,7 +291,7 @@ export function tierAllowedRecipeSlugs(tier: CrankleadsTier, packRecipeSlugs: re
  * Which of a pack's recipes to tailor for a tier: Catch → the Catch set; Close → every pack
  * recipe except the receptionist ones; Front Desk → every pack recipe.
  */
-export function packRecipesForTier(tier: CrankleadsTier, packRecipeSlugs: readonly string[]): string[] {
+export function packRecipesForTier(tier: PlanTier, packRecipeSlugs: readonly string[]): string[] {
   if (tier === "front_desk") return [...packRecipeSlugs];
   if (tier === "catch") return packRecipeSlugs.filter((slug) => CATCH_RECIPE_SLUGS.includes(slug));
   return packRecipeSlugs.filter((slug) => !RECEPTIONIST_RECIPE_SLUGS.includes(slug));

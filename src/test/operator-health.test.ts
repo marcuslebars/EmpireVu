@@ -400,7 +400,7 @@ describe("provisioning failure rule", () => {
   it("a failed purchase is critical with the exact re-run command", () => {
     const item = provisioningItem(provisioningFact(), CTX);
     expect(item?.severity).toBe("critical");
-    expect(item?.action).toBe("Fix the cause, then re-run: npm run job:crankleads-provision -- --session cs_test_abc123");
+    expect(item?.action).toBe("Fix the cause, then re-run: npm run job:dfy-provision -- --session cs_test_abc123");
     expect(item?.problem).toContain("3 attempts");
     expect(item?.howLong).toBe("5h since payment");
   });

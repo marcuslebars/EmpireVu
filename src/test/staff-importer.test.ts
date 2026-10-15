@@ -343,9 +343,9 @@ describe("row cleaning", () => {
 
 describe("settings and house orgs", () => {
   it("on by default for CrankLeads, off for house orgs; merge touches only ai_settings.import", async () => {
-    expect(readImportSettings({}, { crankleads: true })).toEqual({ enabled: true, enabledIsDefault: true });
-    expect(readImportSettings({}, { crankleads: false })).toEqual({ enabled: false, enabledIsDefault: true });
-    expect(readImportSettings({ import: { enabled: true } }, { crankleads: false }).enabled).toBe(true);
+    expect(readImportSettings({}, { doneForYou: true })).toEqual({ enabled: true, enabledIsDefault: true });
+    expect(readImportSettings({}, { doneForYou: false })).toEqual({ enabled: false, enabledIsDefault: true });
+    expect(readImportSettings({ import: { enabled: true } }, { doneForYou: false }).enabled).toBe(true);
     expect(mergeImportSettings({ collections: { enabled: false } }, { enabled: false })).toEqual({ collections: { enabled: false }, import: { enabled: false } });
     expect(await importerActiveFor(h.db!.client, { organizationId: ORG, companyId: CO })).toBe(true);
     expect(await importerActiveFor(h.db!.client, { organizationId: A1_ORG, companyId: A1_CO })).toBe(false);
