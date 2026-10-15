@@ -10,7 +10,7 @@ import {
 import type { IndustryPack } from "@/server/services/packs/types";
 
 /**
- * Property maintenance & snow — the first CrankLeads trade (Georgian Bay / Simcoe County).
+ * Property maintenance & snow — the first done-for-you trade (Georgian Bay / Simcoe County).
  * Winter is seasonal snow contracts (residential + commercial) and salting; the rest of
  * the year is lawn care and spring/fall cleanups. No prices: the owner enters their own.
  */

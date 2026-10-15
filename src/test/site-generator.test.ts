@@ -171,7 +171,7 @@ describe("generateSite", () => {
 });
 
 describe("sweep", () => {
-  it("generates + publishes enriched CrankLeads companies once, and texts the owner once", async () => {
+  it("generates + publishes enriched done-for-you companies once, and texts the owner once", async () => {
     db = seedDb({
       companies: [company("c1"), company("c2", { name: "Waiting Co" }), company("c3", { name: "Old Co", service_area: "Orillia" }), company("c4", { name: "Thin Co", service_area: null, hours: null })],
       service_catalog_items: catalog("c1"),
@@ -232,7 +232,7 @@ describe("sweep", () => {
     expect(await notifyPublishedSites(db.client, { deps: d })).toEqual([]);
   });
 
-  it("ignores non-CrankLeads orgs and canceled ones", async () => {
+  it("ignores non-done-for-you orgs and canceled ones", async () => {
     db = seedDb({
       organizations: [
         { id: ORG, platform_brand: "empirevu", subscription_status: "active" },

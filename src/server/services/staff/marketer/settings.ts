@@ -2,15 +2,15 @@
  * The Marketer's settings — the ONE reader of companies.ai_settings.marketing
  * (docs/ai-staff.md → "Marketer"). Missing keys = the defaults here:
  *
- *   win_back.enabled        ON for CrankLeads orgs, OFF for house orgs (A1) unless turned on
+ *   win_back.enabled        ON for done-for-you orgs, OFF for house orgs (A1) unless turned on
  *   win_back.months_min/max past customers whose last job / paid invoice was 9–24 months ago
  *                           (max is capped at 24: CASL implied consent from a purchase lasts 2 years)
  *   win_back.weekly_cap     at most this many campaign texts per company per rolling 7 days (150)
  *   win_back.per_hour       send throttle (30/hour)
  *   win_back.start_hour/end_hour  local send window, 10:00–19:00 (always inside 09:00–20:00)
  *   win_back.days           Mon–Sat
- *   review_replies.enabled  ON for CrankLeads, OFF for house orgs
- *   google_posts.enabled    ON for CrankLeads, OFF for house orgs
+ *   review_replies.enabled  ON for done-for-you, OFF for house orgs
+ *   google_posts.enabled    ON for done-for-you, OFF for house orgs
  */
 import { isDoneForYou } from "@/lib/product-line";
 import type { AdminClient } from "@/server/services/front-desk/contracts";

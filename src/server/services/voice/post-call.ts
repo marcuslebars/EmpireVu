@@ -244,7 +244,7 @@ async function loadCompany(admin: AdminClient, tenant: { organizationId: string;
     .eq("id", tenant.companyId)
     .maybeSingle();
   if (error) throw error;
-  // + the org's platform brand (the CrankLeads link host for the booking link).
+  // + the org's platform brand (the done-for-you link host for the booking link).
   return ((await withPlatformBrand(admin, data as CompanyForPostCall | null)) as CompanyForPostCall | null) ?? null;
 }
 

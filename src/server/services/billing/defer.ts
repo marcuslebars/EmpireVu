@@ -1,5 +1,5 @@
 /**
- * A billing event that cannot be applied YET but will be soon — e.g. a CrankLeads
+ * A billing event that cannot be applied YET but will be soon — e.g. a done-for-you
  * subscription/invoice event for a Stripe customer whose organization is still being
  * provisioned from checkout.session.completed. The processor answers it by re-queueing the
  * job with bounded backoff (billing_event_jobs.attempt_count / max_attempts) instead of

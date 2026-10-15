@@ -3,7 +3,7 @@
  * job:quote-maintenance. A background job has no session; it reads active series
  * across tenants and generates each one's visits through generateVisits, pinned to
  * that series' own organization_id (every query filters by it). No request input.
- * Listed in docs/EMPIREVU_RUNBOOK.md (service-role surfaces).
+ * Listed in docs/EVERDOER_RUNBOOK.md (service-role surfaces).
  */
 import type { Tables } from "@/server/db/database.types";
 import type { TenantServiceContext } from "@/server/services/shared";

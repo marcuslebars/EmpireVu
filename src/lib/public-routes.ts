@@ -20,14 +20,14 @@ const PUBLIC_PATHS: RegExp[] = [
   /^\/book\//, // public booking
   /^\/f\//, // hosted website lead form (also the /embed/v1.js iframe)
   /^\/invite\//, // team invitation, which prompts sign-in itself when needed
-  /^\/welcome\/crankleads\/?$/, // CrankLeads purchase landing — the buyer has no session yet
+  /^\/welcome\/crankleads\/?$/, // Done-for-you purchase landing — the buyer has no session yet
   /^\/welcome\/everdoer\/?$/, // the same landing under its Everdoer alias
   /^\/setup\/[^/]+\/?$/, // done-for-you quick setup (texted after purchase) — no login
   /^\/import\/[^/]+\/?$/, // customer import from the owner's texted link — no login
   /^\/forward\//, // done-for-you one-tap call forwarding (from the owner's "last step" text)
   /^\/port\/[^/]+\/?$/, // keep your number: the owner's port form (texted) — no login
   /^\/compliance\/upload\/[^/]+\/?$/, // compliance: a sub's upload link (texted / emailed) — no login
-  // Set-password / recovery links (incl. the CrankLeads welcome email). The page verifies
+  // Set-password / recovery links (incl. the done-for-you welcome email). The page verifies
   // the link's token itself and sends a visitor without one to sign-in.
   /^\/update-password\/?$/,
   // Store-review pages: Google Play and the App Store open these signed out and reject

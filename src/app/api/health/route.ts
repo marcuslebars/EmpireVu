@@ -16,7 +16,7 @@ import { createSupabaseServerClient } from "@/server/supabase/server";
  * client. Public + unauthenticated by design (Railway's healthcheck hits it with
  * no session); the response carries no secrets.
  *
- * Listed in docs/EMPIREVU_RUNBOOK.md.
+ * Listed in docs/EVERDOER_RUNBOOK.md.
  */
 
 export const dynamic = "force-dynamic";

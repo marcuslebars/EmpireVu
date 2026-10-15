@@ -3,7 +3,7 @@
  * reader (docs/ai-staff.md → "Service plans").
  *
  *   service_plans = {
- *     enabled:   boolean,              // CrankLeads default on; house orgs are ALWAYS off
+ *     enabled:   boolean,              // Done-for-you default on; house orgs are ALWAYS off
  *     heads_up:  { enabled: boolean }, // the text ~10 days before each plan visit
  *     renewals:  { enabled: boolean }, // the weekly renewal batch (plan_renewals)
  *   }
@@ -30,7 +30,7 @@ export interface ServicePlansSettings {
   enabled: boolean;
   headsUp: { enabled: boolean };
   renewals: { enabled: boolean };
-  /** True for CrankLeads orgs (the only ones the role may ever work for). */
+  /** True for done-for-you orgs (the only ones the role may ever work for). */
   available: boolean;
 }
 
@@ -168,7 +168,7 @@ export async function hasActivePlan(admin: AdminClient, scope: { organizationId:
 }
 
 /**
- * Is Service plans working for this company? CrankLeads org, switched on, company active, and at
+ * Is Service plans working for this company? Done-for-you org, switched on, company active, and at
  * least one active plan. House orgs: never. Never throws (a failed read counts as off).
  */
 export async function servicePlansActiveFor(admin: AdminClient, scope: { organizationId: string; companyId: string }): Promise<boolean> {

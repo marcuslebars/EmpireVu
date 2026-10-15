@@ -6,7 +6,7 @@
 // `npm run job:operator-health` CLI, neither of which has a user session or a tenant to scope
 // by. Every per-account read (setup checklist, activity counts) is filtered by the row's OWN
 // organization_id (+ company_id) as stored in the database, never by anything a caller chose.
-// Output goes only to the operator inbox. Listed in docs/EMPIREVU_RUNBOOK.md.
+// Output goes only to the operator inbox. Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { SupabaseClient } from "@supabase/supabase-js";
 

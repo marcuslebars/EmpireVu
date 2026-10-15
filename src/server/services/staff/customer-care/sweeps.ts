@@ -1,6 +1,6 @@
 /**
  * Customer care's sweeps (through runStaffSweeps). Companies are loaded at most once a minute per
- * worker (loadCareCompanies: CrankLeads companies with the role and the SMS agent on, plus house-org
+ * worker (loadCareCompanies: done-for-you companies with the role and the SMS agent on, plus house-org
  * companies that opted in — filtered at the query, so A1 never enters a sweep unless switched on).
  *
  *   customer_care:jobs      (5 min)  new job completions → check-in planned + job warranty

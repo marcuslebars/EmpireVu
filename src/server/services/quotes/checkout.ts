@@ -195,7 +195,7 @@ export async function createDepositCheckoutSession(
   }
 
   // The BRAND's own Stripe account — never the platform account, and never
-  // another brand's. A deposit landing in EmpireVu's account, or in Marine Care's
+  // another brand's. A deposit landing in Everdoer's account, or in Marine Care's
   // instead of Storage's, would be a real mess to unwind.
   if (!quote.company_id) {
     throw new DepositCheckoutError(

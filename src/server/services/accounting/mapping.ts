@@ -1,7 +1,7 @@
 /**
- * EmpireVu records → provider-neutral documents (pure, golden-tested).
+ * Everdoer records → provider-neutral documents (pure, golden-tested).
  *
- * Invoices: one tax rate applies to the whole subtotal in EmpireVu, so the tax is split
+ * Invoices: one tax rate applies to the whole subtotal in Everdoer, so the tax is split
  * across the taxed lines in proportion to their amounts (largest-remainder, so the parts
  * add up to the invoice tax exactly). Providers that accept a per-line tax amount (Xero)
  * then match our total to the cent; QuickBooks computes its own and any rounding

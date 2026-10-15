@@ -5,7 +5,7 @@ import type { TenantServiceContext } from "@/server/services/shared";
 
 /**
  * The light, non-sensitive account facts the Help assistant may use to tailor an answer and
- * that the operator email carries: plan / status / CrankLeads tier and setup progress.
+ * that the operator email carries: plan / status / done-for-you tier and setup progress.
  *
  * Read on the CALLER's RLS client and filtered by the org id that requireOrganizationContext
  * already proved they belong to — so it can only ever describe their own org. No contacts,
@@ -16,7 +16,7 @@ export interface HelpAccountContext {
   plan: string | null;
   subscriptionStatus: string | null;
   crankleadsTier: string | null;
-  /** Product name the asker knows the app by (docs/everdoer-branding.md). Absent = EmpireVu. */
+  /** Product name the asker knows the app by (docs/everdoer-branding.md). Absent = standard. */
   platformBrand?: PlatformBrandKey;
   role: string | null;
   companyName: string | null;

@@ -12,8 +12,8 @@
  *   service-plans:heads-up  (30 min) 09:00–20:00 local: one text per plan visit ~10 days ahead.
  *   service-plans:queue     (2 min)  customer texts that waited for 09:00, re-checked first.
  *
- * Only agreements are scanned (they only exist for CrankLeads companies with a plan), so a company
- * without plans — every house org — costs nothing. A company that is no longer CrankLeads, is
+ * Only agreements are scanned (they only exist for done-for-you companies with a plan), so a company
+ * without plans — every house org — costs nothing. A company that is no longer done-for-you, is
  * paused / archived, or switched the feature off is skipped.
  */
 import { localDate, weekdayOf } from "@/server/services/booking-windows";

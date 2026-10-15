@@ -6,7 +6,7 @@
  * The report lists ONLY what needs a human. Each rule below is re-checked here even when the
  * loader already pre-filtered, so the thresholds live in exactly one place:
  *
- *   provisioning  CrankLeads purchase paid but no account: status 'failed' (last 30 days), or
+ *   provisioning  done-for-you purchase paid but no account: status 'failed' (last 30 days), or
  *                 stuck in 'paid' / 'provisioning' for ≥ 60 min (the 15-min sweep didn't fix it).
  *   forwarding    Active catcher number whose last forwarding test was 'not_forwarded' (the
  *                 customer's forwarding is broken) AND it used to work (a passed test or a real
@@ -25,7 +25,7 @@
  *                 billing/events.ts), not the internal house plan. Critical once the grace window
  *                 (BILLING_PAST_DUE_GRACE_DAYS after current_period_end) has passed.
  *   support       support_requests still 'open' ≥ 24h after they were sent (high after 72h).
- *   silent        Live CrankLeads account, subscription active/trialing, live ≥ 14 days, and zero
+ *   silent        Live done-for-you account, subscription active/trialing, live ≥ 14 days, and zero
  *                 new contacts, missed calls and AI-receptionist calls in the last 14 days.
  *   concierge     Done-for-you (docs/done-for-you.md): a not-live account the orchestrator handed to
  *                 a human — not live 24h after purchase (escalated), the owner tapped "Have us
@@ -39,7 +39,7 @@ import { addBusinessDays, localClock, type LocalClock } from "@/server/services/
 
 // ── Thresholds ───────────────────────────────────────────────────────────────
 
-/** Flag a not-live CrankLeads setup this many business days after provisioning. */
+/** Flag a not-live done-for-you setup this many business days after provisioning. */
 /** Warn early (day 3) so there's time to help before the day-5 live guarantee. */
 export const SETUP_STALL_BUSINESS_DAYS = 3;
 /** The "live within 5 business days" promise. */
@@ -85,7 +85,7 @@ const DAY = 24 * HOUR;
 export interface AccountFact {
   organizationId: string;
   businessName: string;
-  /** organizations.crankleads_tier (null = not a CrankLeads org). */
+  /** organizations.crankleads_tier (null = not a done-for-you org). */
   tier: string | null;
   stripeCustomerId: string | null;
 }
@@ -123,7 +123,7 @@ export interface ForwardingFact extends AccountFact {
   lastTestError: string | null;
   /** A passed forwarding test or a real forwarded missed call is on record for this number. */
   everWorked: boolean;
-  /** The org's CrankLeads purchase has live_at set. */
+  /** The org's done-for-you purchase has live_at set. */
   accountLive: boolean;
   subscriptionStatus: string;
   /** Carrier activation code (e.g. *72…) for the catcher number, when known. */

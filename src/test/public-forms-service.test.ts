@@ -207,7 +207,7 @@ describe("through handleLeadIntake (the same durable path)", () => {
     expect(fake.store.contacts[0]).toMatchObject({ organization_id: "org-K", company_id: "co-K" });
   });
 
-  it("PRIVACY: a CrankLeads org's lead is never copied to the platform operator mailbox", async () => {
+  it("PRIVACY: a done-for-you org's lead is never copied to the platform operator mailbox", async () => {
     const org = (fake.store.organizations as Row[]).find((o) => o.id === "org-K")!;
     org.platform_brand = "crankleads";
     org.crankleads_tier = "catch";
@@ -345,7 +345,7 @@ describe("management helpers", () => {
 });
 
 describe("operator lead copy: audience + sender", () => {
-  it("house orgs and unrouted leads → operator; any CrankLeads org or an unknown org → none", async () => {
+  it("house orgs and unrouted leads → operator; any done-for-you org or an unknown org → none", async () => {
     const { leadNotifyAudience, leadFromHeader } = await vi.importActual<typeof import("@/server/services/lead-intake/notify")>("@/server/services/lead-intake/notify");
     expect(leadNotifyAudience({ platform_brand: "empirevu", crankleads_tier: null }, true)).toBe("operator");
     expect(leadNotifyAudience({ platform_brand: null, crankleads_tier: null }, true)).toBe("operator");

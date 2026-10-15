@@ -47,7 +47,7 @@ export interface AgreementView {
 export interface ServicePlansView {
   companyId: string;
   companyName: string;
-  /** CrankLeads only: house orgs see nothing to set up. */
+  /** Done-for-you only: house orgs see nothing to set up. */
   available: boolean;
   settings: { enabled: boolean; headsUp: { enabled: boolean }; renewals: { enabled: boolean } };
   stripeReady: boolean;

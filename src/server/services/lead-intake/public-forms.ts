@@ -12,7 +12,7 @@ import type { Tables } from "@/server/db/database.types";
 //   • touches last_used_at (telemetry, best-effort).
 // The lead write itself goes through handleLeadIntake (the original sanctioned path).
 // Management (create/list/update/revoke) is in ./public-form-keys.ts on the caller's RLS
-// client, not here. Listed in docs/EMPIREVU_RUNBOOK.md.
+// client, not here. Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 

@@ -30,8 +30,8 @@ export async function quoteLinkForCompanyId(companyId: string | null | undefined
 }
 
 /**
- * The company row + its organization's platform brand ('crankleads' for a CrankLeads org, also
- * when only crankleads_tier is set), so quotePublicBaseUrlFor can pick the CrankLeads host.
+ * The company row + its organization's platform brand ('crankleads' for a done-for-you org, also
+ * when only crankleads_tier is set), so quotePublicBaseUrlFor can pick the done-for-you host.
  * Best-effort: a failed org read just means the default host.
  */
 export async function withPlatformBrand<T extends { organization_id?: unknown } | null>(db: Db, company: T): Promise<(T & { platform_brand?: string | null }) | T> {

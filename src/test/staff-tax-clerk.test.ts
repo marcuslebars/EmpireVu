@@ -273,7 +273,7 @@ describe("the owner's words", () => {
 // ── Settings / registry ───────────────────────────────────────────────────────
 
 describe("settings and registry", () => {
-  it("defaults: on for CrankLeads, off for house orgs; registrant follows the HST number", () => {
+  it("defaults: on for done-for-you, off for house orgs; registrant follows the HST number", () => {
     const cl = readTaxClerkSettings({}, { doneForYou: true, hasHstNumber: true });
     expect(cl).toMatchObject({ receipts: { enabled: true }, hst: { registrant: true, frequency: "quarterly", fiscalYearEndMonth: 12, filer: "corporation", reminders: true, accountantEmail: null }, nudges: { weekly: true, tip: true } });
     expect(readTaxClerkSettings({}, { doneForYou: true, hasHstNumber: false }).hst.registrant).toBe(false);
@@ -565,27 +565,27 @@ describe("the worksheet", () => {
 const REMIND = Date.parse("2026-10-21T14:00:00Z");
 
 describe("the HST reminder and the accountant packet", () => {
-  async function crank() {
+  async function dfyCompany() {
     return (await loadTaxClerkCompany(db.client, ORG, CO))!;
   }
 
   it("only inside the 10-day window, daytime, registrants with reminders on", async () => {
-    const c = await crank();
+    const c = await dfyCompany();
     expect(periodToRemind("2026-10-20", c)).toBeNull();
     expect(periodToRemind("2026-10-21", c)?.label).toBe("Q3");
     expect(periodToRemind("2026-10-31", c)?.label).toBe("Q3");
     expect(periodToRemind("2026-11-01", c)).toBeNull();
     expect(await runCompanyHstReminder(db.client, c, Date.parse("2026-10-21T11:00:00Z"))).toBe("not_due"); // 07:00 local
     db.tables.companies[0].tax_registration_number = null;
-    expect(await runCompanyHstReminder(db.client, await crank(), REMIND)).toBe("off");
+    expect(await runCompanyHstReminder(db.client, await dfyCompany(), REMIND)).toBe("off");
     expect(rows("hst_periods")).toHaveLength(0);
   });
 
   it("E2E: the reminder asks accountant_packet; Y through decideApproval emails the packet once", async () => {
     seedQ3();
     db.tables.companies[0].ai_settings = mergeTaxClerkSettings({}, { hst: { accountantEmail: "books@acct.ca" } });
-    expect(await runCompanyHstReminder(db.client, await crank(), REMIND)).toBe("asked");
-    expect(await runCompanyHstReminder(db.client, await crank(), REMIND + HOUR)).toBe("claimed_elsewhere");
+    expect(await runCompanyHstReminder(db.client, await dfyCompany(), REMIND)).toBe("asked");
+    expect(await runCompanyHstReminder(db.client, await dfyCompany(), REMIND + HOUR)).toBe("claimed_elsewhere");
     const approval = rows("owner_approvals")[0];
     expect(approval).toMatchObject({ kind: "accountant_packet", status: "pending", requested_by: "tax_clerk" });
     expect(approval.payload).toMatchObject({ periodStart: "2026-07-01", periodEnd: "2026-09-30", label: "Q3", to: "books@acct.ca", toWho: "accountant" });
@@ -628,7 +628,7 @@ describe("the HST reminder and the accountant packet", () => {
 
   it("no accountant email: the packet goes to the owner; N sends nothing; expiry sends nothing", async () => {
     seedQ3();
-    await runCompanyHstReminder(db.client, await crank(), REMIND);
+    await runCompanyHstReminder(db.client, await dfyCompany(), REMIND);
     expect(rows("owner_approvals")[0].payload).toMatchObject({ to: "dana@northshore.test", toWho: "owner" });
     const no = await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: false, decidedVia: "sms", decidedBy: OWNER });
     expect(no.message).toBe('OK, not sent. Text "hst packet" when you want it.');
@@ -672,7 +672,7 @@ describe("the HST reminder and the accountant packet", () => {
     expect(await briefingItems(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO }, "2026-10-21")).toEqual([]);
   });
 
-  it("the sweep: CrankLeads registrants only, once", async () => {
+  it("the sweep: done-for-you registrants only, once", async () => {
     seedQ3();
     const sweep = TAX_CLERK_SWEEPS[0];
     await sweep.run(db.client, REMIND);
@@ -687,7 +687,7 @@ describe("the HST reminder and the accountant packet", () => {
     db.tables.companies[0].owner_email = null;
     db.tables.profiles = [];
     const sent: string[] = [];
-    const out = await runCompanyHstReminder(db.client, await crank(), REMIND, { ...defaultReminderDeps, sendOwnerSms: async (_a, i) => (sent.push(i.body), { status: "sent" }) });
+    const out = await runCompanyHstReminder(db.client, await dfyCompany(), REMIND, { ...defaultReminderDeps, sendOwnerSms: async (_a, i) => (sent.push(i.body), { status: "sent" }) });
     expect(out).toBe("texted");
     expect(sent[0]).toContain("Q3 HST: collected $182, ITCs $37, owing about $145. Due Oct 31. Prepared figures");
     expect(rows("owner_approvals")).toHaveLength(0);

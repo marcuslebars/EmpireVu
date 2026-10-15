@@ -14,7 +14,7 @@
  *     any_on: boolean                                 // marker for the sweeps' house-org filter
  *   }
  *
- * Everything defaults ON for CrankLeads orgs and OFF for house orgs (A1 …) unless turned on.
+ * Everything defaults ON for done-for-you orgs and OFF for house orgs (A1 …) unless turned on.
  * HST reminders only run for a registrant (default: companies.tax_registration_number is set).
  * Defaults: quarterly, fiscal year ending Dec 31, corporation.
  */
@@ -41,7 +41,7 @@ export interface TaxClerkSettings {
     accountantEmail: string | null;
   };
   nudges: { weekly: boolean; tip: boolean };
-  /** The org's default for every switch (CrankLeads → on). */
+  /** The org's default for every switch (done-for-you → on). */
   defaultEnabled: boolean;
 }
 
@@ -232,7 +232,7 @@ async function readAll<T>(make: (from: number, to: number) => PromiseLike<{ data
 }
 
 /**
- * Companies where the Tax Clerk may work: every company of a CrankLeads org, plus house-org
+ * Companies where the Tax Clerk may work: every company of a done-for-you org, plus house-org
  * companies that switched something on (ai_settings.tax_clerk.any_on). House orgs are filtered
  * out at the query, so A1-style tenants never enter a sweep unless they opted in.
  */

@@ -3,7 +3,7 @@
  * typed reader (docs/ai-staff.md → "Profit advisor").
  *
  *   profit_advisor = {
- *     enabled,                               // CrankLeads on, house orgs (A1 …) off unless switched on
+ *     enabled,                               // Done-for-you on, house orgs (A1 …) off unless switched on
  *     weekly: { enabled, day: 5, time: "15:00" },   // the money text: local weekday (0 = Sun) + time
  *     pricing_check: { enabled },            // the monthly check (first Tuesday) + price_change asks
  *     tight_cushion_cents: 0,                // "tight" = money out runs ahead of money in by more than this
@@ -28,7 +28,7 @@ export interface ProfitAdvisorSettings {
   pricingCheck: { enabled: boolean };
   /** "Tight" = the likely running total (money in minus money out from today) drops below −cushion. */
   tightCushionCents: number;
-  /** The org's default for the switches (CrankLeads → on). */
+  /** The org's default for the switches (done-for-you → on). */
   defaultEnabled: boolean;
   enabledIsDefault: boolean;
 }
@@ -177,7 +177,7 @@ export async function readAll<T>(make: (from: number, to: number) => PromiseLike
 }
 
 /**
- * Companies where the Profit advisor works: every company of a CrankLeads org with it on, plus
+ * Companies where the Profit advisor works: every company of a done-for-you org with it on, plus
  * house-org companies that switched it on (ai_settings.profit_advisor.any_on). House orgs are
  * filtered out at the query, so A1-style tenants never enter a sweep unless they opted in.
  */

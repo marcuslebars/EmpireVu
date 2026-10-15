@@ -207,12 +207,12 @@ afterEach(() => {
 // ── Settings ─────────────────────────────────────────────────────────────────
 
 describe("settings", () => {
-  it("every switch defaults on for CrankLeads and off for house orgs; explicit choices win", () => {
-    const crank = readDispatchSettings({}, { doneForYou: true, industryPack: { id: "roofing", version: 1 } });
-    expect([crank.weather.enabled, crank.onOurWay.enabled, crank.crewTexts.enabled, crank.fillGap.enabled]).toEqual([true, true, true, true]);
-    expect(crank.weather.thresholds).toEqual({ rainProbability: 60, rainMm: 2, windKmh: 50, minTempC: -25, maxTempC: 35 });
-    expect(crank.crewTexts.time).toBe("18:00");
-    expect(crank.customerHours).toEqual({ from: "09:00", until: "20:00" });
+  it("every switch defaults on for done-for-you and off for house orgs; explicit choices win", () => {
+    const dfySettings = readDispatchSettings({}, { doneForYou: true, industryPack: { id: "roofing", version: 1 } });
+    expect([dfySettings.weather.enabled, dfySettings.onOurWay.enabled, dfySettings.crewTexts.enabled, dfySettings.fillGap.enabled]).toEqual([true, true, true, true]);
+    expect(dfySettings.weather.thresholds).toEqual({ rainProbability: 60, rainMm: 2, windKmh: 50, minTempC: -25, maxTempC: 35 });
+    expect(dfySettings.crewTexts.time).toBe("18:00");
+    expect(dfySettings.customerHours).toEqual({ from: "09:00", until: "20:00" });
     const house = readDispatchSettings({}, { doneForYou: false });
     expect([house.weather.enabled, house.onOurWay.enabled, house.crewTexts.enabled, house.fillGap.enabled]).toEqual([false, false, false, false]);
     // Crew texts go out until 21:00, so 21:00 or later isn't a valid send time.
@@ -879,7 +879,7 @@ describe("registry and crew phones", () => {
     expect(roleApprovalExecutor("fill_gap")).toBeTypeOf("function");
   });
 
-  it("dispatcherActiveFor: on for a CrankLeads company, off for a house org by default, never throws", async () => {
+  it("dispatcherActiveFor: on for a done-for-you company, off for a house org by default, never throws", async () => {
     expect(await dispatcherActiveFor(db.client, { organizationId: ORG, companyId: CO })).toBe(true);
     expect(await dispatcherActiveFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO })).toBe(false);
     expect(await dispatcherActiveFor(db.client, { organizationId: HOUSE_ORG, companyId: CO })).toBe(false); // wrong org
@@ -899,7 +899,7 @@ describe("registry and crew phones", () => {
     const mark = db.queries.length;
     await onOurWay.run(db.client, NOW);
     await crew.run(db.client, NOW + 1000);
-    // One load = the CrankLeads-org query + the opted-in house-org query.
+    // One load = the done-for-you-org query + the opted-in house-org query.
     expect(db.queries.slice(mark).filter((q) => q.table === "companies")).toHaveLength(2);
   });
 

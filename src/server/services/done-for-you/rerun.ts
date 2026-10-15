@@ -2,7 +2,7 @@
 // SANCTIONED EXCEPTION (service role): the operator's done-for-you re-run job
 // (`npm run job:dfy-provision -- --session cs_...`). A CLI run has no user session;
 // the purchase is selected by its Checkout Session id and provisioned through
-// ./provision.ts exactly as the billing worker would. Listed in docs/EMPIREVU_RUNBOOK.md.
+// ./provision.ts exactly as the billing worker would. Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import type Stripe from "stripe";
 

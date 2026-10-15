@@ -83,7 +83,7 @@ export function BrandOrgSync({ organizationId }: { organizationId: string }) {
 }
 
 /**
- * Pin the brand while a page is mounted — the CrankLeads purchase welcome page is CrankLeads
+ * Pin the brand while a page is mounted — the done-for-you purchase welcome page is done-for-you
  * even before the buyer has an account, whatever host it is served from.
  */
 export function useBrandOverride(key: PlatformBrandKey | null): void {

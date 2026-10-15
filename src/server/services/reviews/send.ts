@@ -11,7 +11,7 @@
  * At most once: a row is claimed (scheduled → sending) before anything is sent, so two
  * workers — or a worker and a click — can never text a customer twice. A row stuck in
  * "sending" (a crash mid-send) is marked failed, never retried.
- * Listed in docs/EMPIREVU_RUNBOOK.md (service-role surfaces).
+ * Listed in docs/EVERDOER_RUNBOOK.md (service-role surfaces).
  */
 import type { Tables } from "@/server/db/database.types";
 import { isEmailSendConfigured } from "@/server/outbound/email";

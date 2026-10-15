@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Public done-for-you checkout (no session — the buyer has no account yet). Called from
- * crankleads.com. See docs/crankleads-purchase.md.
+ * crankleads.com. See docs/done-for-you-purchase.md.
  *
  *   POST { tier, name, email, phone, businessName, businessType, founding?, utm? }
  *     → 200 { url }  (Stripe Checkout — redirect the browser there)

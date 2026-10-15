@@ -10,7 +10,7 @@
  *   • never shows drafts, void invoices, or cancelled / superseded quotes.
  *
  * "Request work" writes a task + activity for the brand and pings owners/admins.
- * Listed in docs/EMPIREVU_RUNBOOK.md (service-role surfaces).
+ * Listed in docs/EVERDOER_RUNBOOK.md (service-role surfaces).
  */
 import { z } from "zod";
 

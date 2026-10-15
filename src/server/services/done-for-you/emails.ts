@@ -1,5 +1,5 @@
 /**
- * Done-for-you purchase emails — PURE renderers (golden-tested in src/test/crankleads-purchase.test.ts).
+ * Done-for-you purchase emails — PURE renderers (golden-tested in src/test/done-for-you-config.test.ts).
  *
  * The buyer bought the done-for-you offer, and that is what they log into: their account is a
  * Done-for-you-branded org (organizations.platform_brand = 'crankleads') on the done-for-you app

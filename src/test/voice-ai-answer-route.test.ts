@@ -135,7 +135,7 @@ const db = (): FakeDb => h.db!;
 const golden = () => fs.readFileSync(path.join(__dirname, "__fixtures__", "missed-call-greeting.twiml.xml"), "utf8").trim().replace("Muskoka Plumbing &amp; Heating", "Northshore Plumbing");
 const registerBody = () => JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)) as Record<string, unknown>;
 
-describe("catcher → AI (mode 'ai', the CrankLeads default)", () => {
+describe("catcher → AI (mode 'ai', the done-for-you default)", () => {
   it("persists first, claims the call, registers it with Retell and dials the AI over SIP", async () => {
     const res = await voiceInbound(twilioRequest("/api/twilio/voice/inbound", callParams()));
     expect(res.status).toBe(200);
@@ -241,7 +241,7 @@ describe("catcher → voicemail", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("a house (non-CrankLeads) org is unchanged: voicemail, no Retell", async () => {
+  it("a house (non-done-for-you) org is unchanged: voicemail, no Retell", async () => {
     h.db = seedDb({ brand: "empirevu", tier: null, plan: "internal" });
     const xml = await (await voiceInbound(twilioRequest("/api/twilio/voice/inbound", callParams()))).text();
     expect(xml).toBe(golden());

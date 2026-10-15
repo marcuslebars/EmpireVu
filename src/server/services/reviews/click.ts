@@ -7,7 +7,7 @@
  * review page. Link-preview bots (iMessage, WhatsApp, Slack…) are forwarded but not
  * counted, so "clicked" means a person opened it. Nothing about the brand or the
  * customer is ever shown on our side — it's a redirect.
- * Listed in docs/EMPIREVU_RUNBOOK.md (service-role surfaces).
+ * Listed in docs/EVERDOER_RUNBOOK.md (service-role surfaces).
  */
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 

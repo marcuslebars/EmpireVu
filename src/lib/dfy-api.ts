@@ -63,7 +63,7 @@ export interface SetupProgressView {
   extras: Array<{ key: "prices" | "payments" | "import"; label: string; done: boolean; path: string }>;
 }
 
-/** null for orgs that aren't CrankLeads purchases. */
+/** null for orgs that aren't done-for-you purchases. */
 export function fetchSetupProgress(orgId: string): Promise<SetupProgressView | null> {
   return apiFetch(`/api/organizations/${orgId}/setup-progress`);
 }

@@ -3,7 +3,7 @@
  * reader (docs/ai-staff.md → "Email inbox").
  *
  *   email_clerk = {
- *     enabled,              // CrankLeads on (inert until mail arrives), house orgs (A1 …) off unless switched on
+ *     enabled,              // Done-for-you on (inert until mail arrives), house orgs (A1 …) off unless switched on
  *     draft_replies: true,  // customer emails get a drafted reply for the owner's Y/N
  *     digest: true,         // one daily text summing up the rest
  *     digest_time: "16:00", // 12:00–19:00 local

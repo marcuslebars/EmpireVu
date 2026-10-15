@@ -12,7 +12,7 @@
  *     }
  *   }
  *
- * `enabled` defaults ON for CrankLeads orgs and OFF for house orgs (A1 etc.). The ring settings
+ * `enabled` defaults ON for done-for-you orgs and OFF for house orgs (A1 etc.). The ring settings
  * only ever matter for a company with a ported business line, so they default on everywhere.
  */
 import { isDoneForYou } from "@/lib/product-line";

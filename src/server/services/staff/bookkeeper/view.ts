@@ -15,7 +15,7 @@ export interface CollectionsView {
   companyId: string;
   companyName: string;
   settings: CollectionsSettings;
-  /** What the default is for this org (on for CrankLeads, off for house orgs). */
+  /** What the default is for this org (on for done-for-you, off for house orgs). */
   defaultEnabled: boolean;
   emailReminders: { enabled: boolean; days: number[] };
   ownerPhoneOnFile: boolean;

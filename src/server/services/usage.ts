@@ -11,7 +11,7 @@ import { toJson } from "@/server/db/json";
 // self-creating wrappers recordUsageSafe / recordAiUsageSafe (metering must never fail
 // a customer-facing send or an AI call). READS (getMonthlyUsage / getUsageForFeature)
 // go through the caller's own RLS client — no service role needed. Listed in
-// docs/EMPIREVU_RUNBOOK.md.
+// docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 import type { createSupabaseServerClient } from "@/server/supabase/server";

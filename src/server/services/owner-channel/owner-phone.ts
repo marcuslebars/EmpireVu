@@ -4,7 +4,7 @@
  * (20261009160000_front_desk_hardening revokes the column grant) and the owner channel only
  * acts for a VERIFIED number (companies.owner_phone_verified_at):
  *
- *   • provisioning (CrankLeads checkout / done-for-you intake from the paying buyer, an
+ *   • provisioning (done-for-you checkout / done-for-you intake from the paying buyer, an
  *     operator in the concierge) sets the number already verified — setOwnerPhoneVerified;
  *   • any later change goes through an owner/admin server route and a 6-digit code texted to
  *     the new number — startOwnerPhoneVerification → confirmOwnerPhoneVerification;

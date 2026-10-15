@@ -49,7 +49,7 @@ describe("brandForHost", () => {
 });
 
 describe("brandForOrg", () => {
-  it("uses platform_brand, defaults to EmpireVu, and treats a CrankLeads tier as CrankLeads", () => {
+  it("uses platform_brand, defaults to standard, and treats a done-for-you tier as done-for-you", () => {
     expect(brandForOrg({ platform_brand: "crankleads" }).key).toBe("crankleads");
     expect(brandForOrg({ platform_brand: "empirevu" }).key).toBe("empirevu");
     expect(brandForOrg({ platform_brand: "empirevu", crankleads_tier: null }).key).toBe("empirevu");
@@ -100,7 +100,7 @@ describe("brandForOrg", () => {
 });
 
 describe("appBaseUrlFor", () => {
-  it("EmpireVu keeps APP_BASE_URL (and its localhost default); CrankLeads uses its env once set", () => {
+  it("standard keeps APP_BASE_URL (and its localhost default); done-for-you uses its env once set", () => {
     vi.stubEnv("APP_BASE_URL", "https://hub.example/");
     vi.stubEnv("CRANKLEADS_APP_BASE_URL", "");
     expect(appBaseUrlFor("empirevu")).toBe("https://hub.example");
@@ -119,7 +119,7 @@ describe("appBaseUrlFor", () => {
     expect(configuredAppBaseUrlFor("crankleads")).toBe("https://cl.example");
   });
 
-  it("with CRANKLEADS_APP_BASE_URL unset, every CrankLeads link uses APP_BASE_URL (safe before the domain exists)", () => {
+  it("with CRANKLEADS_APP_BASE_URL unset, every done-for-you link uses APP_BASE_URL (safe before the domain exists)", () => {
     vi.stubEnv("APP_BASE_URL", "https://app.empirevu.test");
     vi.stubEnv("CRANKLEADS_APP_BASE_URL", "");
     const cl = PLATFORM_BRANDS.crankleads;
@@ -179,7 +179,7 @@ describe("owner-facing copy follows the org's brand", () => {
     expect(alert.body).not.toMatch(EMPIRE);
   });
 
-  it("monthly scorecard brand: per org, env override only for EmpireVu", () => {
+  it("monthly scorecard brand: per org, env override only for standard orgs", () => {
     vi.stubEnv("PLATFORM_BRAND_NAME", "Acme Leads");
     expect(scorecardPlatformBrandName()).toBe("Acme Leads");
     expect(scorecardPlatformBrandName(cl)).toBe("Everdoer");
@@ -248,7 +248,7 @@ describe("owner-facing copy follows the org's brand", () => {
     expect(`${live.subject}${live.body}${live.html}`).not.toMatch(EMPIRE);
   });
 
-  it("platformBrand() falls back to EmpireVu", () => {
+  it("platformBrand() falls back to standard", () => {
     expect(platformBrand("nope").key).toBe("empirevu");
   });
 });

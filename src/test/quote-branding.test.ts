@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { sanitizeStatementDescriptorSuffix } from "@/server/services/quotes/company-stripe";
 
 /**
- * EmpireVu is the backend. Every customer-facing surface — the hosted quote page,
+ * Everdoer is the backend. Every customer-facing surface — the hosted quote page,
  * the deposit receipt, the statement line on a card — must carry the BRAND the
  * customer hired, never the platform running it.
  *

@@ -15,7 +15,7 @@ export interface ImportOverview {
   companyId: string;
   companyName: string;
   settings: ImportSettings;
-  /** What the default is for this org (on for CrankLeads, off for house orgs). */
+  /** What the default is for this org (on for done-for-you, off for house orgs). */
   defaultEnabled: boolean;
   ownerPhoneOnFile: boolean;
   batches: BatchSummary[];

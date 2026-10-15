@@ -2,7 +2,7 @@
  * The owner's end-of-call text — "what Marina just did", in four lines.
  *
  * Ported from a1marinecare/src/lib/retell/webhook.ts (buildOwnerSms). What changed: the
- * outcome (quoted amount, booked window, deposit) is read from EmpireVu's own records for
+ * outcome (quoted amount, booked window, deposit) is read from Everdoer's own records for
  * that call — the quote Marina created, the booking made with the call's id, the deposit
  * event — rather than the Care site's database, so it works for every company.
  *

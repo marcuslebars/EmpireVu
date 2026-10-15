@@ -689,7 +689,7 @@ function OnboardingPageWrapper() {
   console.log("[OnboardingPageWrapper] Route matched: /onboarding");
   const { status, session } = useAuth();
   const location = useLocation();
-  // An explicit wizard deep link (`?step=…`, from a CrankLeads setup reminder, the welcome
+  // An explicit wizard deep link (`?step=…`, from a done-for-you setup reminder, the welcome
   // email or the dashboard's setup card) opens the wizard even for an account that has an org.
   const explicitStep = new URLSearchParams(location.search).has("step");
   if (status === "unauthenticated" && explicitStep) {

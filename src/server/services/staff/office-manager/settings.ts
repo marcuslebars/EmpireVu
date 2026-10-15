@@ -2,7 +2,7 @@
  * The Office manager's settings: companies.ai_settings.office_manager, read with defaults. The ONE
  * typed reader (docs/ai-staff.md → "Office manager").
  *
- *   enabled   the morning briefing. Default ON for CrankLeads orgs, OFF for house orgs (A1…)
+ *   enabled   the morning briefing. Default ON for done-for-you orgs, OFF for house orgs (A1…)
  *             unless the owner turns it on.
  *   time      local "HH:MM" between 06:00 and 09:00 (default 07:00).
  *   days      local weekdays (0 = Sunday … 6 = Saturday). Default Monday–Saturday.
@@ -201,7 +201,7 @@ export async function loadBriefingCompany(admin: AdminClient, organizationId: st
 }
 
 /**
- * Companies with the briefing on: every active company of a CrankLeads org (unless switched off),
+ * Companies with the briefing on: every active company of a done-for-you org (unless switched off),
  * plus house-org companies that switched it on (ai_settings.office_manager.enabled = true).
  * House orgs are filtered out at the query, so A1-style tenants never enter the sweep unless
  * they opted in.
@@ -209,9 +209,9 @@ export async function loadBriefingCompany(admin: AdminClient, organizationId: st
 export async function loadBriefingCompanies(admin: AdminClient): Promise<BriefingCompany[]> {
   const db = admin as Db;
   const orgs = await readAllPages<{ id: string }>((from, to) => db.from("organizations").select("id").in("platform_brand", [...PRODUCT_LINE_DB_VALUES.done_for_you]).order("id", { ascending: true }).range(from, to));
-  const crankOrgs = new Set(orgs.map((o) => o.id));
+  const doneForYouOrgs = new Set(orgs.map((o) => o.id));
   const rows = new Map<string, BriefingCompanyRow>();
-  for (const ids of chunks([...crankOrgs])) {
+  for (const ids of chunks([...doneForYouOrgs])) {
     const page = await readAllPages<BriefingCompanyRow>((from, to) => db.from("companies").select(COMPANY_COLUMNS).in("organization_id", ids).order("id", { ascending: true }).range(from, to));
     for (const r of page) rows.set(r.id, r);
   }
@@ -220,7 +220,7 @@ export async function loadBriefingCompanies(admin: AdminClient): Promise<Briefin
   );
   for (const r of optedIn) rows.set(r.id, r);
   return [...rows.values()]
-    .map((r) => toBriefingCompany(r, crankOrgs.has(r.organization_id) ? "crankleads" : "empirevu"))
+    .map((r) => toBriefingCompany(r, doneForYouOrgs.has(r.organization_id) ? "crankleads" : "empirevu"))
     .filter((c) => c.active && c.settings.enabled);
 }
 
@@ -245,7 +245,7 @@ export async function officeManagerActiveFor(admin: AdminClient, scope: { organi
  *
  * The briefing marks items reported only after a send that carried them, and never folds again
  * once the day's row is final, so the two can't both report the same items. Cheap: the settings
- * are checked first (one company read; the org read only when `hint.crankleads` isn't given),
+ * are checked first (one company read; the org read only when `hint.doneForYou` isn't given),
  * and today's row only on a briefing day. Never throws (false → the alert goes as usual).
  */
 export async function briefingTakesMoneyAlert(

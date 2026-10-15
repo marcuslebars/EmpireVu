@@ -28,7 +28,7 @@ type StripeEventObject = Record<string, any>;
 /** Event types whose state transitions this processor applies. */
 const HANDLED_EVENT_TYPES = new Set<string>([
   "checkout.session.completed",
-  // Only acted on for CrankLeads purchases (delayed payment methods); a no-op otherwise.
+  // Only acted on for done-for-you purchases (delayed payment methods); a no-op otherwise.
   "checkout.session.async_payment_succeeded",
   "invoice.paid",
   "invoice.payment_failed",
@@ -219,7 +219,7 @@ async function requireOrg(
   const customerId = customerIdOf(object);
   const org = await resolveOrgByCustomer(supabase, customerId);
   if (!org) {
-    // A CrankLeads purchase whose org is still being provisioned (the subscription/invoice
+    // A done-for-you purchase whose org is still being provisioned (the subscription/invoice
     // events can be processed before checkout.session.completed finishes): retry later
     // instead of dead-lettering.
     if (await doneForYouPurchasePendingFor(supabase, object)) {
@@ -316,7 +316,7 @@ async function handleSubscriptionUpdated(
   const status = mapStripeStatus(String(object.status ?? ""));
 
   const patch: Updates<"organizations"> = { plan, subscription_status: status };
-  // A CrankLeads tier change (e.g. Catch → Close in the portal) keeps the recorded tier in step.
+  // A done-for-you tier change (e.g. Catch → Close in the portal) keeps the recorded tier in step.
   const tier = planTierForPriceId(priceId);
   if (tier) {
     patch.crankleads_tier = tier;
@@ -360,8 +360,8 @@ async function handleSubscriptionDeleted(
 
 /**
  * customer.subscription.created: the same transition as .updated when the org is known
- * (or is a CrankLeads purchase still being provisioned — deferred). For an unknown,
- * non-CrankLeads customer it stays the no-op it was before this event was handled.
+ * (or is a done-for-you purchase still being provisioned — deferred). For an unknown,
+ * non-done-for-you customer it stays the no-op it was before this event was handled.
  */
 async function handleSubscriptionCreated(
   supabase: AdminSupabaseClient,
@@ -375,8 +375,8 @@ async function handleSubscriptionCreated(
 }
 
 /**
- * A CrankLeads Checkout Session was paid: provision the owner login + org + company first
- * (exactly once — crankleads/provision.ts), then apply the normal checkout transition to
+ * A done-for-you Checkout Session was paid: provision the owner login + org + company first
+ * (exactly once — done-for-you/provision.ts), then apply the normal checkout transition to
  * the new org. Null while the session is not paid yet.
  */
 async function handleDoneForYouCheckout(
@@ -397,7 +397,7 @@ async function handleDoneForYouCheckout(
  * Apply the state transition for one ledger event. Returns the resolved org id
  * (null for unhandled event types, which are acknowledged as a no-op). Throws
  * UnresolvedCustomerError when a handled event can't be mapped to an org, and
- * DeferBillingEventError when it can't be mapped YET (CrankLeads provisioning).
+ * DeferBillingEventError when it can't be mapped YET (done-for-you provisioning).
  */
 export async function applyBillingEvent(
   supabase: AdminSupabaseClient,

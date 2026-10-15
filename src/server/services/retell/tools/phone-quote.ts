@@ -1,5 +1,5 @@
 /**
- * Marina's phone quote — the `quote_shrink_wrap` tool, now served by EmpireVu.
+ * Marina's phone quote — the `quote_shrink_wrap` tool, now served by Everdoer.
  *
  * Replaces a1marinecare/src/lib/retell/phone-quote.ts. The argument contract is kept
  * IDENTICAL (name, phone, email, boat_length_ft, hull_type, winterization_engine,
@@ -12,7 +12,7 @@
  *     Marine Care's catalog is seeded to reproduce the Care site's calculator to the cent
  *     — see supabase/seeds/a1-care-shrink-wrap.sql and the golden test.
  *   • The lead goes through the same durable phone-lead intake as every Retell call
- *     (idempotent on call_id), and the quote is a real EmpireVu quote: numbered, on the
+ *     (idempotent on call_id), and the quote is a real Everdoer quote: numbered, on the
  *     hosted /q page, payable through the company's own Stripe account.
  *
  * Nothing here invents a price. Missing inputs come back as `missing_info` (Marina asks),

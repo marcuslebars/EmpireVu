@@ -203,7 +203,7 @@ afterEach(() => {
 // ── Pure parts ───────────────────────────────────────────────────────────────────────
 
 describe("settings and words", () => {
-  it("defaults: CrankLeads on (12-month warranty, next day 10am), house orgs off; merge touches only customer_care", () => {
+  it("defaults: done-for-you on (12-month warranty, next day 10am), house orgs off; merge touches only customer_care", () => {
     const on = readCustomerCareSettings({}, { doneForYou: true });
     expect(on).toMatchObject({ enabled: true, checkins: { enabled: true, time: "10:00", delayDays: 1, minJobCents: 0 }, warranty: { months: 12, terms: null }, enabledIsDefault: true });
     expect(readCustomerCareSettings({}, { doneForYou: false }).enabled).toBe(false);
@@ -259,7 +259,7 @@ describe("registry and gating", () => {
     expect(registryProblems([], [])).toEqual([]);
   });
 
-  it("on for CrankLeads with the SMS agent; off with the agent off; A1 off unless switched on", async () => {
+  it("on for done-for-you with the SMS agent; off with the agent off; A1 off unless switched on", async () => {
     expect(await careActiveFor(db.client, { organizationId: ORG, companyId: CO })).toBe(true);
     expect(await careActiveFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO })).toBe(false);
     expect((await activeRolesFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO })).map((r) => r.role)).not.toContain("customer_care");

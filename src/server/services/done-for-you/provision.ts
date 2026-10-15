@@ -7,7 +7,7 @@
 // points at (metadata.purchaseId / client_reference_id / session id), and every tenant write
 // after that runs through the normal tenant services (createOrganization, createCompany,
 // applyIndustryPack, createPublicFormKey, upsertOnboardingStep) with a context pinned to
-// THAT org id. Listed in docs/EMPIREVU_RUNBOOK.md.
+// THAT org id. Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import { randomBytes } from "node:crypto";
 
@@ -251,7 +251,7 @@ async function resolveExistingUser(admin: AdminClient, user: AuthUserSummary): P
   return { id: user.id, existing: false };
 }
 
-/** Create the owner's login, or reuse the existing EmpireVu user with this email. */
+/** Create the owner's login, or reuse the existing Everdoer user with this email. */
 export async function ensureOwnerUser(admin: AdminClient, email: string, fullName: string): Promise<OwnerUser> {
   const normalized = email.trim().toLowerCase();
   const existingProfile = await findProfileIdByEmail(admin, normalized);
@@ -553,7 +553,7 @@ async function provisionClaimed(admin: AdminClient, purchase: DoneForYouPurchase
   const tier = purchase.tier;
   if (!isDoneForYouTier(tier)) throw new Error(`Unknown Everdoer tier "${tier}".`);
 
-  // 1) Owner login — create, or attach to the existing EmpireVu user with this email.
+  // 1) Owner login — create, or attach to the existing Everdoer user with this email.
   let ownerId = purchase.owner_profile_id;
   let existingUser = purchase.existing_user ?? false;
   if (!ownerId) {

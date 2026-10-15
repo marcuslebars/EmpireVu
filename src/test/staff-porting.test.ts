@@ -214,7 +214,7 @@ describe("encryption", () => {
 });
 
 describe("settings", () => {
-  it("on for CrankLeads, off for house orgs; ring defaults 20 s, screened, owner only", () => {
+  it("on for done-for-you, off for house orgs; ring defaults 20 s, screened, owner only", () => {
     expect(readPortingSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, enabledIsDefault: true, ring: { enabled: true, seconds: 20, crew: false, screen: true } });
     expect(readPortingSettings({}, { doneForYou: false }).enabled).toBe(false);
     expect(readPortingSettings({ porting: { ring: { seconds: 99 } } }, { doneForYou: true }).ring.seconds).toBe(40);
@@ -225,7 +225,7 @@ describe("settings", () => {
     expect(next).toEqual({ sms_agent: { enabled: true }, porting: { enabled: false, ring: { crew: true, seconds: 15 } } });
   });
 
-  it("activeFor: CrankLeads on, house org off (no owner tools / notes for A1)", async () => {
+  it("activeFor: done-for-you on, house org off (no owner tools / notes for A1)", async () => {
     expect(await portingActiveFor(db.client, scope)).toBe(true);
     expect(await portingActiveFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO })).toBe(false);
     expect(portingRole.activeFor).toBe(portingActiveFor);

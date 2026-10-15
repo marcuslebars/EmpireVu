@@ -3,7 +3,7 @@
  * the quote-maintenance cron job. A background job has no session; it reads open
  * invoices across tenants and every write is pinned to the row's own id, with the
  * claim made in the UPDATE's WHERE clause so overlapping runs can't double-send.
- * Listed in docs/EMPIREVU_RUNBOOK.md (service-role surfaces).
+ * Listed in docs/EVERDOER_RUNBOOK.md (service-role surfaces).
  *
  * For each open invoice past its due date (in the brand's own time zone):
  *   1. invoice.overdue fires ONCE — the first day it is late — for automations

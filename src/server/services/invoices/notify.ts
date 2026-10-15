@@ -6,7 +6,7 @@
  * the credential) and (c) the reminder job. Every read here is by an invoice /
  * payment id the caller already holds, and every follow-up query is pinned to that
  * invoice's own organization_id + company_id, so no request input can reach
- * another tenant's rows. Listed in docs/EMPIREVU_RUNBOOK.md (service-role surfaces).
+ * another tenant's rows. Listed in docs/EVERDOER_RUNBOOK.md (service-role surfaces).
  *
  * Contract: NOTHING here throws. The invoice is issued / the payment recorded
  * before any of this runs; a mail or SMS failure is reported in the return value

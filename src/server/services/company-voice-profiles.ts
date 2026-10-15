@@ -6,7 +6,7 @@ export interface CompanyVoiceProfile {
   retellOutboundAgentId: string | null;
   fromNumber: string | null;
   brandLabel: string | null;
-  /** EmpireVu-managed outbound system prompt; rendered + injected as {{system_prompt}}. */
+  /** Everdoer-managed outbound system prompt; rendered + injected as {{system_prompt}}. */
   systemPrompt: string | null;
   dynamicVariables: Record<string, string>;
   active: boolean;
@@ -43,7 +43,7 @@ export function effectiveVoiceForProfile(
   const companyName = profile?.brandLabel || ctx.companyName || null;
   if (ctx.customerName) dynamicVariables.customer_name = ctx.customerName;
   if (companyName) dynamicVariables.company_name = companyName;
-  // EmpireVu-managed prompt: render it against the variables above (so {{customer_name}},
+  // Everdoer-managed prompt: render it against the variables above (so {{customer_name}},
   // {{company_name}} + brand vars resolve), then inject as {{system_prompt}} — the Retell
   // agent's general prompt is a `{{system_prompt}}` passthrough.
   if (profile?.systemPrompt) {

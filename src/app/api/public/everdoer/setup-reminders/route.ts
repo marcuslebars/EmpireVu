@@ -3,7 +3,7 @@
 // clicks it from an email, possibly signed out — there is no RLS identity, and
 // crankleads_purchases is service-role only. The purchase is found ONLY by the random token
 // the link carries (never by an id the request chooses), and the one write is
-// crankleads_purchases.setup_reminders_stopped_at. Listed in docs/EMPIREVU_RUNBOOK.md.
+// crankleads_purchases.setup_reminders_stopped_at. Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import { NextResponse } from "next/server";
 

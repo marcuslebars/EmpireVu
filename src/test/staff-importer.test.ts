@@ -342,7 +342,7 @@ describe("row cleaning", () => {
 // ── Settings / house orgs ─────────────────────────────────────────────────────
 
 describe("settings and house orgs", () => {
-  it("on by default for CrankLeads, off for house orgs; merge touches only ai_settings.import", async () => {
+  it("on by default for done-for-you, off for house orgs; merge touches only ai_settings.import", async () => {
     expect(readImportSettings({}, { doneForYou: true })).toEqual({ enabled: true, enabledIsDefault: true });
     expect(readImportSettings({}, { doneForYou: false })).toEqual({ enabled: false, enabledIsDefault: true });
     expect(readImportSettings({ import: { enabled: true } }, { doneForYou: false }).enabled).toBe(true);
@@ -354,8 +354,8 @@ describe("settings and house orgs", () => {
   it("A1 never sees the tools, can't upload, and its batches aren't touched by the sweep", async () => {
     const a1Roles = await activeRolesFor(h.db!.client, { organizationId: A1_ORG, companyId: A1_CO });
     expect(a1Roles.map((r) => r.role)).not.toContain("importer");
-    const crank = await activeRolesFor(h.db!.client, { organizationId: ORG, companyId: CO });
-    expect(crank.map((r) => r.role)).toContain("importer");
+    const dfyRoles = await activeRolesFor(h.db!.client, { organizationId: ORG, companyId: CO });
+    expect(dfyRoles.map((r) => r.role)).toContain("importer");
     const a1 = (await loadImportCompany(h.db!.client, A1_ORG, A1_CO))!;
     await expect(createBatch(h.db!.client, a1, { fileName: "c.csv", fileSize: 10, source: "app", createdBy: null }, deps())).rejects.toThrow(/off for this business/);
     // A batch left over from when it was on: the sweep leaves it alone (nothing read, nothing written).

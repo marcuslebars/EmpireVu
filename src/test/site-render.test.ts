@@ -123,7 +123,7 @@ describe("page content", () => {
     expect(html.toLowerCase()).not.toContain("empirevu");
   });
 
-  it("the platform credit is 'Powered by Everdoer' (only when a credit URL is given); never CrankLeads", () => {
+  it("the platform credit is 'Powered by Everdoer' (only when a credit URL is given); never done-for-you", () => {
     const html = renderSitePage(contentFor(snowCompany), { ...opts, url: "https://pages.everdoer.com/northshore", creditUrl: DONE_FOR_YOU_SITE_CREDIT_URL });
     expect(DONE_FOR_YOU_SITE_CREDIT_URL).toBe("https://everdoer.com");
     expect(siteCreditUrl()).toBe("https://everdoer.com");

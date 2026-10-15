@@ -1,10 +1,10 @@
 /**
- * Import the A1 Marine Care site's upcoming bookings + recent quotes into EmpireVu.
+ * Import the A1 Marine Care site's upcoming bookings + recent quotes into Everdoer.
  *
  *   npm run job:import-a1-care -- --file a1-care-export.json            # dry run (default)
  *   npm run job:import-a1-care -- --file a1-care-export.json --apply    # write
  *
- * Run it at cutover, right before pointing Marina at EmpireVu, so capacity counts every
+ * Run it at cutover, right before pointing Marina at Everdoer, so capacity counts every
  * job already on the calendar and returning callers are recognised. The file comes from
  * a1marinecare/scripts/export-for-empirevu.ts. See services/imports/a1-care.ts for the
  * mapping.
@@ -15,7 +15,7 @@
  * Deliberately QUIET: nothing here emails or texts a customer or fires an automation.
  * Quotes are written as already-sent (no "your quote" email), their expiry reminder is
  * marked as already handled, and bookings are inserted without booking.created. The
- * day-before reminder will still come from EmpireVu's scheduler — turn off the Care
+ * day-before reminder will still come from Everdoer's scheduler — turn off the Care
  * site's own reminder workflow at the same time.
  *
  * Service-role: a job has no RLS identity; the target company is resolved by slug.
@@ -148,7 +148,7 @@ async function hasDepositLinkEvent(db: Db, quoteId: string): Promise<boolean> {
  * cutover carries what happened since the first run: a deposit paid there, a deposit link
  * sent there, and the original quote date (created_at drives Marina's "you got a quote
  * yesterday" and the returning-caller lookback). Only ever moves forward — never un-pays,
- * never touches a quote EmpireVu has since moved past "sent", and stays quiet (no events
+ * never touches a quote Everdoer has since moved past "sent", and stays quiet (no events
  * that fire automations, same as a first import).
  */
 async function resyncQuote(db: Db, existing: ImportedQuoteRow, q: PlannedImportQuote): Promise<string[]> {

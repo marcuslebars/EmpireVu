@@ -5,7 +5,7 @@
  * segments, with a link to the full report in the app.
  *
  * Branding: the CLIENT's company name is the headline; `platformBrand` is the org's platform
- * brand name (CrankLeads for a CrankLeads org — never EmpireVu), from
+ * brand name (Everdoer for a done-for-you org — never EmpireVu), from
  * `scorecardPlatformBrandName()`.
  */
 import { esc } from "@/server/services/quotes/emails";

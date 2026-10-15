@@ -41,14 +41,14 @@ const REMINDER: Parameters<typeof renderReminderSms>[0] = {
 };
 
 describe("EVERDOER_SMS_BRANDING off (default): every SMS text is byte-identical to before the rebrand", () => {
-  it("owner prefix: 'CrankLeads: ' for done-for-you, nothing for house orgs", () => {
+  it("owner prefix: 'done-for-you: ' for done-for-you, nothing for house orgs", () => {
     expect(smsBrandingOn()).toBe(false);
     for (const v of ["crankleads", "done_for_you"]) expect(signaturePrefix(v)).toBe("CrankLeads: ");
     for (const v of ["empirevu", "standard", null, undefined]) expect(signaturePrefix(v)).toBe("");
     expect(LEGACY_OWNER_SMS_PREFIX).toBe("CrankLeads: ");
   });
 
-  it("platform-number unknown-sender / HELP reply is today's CrankLeads text", () => {
+  it("platform-number unknown-sender / HELP reply is today's done-for-you text", () => {
     expect(platformUnknownSenderText()).toBe(OLD_UNKNOWN_SENDER);
   });
 
@@ -69,7 +69,7 @@ describe("EVERDOER_SMS_BRANDING on: Everdoer everywhere, for every org", () => {
     for (const v of ["", "0", "no", "off"]) expect(smsBrandingOn({ EVERDOER_SMS_BRANDING: v })).toBe(false);
   });
 
-  it("'Everdoer: ' (10 septets, shorter than 'CrankLeads: ') for every org", () => {
+  it("'Everdoer: ' (10 septets, shorter than 'done-for-you: ') for every org", () => {
     vi.stubEnv("EVERDOER_SMS_BRANDING", "1");
     expect(OWNER_SMS_PREFIX).toBe("Everdoer: ");
     expect(septets(OWNER_SMS_PREFIX)).toBeLessThan(septets(LEGACY_OWNER_SMS_PREFIX));

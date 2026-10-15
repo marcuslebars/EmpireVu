@@ -254,7 +254,7 @@ describe("weekly report templates", () => {
     reportUrl: "https://app.crankleads.test/reports/weekly?week=2026-10-05",
   };
 
-  it("a CrankLeads email never says EmpireVu, labels hours saved as an estimate, and links the report", () => {
+  it("a done-for-you email never says EmpireVu, labels hours saved as an estimate, and links the report", () => {
     const email = renderWeeklyEmail(busyMetrics(), options);
     for (const part of [email.subject, email.html, email.text]) {
       expect(part).not.toMatch(/empirevu/i);
@@ -329,7 +329,7 @@ describe("weekly report templates", () => {
 // ── Settings ────────────────────────────────────────────────────────────────────
 
 describe("weekly report settings", () => {
-  it("defaults ON (text + email) for CrankLeads, OFF (email only) for others", () => {
+  it("defaults ON (text + email) for done-for-you, OFF (email only) for others", () => {
     expect(parseWeeklyReportSettings({}, true)).toEqual({ enabled: true, channels: ["sms", "email"], explicit: false });
     expect(parseWeeklyReportSettings(null, false)).toEqual({ enabled: false, channels: ["email"], explicit: false });
     expect(parseWeeklyReportSettings({ weekly_report: { enabled: false } }, true).enabled).toBe(false);
@@ -413,7 +413,7 @@ afterEach(() => {
 });
 
 describe("runWeeklyReports — Monday 08:30 Toronto", () => {
-  it("texts (platform number) + emails a live CrankLeads owner once; house org is off by default", async () => {
+  it("texts (platform number) + emails a live done-for-you owner once; house org is off by default", async () => {
     const db = seed();
     const outcomes = await runWeeklyReports(db.client, { nowMs: MON_0830, respectSendWindow: true });
     expect(Object.fromEntries(outcomes.map((o) => [o.companyId, [o.result, o.reason ?? null]]))).toEqual({
@@ -533,7 +533,7 @@ describe("runWeeklyReports — Monday 08:30 Toronto", () => {
     expect(sendSms).not.toHaveBeenCalled();
   });
 
-  it("a house (non-CrankLeads) org that opts in gets email only, branded Everdoer", async () => {
+  it("a house (non-done-for-you) org that opts in gets email only, branded Everdoer", async () => {
     const db = seed();
     db.tables.companies[1].ai_settings = { weekly_report: { enabled: true, channels: ["sms", "email"] } };
     const outcomes = await runWeeklyReports(db.client, { nowMs: MON_0830, companyId: CO_HOUSE, respectSendWindow: true });

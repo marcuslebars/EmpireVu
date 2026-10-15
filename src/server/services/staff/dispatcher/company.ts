@@ -71,7 +71,7 @@ async function build(admin: AdminClient, rows: CompanyRow[]): Promise<DispatchCo
   const orgIds = [...new Set(rows.map((r) => r.organization_id))];
   const orgs = await selectIn<{ id: string; platform_brand: string | null }>(admin, "organizations", "id, platform_brand", "id", orgIds);
   const brandOf = new Map(orgs.map((o) => [o.id, o.platform_brand ?? "empirevu"]));
-  // The CrankLeads business type is only a hint for companies without an industry pack.
+  // The done-for-you business type is only a hint for companies without an industry pack.
   const needType = rows.filter((r) => isDoneForYou(brandOf.get(r.organization_id)) && !r.industry_pack).map((r) => r.id);
   const purchases = needType.length
     ? await selectIn<{ company_id: string | null; business_type: string | null }>(admin, "crankleads_purchases", "company_id, business_type", "company_id", needType).catch(() => [])
@@ -115,7 +115,7 @@ async function pageAll<T>(fetchPage: (from: number, to: number) => PromiseLike<{
 
 /**
  * Companies where some Dispatcher feature is on (paused / archived companies are left alone),
- * settings resolved. Filtered server-side: companies of CrankLeads orgs (on by default), plus
+ * settings resolved. Filtered server-side: companies of done-for-you orgs (on by default), plus
  * house-org companies that switched something on (ai_settings.dispatch.any_on, written by
  * mergeDispatchSettings).
  */

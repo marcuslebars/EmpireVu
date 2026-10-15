@@ -570,7 +570,7 @@ describe("advanceDoneForYou — transitions + idempotency", () => {
     expect(h.operatorEmails).toHaveLength(1);
   });
 
-  it("no escalation once the checklist is live; skips live / cancelled / non-CrankLeads companies", async () => {
+  it("no escalation once the checklist is live; skips live / cancelled / non-done-for-you companies", async () => {
     db = createFakeDb(
       tables({
         voice_numbers: [catcherRow({ forwarding_verified_at: "2026-10-05T16:00:00Z" })],

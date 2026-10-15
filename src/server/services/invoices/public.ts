@@ -13,7 +13,7 @@
  * signature is the credential, and each one cross-checks that the connected
  * account the event came from owns the invoice before touching it.
  *
- * Listed in docs/EMPIREVU_RUNBOOK.md (service-role surfaces).
+ * Listed in docs/EVERDOER_RUNBOOK.md (service-role surfaces).
  */
 import type Stripe from "stripe";
 
@@ -48,7 +48,7 @@ async function invoiceByToken(db: Db, token: string): Promise<InvoiceRow | null>
 }
 
 export interface PublicViewer {
-  /** The signed-in EmpireVu user, if any (cookie or bearer) — staff previews never count. */
+  /** The signed-in Everdoer user, if any (cookie or bearer) — staff previews never count. */
   userId?: string | null;
   userAgent?: string | null;
 }

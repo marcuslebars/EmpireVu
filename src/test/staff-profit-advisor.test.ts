@@ -192,7 +192,7 @@ function seed(): FakeDb {
 const rows = (t: string) => (db.tables[t] ?? []) as Array<Record<string, unknown>>;
 const texts = () => sendSms.mock.calls.map((c) => c[0] as { to: string; body: string });
 
-async function crank(): Promise<ProfitCompany> {
+async function dfyCompany(): Promise<ProfitCompany> {
   return (await loadProfitCompany(db.client, ORG, CO)) as ProfitCompany;
 }
 
@@ -464,7 +464,7 @@ describe("the weekly text", () => {
 // ── Settings + registry ──────────────────────────────────────────────────────────────
 
 describe("settings and registry", () => {
-  it("on for CrankLeads, off for house orgs unless switched on; merge only touches profit_advisor", () => {
+  it("on for done-for-you, off for house orgs unless switched on; merge only touches profit_advisor", () => {
     expect(readProfitAdvisorSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, weekly: { enabled: true, day: 5, time: "15:00" }, pricingCheck: { enabled: true }, tightCushionCents: 0, enabledIsDefault: true });
     expect(readProfitAdvisorSettings({}, { doneForYou: false }).enabled).toBe(false);
     expect(readProfitAdvisorSettings({ profit_advisor: { weekly: { day: 9, time: "03:00" }, tight_cushion_cents: -5 } }, { doneForYou: true })).toMatchObject({ weekly: { day: 5, time: "15:00" }, tightCushionCents: 0 });
@@ -472,7 +472,7 @@ describe("settings and registry", () => {
     expect(merged).toEqual({ sms_agent: { autonomy: "ask_first" }, profit_advisor: { enabled: true, weekly: { day: 1, time: "07:30" }, pricing_check: { enabled: false }, tight_cushion_cents: 250_000, any_on: true } });
   });
 
-  it("activeFor: CrankLeads yes, A1 no; registered after purchasing; no duplicate kinds/tools", async () => {
+  it("activeFor: done-for-you yes, A1 no; registered after purchasing; no duplicate kinds/tools", async () => {
     expect(await profitAdvisorActiveFor(db.client, { organizationId: ORG, companyId: CO })).toBe(true);
     expect(await profitAdvisorActiveFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO })).toBe(false);
     const house = await activeRolesFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO });
@@ -493,7 +493,7 @@ describe("settings and registry", () => {
 
 describe("profit_advisor:weekly", () => {
   it("Friday 15:00: one money text from the platform number, the week's real job costing, once across workers", async () => {
-    const outcome = await runCompanyWeekly(db.client, await crank(), FRIDAY);
+    const outcome = await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY);
     expect(outcome).toBe("sent");
     const [text] = texts();
     expect(text.to).toBe(OWNER);
@@ -502,14 +502,14 @@ describe("profit_advisor:weekly", () => {
     expect(text.body).toMatch(/^CrankLeads: This week: 3 jobs done, \$2,489 billed, profit about \$1,109 \(45%\)\. Best: Jones roof repair \$1,180\. Watch: Smith deck lost \$180 \(labour 12h over\)\. Next 30 days: about \$\S+ in, \$\S+ out - fine\. Text 'profit' for more\.$/);
     expect(rows("profit_advisor_runs")[0]).toMatchObject({ kind: "weekly", run_key: "2026-W42", status: "sent" });
     // A second worker in the same window: nothing.
-    expect(await runCompanyWeekly(db.client, await crank(), FRIDAY + 60_000)).toBe("claimed_elsewhere");
+    expect(await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY + 60_000)).toBe("claimed_elsewhere");
     expect(sendSms).toHaveBeenCalledTimes(1);
     // A1 never touched.
     expect(db.queries.filter((q) => q.filters.some((f) => f.value === HOUSE_CO || f.value === HOUSE_ORG) && q.table === "bookings")).toEqual([]);
   });
 
   it("only on the owner's day, from their time, until 20:00; weekWindow is gap-free", async () => {
-    const c = await crank();
+    const c = await dfyCompany();
     expect(await runCompanyWeekly(db.client, c, FRIDAY - DAY)).toBe("not_now");
     expect(await runCompanyWeekly(db.client, c, Date.parse("2026-10-16T18:55:00Z"))).toBe("not_now"); // 14:55
     expect(await runCompanyWeekly(db.client, c, Date.parse("2026-10-17T00:05:00Z"))).toBe("not_now"); // 20:05
@@ -519,7 +519,7 @@ describe("profit_advisor:weekly", () => {
 
   it("a quiet week with cash fine: no text (claimed as skipped)", async () => {
     db.tables.bookings = (db.tables.bookings as Array<Record<string, unknown>>).filter((b) => !["b-14", "b-15"].includes(String(b.id)));
-    expect(await runCompanyWeekly(db.client, await crank(), FRIDAY)).toBe("skipped");
+    expect(await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY)).toBe("skipped");
     expect(sendSms).not.toHaveBeenCalled();
     expect(rows("profit_advisor_runs")[0]).toMatchObject({ status: "skipped" });
   });
@@ -527,27 +527,27 @@ describe("profit_advisor:weekly", () => {
   it("a quiet week but cash tight: it texts anyway", async () => {
     db.tables.bookings = (db.tables.bookings as Array<Record<string, unknown>>).filter((b) => !["b-14", "b-15"].includes(String(b.id)));
     db.tables.invoices = [];
-    expect(await runCompanyWeekly(db.client, await crank(), FRIDAY)).toBe("sent");
+    expect(await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY)).toBe("sent");
     expect(texts()[0].body).toMatch(/^CrankLeads: This week: 1 job done, \$1,500 billed, profit about \$1,180 \(79%\)\. Next 30 days: about \$0 in, \$\S+ out - tight around Nov 1[45] \(about \$[\d,]+ short\)\. Text 'profit' for more\.$/);
   });
 
   it("a failed send is retried after 30 minutes (3 tries); weekly off / no verified cell → nothing", async () => {
     sendSms.mockImplementationOnce(() => Promise.reject(new Error("twilio down")));
-    expect(await runCompanyWeekly(db.client, await crank(), FRIDAY)).toBe("failed");
-    expect(await runCompanyWeekly(db.client, await crank(), FRIDAY + 10 * 60_000)).toBe("claimed_elsewhere");
-    expect(await runCompanyWeekly(db.client, await crank(), FRIDAY + 31 * 60_000)).toBe("sent");
+    expect(await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY)).toBe("failed");
+    expect(await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY + 10 * 60_000)).toBe("claimed_elsewhere");
+    expect(await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY + 31 * 60_000)).toBe("sent");
     expect(rows("profit_advisor_runs")[0]).toMatchObject({ status: "sent", attempts: 2 });
     db = seed();
     (db.tables.companies[0] as Record<string, unknown>).ai_settings = { profit_advisor: { weekly: { enabled: false } } };
-    expect(await runCompanyWeekly(db.client, await crank(), FRIDAY)).toBe("off");
+    expect(await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY)).toBe("off");
     (db.tables.companies[0] as Record<string, unknown>).ai_settings = {};
     (db.tables.companies[0] as Record<string, unknown>).owner_phone_verified_at = null;
-    expect(await runCompanyWeekly(db.client, await crank(), FRIDAY)).toBe("off");
+    expect(await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY)).toBe("off");
   });
 
   it("an owner with two businesses: the text names which one", async () => {
     db.tables.companies.push(company({ id: "66666666-6666-4666-8666-666666666666", name: "Northshore Snow" }));
-    expect(await runCompanyWeekly(db.client, await crank(), FRIDAY)).toBe("sent");
+    expect(await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY)).toBe("sent");
     expect(texts()[0].body).toMatch(/^CrankLeads: Northshore Roofing: This week: 3 jobs done/);
   });
 
@@ -573,7 +573,7 @@ describe("the pricing check", () => {
   });
 
   it("finds the thin-margin item customers still say yes to (read-only report)", async () => {
-    const report = await runPricingCheck(db.client, await crank(), PRICING_DAY);
+    const report = await runPricingCheck(db.client, await dfyCompany(), PRICING_DAY);
     const gutter = report.items.find((i) => i.label === "Gutter cleaning")!;
     const roof = report.items.find((i) => i.label === "Roof repair")!;
     // 7 gutter jobs: 6 × ($189 − $100 labour − $66 receipts) + ($189 − $80) = $247 on $1,323.
@@ -587,7 +587,7 @@ describe("the pricing check", () => {
 
   it("price_change end to end through decideApproval: the exact owner text, Y raises the price once, recorded", async () => {
     vi.setSystemTime(PRICING_DAY);
-    const result = await runCompanyPricing(db.client, await crank(), PRICING_DAY);
+    const result = await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY);
     expect(result).toEqual({ outcome: "done", asked: 1 });
     const approval = rows("owner_approvals")[0];
     expect(approval).toMatchObject({ kind: PRICE_CHANGE_KIND, status: "pending", notified_to: OWNER });
@@ -597,7 +597,7 @@ describe("the pricing check", () => {
     );
     expect(rows("price_changes")[0]).toMatchObject({ status: "proposed", old_rate_cents: 18_900, new_rate_cents: 21_500, approval_id: approval.id, basis: { jobs: 7, marginPct: 19, companyMarginPct: 46, quotes: 8, winRatePct: 88 } });
     // A second pass this month asks nothing more.
-    expect(await runCompanyPricing(db.client, await crank(), PRICING_DAY + 60 * 60_000)).toEqual({ outcome: "claimed_elsewhere", asked: 0 });
+    expect(await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY + 60 * 60_000)).toEqual({ outcome: "claimed_elsewhere", asked: 0 });
 
     const decided = await decideApproval(db.client, String(approval.id), { approved: true, decidedVia: "sms", decidedBy: OWNER }, { organizationId: ORG, nowMs: PRICING_DAY + 60_000 });
     expect(decided.message).toBe("Done - Gutter cleaning is now $215 on your price list (was $189). New quotes use it; quotes already sent keep their price. I'll show you how it does in next month's price check.");
@@ -615,13 +615,13 @@ describe("the pricing check", () => {
     // The next check shows the effect, and doesn't ask about it again for 90 days.
     const tool = await runOwnerTool(ownerState(PRICING_DAY + 2 * DAY), "pricing_check", {});
     expect(tool.past_changes).toEqual(["Gutter cleaning: raised 2 days ago - no jobs since yet"]);
-    const later = await runPricingCheck(db.client, await crank(), PRICING_DAY + 35 * DAY);
+    const later = await runPricingCheck(db.client, await dfyCompany(), PRICING_DAY + 35 * DAY);
     expect(later.items.find((i) => i.label === "Gutter cleaning")).toMatchObject({ proposal: null });
   });
 
   it('the owner texts "Y 1" to the platform number: the price goes up; "Y 1 $199" changes nothing', async () => {
     vi.setSystemTime(PRICING_DAY);
-    await runCompanyPricing(db.client, await crank(), PRICING_DAY);
+    await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY);
     const code = rows("owner_approvals")[0].short_code;
     const sms = (body: string, n: number) => handleOwnerInboundSms(db.client, { from: OWNER, to: PLATFORM, body, media: [], providerRef: `SMpa${n}`, viaPlatformNumber: true, companyId: null });
     sendSms.mockClear();
@@ -635,17 +635,17 @@ describe("the pricing check", () => {
 
   it("N: nothing changes, and it isn't asked again for 90 days; expiry: nothing changes", async () => {
     vi.setSystemTime(PRICING_DAY);
-    await runCompanyPricing(db.client, await crank(), PRICING_DAY);
+    await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY);
     const approval = rows("owner_approvals")[0];
     const no = await decideApproval(db.client, String(approval.id), { approved: false, decidedVia: "sms", decidedBy: OWNER }, { organizationId: ORG, nowMs: PRICING_DAY + 60_000 });
     expect(no.message).toBe("OK - Gutter cleaning stays at $189. I won't ask about it again for 90 days.");
     expect(rows("service_catalog_items").find((i) => i.id === GUTTER)?.rate_cents).toBe(18_900);
     expect(rows("price_changes")[0].status).toBe("declined");
-    const dec = await runPricingCheck(db.client, await crank(), PRICING_DAY + 28 * DAY);
+    const dec = await runPricingCheck(db.client, await dfyCompany(), PRICING_DAY + 28 * DAY);
     expect(dec.items.find((i) => i.label === "Gutter cleaning")).toMatchObject({ underpriced: true, proposal: null, held: "recent_change" });
 
     db = seed();
-    await runCompanyPricing(db.client, await crank(), PRICING_DAY);
+    await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY);
     const a2 = rows("owner_approvals")[0];
     const exp = await expireApproval(db.client, { ...a2, expires_at: new Date(PRICING_DAY).toISOString() } as never, PRICING_DAY + 8 * DAY);
     expect(exp.outcome).toBe("expired");
@@ -655,7 +655,7 @@ describe("the pricing check", () => {
 
   it("Y after someone changed the price by hand: nothing written (stale); a note re-asks under a fresh code", async () => {
     vi.setSystemTime(PRICING_DAY);
-    await runCompanyPricing(db.client, await crank(), PRICING_DAY);
+    await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY);
     const approval = rows("owner_approvals")[0];
     (rows("service_catalog_items").find((i) => i.id === GUTTER) as Record<string, unknown>).rate_cents = 19_900;
     const y = await decideApproval(db.client, String(approval.id), { approved: true, decidedVia: "sms", decidedBy: OWNER }, { organizationId: ORG, nowMs: PRICING_DAY + 60_000 });
@@ -664,7 +664,7 @@ describe("the pricing check", () => {
     expect(rows("price_changes")[0].status).toBe("stale");
 
     db = seed();
-    await runCompanyPricing(db.client, await crank(), PRICING_DAY);
+    await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY);
     const first = rows("owner_approvals")[0];
     const noted = await decideApproval(db.client, String(first.id), { approved: true, ownerNote: "$199", decidedVia: "app", decidedBy: "profile:p-owner" }, { organizationId: ORG, nowMs: PRICING_DAY + 60_000 });
     const fresh = rows("owner_approvals").find((a) => a.id !== first.id)!;
@@ -683,7 +683,7 @@ describe("the pricing check", () => {
 
   it("the pricing check is off → no question; A1 is never checked", async () => {
     (db.tables.companies[0] as Record<string, unknown>).ai_settings = { profit_advisor: { pricing_check: { enabled: false } } };
-    expect(await runCompanyPricing(db.client, await crank(), PRICING_DAY)).toEqual({ outcome: "off", asked: 0 });
+    expect(await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY)).toEqual({ outcome: "off", asked: 0 });
     const house = (await loadProfitCompany(db.client, HOUSE_ORG, HOUSE_CO))!;
     expect(await runCompanyPricing(db.client, house, PRICING_DAY)).toEqual({ outcome: "off", asked: 0 });
     expect(await runCompanyWeekly(db.client, house, FRIDAY)).toBe("off");
@@ -704,7 +704,7 @@ describe("forecast inputs", () => {
     db.tables.service_agreements.push({ id: "sa-1", organization_id: ORG, company_id: CO, plan_name: "Spring + Fall", customer_name: "Dana Jones", status: "active", billing: "annual", price_cents: 42_000, renewal_price_cents: null, term_end: "2026-11-30", renewed_by_agreement_id: null, renewal_declined_at: null });
     db.tables.purchase_orders.push({ id: "po-1", organization_id: ORG, company_id: CO, po_number: "PO-1", needed_by: "2026-10-21", est_total_cents: 116_200, status: "sent", job_label: "Smith - Chimney" });
     db.tables.rentals = [{ id: "r-1", organization_id: ORG, company_id: CO, item: "Mini-ex", vendor: "Sunbelt", out_at: "2026-10-15T12:00:00Z", due_back_at: "2026-10-20T21:00:00Z", returned_at: null, rate_per_day_cents: 38_000 }];
-    const inp = await loadForecastInputs(db.client, await crank(), FRIDAY);
+    const inp = await loadForecastInputs(db.client, await dfyCompany(), FRIDAY);
     expect(inp.openInvoices).toEqual([{ id: "inv-7", label: "INV-7 Jones", contactId: "ct-jones", balanceCents: 2_000_000, dueDate: "2026-10-20", issueDate: "2026-10-06" }]);
     expect(inp.quotes).toEqual([{ id: "q-open", label: "Smith Chimney", depositDueCents: 28_250, balanceCents: 84_750, jobDate: "2026-10-22" }]);
     expect(inp.jobs).toEqual([{ id: "b-up2", label: "Lee Eavestrough", date: "2026-10-23", expectedCents: 45_200 }]);
@@ -718,7 +718,7 @@ describe("forecast inputs", () => {
     // Another role's table missing / a read failing: left out with a note, never a crash.
     delete db.tables.rentals;
     db.failNext("expenses", "select");
-    const partial = await loadForecastInputs(db.client, await crank(), FRIDAY);
+    const partial = await loadForecastInputs(db.client, await dfyCompany(), FRIDAY);
     expect(partial.notes).toEqual(["Expenses not included - couldn't read it."]);
     expect(partial.openInvoices).toHaveLength(1);
   });
@@ -778,7 +778,7 @@ describe("settings view", () => {
   it("members see the switches only; owners/admins see the money", async () => {
     const member = (await getProfitAdvisorView(db.client, { organizationId: ORG, companyId: CO }, { manager: false, nowMs: FRIDAY }))!;
     expect(member).toMatchObject({ manager: false, forecast: null, pricing: null, lastWeekly: null, settings: { enabled: true } });
-    await runCompanyWeekly(db.client, await crank(), FRIDAY);
+    await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY);
     const owner = (await getProfitAdvisorView(db.client, { organizationId: ORG, companyId: CO }, { manager: true, nowMs: FRIDAY }))!;
     expect(owner.forecast?.windows.map((w) => w.days)).toEqual([30, 60, 90]);
     expect(owner.pricing?.items.find((i) => i.label === "Gutter cleaning")).toMatchObject({ jobs: 7, underpriced: true, proposalCents: 21_500 });
@@ -798,14 +798,14 @@ void tablesRef;
 describe("review: items switched off, minimums, price types", () => {
   it("an item switched off on the price list is never proposed", async () => {
     gutter().active = false;
-    const report = await runPricingCheck(db.client, await crank(), PRICING_DAY);
+    const report = await runPricingCheck(db.client, await dfyCompany(), PRICING_DAY);
     expect(report.items.find((i) => i.label === "Gutter cleaning")).toMatchObject({ underpriced: true, proposal: null, held: "inactive" });
-    expect(await runCompanyPricing(db.client, await crank(), PRICING_DAY)).toEqual({ outcome: "done", asked: 0 });
+    expect(await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY)).toEqual({ outcome: "done", asked: 0 });
   });
 
   it("switched off after the question: Y writes nothing and never switches it back on", async () => {
     vi.setSystemTime(PRICING_DAY);
-    await runCompanyPricing(db.client, await crank(), PRICING_DAY);
+    await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY);
     gutter().active = false;
     const y = await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER }, { organizationId: ORG, nowMs: PRICING_DAY + 60_000 });
     expect(y.message).toBe("Nothing changed - Gutter cleaning is switched off on your price list.");
@@ -816,7 +816,7 @@ describe("review: items switched off, minimums, price types", () => {
   it("a minimum the owner changed by hand (or a new price type) is never overwritten", async () => {
     vi.setSystemTime(PRICING_DAY);
     gutter().minimum_cents = 15_000;
-    await runCompanyPricing(db.client, await crank(), PRICING_DAY);
+    await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY);
     expect(rows("price_changes")[0]).toMatchObject({ old_minimum_cents: 15_000, new_minimum_cents: 17_000 });
     gutter().minimum_cents = 10_000;
     const y = await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER }, { organizationId: ORG, nowMs: PRICING_DAY + 60_000 });
@@ -824,7 +824,7 @@ describe("review: items switched off, minimums, price types", () => {
     expect(gutter()).toMatchObject({ minimum_cents: 10_000, rate_cents: 18_900 });
 
     db = seed();
-    await runCompanyPricing(db.client, await crank(), PRICING_DAY);
+    await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY);
     gutter().pricing_type = "tiered_by_measure";
     await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER }, { organizationId: ORG, nowMs: PRICING_DAY + 60_000 });
     expect(gutter().rate_cents).toBe(18_900);
@@ -835,28 +835,28 @@ describe("review: items switched off, minimums, price types", () => {
 describe("review: only numbers at the current price count", () => {
   it("a raise the owner made by hand: the next check counts from then (no stacking on old margins)", async () => {
     // October's check saw $189 (the watch records it).
-    await runPricingCheck(db.client, await crank(), Date.parse("2026-10-06T14:00:00Z"), { record: true });
+    await runPricingCheck(db.client, await dfyCompany(), Date.parse("2026-10-06T14:00:00Z"), { record: true });
     expect(rows("price_watch").find((w) => w.service_catalog_item_id === GUTTER)).toMatchObject({ rate_cents: 18_900, changed_at: null });
     // The owner raises it to $199 in the app.
     gutter().rate_cents = 19_900;
-    expect(await runCompanyPricing(db.client, await crank(), PRICING_DAY)).toEqual({ outcome: "done", asked: 0 });
+    expect(await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY)).toEqual({ outcome: "done", asked: 0 });
     expect(rows("price_watch").find((w) => w.service_catalog_item_id === GUTTER)).toMatchObject({ rate_cents: 19_900, changed_at: new Date(PRICING_DAY).toISOString() });
-    const report = await runPricingCheck(db.client, await crank(), PRICING_DAY + 28 * DAY);
+    const report = await runPricingCheck(db.client, await dfyCompany(), PRICING_DAY + 28 * DAY);
     expect(report.items.find((i) => i.label === "Gutter cleaning")).toMatchObject({ jobs: 0, underpriced: false, proposal: null, priceSince: new Date(PRICING_DAY).toISOString() });
   });
 
   it("day 91 after an approved raise: needs 5 new jobs at the new price, then judges those", async () => {
     vi.setSystemTime(PRICING_DAY);
-    await runCompanyPricing(db.client, await crank(), PRICING_DAY);
+    await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY);
     await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER }, { organizationId: ORG, nowMs: PRICING_DAY + 60_000 });
     expect(gutter().rate_cents).toBe(21_500);
     const day91 = PRICING_DAY + 91 * DAY;
     // The 90 days are up, but nothing has been sold at $215 yet: no new question off the old $189 numbers.
-    const quiet = await runPricingCheck(db.client, await crank(), day91);
+    const quiet = await runPricingCheck(db.client, await dfyCompany(), day91);
     expect(quiet.items.find((i) => i.label === "Gutter cleaning")).toMatchObject({ jobs: 0, underpriced: false, proposal: null });
     // Five jobs sold at $215 (quoted after the raise), still thin: judged on those alone.
     for (let i = 0; i < 5; i++) liveJob({ at: `2026-12-1${i}T14:00:00.000Z`, lines: [["gutter_clean", 21_500]], labourMin: 300 });
-    const busy = await runPricingCheck(db.client, await crank(), day91);
+    const busy = await runPricingCheck(db.client, await dfyCompany(), day91);
     const g = busy.items.find((i) => i.label === "Gutter cleaning")!;
     expect(g).toMatchObject({ jobs: 5, revenueCents: 107_500, quotes: 5, won: 5, underpriced: true });
     expect(g.proposal).toMatchObject({ oldRateCents: 21_500, newRateCents: 24_500, pct: 14 });
@@ -864,7 +864,7 @@ describe("review: only numbers at the current price count", () => {
 
   it("approved quotes that were never 'sent' still count as wins", async () => {
     db.tables.quotes.push({ id: "q-onsite", organization_id: ORG, company_id: CO, status: "approved", sent_at: null, approved_at: "2026-08-21T13:00:00.000Z", superseded_by: null, line_items: [{ serviceId: "gutter_clean", amountCents: 18_900, selected: true }], approved_line_items: null, input_snapshot: {} });
-    const report = await runPricingCheck(db.client, await crank(), PRICING_DAY);
+    const report = await runPricingCheck(db.client, await dfyCompany(), PRICING_DAY);
     expect(report.items.find((i) => i.label === "Gutter cleaning")).toMatchObject({ quotes: 9, won: 8 });
   });
 });
@@ -872,38 +872,38 @@ describe("review: only numbers at the current price count", () => {
 describe("review: stuck rows", () => {
   it("a price change stuck in 'applying' is finished after 10 minutes, re-checking the price first", async () => {
     vi.setSystemTime(PRICING_DAY);
-    await runCompanyPricing(db.client, await crank(), PRICING_DAY);
+    await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY);
     const change = rows("price_changes")[0];
     Object.assign(change, { status: "applying", decided_at: new Date(PRICING_DAY).toISOString(), updated_at: new Date(PRICING_DAY).toISOString() });
     // Not yet 10 minutes: left alone.
-    await runCompanyPricing(db.client, await crank(), PRICING_DAY + 5 * 60_000);
+    await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY + 5 * 60_000);
     expect(change.status).toBe("applying");
-    await runCompanyPricing(db.client, await crank(), PRICING_DAY + 11 * 60_000);
+    await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY + 11 * 60_000);
     expect(change.status).toBe("applied");
     expect(gutter().rate_cents).toBe(21_500);
 
     // The write happened but the worker died before recording it: no second write, just recorded.
     db = seed();
-    await runCompanyPricing(db.client, await crank(), PRICING_DAY);
+    await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY);
     const c2 = rows("price_changes")[0];
     Object.assign(c2, { status: "applying", updated_at: new Date(PRICING_DAY).toISOString() });
     gutter().rate_cents = 21_500;
     db.queries.length = 0;
-    await runCompanyPricing(db.client, await crank(), PRICING_DAY + 11 * 60_000);
+    await runCompanyPricing(db.client, await dfyCompany(), PRICING_DAY + 11 * 60_000);
     expect(c2.status).toBe("applied");
     expect(db.queries.filter((q) => q.table === "service_catalog_items" && q.op === "update")).toEqual([]);
   });
 
   it("a weekly run stuck at 'claimed' (dead worker) is taken again after 30 minutes", async () => {
     db.tables.profit_advisor_runs.push({ id: "run-x", organization_id: ORG, company_id: CO, kind: "weekly", run_key: "2026-W42", status: "claimed", attempts: 1, created_at: new Date(FRIDAY - 40 * 60_000).toISOString(), updated_at: new Date(FRIDAY - 40 * 60_000).toISOString() });
-    expect(await runCompanyWeekly(db.client, await crank(), FRIDAY)).toBe("sent");
+    expect(await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY)).toBe("sent");
     expect(rows("profit_advisor_runs")[0]).toMatchObject({ status: "sent", attempts: 2 });
   });
 
   it("one weekly text per ISO week, even if the day is moved mid-week", async () => {
-    expect(await runCompanyWeekly(db.client, await crank(), FRIDAY)).toBe("sent");
+    expect(await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY)).toBe("sent");
     (db.tables.companies[0] as Record<string, unknown>).ai_settings = { profit_advisor: { weekly: { day: 6 } } };
-    expect(await runCompanyWeekly(db.client, await crank(), FRIDAY + DAY)).toBe("claimed_elsewhere");
+    expect(await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY + DAY)).toBe("claimed_elsewhere");
     expect(sendSms).toHaveBeenCalledTimes(1);
     expect(["2026-10-16", "2026-10-12", "2026-10-18", "2026-01-01", "2027-01-01", "2026-12-31", "2021-01-03", "2021-01-04", "2024-12-30"].map(isoWeekKey)).toEqual([
       "2026-W42", "2026-W42", "2026-W42", "2026-W01", "2026-W53", "2026-W53", "2020-W53", "2021-W01", "2025-W01",
@@ -921,7 +921,7 @@ describe("review: free visits and deposits", () => {
     Object.assign(db.tables.bookings.find((b) => b.id === plan)!, { quote_id: null, recurring_job_id: "rj-plan", occurrence_date: "2026-10-15" });
     db.tables.recurring_jobs.push({ id: "rj-plan", organization_id: ORG, company_id: CO, line_items: [] });
     db.tables.service_agreements.push({ id: "sa-p", organization_id: ORG, company_id: CO, recurring_job_id: "rj-plan", billing: "annual", term_start: "2026-05-01", term_end: "2027-04-30", activated_at: "2026-05-01T12:00:00Z", status: "active" });
-    expect(await runCompanyWeekly(db.client, await crank(), FRIDAY)).toBe("sent");
+    expect(await runCompanyWeekly(db.client, await dfyCompany(), FRIDAY)).toBe("sent");
     const body = texts()[0].body;
     expect(body).toMatch(/^CrankLeads: This week: 3 jobs done, \$2,489 billed, profit about \$1,109 \(45%\)\./);
     expect(body).toContain("1 free callback/warranty visit cost about $80.");
@@ -933,18 +933,18 @@ describe("review: free visits and deposits", () => {
   it("an online-booking deposit isn't counted twice: the job's expected money is net of it", async () => {
     db.tables.bookings.push({ id: "b-dep", organization_id: ORG, company_id: CO, title: "Eavestrough", contact_id: "ct-lee", status: "confirmed", scheduled_for: "2026-10-23T13:00:00Z", quote_id: null, price_cents: 40_000, deposit_cents: 10_000, deposit_invoice_id: "inv-dep", deposit_paid_at: null });
     db.tables.invoices.push({ id: "inv-dep", organization_id: ORG, company_id: CO, contact_id: "ct-lee", invoice_number: "INV-8", status: "sent", balance_due_cents: 10_000, total_cents: 10_000, due_date: "2026-10-16", issue_date: "2026-10-16", booking_id: null });
-    const inp = await loadForecastInputs(db.client, await crank(), FRIDAY);
+    const inp = await loadForecastInputs(db.client, await dfyCompany(), FRIDAY);
     expect(inp.jobs.find((j) => j.id === "b-dep")).toMatchObject({ expectedCents: 45_200 - 10_000 });
     expect(inp.openInvoices.map((i) => i.id)).toContain("inv-dep");
     // Paid already: still net of it (the money came in with the deposit).
     Object.assign(db.tables.bookings.find((b) => b.id === "b-dep")!, { deposit_paid_at: "2026-10-16T12:00:00Z" });
     db.tables.invoices = db.tables.invoices.filter((i) => i.id !== "inv-dep");
-    expect((await loadForecastInputs(db.client, await crank(), FRIDAY)).jobs.find((j) => j.id === "b-dep")).toMatchObject({ expectedCents: 35_200 });
+    expect((await loadForecastInputs(db.client, await dfyCompany(), FRIDAY)).jobs.find((j) => j.id === "b-dep")).toMatchObject({ expectedCents: 35_200 });
   });
 
   it("Fleet's rentals (rate_cents_per_day) are read", async () => {
     db.tables.rentals = [{ id: "r-1", organization_id: ORG, company_id: CO, item: "Mini-ex", vendor: "Sunbelt", out_at: "2026-10-15T12:00:00Z", due_back_at: "2026-10-20T21:00:00Z", returned_at: null, rate_cents_per_day: 38_000 }];
-    expect((await loadForecastInputs(db.client, await crank(), FRIDAY)).rentals).toEqual([{ label: "Mini-ex (Sunbelt)", from: "2026-10-15", to: "2026-10-20", dailyCents: 38_000 }]);
+    expect((await loadForecastInputs(db.client, await dfyCompany(), FRIDAY)).rentals).toEqual([{ label: "Mini-ex (Sunbelt)", from: "2026-10-15", to: "2026-10-20", dailyCents: 38_000 }]);
   });
 });
 
@@ -953,10 +953,10 @@ describe("review: HST in the forecast", () => {
     (db.tables.companies[0] as Record<string, unknown>).ai_settings = { tax_clerk: { hst: { registrant: true, frequency: "monthly" } } };
     db.tables.invoices.push({ id: "inv-oct", organization_id: ORG, company_id: CO, contact_id: null, invoice_number: "INV-9", status: "paid", issue_date: "2026-10-05", subtotal_cents: 238_462, tax_cents: 31_000, total_cents: 269_462, balance_due_cents: 0, credit_cents: 0, amount_paid_cents: 269_462, imported_at: null });
     db.tables.hst_periods = [];
-    const inp = await loadForecastInputs(db.client, await crank(), FRIDAY);
+    const inp = await loadForecastInputs(db.client, await dfyCompany(), FRIDAY);
     // Oct so far: $310 collected − $23.40 ITC (the deck receipt) = $286.60, over 16 of 31 days.
     expect(inp.hst).toEqual([{ label: "Oct HST (so far, scaled)", dueDate: "2026-11-30", cents: Math.round((28_660 * 31) / 16) }]);
-    const early = await loadForecastInputs(db.client, await crank(), Date.parse("2026-10-03T16:00:00Z"));
+    const early = await loadForecastInputs(db.client, await dfyCompany(), Date.parse("2026-10-03T16:00:00Z"));
     expect(early.hst).toEqual([]);
     expect(early.notes).toContain("Oct HST not included yet - too early in the period to tell.");
   });

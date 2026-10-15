@@ -28,7 +28,7 @@ import type { Tables } from "@/server/db/database.types";
 const TZ = "America/Toronto";
 const MORNING_SLOTS = ["08:00", "09:00", "10:00", "11:00"];
 
-/** The Care site's slot counts → EmpireVu bookings booked into windows. */
+/** The Care site's slot counts → Everdoer bookings booked into windows. */
 function busyFromCounts(counts: Array<{ date: string; timeSlot: string; count: number }>): BusyBooking[] {
   return counts.flatMap((c) => {
     const windowKey = MORNING_SLOTS.includes(c.timeSlot) ? "morning" : "afternoon";

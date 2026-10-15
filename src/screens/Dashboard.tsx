@@ -47,9 +47,9 @@ import { YourNumbersCard } from "@/components/front-desk/YourNumbersCard";
 const ONBOARDING_TOTAL_STEPS = 8;
 
 /**
- * CrankLeads orgs: the done-for-you "We're setting you up" card (what we've done + the one
+ * Done-for-you orgs: the done-for-you "We're setting you up" card (what we've done + the one
  * thing left — forwarding), linking to the full progress view. Hidden once live and for
- * non-CrankLeads orgs (docs/done-for-you.md).
+ * non-done-for-you orgs (docs/done-for-you.md).
  */
 function SetupChecklistCard({ orgId }: { orgId: string }) {
   return <SetupProgressCard orgId={orgId} />;
@@ -61,7 +61,7 @@ function OnboardingChecklistCard({ orgId }: { orgId: string }) {
   const navigate = useNavigate();
   const { data } = useOnboardingProgress(orgId);
   const { data: setup, isLoading: setupLoading } = useSetupChecklist(orgId);
-  // CrankLeads orgs get the required-steps card above instead.
+  // Done-for-you orgs get the required-steps card above instead.
   if (setupLoading || setup) return null;
   if (!data || !data.company) return null;
   const done = data.steps.filter((s) => s.status === "complete").length;

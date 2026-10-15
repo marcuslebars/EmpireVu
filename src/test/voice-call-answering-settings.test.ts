@@ -68,7 +68,7 @@ beforeEach(() => {
 });
 
 describe("readCallAnsweringSettings", () => {
-  it("defaults: AI for CrankLeads, voicemail for house orgs, 100 minutes", () => {
+  it("defaults: AI for done-for-you, voicemail for house orgs, 100 minutes", () => {
     expect(readCallAnsweringSettings({}, { doneForYou: true })).toEqual({ mode: "ai", includedMinutes: 100, modeExplicit: false });
     expect(readCallAnsweringSettings(null, { doneForYou: false })).toEqual({ mode: "voicemail", includedMinutes: 100, modeExplicit: false });
     expect(readCallAnsweringSettings({ call_answering: { mode: "ai", included_minutes: 250 } }, { doneForYou: false })).toEqual({

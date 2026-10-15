@@ -71,7 +71,7 @@ const TEMPLATE_DATA: MessageTemplateData = {
 const parsedPacks = ALL_PACKS.map((pack) => ({ raw: pack, parsed: pack }));
 
 describe("industry packs — shape", () => {
-  it("ships the six CrankLeads packs, snow first, with unique ids", () => {
+  it("ships the six done-for-you packs, snow first, with unique ids", () => {
     const ids = ALL_PACKS.map((p) => p.id);
     expect(ids[0]).toBe("property-maintenance-snow");
     expect(new Set(ids).size).toBe(ids.length);

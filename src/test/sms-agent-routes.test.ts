@@ -47,7 +47,7 @@ beforeEach(() => {
 const params = { params: { organizationId: ORG, companyId: CO } };
 
 describe("ai-settings/sms-agent", () => {
-  it("GET shows the CrankLeads default (on, standard)", async () => {
+  it("GET shows the done-for-you default (on, standard)", async () => {
     const res = await GET(new Request("http://localhost/x"), params);
     const json = await res.json();
     expect(res.status).toBe(200);

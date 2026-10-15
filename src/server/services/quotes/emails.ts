@@ -6,7 +6,7 @@
  *   expiryReminder   one gentle nudge, 5 days before valid_until
  *   quoteReplaced    sent on reissue, pointing at the new quote
  *
- * Every one is branded from the COMPANY. EmpireVu is the backend and is named
+ * Every one is branded from the COMPANY. Everdoer is the backend and is named
  * nowhere in these — the customer hired the brand, not the platform.
  *
  * Templates are PURE functions returning { subject, html, text } so they can be

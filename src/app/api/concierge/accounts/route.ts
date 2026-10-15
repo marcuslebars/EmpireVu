@@ -9,7 +9,7 @@ import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-/** CrankLeads accounts, newest first, with setup state. */
+/** Done-for-you accounts, newest first, with setup state. */
 export async function GET(request: Request): Promise<NextResponse> {
   return handleRoute(async () => {
     await requireOperator(request);

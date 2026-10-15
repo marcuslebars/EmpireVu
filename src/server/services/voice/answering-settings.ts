@@ -2,7 +2,7 @@
  * Call answering settings — companies.ai_settings.call_answering (docs/front-desk-ai.md →
  * "## Phone answering"). The ONE typed reader for that section, with the defaults:
  *
- *   mode              "ai" (CrankLeads orgs) | "voicemail" (everyone else, unless they opt in)
+ *   mode              "ai" (done-for-you orgs) | "voicemail" (everyone else, unless they opt in)
  *   included_minutes  monthly AI-answering minutes for Catch / Close (default 100). Front Desk
  *                     uses its plan allowance instead (marina_reception, 500 — billing/config.ts).
  *
@@ -24,7 +24,7 @@ export interface CallAnsweringSettings {
 }
 
 export interface CallAnsweringSettingsContext {
-  /** organizations.platform_brand === 'crankleads'. House / EmpireVu orgs default to voicemail. */
+  /** organizations.platform_brand === 'crankleads'. House / standard orgs default to voicemail. */
   doneForYou: boolean;
 }
 

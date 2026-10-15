@@ -11,7 +11,7 @@ import { AiFrontDeskSectionCard, type AiFrontDeskSectionProps } from "@/componen
  * Settings → AI front desk → Service plans (docs/ai-staff.md → "Service plans"): the maintenance
  * plans the business sells (a simple editor), its sign-up page, renewals / visit texts on-off, and
  * (owners/admins) who's on a plan, with Cancel. Self-contained (own query + mutations). Renders
- * nothing for house orgs (Service plans is CrankLeads-only).
+ * nothing for house orgs (Service plans is done-for-you-only).
  */
 
 type Billing = "annual" | "per_visit";
