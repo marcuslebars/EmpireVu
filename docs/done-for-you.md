@@ -356,27 +356,26 @@ Help article: `your-website`.
 `appBaseUrlFor(brand)/s/<slug>`. It is the ONLY builder of a page URL: the "You're live"
 message, the page text, the in-app progress view, Settings and the concierge console all use it.
 
-### Turning on pages.crankleads.com (Railway + DNS)
+### Turning on pages.everdoer.com (Railway + DNS)
 
-Not live today. crankleads.com now redirects to everdoer.com, and the rebrand plan (D1) names
-`pages.everdoer.com` as the short-URL host if you want one; if so, use it (and the everdoer.com
-DNS zone) wherever the steps below say pages.crankleads.com.
+Not live today: no pages host has ever been set, so every page link is `<app>/s/<slug>`.
+`pages.everdoer.com` is the pages host (rebrand plan D1). `pages.crankleads.com` was never
+turned on, so there are no old pages links to keep and `PAGES_LEGACY_HOSTS` stays unset.
 
 Do these in order; **set the env var last** so no link points at a host that doesn't resolve.
 
-1. Deploy this branch (migration `20261008130000` applied). Sites already work at
-   `<app>/s/<slug>`.
+1. Deploy (migration `20261008130000` applied). Sites already work at `<app>/s/<slug>`.
 2. **Railway:** web service → Settings → Networking → Custom Domain → add
-   `pages.crankleads.com`. Railway shows a CNAME target.
-3. **DNS (crankleads.com):** `CNAME pages → <the Railway target>`. Wait until Railway shows the
-   certificate issued and `https://pages.crankleads.com/<a published slug>` loads the page
-   (the middleware only rewrites once `PAGES_BASE_URL` is set, so before step 5 you'll see the
-   app; that's expected).
-4. **Turnstile** (if used): add `pages.crankleads.com` to the site's allowed hostnames.
-5. Set `PAGES_BASE_URL=https://pages.crankleads.com` on **web and worker**, redeploy. New
-   links, canonical URLs and the "page is live" text use the pages host; old `/s/<slug>` links
-   keep working (canonical points at the pages host).
-6. Optional: put Cloudflare in front of `pages.crankleads.com` to honour `s-maxage`.
+   `pages.everdoer.com`. Railway shows a CNAME target.
+3. **DNS (everdoer.com zone):** `CNAME pages → <the Railway target>`. Wait until Railway shows the
+   certificate issued and `https://pages.everdoer.com/<a published slug>` loads (the middleware
+   only rewrites once `PAGES_BASE_URL` is set, so before step 5 you'll see the app; that's
+   expected).
+4. **Turnstile** (if used): add `pages.everdoer.com` to the site's allowed hostnames.
+5. Set `PAGES_BASE_URL=https://pages.everdoer.com` on **web and worker**, redeploy. New links,
+   canonical URLs and the "page is live" text use the pages host; old `/s/<slug>` links keep
+   working (canonical points at the pages host).
+6. Optional: put Cloudflare in front of `pages.everdoer.com` to honour `s-maxage`.
 
 Rollback: unset `PAGES_BASE_URL` (links go back to `/s/<slug>`); the migration's down file is
 `supabase/rollback/20261008130000_company_sites_owner_notified.down.sql`.
@@ -489,7 +488,7 @@ pass), `src/test/concierge.test.ts`.
 | Variable | Service | Needed for |
 | --- | --- | --- |
 | `GOOGLE_PLACES_API_KEY` | web, worker | Quick setup "find your business" + enrichment. A Google Cloud key with **Places API (New)** enabled (Text Search + Place Details), restricted to that API. Unset → website / no-website only. |
-| `PAGES_BASE_URL` | web, worker | e.g. `https://pages.crankleads.com` (no trailing slash). Set LAST, after the DNS step below. Unset → pages live at `<done-for-you app base URL>/s/<slug>`. |
+| `PAGES_BASE_URL` | web, worker | e.g. `https://pages.everdoer.com` (no trailing slash). Set LAST, after the DNS step below. Unset → pages live at `<done-for-you app base URL>/s/<slug>`. |
 | `OPERATOR_EMAILS` | web | Comma-separated operator emails for `/concierge` (owner + closers; confirmed accounts only). Unset → console off (404). |
 | `TURNSTILE_SITE_KEY` *(optional)* | web | Turnstile widget on the page's quote form (or reuse `VITE_TURNSTILE_SITE_KEY`; needs `TURNSTILE_SECRET_KEY`). Add the pages host to the widget's hostnames. |
 | `ANTHROPIC_API_KEY` *(existing)* | web, worker | Prices from their website + page copy. Unset → those steps are skipped / template copy. |
@@ -501,11 +500,11 @@ pass), `src/test/concierge.test.ts`.
 
 `COMPANY_SITE_BASE_URL` is gone — page links come only from `PAGES_BASE_URL` (via `siteUrl`).
 
-### DNS for pages.crankleads.com
+### DNS for pages.everdoer.com
 
-Follow "Turning on pages.crankleads.com" above: deploy → Railway custom domain on the web
-service → `CNAME pages → <Railway target>` on crankleads.com → certificate issued → Turnstile
-hostname (if used) → set `PAGES_BASE_URL` on web **and** worker → redeploy.
+Follow "Turning on pages.everdoer.com" above: deploy → Railway custom domain on the web
+service → `CNAME pages → <Railway target>` in the everdoer.com zone → certificate issued →
+Turnstile hostname (if used) → set `PAGES_BASE_URL` on web **and** worker → redeploy.
 
 ### Migrations, in order
 
