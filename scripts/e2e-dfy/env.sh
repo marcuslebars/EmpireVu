@@ -4,7 +4,7 @@ export E2E_ROOT="${E2E_ROOT:-/var/tmp/e2e-dfy}"
 export E2E_PGDATA="${E2E_PGDATA:-/var/tmp/e2epg/data}"
 export E2E_PGSOCK="${E2E_PGSOCK:-/var/tmp/e2esock}"
 export E2E_PGPORT="${E2E_PGPORT:-55434}"
-export E2E_DB="${E2E_DB:-empirevu_e2e}"
+export E2E_DB="${E2E_DB:-everdoer_e2e}"
 export E2E_POSTGREST_PORT="${E2E_POSTGREST_PORT:-55435}"
 export E2E_FAKES_PORT="${E2E_FAKES_PORT:-55436}"
 export E2E_VITE_PORT="${E2E_VITE_PORT:-55437}"
@@ -33,22 +33,25 @@ export SUPABASE_SERVICE_ROLE_KEY="$_service"
 export VITE_SUPABASE_URL="$GATEWAY"
 export VITE_SUPABASE_PUBLISHABLE_KEY="$_anon"
 export VITE_NEXT_SERVER_ORIGIN="http://127.0.0.1:$E2E_NEXT_PORT"
-# House app (operator links) vs the CrankLeads host (every buyer link) — two hostnames for the
+# House app (operator links) vs the done-for-you host (every buyer link) — two hostnames for the
 # same gateway, so a buyer link built on the wrong host is visible in the timeline, and the SPA
-# brands app.crankleads.localhost exactly like app.crankleads.com (Chromium resolves *.localhost
-# itself; for Node add "127.0.0.1 app.crankleads.localhost" to /etc/hosts — run.sh checks).
+# brands app.everdoer.localhost exactly like app.everdoer.com (Chromium resolves *.localhost
+# itself; for Node add "127.0.0.1 app.everdoer.localhost" to /etc/hosts — run.sh checks).
+# The buyer host is set through the OLD env name on purpose: the app reads EVERDOER_APP_BASE_URL
+# first and falls back to CRANKLEADS_APP_BASE_URL for done-for-you orgs only, whereas
+# EVERDOER_APP_BASE_URL would also move the house org's links off APP_BASE_URL.
 export APP_BASE_URL="http://localhost:$E2E_GATEWAY_PORT"
-export CRANKLEADS_APP_BASE_URL="http://app.crankleads.localhost:$E2E_GATEWAY_PORT"
+export CRANKLEADS_APP_BASE_URL="http://app.everdoer.localhost:$E2E_GATEWAY_PORT"
 export BUSINESS_TIMEZONE="America/Toronto"
 # Railway and Supabase run in UTC; so do we (the DB too — see setup-db.sh).
 export TZ=UTC
-export OWNER_EMAIL="marcus@crankleads.test"
-export OPERATOR_EMAILS="marcus@crankleads.test"
+export OWNER_EMAIL="marcus@everdoer.test"
+export OPERATOR_EMAILS="marcus@everdoer.test"
 export TWILIO_ACCOUNT_SID="ACe2e00000000000000000000000000000"
 export TWILIO_AUTH_TOKEN="e2e-twilio-auth-token"
 export TWILIO_FROM_NUMBER="+17055550100"
 export RESEND_API_KEY="re_e2e_fake"
-export OUTBOUND_FROM_EMAIL="hello@crankleads.test"
+export OUTBOUND_FROM_EMAIL="hello@everdoer.test"
 export GOOGLE_PLACES_API_KEY="e2e-places-key"
 export ANTHROPIC_API_KEY="sk-ant-e2e-fake"
 export ANTHROPIC_BASE_URL="http://127.0.0.1:$E2E_FAKES_PORT/anthropic"

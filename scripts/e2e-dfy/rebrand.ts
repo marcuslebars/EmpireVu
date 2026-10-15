@@ -5,7 +5,8 @@
  *
  *   1. Legacy-host 301 (switched on for this run): pages on app.empirevu.com / app.crankleads.com
  *      301 to app.everdoer with path + query kept; /api, /embed, /f, /oauth/callback,
- *      /update-password, ?code= pages, assets, POST, api.empirevu.com and a tenant host do NOT.
+ *      /update-password, ?code= pages, assets, POST, api.empirevu.com, a tenant host and the
+ *      dev host app.everdoer.localhost do NOT.
  *   2. Headers (D6): intake (x-everdoer-signature / x-empirevu-signature), Retell tools
  *      (x-everdoer-retell-secret / x-empirevu-retell-secret), Telnyx (…-telnyx-secret): new and
  *      old both pass, wrong secrets fail under either name.
@@ -71,7 +72,7 @@ function check(name: string, ok: boolean, detail = ""): void {
 function psql(sql: string): string {
   return execFileSync(
     "psql",
-    ["-X", "-qtA", "-h", env("E2E_PGSOCK"), "-p", env("E2E_PGPORT"), "-U", "postgres", "-d", env("E2E_DB", "empirevu_e2e"), "-c", sql],
+    ["-X", "-qtA", "-h", env("E2E_PGSOCK"), "-p", env("E2E_PGPORT"), "-U", "postgres", "-d", env("E2E_DB", "everdoer_e2e"), "-c", sql],
     { encoding: "utf8" },
   ).trim();
 }
@@ -110,6 +111,9 @@ async function main(): Promise<number> {
     ["GET", "api.empirevu.com", "/settings"],
     ["GET", "quotes.a1marinecare.ca", "/settings"],
     ["GET", targetHost, "/settings"],
+    // The harness's primary dev host (buyer links in every other e2e suite).
+    ["GET", "app.everdoer.localhost", "/settings"],
+    ["GET", "app.everdoer.localhost", "/api/health"],
   ];
   for (const [m, h, p] of passthrough) {
     const r = await send(m, h, p);

@@ -439,7 +439,7 @@ async function main(): Promise<void> {
     console.log(`clock now ${new Date().toISOString()} (${torontoTime(Date.now())} Toronto); Saturday = ${SAT}`);
   }
 
-  await step("0. seed: a live CrankLeads Close company (purchase → switch-on → live, site published) with customers, overdue invoices, jobs, crew + clocked hours; a house tenant (A1) with the Bookkeeper's alert on", async () => {
+  await step("0. seed: a live done-for-you Close company (purchase → switch-on → live, site published) with customers, overdue invoices, jobs, crew + clocked hours; a house tenant (A1) with the Bookkeeper's alert on", async () => {
     await seedHouse();
     await buy(dana);
     const { data: numbers } = await admin.from("voice_numbers").select("phone_e164, mode").eq("company_id", dana.companyId!);
@@ -526,7 +526,7 @@ async function main(): Promise<void> {
     check(send.status === 200, `POST imports/send-link → ${send.status} ${send.status !== 200 ? send.text.slice(0, 200) : ""}`);
     let got = sinceMark();
     const linkText = smsTo(got, dana.phone).find((m) => /\/import\//.test(String(m.body)));
-    check(linkText && linkText.from === PLATFORM && /Bring your customer list over/.test(String(linkText.body)) && /app\.crankleads\.localhost/.test(String(linkText.body)), `owner texted the link from the platform number: "${short(linkText?.body, 260)}"`);
+    check(linkText && linkText.from === PLATFORM && /Bring your customer list over/.test(String(linkText.body)) && /app\.everdoer\.localhost/.test(String(linkText.body)), `owner texted the link from the platform number: "${short(linkText?.body, 260)}"`);
     const token = String(linkText?.body ?? "").match(/\/import\/([A-Za-z0-9_-]{32,64})/)?.[1] ?? "";
     ids.importToken = token;
     const view = await api(null, "GET", `/api/public/import/${token}`);
@@ -650,7 +650,7 @@ async function main(): Promise<void> {
     let got = sinceMark();
     const startText = smsTo(got, dana.phone)[0];
     console.log(`   owner: ${short(startText?.body)}`);
-    check(startText?.from === PLATFORM && /^(CrankLeads: )?Keep your number: to move \(705\) 555-0142 over we need a few details \(about 5 minutes - have a recent phone bill handy\): http:\/\/app\.crankleads\.localhost:\d+\/port\/\S+ Your calls keep working the whole time\.$/.test(String(startText?.body)), "exact start text with the /port/ link");
+    check(startText?.from === PLATFORM && /^(CrankLeads: )?Keep your number: to move \(705\) 555-0142 over we need a few details \(about 5 minutes - have a recent phone bill handy\): http:\/\/app\.everdoer\.localhost:\d+\/port\/\S+ Your calls keep working the whole time\.$/.test(String(startText?.body)), "exact start text with the /port/ link");
     const token = String(startText?.body ?? "").match(/\/port\/([A-Za-z0-9_-]+)/)?.[1] ?? "";
     setMark();
     // By text too: one open request per company → the same link.
@@ -826,11 +826,11 @@ async function main(): Promise<void> {
     setMark();
   });
 
-  await step("O2+R1. Monday 08:00: no standalone money alert for the CrankLeads company; A1's 8am alert goes as before; the payroll_period approval text arrives (OT + open entry flagged)", async () => {
+  await step("O2+R1. Monday 08:00: no standalone money alert for the done-for-you company; A1's 8am alert goes as before; the payroll_period approval text arrives (OT + open entry flagged)", async () => {
     await clockTo(at(MON, "08:05"));
     await tick();
     const got = sinceMark();
-    check(standaloneAlerts(got, dana.phone).length === 0, `no "Money check for" text to the CrankLeads owner (${standaloneAlerts(got, dana.phone).length})`);
+    check(standaloneAlerts(got, dana.phone).length === 0, `no "Money check for" text to the done-for-you owner (${standaloneAlerts(got, dana.phone).length})`);
     check(smsTo(got, dana.phone).every((m) => !/30\+ days overdue/.test(String(m.body))), "Cara's 30+ line is not sent a second time");
     const houseAlert = standaloneAlerts(got, HOUSE.owner);
     console.log(`   A1 alert: ${short(houseAlert[0]?.body)}`);
@@ -1004,7 +1004,7 @@ async function main(): Promise<void> {
     console.log(`   owner: ${owner.map((m) => short(m.body, 300)).join("  ||  ")}`);
     const posted = owner.find((m) => /Posted the Labourer job:/.test(String(m.body)));
     const copy = owner.find((m) => /Copy for Indeed\/Facebook:\s/.test(String(m.body)) && !/Posted/.test(String(m.body)));
-    check(owner.length === 2 && new RegExp(`Posted the Labourer job: http://app\\.crankleads\\.localhost:\\d+/s/${slug}/jobs/${ids.job}`).test(String(posted?.body)), "the 'Posted the Labourer job: <link>' text");
+    check(owner.length === 2 && new RegExp(`Posted the Labourer job: http://app\\.everdoer\\.localhost:\\d+/s/${slug}/jobs/${ids.job}`).test(String(posted?.body)), "the 'Posted the Labourer job: <link>' text");
     check(/Copy for Indeed\/Facebook:\s+Northshore Snow & Lawn is hiring: Labourer \(\$22\/hr/.test(String(copy?.body)) && /Apply here: \S+\/jobs\//.test(String(copy?.body)) && /This is a current opening\./.test(String(copy?.body)), "the Indeed/Facebook copy text (how to apply, current opening)");
     console.log(`   order: ${owner.map((m) => (m === posted ? "posted" : m === copy ? "copy" : "?")).join(" → ")}`);
     const { data: jp2 } = await db.from("job_postings").select("status").eq("id", ids.job).single();

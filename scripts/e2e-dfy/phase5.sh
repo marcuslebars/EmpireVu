@@ -21,12 +21,12 @@ export E2E_CLOCK_FILE="${E2E_CLOCK_FILE:-/var/tmp/e2e-faketime-p5}"
 export SMS_AGENT_COALESCE_MS=200
 # The Email inbox is inert without both: the inbound domain our inboxes live on, and the Svix
 # signing secret of the Resend webhook (fakes.mjs signs its deliveries with the same secret).
-export INBOUND_EMAIL_DOMAIN="${INBOUND_EMAIL_DOMAIN:-in.crankleads.test}"
+export INBOUND_EMAIL_DOMAIN="${INBOUND_EMAIL_DOMAIN:-in.everdoer.test}"
 export RESEND_WEBHOOK_SECRET="${RESEND_WEBHOOK_SECRET:-whsec_ZTJlLXJlc2VuZC13ZWJob29rLXNlY3JldC1waGFzZTU=}"
 # Phase 4's Stripe fake stays on (service plans live on this branch too).
 export E2E_FAKE_STRIPE=1
 export STRIPE_CONNECT_WEBHOOK_SECRET="${STRIPE_CONNECT_WEBHOOK_SECRET:-whsec_e2e_connect_fake}"
-getent hosts app.crankleads.localhost >/dev/null || { echo "add: 127.0.0.1 app.crankleads.localhost  to /etc/hosts" >&2; exit 1; }
+getent hosts app.everdoer.localhost >/dev/null || { echo "add: 127.0.0.1 app.everdoer.localhost  to /etc/hosts" >&2; exit 1; }
 port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 if [ "${E2E_SKIP_START:-0}" != 1 ]; then
   # Stop a previous run first and wait for its ports to free up (Next's server process can

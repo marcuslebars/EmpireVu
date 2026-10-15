@@ -1,6 +1,6 @@
 # Done-for-you end-to-end harness
 
-Proves the done-for-you CrankLeads flow (docs/done-for-you.md) the way a buyer lives it, against a
+Proves the done-for-you flow (docs/done-for-you.md) the way a buyer lives it, against a
 **real local database**, with only third parties faked. Never point it at production.
 
 ```sh
@@ -22,21 +22,23 @@ E2E_SKIP_START=1 scripts/e2e-dfy/run.sh      # re-run the driver against a runni
 | Fake clock | `env.sh` | libfaketime (`apt install faketime`) with `$E2E_CLOCK_FILE` (`+NNNm`) in Postgres, Next, the gateway, fakes and the driver. `start.sh` sets it to 09:05 Toronto; the driver moves it forward (tap → test, 2 h fallback, 24 h escalation). PostgREST is static (unaffected), so JWTs are minted with a backdated `iat`. The browser runs unfaked with Playwright's clock set to the harness time. |
 | Driver | `run.ts` | Stripe checkout (fake Stripe client) → **signed** `checkout.session.completed` to `/api/webhooks/stripe` → billing worker loop; Playwright (Chromium at `/opt/pw-browsers/chromium-1194`, override with `E2E_CHROME`) for `/setup`, `/s/<slug>`, `/forward`, sign-in, dashboard/progress, concierge; one real `runScheduler` tick then the same passes it runs (awaited), plus the worker's queue drains; signed Twilio voice webhook for the forwarded test leg. |
 
-Hosts: buyer links use `http://app.crankleads.localhost:55439` (branded like app.crankleads.com),
+Hosts: buyer links use `http://app.everdoer.localhost:55439` (branded like app.everdoer.com; set
+through the old env name `CRANKLEADS_APP_BASE_URL`, which the app still reads for done-for-you orgs),
 operator links `http://localhost:55439`. Chromium resolves `*.localhost` itself; Node needs
-`127.0.0.1 app.crankleads.localhost` in `/etc/hosts` (run.sh checks).
+`127.0.0.1 app.everdoer.localhost` in `/etc/hosts` (run.sh checks). The default database is
+`everdoer_e2e` (`E2E_DB` overrides it).
 
 ## Steps and assertions
 
-0. A non-CrankLeads house tenant is seeded (snapshot taken).
+0. A non-done-for-you house tenant is seeded (snapshot taken).
 1. Close purchase for "Northshore Snow & Lawn", owner +17055550142, through the webhook + billing worker.
 2. Org `platform_brand = crankleads`, tier close; catcher number in 705; welcome email + quick-setup SMS from `TWILIO_FROM_NUMBER`; no "EmpireVu" in any buyer message.
 3. `/setup/<token>` at 390px: search, pick the listing, Cell + Bell, one price ($650 seasonal contract), submit.
 4. Passes → enriched (website, Google hours, service area, rating, review link, logo, line kind/carrier), exactly two priced services ($650 owner + $250 stated on the site), automations on, booking hours from Google hours, page published (price_page, AI copy kept), forwarding text sent.
 4b. Owner signs in mid-setup: dashboard card + progress view at 1280 and 390.
-4c. `/s/<slug>` at 390 and 1280; prices, per-day hours + JSON-LD, "Site by CrankLeads", no `aggregateRating`; the quote form creates a CRM contact and the owner gets a new-lead alert.
+4c. `/s/<slug>` at 390 and 1280; prices, per-day hours + JSON-LD, the "Powered by Everdoer" footer credit (not "Site by CrankLeads"), no `aggregateRating`; the quote form creates a CRM contact and the owner gets a new-lead alert.
 5. `/forward/<token>` with Android (tel: link) and iPhone (copy code + "I've done it") UAs; one auto test call; forwarded leg via the signed voice webhook → test passed, `live_at` set, exactly ONE "You're live" text + email with the page link, no "✅ text-back is live", no separate page text.
-6. Owner after live: `/onboarding` + dashboard at 1280, CrankLeads branding.
+6. Owner after live: `/onboarding` + dashboard at 1280, Everdoer branding (never "CrankLeads").
 7. Operator (`OPERATOR_EMAILS`): concierge list + detail; `rerun_business_lookup` and `build_website` via the API → `operator_actions` rows with status ok; a buyer gets 404.
 8. Second buyer (Catch, never answers): switch-on + page after the 2 h fallback; exactly one "Call … to finish setup" operator email at 24 h (none for the live buyer); concierge shows them; house tenant unchanged and never messaged.
 
@@ -186,7 +188,7 @@ stack after. `phase4-results.json` goes to `$E2E_PHASE4_OUT` (default `$E2E_ROOT
 
 `scripts/e2e-dfy/phase5.sh` starts a fresh stack on its own ports and data dirs (568xx,
 `E2E_ROOT=/var/tmp/e2e-p5`, `/var/tmp/e2epg-p5`, `/var/tmp/e2esock-p5`, `/var/tmp/e2e-faketime-p5`;
-each can be overridden) with `INBOUND_EMAIL_DOMAIN=in.crankleads.test` and a `RESEND_WEBHOOK_SECRET`
+each can be overridden) with `INBOUND_EMAIL_DOMAIN=in.everdoer.test` and a `RESEND_WEBHOOK_SECRET`
 (`whsec_…`, the one fakes.mjs signs with), and drives docs/ai-staff.md's Email inbox, Customer care
 & warranty, Profit advisor and Fleet & equipment, plus the Office manager's heads-ups. Re-runnable
 (every run starts from a fresh database); `E2E_STOP=1` stops the stack after.
@@ -199,7 +201,7 @@ each can be overridden) with `INBOUND_EMAIL_DOMAIN=in.crankleads.test` and a `RE
   costed jobs (time entries, receipts on the job, invoices) and eight gutter-cleaning quotes (7 won)
   so the $189 gutter cleaning is underpriced, this week's three jobs (Jones +$1,260, Smith −$90 with
   9 h of labour over, Ng), three customers for Customer care, a supplier (Settings → Purchasing); a
-  second CrankLeads company (Bayview) for inbox tenancy; an A1-style house org with review requests
+  second done-for-you company (Bayview) for inbox tenancy; an A1-style house org with review requests
   and job-done invoicing.
 - Fakes added: Resend Inbound — `POST /__resend/inbound` registers a received email (+ attachment
   bytes), served at `GET /emails/receiving/{id}` and `…/attachments/{aid}` (a `download_url` on

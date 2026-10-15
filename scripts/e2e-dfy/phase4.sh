@@ -22,7 +22,7 @@ export SMS_AGENT_COALESCE_MS=200
 # https calls go to the fake Stripe (intercept.cjs), and the Connect webhook has its own secret.
 export E2E_FAKE_STRIPE=1
 export STRIPE_CONNECT_WEBHOOK_SECRET="${STRIPE_CONNECT_WEBHOOK_SECRET:-whsec_e2e_connect_fake}"
-getent hosts app.crankleads.localhost >/dev/null || { echo "add: 127.0.0.1 app.crankleads.localhost  to /etc/hosts" >&2; exit 1; }
+getent hosts app.everdoer.localhost >/dev/null || { echo "add: 127.0.0.1 app.everdoer.localhost  to /etc/hosts" >&2; exit 1; }
 port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 if [ "${E2E_SKIP_START:-0}" != 1 ]; then
   # Stop a previous run first and wait for its ports to free up (Next's server process can
