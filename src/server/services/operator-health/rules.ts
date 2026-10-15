@@ -34,8 +34,8 @@
  *                 "all clear").
  */
 import { prettyPhone } from "@/lib/carrier-forwarding";
-import { CRANKLEADS_TIER_LABELS, isCrankleadsTier } from "@/server/services/crankleads/config";
-import { addBusinessDays, localClock, type LocalClock } from "@/server/services/crankleads/followup-schedule";
+import { PLAN_TIER_LABELS, isDoneForYouTier } from "@/server/services/done-for-you/config";
+import { addBusinessDays, localClock, type LocalClock } from "@/server/services/done-for-you/followup-schedule";
 
 // ── Thresholds ───────────────────────────────────────────────────────────────
 
@@ -364,7 +364,7 @@ export function businessDaysElapsed(startDate: string, endDate: string): number 
 }
 
 export function tierLabel(tier: string | null | undefined): string | null {
-  return isCrankleadsTier(tier) ? CRANKLEADS_TIER_LABELS[tier] : null;
+  return isDoneForYouTier(tier) ? PLAN_TIER_LABELS[tier] : null;
 }
 
 function stripeLink(base: string, kind: "customers" | "subscriptions", id: string | null, label: string): HealthLink[] {
@@ -552,8 +552,8 @@ export function provisioningItem(fact: ProvisioningFact, facts: Pick<OperatorHea
     howLong: `${formatDuration(age(facts.nowMs, since))} since payment`,
     ageMs: age(facts.nowMs, since),
     action: fact.sessionId
-      ? `Fix the cause, then re-run: npm run job:crankleads-provision -- --session ${fact.sessionId}`
-      : "No Checkout Session id on the purchase — find it in Stripe, then re-run: npm run job:crankleads-provision -- --session cs_…",
+      ? `Fix the cause, then re-run: npm run job:dfy-provision -- --session ${fact.sessionId}`
+      : "No Checkout Session id on the purchase — find it in Stripe, then re-run: npm run job:dfy-provision -- --session cs_…",
     links: stripeLink(facts.stripeDashboardBase, "customers", fact.stripeCustomerId, "Stripe customer"),
     guaranteeAtRisk: false,
   };

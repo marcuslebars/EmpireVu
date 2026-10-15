@@ -290,8 +290,8 @@ describe("texts", () => {
 
 describe("settings and gating", () => {
   it("CrankLeads on by default; house orgs always off, whatever is stored", () => {
-    expect(readServicePlansSettings({}, { crankleads: true })).toMatchObject({ enabled: true, headsUp: { enabled: true }, renewals: { enabled: true } });
-    expect(readServicePlansSettings({ service_plans: { enabled: true } }, { crankleads: false }).enabled).toBe(false);
+    expect(readServicePlansSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, headsUp: { enabled: true }, renewals: { enabled: true } });
+    expect(readServicePlansSettings({ service_plans: { enabled: true } }, { doneForYou: false }).enabled).toBe(false);
     expect(mergeServicePlansSettings({ sms_agent: { enabled: true } }, { renewals: { enabled: false } })).toEqual({ sms_agent: { enabled: true }, service_plans: { renewals: { enabled: false } } });
   });
 

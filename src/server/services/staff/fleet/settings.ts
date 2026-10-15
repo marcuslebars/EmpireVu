@@ -35,13 +35,13 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 /** companies.ai_settings (any shape) → the Fleet section with defaults. PURE. */
-export function readFleetSettings(aiSettings: unknown, org: { crankleads: boolean }): FleetSettings {
+export function readFleetSettings(aiSettings: unknown, org: { doneForYou: boolean }): FleetSettings {
   const s = record(record(aiSettings)[SETTINGS_KEY]);
   const enabled = typeof s.enabled === "boolean" ? s.enabled : null;
   return {
-    enabled: enabled ?? org.crankleads,
+    enabled: enabled ?? org.doneForYou,
     reminders: typeof s.reminders === "boolean" ? s.reminders : true,
-    defaultEnabled: org.crankleads,
+    defaultEnabled: org.doneForYou,
     enabledIsDefault: enabled === null,
   };
 }
@@ -103,7 +103,7 @@ function toCompany(row: CompanyRow, platformBrand: string | null): FleetCompany 
     platformBrand,
     ownerPhone: row.owner_phone_verified_at && row.owner_phone_e164?.trim() ? row.owner_phone_e164.trim() : null,
     active: !row.stage || !["archived", "paused", "cancelled"].includes(row.stage),
-    settings: readFleetSettings(row.ai_settings, { crankleads: isDoneForYou(platformBrand) }),
+    settings: readFleetSettings(row.ai_settings, { doneForYou: isDoneForYou(platformBrand) }),
   };
 }
 

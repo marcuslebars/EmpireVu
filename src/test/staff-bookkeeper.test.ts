@@ -216,10 +216,10 @@ describe("money formatting", () => {
 
 describe("settings", () => {
   it("default ON for CrankLeads, OFF for house orgs (A1) unless switched on", () => {
-    expect(readCollectionsSettings({}, { crankleads: true })).toMatchObject({ enabled: true, enabledIsDefault: true, textReminders: true, finalNotice: true, dailyAlert: true, reminderDays: [3, 10, 20, 30] });
-    expect(readCollectionsSettings({}, { crankleads: false })).toMatchObject({ enabled: false, enabledIsDefault: true });
-    expect(readCollectionsSettings({ collections: { enabled: true } }, { crankleads: false }).enabled).toBe(true);
-    expect(readCollectionsSettings({ collections: { reminderDays: [30, 5, 5, 0, 500, 12] } }, { crankleads: true }).reminderDays).toEqual([5, 12, 30]);
+    expect(readCollectionsSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, enabledIsDefault: true, textReminders: true, finalNotice: true, dailyAlert: true, reminderDays: [3, 10, 20, 30] });
+    expect(readCollectionsSettings({}, { doneForYou: false })).toMatchObject({ enabled: false, enabledIsDefault: true });
+    expect(readCollectionsSettings({ collections: { enabled: true } }, { doneForYou: false }).enabled).toBe(true);
+    expect(readCollectionsSettings({ collections: { reminderDays: [30, 5, 5, 0, 500, 12] } }, { doneForYou: true }).reminderDays).toEqual([5, 12, 30]);
   });
 
   it("merge touches only ai_settings.collections", () => {

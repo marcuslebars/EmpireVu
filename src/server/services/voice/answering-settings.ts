@@ -25,7 +25,7 @@ export interface CallAnsweringSettings {
 
 export interface CallAnsweringSettingsContext {
   /** organizations.platform_brand === 'crankleads'. House / EmpireVu orgs default to voicemail. */
-  crankleads: boolean;
+  doneForYou: boolean;
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -47,7 +47,7 @@ export function readCallAnsweringSettings(aiSettings: unknown, context: CallAnsw
   const section = record(record(aiSettings).call_answering);
   const explicit = isCallAnsweringMode(section.mode) ? section.mode : null;
   return {
-    mode: explicit ?? (context.crankleads ? "ai" : "voicemail"),
+    mode: explicit ?? (context.doneForYou ? "ai" : "voicemail"),
     includedMinutes: minutes(section.included_minutes) ?? DEFAULT_INCLUDED_MINUTES,
     modeExplicit: explicit !== null,
   };

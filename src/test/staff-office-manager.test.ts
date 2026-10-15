@@ -214,10 +214,10 @@ afterEach(() => {
 
 describe("settings", () => {
   it("on by default for CrankLeads, off for house orgs (A1); 07:00 Monday-Saturday, text only", () => {
-    expect(readOfficeManagerSettings({}, { crankleads: true })).toEqual({ enabled: true, enabledIsDefault: true, time: "07:00", days: [1, 2, 3, 4, 5, 6], channels: ["sms"] });
-    expect(readOfficeManagerSettings({}, { crankleads: false }).enabled).toBe(false);
-    expect(readOfficeManagerSettings({ office_manager: { enabled: true } }, { crankleads: false }).enabled).toBe(true);
-    expect(readOfficeManagerSettings({ office_manager: { time: "05:30", days: [], channels: ["email"] } }, { crankleads: true })).toMatchObject({ time: "07:00", days: [1, 2, 3, 4, 5, 6], channels: ["sms", "email"] });
+    expect(readOfficeManagerSettings({}, { doneForYou: true })).toEqual({ enabled: true, enabledIsDefault: true, time: "07:00", days: [1, 2, 3, 4, 5, 6], channels: ["sms"] });
+    expect(readOfficeManagerSettings({}, { doneForYou: false }).enabled).toBe(false);
+    expect(readOfficeManagerSettings({ office_manager: { enabled: true } }, { doneForYou: false }).enabled).toBe(true);
+    expect(readOfficeManagerSettings({ office_manager: { time: "05:30", days: [], channels: ["email"] } }, { doneForYou: true })).toMatchObject({ time: "07:00", days: [1, 2, 3, 4, 5, 6], channels: ["sms", "email"] });
     expect(isBriefingTime("06:00")).toBe(true);
     expect(isBriefingTime("09:00")).toBe(true);
     expect(isBriefingTime("09:30")).toBe(false);
@@ -233,7 +233,7 @@ describe("settings", () => {
   });
 
   it("due from the set time until 11:00 local on briefing days", () => {
-    const s = readOfficeManagerSettings({}, { crankleads: true });
+    const s = readOfficeManagerSettings({}, { doneForYou: true });
     expect(briefingDue(s, Date.parse("2026-10-13T10:59:00Z"), "America/Toronto")).toBe(false); // 06:59
     expect(briefingDue(s, Date.parse("2026-10-13T11:00:00Z"), "America/Toronto")).toBe(true); // 07:00
     expect(briefingDue(s, Date.parse("2026-10-13T14:59:00Z"), "America/Toronto")).toBe(true); // 10:59
@@ -247,7 +247,7 @@ describe("settings", () => {
 
 describe("DST for America/Toronto", () => {
   it("07:00 local is 11:00Z in summer time and 12:00Z after the fall-back (Sun Nov 1 2026), and 11:00Z after spring-forward (Sun Mar 8 2026)", () => {
-    const every = { ...readOfficeManagerSettings({}, { crankleads: true }), days: [0, 1, 2, 3, 4, 5, 6] };
+    const every = { ...readOfficeManagerSettings({}, { doneForYou: true }), days: [0, 1, 2, 3, 4, 5, 6] };
     const tz = "America/Toronto";
     expect(briefingDue(every, Date.parse("2026-10-31T11:00:00Z"), tz)).toBe(true); // Sat 07:00 EDT
     expect(briefingDue(every, Date.parse("2026-11-01T11:30:00Z"), tz)).toBe(false); // Sun 06:30 EST
@@ -673,7 +673,7 @@ describe("review fixes", () => {
   });
 
   it("briefingTakesMoneyAlert follows today's row: final without the items → the alert goes", async () => {
-    const take = () => briefingTakesMoneyAlert(h.db!.client, { organizationId: ORG, companyId: CO }, Date.now(), { crankleads: true });
+    const take = () => briefingTakesMoneyAlert(h.db!.client, { organizationId: ORG, companyId: CO }, Date.now(), { doneForYou: true });
     expect(await take()).toBe(true); // no row yet
     rows("owner_briefings").push({ id: "ob-1", organization_id: ORG, company_id: CO, local_date: "2026-10-13", status: "claimed", attempts: 1, money_fold: null });
     expect(await take()).toBe(true);

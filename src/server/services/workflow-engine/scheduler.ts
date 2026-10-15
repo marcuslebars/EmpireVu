@@ -11,7 +11,7 @@ import { sweepOwnerApprovals } from "@/server/services/owner-channel/notify";
 import { sweepUnansweredTexts } from "@/server/services/sms-agent/entry";
 import { processWeeklyReports } from "@/server/services/weekly-report/send";
 import { runDoneForYouSweep } from "@/server/services/dfy/orchestrator";
-import { processSetupFollowups, SETUP_FOLLOWUP_INTERVAL_MS } from "@/server/services/crankleads/setup-followups";
+import { processSetupFollowups, SETUP_FOLLOWUP_INTERVAL_MS } from "@/server/services/done-for-you/setup-followups";
 import { runGeneratedSitesPass } from "@/server/services/dfy/site-generator";
 import { OPERATOR_HEALTH_INTERVAL_MS, processOperatorHealth } from "@/server/services/operator-health/service";
 import type { TenantServiceContext } from "@/server/services/shared";

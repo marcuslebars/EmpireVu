@@ -13,13 +13,13 @@
  *     NEW object written with the old value is counted (stripe_metadata/source=crankleads): zero
  *     for 30 days means nothing new carries it; the backfill then covers the rest.
  */
-import { CRANKLEADS_SOURCE } from "@/server/services/crankleads/config";
+import { DONE_FOR_YOU_SOURCE } from "@/server/services/done-for-you/config";
 import { noteLegacyUsage } from "@/server/services/rebrand/legacy-usage";
 import { writeNewNames } from "@/server/services/rebrand/write-names";
 
 export const EVERDOER_STRIPE_SOURCE = "everdoer";
 // Rebrand shim (remove in PR 8 once legacy_usage shows no stripe_metadata/source=crankleads for 30 days AND the PR 4 metadata backfill has run)
-export const LEGACY_STRIPE_SOURCE = CRANKLEADS_SOURCE;
+export const LEGACY_STRIPE_SOURCE = DONE_FOR_YOU_SOURCE;
 
 /** Every `metadata.source` value that marks a done-for-you purchase. */
 export const DONE_FOR_YOU_STRIPE_SOURCES: ReadonlySet<string> = new Set([EVERDOER_STRIPE_SOURCE, LEGACY_STRIPE_SOURCE]);

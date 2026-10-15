@@ -121,7 +121,7 @@ function readSensitivity(raw: unknown): WeatherSensitivity | null {
 }
 
 export interface DispatchSettingsContext {
-  crankleads: boolean;
+  doneForYou: boolean;
   industryPack?: unknown;
   /** Business name, CrankLeads business type … (for the trade default). */
   hints?: Array<string | null | undefined>;
@@ -135,7 +135,7 @@ export function readDispatchSettings(aiSettings: unknown, ctx: DispatchSettingsC
   const crew = asRecord(section.crew_texts);
   const gap = asRecord(section.fill_gap);
   const hours = asRecord(section.customer_hours);
-  const on = ctx.crankleads;
+  const on = ctx.doneForYou;
   const sensitive = readSensitivity(weather.sensitive);
   return {
     weather: {
@@ -250,9 +250,9 @@ export async function dispatcherActiveFor(admin: AdminClient, scope: { organizat
       .maybeSingle();
     if (!company) return false;
     const { data: org } = await db.from("organizations").select("platform_brand").eq("id", scope.organizationId).maybeSingle();
-    const crankleads = isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand);
+    const doneForYou = isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand);
     const c = company as { name: string; ai_settings: unknown; industry_pack: unknown };
-    return dispatcherAnyOn(readDispatchSettings(c.ai_settings, { crankleads, industryPack: c.industry_pack, hints: [c.name] }));
+    return dispatcherAnyOn(readDispatchSettings(c.ai_settings, { doneForYou, industryPack: c.industry_pack, hints: [c.name] }));
   } catch {
     return false;
   }

@@ -5,7 +5,7 @@ import { slugify } from "@/server/db/helpers";
 import { ValidationError } from "@/server/organizations/context";
 import type { PurchasablePlan } from "@/server/services/billing/config";
 import { newOrgTrialFields } from "@/server/services/billing/env";
-import type { CrankleadsTier } from "@/server/services/crankleads/config";
+import type { PlanTier } from "@/server/services/done-for-you/config";
 import type { PlatformBrandKey } from "@/lib/platform-brand";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 import type { createSupabaseServerClient } from "@/server/supabase/server";
@@ -30,7 +30,7 @@ export interface PaidOrganizationBilling {
   subscriptionStatus: "active";
   stripeCustomerId: string;
   billingEmail: string | null;
-  crankleadsTier: CrankleadsTier | null;
+  planTier: PlanTier | null;
   /** Brand the org's own people see (docs/everdoer-branding.md). CrankLeads purchases → "crankleads". */
   platformBrand: PlatformBrandKey;
   /** Make it the owner's default org. False when grafting onto an EXISTING user. */
@@ -82,7 +82,7 @@ export async function createOrganization(
         trial_ends_at: null,
         stripe_customer_id: paid.stripeCustomerId,
         billing_email: paid.billingEmail,
-        crankleads_tier: paid.crankleadsTier,
+        crankleads_tier: paid.planTier,
         platform_brand: paid.platformBrand,
       }
     : {

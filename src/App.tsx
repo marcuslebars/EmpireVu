@@ -22,7 +22,7 @@ import PublicPortalPage from "@/screens/PublicPortalPage";
 import PublicVisitPage from "@/screens/PublicVisitPage";
 import PublicLeadFormPage from "@/screens/PublicLeadFormPage";
 import AcceptInvitePage from "@/screens/AcceptInvitePage";
-import CrankleadsWelcomePage from "@/screens/CrankleadsWelcomePage";
+import DoneForYouWelcomePage from "@/screens/DoneForYouWelcomePage";
 import SetupIntakePage from "@/screens/SetupIntakePage";
 import PublicImportPage from "@/screens/PublicImportPage";
 import PublicPortPage from "@/screens/PublicPortPage";
@@ -342,10 +342,10 @@ function AppRoutes() {
       <Route path="/f/:formKey" element={<PublicLeadFormPage />} />
       {/* Team invitation. Public: the token is the credential; the page prompts sign-in if needed. */}
       <Route path="/invite/:token" element={<AcceptInvitePage />} />
-      {/* CrankLeads purchase landing (Stripe success_url). Public: the Checkout Session id is the credential. */}
-      <Route path="/welcome/crankleads" element={<CrankleadsWelcomePage />} />
-      {/* Everdoer rebrand alias of the same page (the old route stays; old-host use is counted server-side). */}
-      <Route path="/welcome/everdoer" element={<CrankleadsWelcomePage />} />
+      {/* Done-for-you purchase landing (Stripe success_url). Public: the Checkout Session id is the credential. */}
+      <Route path="/welcome/everdoer" element={<DoneForYouWelcomePage />} />
+      {/* Old path of the same page, kept for the Everdoer rebrand (old-host use is counted server-side). */}
+      <Route path="/welcome/crankleads" element={<DoneForYouWelcomePage />} />
       {/* Done-for-you quick setup (texted after purchase). Public: the token is the credential. */}
       <Route path="/setup/:token" element={<SetupIntakePage />} />
       {/* Customer import from the texted link (docs/ai-staff.md → "Customer import"). No login. */}

@@ -7,15 +7,15 @@ vi.mock("@/server/services/waitlist/notify", () => ({ notifyNewWaitlistSignup: v
 
 import { OPTIONS as waitlistOPTIONS } from "@/app/api/waitlist/route";
 import {
-  crankleadsCancelUrl,
-  crankleadsCheckoutBranding,
-  crankleadsFoundingCouponId,
-  crankleadsMonthlyPriceId,
-  crankleadsSetupPriceId,
-  crankleadsSiteOrigins,
-  crankleadsTierForPriceId,
+  doneForYouCancelUrl,
+  doneForYouCheckoutBranding,
+  doneForYouFoundingCouponId,
+  doneForYouMonthlyPriceId,
+  doneForYouSetupPriceId,
+  doneForYouSiteOrigins,
+  planTierForPriceId,
   ENV_RENAMES,
-} from "@/server/services/crankleads/config";
+} from "@/server/services/done-for-you/config";
 import {
   appBaseUrlFor,
   configuredAppBaseUrlFor,
@@ -52,7 +52,7 @@ async function envRows(): Promise<string[]> {
   return (await capture.rows()).filter((r) => r.kind === "env").map((r) => r.key);
 }
 
-describe("crankleads/config.ts env renames", () => {
+describe("done-for-you/config.ts env renames", () => {
   it("lists the exact new → old names", () => {
     expect(ENV_RENAMES).toEqual({
       STRIPE_PRICE_EVERDOER_CATCH: ["STRIPE_PRICE_CL_CATCH"],
@@ -77,12 +77,12 @@ describe("crankleads/config.ts env renames", () => {
     vi.stubEnv("STRIPE_COUPON_CL_FOUNDING", "coupon_old");
     vi.stubEnv("CRANKLEADS_CANCEL_URL", "https://crankleads.com/#old");
     vi.stubEnv("CRANKLEADS_CHECKOUT_BUTTON_COLOR", "#123456");
-    expect(crankleadsMonthlyPriceId("catch")).toBe("price_old_catch");
-    expect(crankleadsTierForPriceId("price_old_catch")).toBe("catch");
-    expect(crankleadsSetupPriceId("close")).toBe("price_old_setup_close");
-    expect(crankleadsFoundingCouponId()).toBe("coupon_old");
-    expect(crankleadsCancelUrl()).toBe("https://crankleads.com/#old");
-    expect(crankleadsCheckoutBranding().buttonColor).toBe("#123456");
+    expect(doneForYouMonthlyPriceId("catch")).toBe("price_old_catch");
+    expect(planTierForPriceId("price_old_catch")).toBe("catch");
+    expect(doneForYouSetupPriceId("close")).toBe("price_old_setup_close");
+    expect(doneForYouFoundingCouponId()).toBe("coupon_old");
+    expect(doneForYouCancelUrl()).toBe("https://crankleads.com/#old");
+    expect(doneForYouCheckoutBranding().buttonColor).toBe("#123456");
     expect((await envRows()).sort()).toEqual(
       [
         "CRANKLEADS_CANCEL_URL",
@@ -102,10 +102,10 @@ describe("crankleads/config.ts env renames", () => {
     vi.stubEnv("EVERDOER_CHECKOUT_DISPLAY_NAME", "New");
     vi.stubEnv("EVERDOER_CHECKOUT_LOGO_URL", "https://everdoer.com/logo.png");
     vi.stubEnv("EVERDOER_CHECKOUT_BACKGROUND_COLOR", "#000000");
-    expect(crankleadsMonthlyPriceId("catch")).toBe("price_new");
-    expect(crankleadsTierForPriceId("price_old")).toBeNull();
-    expect(crankleadsSetupPriceId("front_desk")).toBe("price_new_setup");
-    expect(crankleadsCheckoutBranding()).toMatchObject({
+    expect(doneForYouMonthlyPriceId("catch")).toBe("price_new");
+    expect(planTierForPriceId("price_old")).toBeNull();
+    expect(doneForYouSetupPriceId("front_desk")).toBe("price_new_setup");
+    expect(doneForYouCheckoutBranding()).toMatchObject({
       displayName: "New",
       logoUrl: "https://everdoer.com/logo.png",
       backgroundColor: "#000000",
@@ -114,21 +114,21 @@ describe("crankleads/config.ts env renames", () => {
   });
 
   it("defaults when nothing is set: Everdoer checkout branding (plus the everdoer.com origins)", async () => {
-    expect(crankleadsMonthlyPriceId("close")).toBeNull();
-    expect(crankleadsFoundingCouponId()).toBeNull();
-    expect(crankleadsCancelUrl()).toBe("https://crankleads.com/#pricing");
+    expect(doneForYouMonthlyPriceId("close")).toBeNull();
+    expect(doneForYouFoundingCouponId()).toBeNull();
+    expect(doneForYouCancelUrl()).toBe("https://crankleads.com/#pricing");
     // No https app origin (local dev): Stripe needs an https logo, so the old hosted image.
-    expect(crankleadsCheckoutBranding()).toEqual({
+    expect(doneForYouCheckoutBranding()).toEqual({
       displayName: "Everdoer",
       logoUrl: "https://crankleads.com/brand/crankleads-logo.png",
       backgroundColor: "#0C0E12",
       buttonColor: "#A6EE2B",
     });
     vi.stubEnv("APP_BASE_URL", "https://app.empirevu.com/");
-    expect(crankleadsCheckoutBranding().logoUrl).toBe("https://app.empirevu.com/brand/everdoer/everdoer-logo-dark.png");
+    expect(doneForYouCheckoutBranding().logoUrl).toBe("https://app.empirevu.com/brand/everdoer/everdoer-logo-dark.png");
     vi.stubEnv("EVERDOER_APP_BASE_URL", "https://app.everdoer.com");
-    expect(crankleadsCheckoutBranding().logoUrl).toBe("https://app.everdoer.com/brand/everdoer/everdoer-logo-dark.png");
-    expect([...crankleadsSiteOrigins()].sort()).toEqual(
+    expect(doneForYouCheckoutBranding().logoUrl).toBe("https://app.everdoer.com/brand/everdoer/everdoer-logo-dark.png");
+    expect([...doneForYouSiteOrigins()].sort()).toEqual(
       ["https://crankleads.com", "https://www.crankleads.com", "https://everdoer.com", "https://www.everdoer.com"].sort(),
     );
     expect(await envRows()).toEqual([]);
@@ -136,9 +136,9 @@ describe("crankleads/config.ts env renames", () => {
 
   it("EVERDOER_SITE_ORIGINS ← CRANKLEADS_SITE_ORIGINS", async () => {
     vi.stubEnv("CRANKLEADS_SITE_ORIGINS", "https://old.example/");
-    expect([...crankleadsSiteOrigins()]).toEqual(["https://old.example"]);
+    expect([...doneForYouSiteOrigins()]).toEqual(["https://old.example"]);
     vi.stubEnv("EVERDOER_SITE_ORIGINS", "https://new.example");
-    expect([...crankleadsSiteOrigins()]).toEqual(["https://new.example"]);
+    expect([...doneForYouSiteOrigins()]).toEqual(["https://new.example"]);
     expect(await envRows()).toEqual(["CRANKLEADS_SITE_ORIGINS"]);
   });
 });

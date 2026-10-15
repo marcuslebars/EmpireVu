@@ -465,9 +465,9 @@ describe("the weekly text", () => {
 
 describe("settings and registry", () => {
   it("on for CrankLeads, off for house orgs unless switched on; merge only touches profit_advisor", () => {
-    expect(readProfitAdvisorSettings({}, { crankleads: true })).toMatchObject({ enabled: true, weekly: { enabled: true, day: 5, time: "15:00" }, pricingCheck: { enabled: true }, tightCushionCents: 0, enabledIsDefault: true });
-    expect(readProfitAdvisorSettings({}, { crankleads: false }).enabled).toBe(false);
-    expect(readProfitAdvisorSettings({ profit_advisor: { weekly: { day: 9, time: "03:00" }, tight_cushion_cents: -5 } }, { crankleads: true })).toMatchObject({ weekly: { day: 5, time: "15:00" }, tightCushionCents: 0 });
+    expect(readProfitAdvisorSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, weekly: { enabled: true, day: 5, time: "15:00" }, pricingCheck: { enabled: true }, tightCushionCents: 0, enabledIsDefault: true });
+    expect(readProfitAdvisorSettings({}, { doneForYou: false }).enabled).toBe(false);
+    expect(readProfitAdvisorSettings({ profit_advisor: { weekly: { day: 9, time: "03:00" }, tight_cushion_cents: -5 } }, { doneForYou: true })).toMatchObject({ weekly: { day: 5, time: "15:00" }, tightCushionCents: 0 });
     const merged = mergeProfitAdvisorSettings({ sms_agent: { autonomy: "ask_first" } }, { enabled: true, weekly: { day: 1, time: "07:30" }, pricingCheck: { enabled: false }, tightCushionCents: 250_000 });
     expect(merged).toEqual({ sms_agent: { autonomy: "ask_first" }, profit_advisor: { enabled: true, weekly: { day: 1, time: "07:30" }, pricing_check: { enabled: false }, tight_cushion_cents: 250_000, any_on: true } });
   });

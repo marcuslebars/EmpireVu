@@ -248,12 +248,12 @@ async function resolveRecipients(
   context: TenantServiceContext,
   company: WeeklyRunCompany,
   settings: WeeklyReportSettings,
-  isCrankleads: boolean,
+  isDoneForYou: boolean,
 ): Promise<Recipients> {
   const owner = await resolveOwnerContacts(context, company, { allowPlatformFallback: false });
   return {
     email: settings.channels.includes("email") ? owner.email : null,
-    phone: settings.channels.includes("sms") && isCrankleads ? owner.phone : null,
+    phone: settings.channels.includes("sms") && isDoneForYou ? owner.phone : null,
   };
 }
 
@@ -325,8 +325,8 @@ async function processCompany(
   const timeZone = companyTimeZone(company);
   const week = options.week ?? defaultReportWeek(timeZone, options.nowMs);
   const base = { companyId: company.id, companyName: company.name, week };
-  const isCrankleads = isDoneForYouBrand(org.brand);
-  const settings = parseWeeklyReportSettings(company.ai_settings, isCrankleads);
+  const isDoneForYou = isDoneForYouBrand(org.brand);
+  const settings = parseWeeklyReportSettings(company.ai_settings, isDoneForYou);
   const context = ctxFor(admin, company.organization_id);
   const skip = weeklySkipReason({ company, settings, orgSubscriptionStatus: org.subscriptionStatus, live, week, timeZone, nowMs: options.nowMs });
 
@@ -334,7 +334,7 @@ async function processCompany(
     const range = weekRangeForKey(timeZone, week);
     const metrics = await computeWeekForCompany(context, company.id, week, range, timeZone);
     const rendered = render(company, org.brand, metrics);
-    const to = await resolveRecipients(context, company, settings, isCrankleads);
+    const to = await resolveRecipients(context, company, settings, isDoneForYou);
     return {
       ...base,
       result: "dry_run",
@@ -362,7 +362,7 @@ async function processCompany(
     }
   }
 
-  const to = await resolveRecipients(context, company, settings, isCrankleads);
+  const to = await resolveRecipients(context, company, settings, isDoneForYou);
   if (!to.email && !to.phone) {
     console.warn(`[weekly-report] company ${company.id}: no owner email/phone for the chosen channels — skipping`);
     await recordSkip(admin, company, week, "no_recipient");
@@ -558,8 +558,8 @@ export async function sendTestWeeklyReport(
     subscriptionStatus: null,
     brand: platformBrand(null),
   };
-  const isCrankleads = isDoneForYouBrand(org.brand);
-  const settings = parseWeeklyReportSettings(company.ai_settings, isCrankleads);
+  const isDoneForYou = isDoneForYouBrand(org.brand);
+  const settings = parseWeeklyReportSettings(company.ai_settings, isDoneForYou);
   const timeZone = companyTimeZone(company);
   const week = defaultReportWeek(timeZone, nowMs);
   const context = ctxFor(admin, company.organization_id);
@@ -568,7 +568,7 @@ export async function sendTestWeeklyReport(
   const rendersTest = { ...rendered, email: { ...rendered.email, subject: `[Test] ${rendered.email.subject}` } };
   const to: Recipients = {
     email: input.toEmail?.trim() || null,
-    phone: settings.channels.includes("sms") && isCrankleads ? company.owner_phone_e164?.trim() || null : null,
+    phone: settings.channels.includes("sms") && isDoneForYou ? company.owner_phone_e164?.trim() || null : null,
   };
   const delivery = await deliver(context, company, org.brand, rendersTest, to);
   return {

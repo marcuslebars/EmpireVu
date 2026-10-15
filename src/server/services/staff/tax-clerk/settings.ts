@@ -72,12 +72,12 @@ const bool = (value: unknown): boolean | null => (typeof value === "boolean" ? v
 const month = (value: unknown): number | null => (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 12 ? value : null);
 
 /** companies.ai_settings (any shape) → the Tax Clerk section with defaults. PURE. */
-export function readTaxClerkSettings(aiSettings: unknown, org: { crankleads: boolean; hasHstNumber: boolean }): TaxClerkSettings {
+export function readTaxClerkSettings(aiSettings: unknown, org: { doneForYou: boolean; hasHstNumber: boolean }): TaxClerkSettings {
   const section = record(record(aiSettings)[SETTINGS_KEY]);
   const receipts = record(section.receipts);
   const hst = record(section.hst);
   const nudges = record(section.nudges);
-  const on = org.crankleads;
+  const on = org.doneForYou;
   const registrantSetting = bool(hst.registrant);
   return {
     receipts: { enabled: bool(receipts.enabled) ?? on },
@@ -146,7 +146,7 @@ export interface TaxClerkCompany {
   companyId: string;
   name: string;
   timeZone: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   platformBrand: string | null;
   ownerPhone: string | null;
   ownerEmail: string | null;
@@ -175,21 +175,21 @@ interface CompanyRow {
 }
 
 function toCompany(row: CompanyRow, platformBrand: string | null): TaxClerkCompany {
-  const crankleads = isDoneForYou(platformBrand);
+  const doneForYou = isDoneForYou(platformBrand);
   const hstNumber = row.tax_registration_number?.trim() || null;
   return {
     organizationId: row.organization_id,
     companyId: row.id,
     name: (row.brand_from_name?.trim() || row.name || "").trim() || "the business",
     timeZone: zoneOf(row.timezone),
-    crankleads,
+    doneForYou,
     platformBrand,
     ownerPhone: row.owner_phone_verified_at && row.owner_phone_e164?.trim() ? row.owner_phone_e164.trim() : null,
     ownerEmail: isEmail(row.owner_email) ? row.owner_email.trim() : null,
     hstNumber,
     createdAt: row.created_at ?? null,
     active: !row.stage || !["archived", "paused", "cancelled"].includes(row.stage),
-    settings: readTaxClerkSettings(row.ai_settings, { crankleads, hasHstNumber: Boolean(hstNumber) }),
+    settings: readTaxClerkSettings(row.ai_settings, { doneForYou, hasHstNumber: Boolean(hstNumber) }),
   };
 }
 

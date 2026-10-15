@@ -28,10 +28,10 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 /** companies.ai_settings (any shape) → the import section with defaults. PURE. */
-export function readImportSettings(aiSettings: unknown, org: { crankleads: boolean }): ImportSettings {
+export function readImportSettings(aiSettings: unknown, org: { doneForYou: boolean }): ImportSettings {
   const s = record(record(aiSettings)[SETTINGS_KEY]);
   const explicit = typeof s.enabled === "boolean" ? s.enabled : null;
-  return { enabled: explicit ?? org.crankleads, enabledIsDefault: explicit === null };
+  return { enabled: explicit ?? org.doneForYou, enabledIsDefault: explicit === null };
 }
 
 /** The new ai_settings with ONLY `import` changed. PURE. */
@@ -49,7 +49,7 @@ export interface ImportCompany {
   /** The name customers and the owner know (brand_from_name, else the company name). */
   name: string;
   timeZone: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   platformBrand: string;
   /** The VERIFIED owner cell, else null (no owner texts). */
   ownerPhone: string | null;
@@ -74,17 +74,17 @@ export async function loadImportCompany(admin: AdminClient, organizationId: stri
   const c = data as Record<string, unknown>;
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", organizationId).maybeSingle();
   const platformBrand = str(record(org).platform_brand) ?? "empirevu";
-  const crankleads = isDoneForYou(platformBrand);
+  const doneForYou = isDoneForYou(platformBrand);
   return {
     organizationId,
     companyId,
     name: str(c.brand_from_name) ?? str(c.name) ?? "your business",
     timeZone: str(c.timezone) ?? "America/Toronto",
-    crankleads,
+    doneForYou,
     platformBrand,
     ownerPhone: str(c.owner_phone_e164) && c.owner_phone_verified_at ? str(c.owner_phone_e164) : null,
     invoiceSettings: c.invoice_settings ?? null,
-    settings: readImportSettings(c.ai_settings, { crankleads }),
+    settings: readImportSettings(c.ai_settings, { doneForYou }),
   };
 }
 

@@ -29,13 +29,13 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 /** PURE: companies.ai_settings (any shape) → the SMS agent section with defaults applied. */
-export function readSmsAgentSettings(aiSettings: unknown, org: { crankleads: boolean }): SmsAgentSettings {
+export function readSmsAgentSettings(aiSettings: unknown, org: { doneForYou: boolean }): SmsAgentSettings {
   const section = asRecord(asRecord(aiSettings).sms_agent);
   const explicit = typeof section.enabled === "boolean" ? section.enabled : null;
   const autonomy = SMS_AGENT_AUTONOMY.includes(section.autonomy as SmsAgentAutonomy)
     ? (section.autonomy as SmsAgentAutonomy)
     : "standard";
-  return { enabled: explicit ?? org.crankleads, autonomy, enabledIsDefault: explicit === null };
+  return { enabled: explicit ?? org.doneForYou, autonomy, enabledIsDefault: explicit === null };
 }
 
 /** The AI replies only when it's on and autonomy isn't "off". */
@@ -46,7 +46,7 @@ export function smsAgentActive(settings: SmsAgentSettings): boolean {
 export interface SmsAgentCompanySettings extends SmsAgentSettings {
   organizationId: string;
   companyId: string;
-  crankleads: boolean;
+  doneForYou: boolean;
 }
 
 /** Load a company's SMS agent settings (service role or the caller's RLS client). Null → no such company. */
@@ -67,8 +67,8 @@ export async function loadSmsAgentSettings(
     .select("platform_brand")
     .eq("id", row.organization_id)
     .maybeSingle();
-  const crankleads = isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand);
-  return { ...readSmsAgentSettings(row.ai_settings, { crankleads }), organizationId: row.organization_id, companyId: row.id, crankleads };
+  const doneForYou = isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand);
+  return { ...readSmsAgentSettings(row.ai_settings, { doneForYou }), organizationId: row.organization_id, companyId: row.id, doneForYou };
 }
 
 /** Merge a patch into ai_settings.sms_agent only (other sections untouched). PURE. */

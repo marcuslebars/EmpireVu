@@ -23,19 +23,19 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-export function defaultWeeklyReportChannels(isCrankleads: boolean): WeeklyReportChannel[] {
-  return isCrankleads ? ["sms", "email"] : ["email"];
+export function defaultWeeklyReportChannels(isDoneForYou: boolean): WeeklyReportChannel[] {
+  return isDoneForYou ? ["sms", "email"] : ["email"];
 }
 
 /** companies.ai_settings (whole blob) → typed weekly-report settings with defaults. */
-export function parseWeeklyReportSettings(aiSettings: Json | null | undefined, isCrankleads: boolean): WeeklyReportSettings {
+export function parseWeeklyReportSettings(aiSettings: Json | null | undefined, isDoneForYou: boolean): WeeklyReportSettings {
   const section = asRecord(asRecord(aiSettings).weekly_report);
   const explicit = typeof section.enabled === "boolean";
-  const enabled = explicit ? (section.enabled as boolean) : isCrankleads;
+  const enabled = explicit ? (section.enabled as boolean) : isDoneForYou;
   let channels: WeeklyReportChannel[] = Array.isArray(section.channels)
     ? WEEKLY_REPORT_CHANNELS.filter((channel) => (section.channels as unknown[]).includes(channel))
-    : defaultWeeklyReportChannels(isCrankleads);
-  if (!isCrankleads) channels = channels.filter((channel) => channel !== "sms");
+    : defaultWeeklyReportChannels(isDoneForYou);
+  if (!isDoneForYou) channels = channels.filter((channel) => channel !== "sms");
   if (channels.length === 0) channels = ["email"];
   return { enabled, channels, explicit };
 }

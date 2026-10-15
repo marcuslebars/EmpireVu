@@ -39,7 +39,7 @@ export async function getCollectionsView(admin: AdminClient, organizationId: str
     companyId,
     companyName: ctx.name,
     settings: ctx.settings,
-    defaultEnabled: ctx.crankleads,
+    defaultEnabled: ctx.doneForYou,
     emailReminders: ctx.emailReminders,
     ownerPhoneOnFile: Boolean(ctx.ownerPhone),
     stats: {

@@ -1,14 +1,14 @@
 /**
- * CrankLeads purchase emails — PURE renderers (golden-tested in src/test/crankleads-purchase.test.ts).
+ * Done-for-you purchase emails — PURE renderers (golden-tested in src/test/crankleads-purchase.test.ts).
  *
- * The buyer bought CrankLeads, and CrankLeads is what they log into: their account is a
- * CrankLeads-branded org (organizations.platform_brand = 'crankleads') on the CrankLeads app
+ * The buyer bought the done-for-you offer, and that is what they log into: their account is a
+ * Done-for-you-branded org (organizations.platform_brand = 'crankleads') on the done-for-you app
  * host (appBaseUrlFor("crankleads"): CRANKLEADS_APP_BASE_URL once set, else APP_BASE_URL). Copy
  * names the host of the actual link (appHostOf), never a hard-coded one. These emails never say
  * "EmpireVu" (docs/everdoer-branding.md). No prices in here (Working Protocol #4).
  */
 import { PLATFORM_BRANDS } from "@/lib/platform-brand";
-import { CRANKLEADS_OFFER_NAME, CRANKLEADS_TIER_LABELS, type CrankleadsTier } from "@/server/services/crankleads/config";
+import { DONE_FOR_YOU_OFFER_NAME, PLAN_TIER_LABELS, type PlanTier } from "@/server/services/done-for-you/config";
 
 /** The app the buyer logs into. */
 export const APP_PRODUCT_NAME = PLATFORM_BRANDS.crankleads.name;
@@ -32,7 +32,7 @@ export interface RenderedEmail {
 export interface WelcomeEmailInput {
   ownerName: string;
   businessName: string;
-  tier: CrankleadsTier;
+  tier: PlanTier;
   /** Set-password link (new user) — null for someone who already had a login. */
   setPasswordUrl: string | null;
   /** The 60-second quick-setup link (/setup/:token) — null if it couldn't be made. */
@@ -83,8 +83,8 @@ function buildList(input: WelcomeEmailInput): string[] {
 }
 
 export function renderWelcomeEmail(input: WelcomeEmailInput): RenderedEmail {
-  const tierLabel = CRANKLEADS_TIER_LABELS[input.tier];
-  const subject = `You're in — we're setting up ${CRANKLEADS_OFFER_NAME} for you`;
+  const tierLabel = PLAN_TIER_LABELS[input.tier];
+  const subject = `You're in — we're setting up ${DONE_FOR_YOU_OFFER_NAME} for you`;
   const done = doneList(input);
   const build = buildList(input);
   const host = appHostOf(input.appUrl);
@@ -101,7 +101,7 @@ export function renderWelcomeEmail(input: WelcomeEmailInput): RenderedEmail {
   const body = [
     `Hi ${firstName(input.ownerName)},`,
     "",
-    `Thanks for buying ${CRANKLEADS_OFFER_NAME} ${tierLabel}. You don't have to set anything up — we're setting up ${input.businessName} for you.`,
+    `Thanks for buying ${DONE_FOR_YOU_OFFER_NAME} ${tierLabel}. You don't have to set anything up — we're setting up ${input.businessName} for you.`,
     "",
     ...setupLines,
     "",
@@ -118,7 +118,7 @@ export function renderWelcomeEmail(input: WelcomeEmailInput): RenderedEmail {
     "",
     "Questions? Just reply to this email.",
     "",
-    `— The ${CRANKLEADS_OFFER_NAME} team`,
+    `— The ${DONE_FOR_YOU_OFFER_NAME} team`,
   ].join("\n");
 
   const li = (items: string[]) => items.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
@@ -126,7 +126,7 @@ export function renderWelcomeEmail(input: WelcomeEmailInput): RenderedEmail {
     `<p><a href="${escapeHtml(href)}" style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600">${escapeHtml(label)}</a></p>`;
   const html = [
     `<p>Hi ${escapeHtml(firstName(input.ownerName))},</p>`,
-    `<p>Thanks for buying ${CRANKLEADS_OFFER_NAME} ${escapeHtml(tierLabel)}. You don't have to set anything up — we're setting up <strong>${escapeHtml(input.businessName)}</strong> for you.</p>`,
+    `<p>Thanks for buying ${DONE_FOR_YOU_OFFER_NAME} ${escapeHtml(tierLabel)}. You don't have to set anything up — we're setting up <strong>${escapeHtml(input.businessName)}</strong> for you.</p>`,
     input.setupUrl
       ? `<p><strong>Check your texts:</strong> we just sent you a link to a 60-second quick setup — 3 questions, no login. Here it is too:</p>${button(input.setupUrl, "Start the 60-second setup")}`
       : "<p><strong>Check your texts:</strong> we're sending you a link to a 60-second quick setup — 3 questions, no login.</p>",
@@ -139,16 +139,16 @@ export function renderWelcomeEmail(input: WelcomeEmailInput): RenderedEmail {
     input.formUrl
       ? `<p>Your website lead form: <a href="${escapeHtml(input.formUrl)}">${escapeHtml(input.formUrl)}</a><br><span style="font-size:12px;color:#6b7280">Share it on Google, Facebook or by text — leads land in your inbox right away.</span></p>`
       : "",
-    `<p>Questions? Just reply to this email.</p><p>— The ${CRANKLEADS_OFFER_NAME} team</p>`,
+    `<p>Questions? Just reply to this email.</p><p>— The ${DONE_FOR_YOU_OFFER_NAME} team</p>`,
   ].join("\n");
 
-  return { subject, body, html, fromName: CRANKLEADS_OFFER_NAME };
+  return { subject, body, html, fromName: DONE_FOR_YOU_OFFER_NAME };
 }
 
 export interface OperatorEmailInput {
   businessName: string;
   businessType: string;
-  tier: CrankleadsTier;
+  tier: PlanTier;
   ownerName: string;
   ownerEmail: string;
   ownerPhone: string;
@@ -161,8 +161,8 @@ export interface OperatorEmailInput {
 }
 
 export function renderOperatorNewPurchaseEmail(input: OperatorEmailInput): RenderedEmail {
-  const tierLabel = CRANKLEADS_TIER_LABELS[input.tier];
-  const subject = `New ${CRANKLEADS_OFFER_NAME} purchase: ${input.businessName} (${tierLabel})`;
+  const tierLabel = PLAN_TIER_LABELS[input.tier];
+  const subject = `New ${DONE_FOR_YOU_OFFER_NAME} purchase: ${input.businessName} (${tierLabel})`;
   const lines = [
     subject,
     "",
@@ -177,19 +177,19 @@ export function renderOperatorNewPurchaseEmail(input: OperatorEmailInput): Rende
     `Ops: ${input.appUrl}/internal/ops`,
   ];
   const body = lines.join("\n");
-  return { subject, body, html: `<pre style="font-family:ui-monospace,monospace">${escapeHtml(body)}</pre>`, fromName: CRANKLEADS_OFFER_NAME };
+  return { subject, body, html: `<pre style="font-family:ui-monospace,monospace">${escapeHtml(body)}</pre>`, fromName: DONE_FOR_YOU_OFFER_NAME };
 }
 
 export interface OperatorFailureEmailInput {
   businessName: string;
-  tier: CrankleadsTier | null;
+  tier: PlanTier | null;
   ownerEmail: string;
   sessionId: string | null;
   error: string;
 }
 
 export function renderOperatorFailureEmail(input: OperatorFailureEmailInput): RenderedEmail {
-  const subject = `ACTION NEEDED: ${CRANKLEADS_OFFER_NAME} provisioning failed — ${input.businessName} (${input.tier ? CRANKLEADS_TIER_LABELS[input.tier] : "unknown tier"})`;
+  const subject = `ACTION NEEDED: ${DONE_FOR_YOU_OFFER_NAME} provisioning failed — ${input.businessName} (${input.tier ? PLAN_TIER_LABELS[input.tier] : "unknown tier"})`;
   const body = [
     "A paid Everdoer purchase could not be set up automatically. The payment is safe and recorded",
     "(crankleads_purchases.status = 'failed'); nothing is lost.",
@@ -199,7 +199,7 @@ export function renderOperatorFailureEmail(input: OperatorFailureEmailInput): Re
     `Error: ${input.error}`,
     "",
     "Fix the cause, then re-run (PowerShell, from the repo):",
-    `  npm run job:crankleads-provision -- --session ${input.sessionId ?? "<cs_...>"}`,
+    `  npm run job:dfy-provision -- --session ${input.sessionId ?? "<cs_...>"}`,
   ].join("\n");
-  return { subject, body, html: `<pre style="font-family:ui-monospace,monospace">${escapeHtml(body)}</pre>`, fromName: CRANKLEADS_OFFER_NAME };
+  return { subject, body, html: `<pre style="font-family:ui-monospace,monospace">${escapeHtml(body)}</pre>`, fromName: DONE_FOR_YOU_OFFER_NAME };
 }

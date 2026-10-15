@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { handleRoute } from "@/server/api/route";
 import { requireOrganizationContext } from "@/server/organizations/context";
-import { loadSetupChecklist } from "@/server/services/crankleads/setup-checklist";
+import { loadSetupChecklist } from "@/server/services/done-for-you/setup-checklist";
 import { createSupabaseServerClient } from "@/server/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ interface RouteContext {
 /**
  * The CrankLeads setup checklist for the dashboard card ("Setup: 3 of 5 done → next step").
  * Normal RLS auth (org member). `data` is null for orgs that aren't CrankLeads purchases.
- * Same checklist the setup follow-up reminders use (services/crankleads/setup-checklist.ts).
+ * Same checklist the setup follow-up reminders use (services/done-for-you/setup-checklist.ts).
  */
 export async function GET(_request: Request, context: RouteContext): Promise<NextResponse> {
   return handleRoute(async () => {

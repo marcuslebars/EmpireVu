@@ -16,7 +16,7 @@
  *     link (and its retries / operator resend), the forwarding text, the page text, the
  *     forwarding-test result notice and "You're live".
  */
-import type { AdminClient } from "@/server/services/crankleads/purchases";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
 
 export type OwnerTextBlock = "followups_exempt" | "reminders_stopped";
 

@@ -1,5 +1,5 @@
 /**
- * CrankLeads setup checklist — "is this buyer's system actually working yet?" One function,
+ * Done-for-you setup checklist — "is this buyer's system actually working yet?" One function,
  * several callers: the setup follow-up job (reminders + live detection), the done-for-you
  * orchestrator (24h escalation), the in-app "We're setting you up" view and dashboard card
  * (GET /api/organizations/{orgId}/setup-checklist, normal RLS auth), and the daily operator
@@ -11,7 +11,7 @@
  *                                    organization_id + company_id; works on an RLS client or
  *                                    the worker's service-role client).
  *   loadSetupChecklist(ctx, opts)  — org → tier + company → facts → checklist; null when the
- *                                    org is not a CrankLeads org or has no company yet.
+ *                                    org is not a done-for-you org or has no company yet.
  *
  * "Live" (done-for-you, docs/done-for-you.md → "Automatic switch-on"):
  *
@@ -30,7 +30,7 @@
  */
 import { prettyPhone } from "@/lib/carrier-forwarding";
 import type { Tables } from "@/server/db/database.types";
-import { isCrankleadsTier, type CrankleadsTier } from "@/server/services/crankleads/config";
+import { isDoneForYouTier, type PlanTier } from "@/server/services/done-for-you/config";
 import type { OnboardingStep } from "@/server/services/onboarding";
 import { businessLineOf, hasFrontDeskForwardingEvidence } from "@/server/services/dfy/front-desk-forwarding";
 import { needsPrice } from "@/server/services/packs/apply";
@@ -96,7 +96,7 @@ export interface SetupChecklistStep {
 export interface SetupChecklist {
   organizationId: string;
   companyId: string;
-  tier: CrankleadsTier;
+  tier: PlanTier;
   phonePath: PhonePath;
   /** The REQUIRED steps (live = all done). */
   steps: SetupChecklistStep[];
@@ -124,19 +124,19 @@ const WIZARD_STEP: Record<SetupStepKey, OnboardingStep> = {
  * Catch / Close only ever get the catcher (AI receptionist is Front Desk only). Front Desk is
  * on the AI path unless the owner chose the catcher instead (catcher number, no AI number).
  */
-export function phonePathFor(tier: CrankleadsTier, facts: Pick<SetupFacts, "catcherNumber" | "aiNumber">): PhonePath {
+export function phonePathFor(tier: PlanTier, facts: Pick<SetupFacts, "catcherNumber" | "aiNumber">): PhonePath {
   if (tier !== "front_desk") return "missed_call_catcher";
   if (!facts.aiNumber && facts.catcherNumber) return "missed_call_catcher";
   return "ai_receptionist";
 }
 
 /** The REQUIRED steps for a tier + phone path ("live" = all done). */
-export function requiredSetupSteps(_tier: CrankleadsTier, phonePath: PhonePath): SetupStepKey[] {
+export function requiredSetupSteps(_tier: PlanTier, phonePath: PhonePath): SetupStepKey[] {
   return phonePath === "missed_call_catcher" ? ["phone", "forwarding", "automations"] : ["phone", "forwarding"];
 }
 
 /** Optional extras, shown but never required (payments only where deposits exist: Close / Front Desk). */
-export function optionalSetupSteps(tier: CrankleadsTier, _phonePath: PhonePath): SetupStepKey[] {
+export function optionalSetupSteps(tier: PlanTier, _phonePath: PhonePath): SetupStepKey[] {
   return tier === "catch" ? ["services", "website"] : ["services", "payments", "website"];
 }
 
@@ -206,9 +206,9 @@ export function setupStepPath(organizationId: string, wizardStep: OnboardingStep
 export interface ComputeSetupChecklistInput {
   organizationId: string;
   companyId: string;
-  tier: CrankleadsTier;
+  tier: PlanTier;
   facts: SetupFacts;
-  /** Absolute app origin for deep links (the CrankLeads host), no trailing slash needed. */
+  /** Absolute app origin for deep links (the done-for-you host), no trailing slash needed. */
   appBaseUrl: string;
   /** The one-tap forwarding page (/forward/:token) — the forwarding step's deep link when set. */
   forwardUrl?: string | null;
@@ -348,30 +348,30 @@ export async function loadSetupFacts(ctx: TenantServiceContext, companyId: strin
   };
 }
 
-/** Only CrankLeads orgs have a setup checklist, so its deep links default to the CrankLeads host. */
+/** Only done-for-you orgs have a setup checklist, so its deep links default to the done-for-you host. */
 function defaultAppBaseUrl(): string {
   return appBaseUrlFor("crankleads");
 }
 
 export interface LoadSetupChecklistOptions {
-  /** The CrankLeads company (crankleads_purchases.company_id). Default: the org's first company. */
+  /** The done-for-you company (crankleads_purchases.company_id). Default: the org's first company. */
   companyId?: string | null;
   /** Skip the organizations lookup when the caller already knows the tier. */
-  tier?: CrankleadsTier | null;
+  tier?: PlanTier | null;
   appBaseUrl?: string;
   /** One-tap forwarding page for the forwarding step's link (null → the in-app path). */
   forwardUrl?: string | null;
 }
 
 /**
- * The checklist for `ctx.organizationId`, or null when the org is not a CrankLeads org
+ * The checklist for `ctx.organizationId`, or null when the org is not a done-for-you org
  * (organizations.crankleads_tier null) or has no company yet.
  */
 export async function loadSetupChecklist(
   ctx: TenantServiceContext,
   options: LoadSetupChecklistOptions = {},
 ): Promise<SetupChecklist | null> {
-  let tier: CrankleadsTier | null = options.tier ?? null;
+  let tier: PlanTier | null = options.tier ?? null;
   if (!tier) {
     const { data, error } = await ctx.supabase
       .from("organizations")
@@ -380,7 +380,7 @@ export async function loadSetupChecklist(
       .maybeSingle();
     throwIf(error, "organization");
     const raw = (data as { crankleads_tier: string | null } | null)?.crankleads_tier ?? null;
-    tier = isCrankleadsTier(raw) ? raw : null;
+    tier = isDoneForYouTier(raw) ? raw : null;
   }
   if (!tier) return null;
 

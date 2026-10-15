@@ -193,7 +193,7 @@ async function companyContext(admin: AdminClient, deps: EstimatorDeps, companyId
   const c = company as { id: string; organization_id: string; timezone: string | null; ai_settings: unknown } | null;
   if (!c) return null;
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", c.organization_id).maybeSingle();
-  const settings = readEstimatorSettings(c.ai_settings, { crankleads: isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand) });
+  const settings = readEstimatorSettings(c.ai_settings, { doneForYou: isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand) });
   if (!followUpsActive(settings)) return null;
   const { data: workflows } = await db
     .from("workflows")

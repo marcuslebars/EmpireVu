@@ -239,7 +239,7 @@ async function turnState(): Promise<TurnState> {
   return {
     admin: db.client,
     facts,
-    settings: readSmsAgentSettings({}, { crankleads: true }),
+    settings: readSmsAgentSettings({}, { doneForYou: true }),
     contact: contact as never,
     conversation: conversation!,
     services: {} as never,
@@ -279,10 +279,10 @@ afterEach(() => {
 
 describe("estimator settings", () => {
   it("default ON for CrankLeads, OFF for house orgs (A1) unless switched on", () => {
-    expect(readEstimatorSettings({}, { crankleads: true })).toEqual({ enabled: true, followUps: true, cadenceDays: [2, 5, 10], enabledIsDefault: true });
-    expect(readEstimatorSettings({}, { crankleads: false })).toMatchObject({ enabled: false, followUps: false, enabledIsDefault: true });
-    expect(readEstimatorSettings({ estimator: { enabled: true, follow_ups: true } }, { crankleads: false })).toMatchObject({ enabled: true, followUps: true, enabledIsDefault: false });
-    expect(readEstimatorSettings({ estimator: { cadence_days: [3, 1] } }, { crankleads: true }).cadenceDays).toEqual([2, 5, 10]);
+    expect(readEstimatorSettings({}, { doneForYou: true })).toEqual({ enabled: true, followUps: true, cadenceDays: [2, 5, 10], enabledIsDefault: true });
+    expect(readEstimatorSettings({}, { doneForYou: false })).toMatchObject({ enabled: false, followUps: false, enabledIsDefault: true });
+    expect(readEstimatorSettings({ estimator: { enabled: true, follow_ups: true } }, { doneForYou: false })).toMatchObject({ enabled: true, followUps: true, enabledIsDefault: false });
+    expect(readEstimatorSettings({ estimator: { cadence_days: [3, 1] } }, { doneForYou: true }).cadenceDays).toEqual([2, 5, 10]);
   });
 
   it("estimatorActiveFor: on for a CrankLeads company, off for a house org, another org, or a missing company", async () => {

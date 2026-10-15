@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// CrankLeads: a company only runs its tier's automations.
+// Done-for-you: a company only runs its tier's automations.
 // Called with a context pinned to ONE organization (provisioning, done-for-you switch-on, the
 // one-off repair job); every read/write is filtered by organization_id + company_id.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -12,7 +12,7 @@
  */
 import { PRODUCT_LINE_DB_VALUES } from "@/lib/product-line";
 import type { Tables } from "@/server/db/database.types";
-import { tierAllowedRecipeSlugs, type CrankleadsTier } from "@/server/services/crankleads/config";
+import { tierAllowedRecipeSlugs, type PlanTier } from "@/server/services/done-for-you/config";
 import { getPack } from "@/server/services/packs";
 import { parseAppliedIndustryPack } from "@/server/services/packs/types";
 import type { TenantServiceContext } from "@/server/services/shared";
@@ -55,7 +55,7 @@ export interface RestrictResult {
 export async function restrictAutomationsToTier(
   ctx: TenantServiceContext,
   companyId: string,
-  tier: CrankleadsTier,
+  tier: PlanTier,
   options: { dryRun?: boolean; packRecipeSlugs?: string[] } = {},
 ): Promise<RestrictResult> {
   const packSlugs = options.packRecipeSlugs ?? (await packRecipeSlugsFor(ctx, companyId));
@@ -88,12 +88,12 @@ export async function restrictAutomationsToTier(
 export interface RepairTierAutomationsItem {
   organizationId: string;
   companyId: string;
-  tier: CrankleadsTier;
+  tier: PlanTier;
   deactivated: string[];
 }
 
 /**
- * Every CrankLeads org (platform_brand 'crankleads' with a tier): list — and with `apply`, set to
+ * Every done-for-you org (platform_brand 'crankleads' with a tier): list — and with `apply`, set to
  * draft — the active catalog recipes outside the tier. Dry-run by default. Idempotent (a second
  * run finds nothing). Each company is handled with a context pinned to its own organization.
  */
@@ -114,7 +114,7 @@ export async function repairTierAutomations(
     if (error) throw new Error(`org list failed: ${error.message}`);
     const orgs = (data ?? []) as Array<{ id: string; crankleads_tier: string | null }>;
     for (const org of orgs) {
-      const tier = org.crankleads_tier as CrankleadsTier;
+      const tier = org.crankleads_tier as PlanTier;
       if (!["catch", "close", "front_desk"].includes(tier)) continue;
       const ctx: TenantServiceContext = { organizationId: org.id, actorProfileId: null, supabase: admin };
       const { data: companies, error: companiesError } = await admin.from("companies").select("id").eq("organization_id", org.id);

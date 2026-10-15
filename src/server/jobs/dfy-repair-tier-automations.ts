@@ -1,5 +1,5 @@
 /**
- * One-off repair: CrankLeads companies provisioned before the "only the tier's automations"
+ * One-off repair: Done-for-you companies provisioned before the "only the tier's automations"
  * rule got the whole recipe catalog at default status (a Catch buyer could have stale-lead
  * nudges or quote follow-ups texting their leads). This lists — and with --apply sets to draft
  * — every ACTIVE catalog recipe outside the company's tier (packRecipesForTier ∪ the tier's
@@ -8,10 +8,10 @@
  * SANCTIONED EXCEPTION (service role) — jobs. Needs NEXT_PUBLIC_SUPABASE_URL and
  * SUPABASE_SERVICE_ROLE_KEY. Dry-run by default; idempotent (re-running finds nothing).
  *
- *   npm run job:crankleads-repair-automations              # dry run: prints what would change
- *   npm run job:crankleads-repair-automations -- --apply   # makes the change
+ *   npm run job:dfy-repair-automations              # dry run: prints what would change
+ *   npm run job:dfy-repair-automations -- --apply   # makes the change
  */
-import { repairTierAutomations } from "@/server/services/crankleads/tier-automations";
+import { repairTierAutomations } from "@/server/services/done-for-you/tier-automations";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
 
 async function main(): Promise<number> {

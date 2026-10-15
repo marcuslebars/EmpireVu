@@ -8,7 +8,7 @@ import {
   getStripeSetupFeePriceId,
 } from "@/server/services/billing/env";
 import { getStripeClient } from "@/server/services/billing/stripe";
-import { crankleadsCheckoutBranding } from "@/server/services/crankleads/config";
+import { doneForYouCheckoutBranding } from "@/server/services/done-for-you/config";
 import { appBaseUrlFor, brandForOrg, type PlatformBrand } from "@/server/services/platform-brand";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 
@@ -48,7 +48,7 @@ export function checkoutBrandingFor(
   brand?: PlatformBrand,
 ): Stripe.Checkout.SessionCreateParams["branding_settings"] | undefined {
   void brand; // same for every product line
-  const b = crankleadsCheckoutBranding();
+  const b = doneForYouCheckoutBranding();
   return {
     display_name: b.displayName,
     logo: { type: "url", url: b.logoUrl },

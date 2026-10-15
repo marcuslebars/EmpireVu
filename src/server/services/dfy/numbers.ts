@@ -8,8 +8,8 @@
 // docs/done-for-you.md → "Automatic switch-on".
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Json } from "@/server/db/database.types";
-import type { CrankleadsTier } from "@/server/services/crankleads/config";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
+import type { PlanTier } from "@/server/services/done-for-you/config";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
 import {
   claimOnce,
   ensureProgress,
@@ -34,7 +34,7 @@ export const NUMBER_RETRY_BACKOFF_MS = [0, 60_000, 5 * 60_000, 20 * 60_000, 60 *
 export type DfyNumberKind = "catcher" | "ai";
 
 /** Catch / Close buy the missed-call text-back (catcher) number; Front Desk the AI receptionist's. */
-export function numberKindForTier(tier: CrankleadsTier): DfyNumberKind {
+export function numberKindForTier(tier: PlanTier): DfyNumberKind {
   return tier === "front_desk" ? "ai" : "catcher";
 }
 
@@ -73,7 +73,7 @@ export interface DfyNumberDeps {
 export interface EnsureNumberInput {
   organizationId: string;
   companyId: string;
-  tier: CrankleadsTier;
+  tier: PlanTier;
   /** The phone the buyer gave at checkout (area code source). */
   ownerPhone: string | null;
 }

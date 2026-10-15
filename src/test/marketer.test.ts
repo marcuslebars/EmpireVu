@@ -174,17 +174,17 @@ async function company(id = CO, org = ORG) {
 
 describe("settings", () => {
   it("defaults: everything on for CrankLeads, off for house orgs (A1) unless explicitly on", () => {
-    const cl = readMarketingSettings({}, { crankleads: true });
+    const cl = readMarketingSettings({}, { doneForYou: true });
     expect(cl.winBack).toMatchObject({ enabled: true, monthsMin: 9, monthsMax: 24, weeklyCap: 150, perHour: 30, startHour: 10, endHour: 19, days: [1, 2, 3, 4, 5, 6] });
     expect(cl.reviewReplies.enabled).toBe(true);
     expect(cl.googlePosts.enabled).toBe(true);
-    const house = readMarketingSettings({}, { crankleads: false });
+    const house = readMarketingSettings({}, { doneForYou: false });
     expect([house.winBack.enabled, house.reviewReplies.enabled, house.googlePosts.enabled]).toEqual([false, false, false]);
-    expect(readMarketingSettings({ marketing: { review_replies: { enabled: true } } }, { crankleads: false }).reviewReplies.enabled).toBe(true);
+    expect(readMarketingSettings({ marketing: { review_replies: { enabled: true } } }, { doneForYou: false }).reviewReplies.enabled).toBe(true);
   });
 
   it("clamps the window to CASL's 2 years and the send hours to 09:00-20:00; merge touches only marketing", () => {
-    const s = readMarketingSettings({ marketing: { win_back: { months_min: 30, months_max: 40, start_hour: 6, end_hour: 23 } } }, { crankleads: true });
+    const s = readMarketingSettings({ marketing: { win_back: { months_min: 30, months_max: 40, start_hour: 6, end_hour: 23 } } }, { doneForYou: true });
     expect(s.winBack.monthsMax).toBe(24);
     expect(s.winBack.monthsMin).toBe(23);
     expect(s.winBack.startHour).toBe(9);

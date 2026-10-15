@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SANCTIONED EXCEPTION (service role): CrankLeads purchase provisioning.
+// SANCTIONED EXCEPTION (service role): Done-for-you purchase provisioning.
 // Runs in the billing worker (on a verified, durably recorded Stripe
 // checkout.session.completed) and in the operator re-run job — neither has a user session,
 // and the owner account does not exist yet. The tenant is never taken from a request: the
@@ -19,20 +19,20 @@ import { getAppBaseUrl } from "@/server/services/billing/env";
 import { createCompany, listCompanies, updateCompany } from "@/server/services/companies";
 import { setOwnerPhoneVerified } from "@/server/services/owner-channel/owner-phone";
 import {
-  CRANKLEADS_SOURCE,
-  CRANKLEADS_TIER_PLAN,
-  isCrankleadsTier,
+  DONE_FOR_YOU_SOURCE,
+  DONE_FOR_YOU_TIER_PLAN,
+  isDoneForYouTier,
   packIdForBusinessType,
   packRecipesForTier,
-  type CrankleadsTier,
-} from "@/server/services/crankleads/config";
-import { isDoneForYouStripeSource } from "@/server/services/crankleads/stripe-source";
+  type PlanTier,
+} from "@/server/services/done-for-you/config";
+import { isDoneForYouStripeSource } from "@/server/services/done-for-you/stripe-source";
 import {
   renderOperatorFailureEmail,
   renderOperatorNewPurchaseEmail,
   renderWelcomeEmail,
   type RenderedEmail,
-} from "@/server/services/crankleads/emails";
+} from "@/server/services/done-for-you/emails";
 import {
   claimPurchaseForProvisioning,
   findPurchaseById,
@@ -43,8 +43,8 @@ import {
   updatePurchase,
   findPurchaseByCustomer,
   type AdminClient,
-  type CrankleadsPurchase,
-} from "@/server/services/crankleads/purchases";
+  type DoneForYouPurchase,
+} from "@/server/services/done-for-you/purchases";
 import { provisionDoneForYouNumber } from "@/server/services/dfy/orchestrator";
 import { createPublicFormKey, listPublicFormKeys } from "@/server/services/lead-intake/public-form-keys";
 import { upsertOnboardingStep } from "@/server/services/onboarding";
@@ -54,11 +54,11 @@ import { applyIndustryPack, listIndustryPacks } from "@/server/services/packs/ap
 import { toE164 } from "@/server/services/retell/payload";
 import type { TenantServiceContext } from "@/server/services/shared";
 import { createAndSendSetupIntake, ensureSetupIntake } from "@/server/services/dfy/intake";
-import { restrictAutomationsToTier } from "@/server/services/crankleads/tier-automations";
+import { restrictAutomationsToTier } from "@/server/services/done-for-you/tier-automations";
 import { appBaseUrlFor } from "@/server/services/platform-brand";
 
-/** The timezone every CrankLeads company starts in (Ontario). Editable in Settings. */
-export const CRANKLEADS_DEFAULT_TIMEZONE = "America/Toronto";
+/** The timezone every done-for-you company starts in (Ontario). Editable in Settings. */
+export const DONE_FOR_YOU_DEFAULT_TIMEZONE = "America/Toronto";
 
 export interface ProvisionDeps {
   sendEmail: (input: SendEmailInput) => Promise<SendEmailResult>;
@@ -100,16 +100,16 @@ function idOf(value: unknown): string | null {
 // ── Stripe object helpers ─────────────────────────────────────────────────────
 
 /**
- * Is this Checkout Session (or subscription/invoice) a CrankLeads purchase? `metadata.source` is
+ * Is this Checkout Session (or subscription/invoice) a done-for-you purchase? `metadata.source` is
  * "crankleads" on every live object and "everdoer" on new ones once EVERDOER_WRITE_NEW_NAMES is
- * on; both count (crankleads/stripe-source.ts).
+ * on; both count (done-for-you/stripe-source.ts).
  */
-export function isCrankleadsObject(object: StripeObject | null | undefined): boolean {
-  return crankleadsMetadataOf(object) !== null;
+export function isDoneForYouObject(object: StripeObject | null | undefined): boolean {
+  return doneForYouMetadataOf(object) !== null;
 }
 
-/** The CrankLeads metadata on a session, subscription, or invoice (via its subscription details). */
-function crankleadsMetadataOf(object: StripeObject | null | undefined): Record<string, unknown> | null {
+/** The done-for-you metadata on a session, subscription, or invoice (via its subscription details). */
+function doneForYouMetadataOf(object: StripeObject | null | undefined): Record<string, unknown> | null {
   if (!object) return null;
   const candidates = [
     object.metadata,
@@ -131,7 +131,7 @@ function crankleadsMetadataOf(object: StripeObject | null | undefined): Record<s
  * we stamped on the session — and, if it is somehow missing, rebuild it from the session's
  * own metadata so a paid purchase is never lost.
  */
-async function resolvePurchaseForSession(admin: AdminClient, session: StripeObject): Promise<CrankleadsPurchase> {
+async function resolvePurchaseForSession(admin: AdminClient, session: StripeObject): Promise<DoneForYouPurchase> {
   const sessionId = idOf(session.id);
   if (sessionId) {
     const bySession = await findPurchaseBySession(admin, sessionId);
@@ -149,10 +149,10 @@ async function resolvePurchaseForSession(admin: AdminClient, session: StripeObje
 
   const tier = metadata.tier;
   const email = session.customer_details?.email ?? session.customer_email;
-  if (!isCrankleadsTier(tier) || typeof email !== "string" || !email) {
+  if (!isDoneForYouTier(tier) || typeof email !== "string" || !email) {
     throw new Error(`Everdoer session ${sessionId ?? "(no id)"} has no staged purchase and not enough metadata to rebuild it.`);
   }
-  console.error(`[crankleads/provision] purchase row missing for session ${sessionId}; rebuilding it from Stripe metadata`);
+  console.error(`[dfy/provision] purchase row missing for session ${sessionId}; rebuilding it from Stripe metadata`);
   const row: Inserts<"crankleads_purchases"> = {
     status: "checkout_created",
     tier,
@@ -165,15 +165,15 @@ async function resolvePurchaseForSession(admin: AdminClient, session: StripeObje
   };
   const { data, error } = await admin.from("crankleads_purchases").insert(row).select("*").single();
   if (error || !data) throw new Error(`Could not rebuild purchase for ${sessionId}: ${error?.message ?? "no row"}`);
-  return data as CrankleadsPurchase;
+  return data as DoneForYouPurchase;
 }
 
 /** Record that Stripe says the session is paid (idempotent; fills ids on later statuses too). */
-async function markPaid(admin: AdminClient, purchase: CrankleadsPurchase, session: StripeObject): Promise<CrankleadsPurchase> {
+async function markPaid(admin: AdminClient, purchase: DoneForYouPurchase, session: StripeObject): Promise<DoneForYouPurchase> {
   const customerId = idOf(session.customer);
   const subscriptionId = idOf(session.subscription);
   const sessionId = idOf(session.id);
-  const patch: Partial<CrankleadsPurchase> = {};
+  const patch: Partial<DoneForYouPurchase> = {};
   if (purchase.status === "checkout_created") {
     patch.status = "paid";
     patch.paid_at = new Date().toISOString();
@@ -241,7 +241,7 @@ async function reclaimUnconfirmedUser(admin: AdminClient, id: string): Promise<v
   if (error) throw new Error(`could not reclaim unconfirmed user ${id}: ${error.message}`);
   const { error: unbanError } = await admin.auth.admin.updateUserById(id, { ban_duration: "none" });
   if (unbanError) throw new Error(`could not unban reclaimed user ${id}: ${unbanError.message}`);
-  console.warn(`[crankleads/provision] reclaimed UNCONFIRMED auth user ${id} for the paying buyer (sessions revoked)`);
+  console.warn(`[dfy/provision] reclaimed UNCONFIRMED auth user ${id} for the paying buyer (sessions revoked)`);
 }
 
 /** Existing + confirmed → attach (existing). Existing + unconfirmed → reclaim (treated as new). */
@@ -346,8 +346,8 @@ async function ensureOwnerMembership(admin: AdminClient, organizationId: string,
 
 async function ensureOrganization(
   admin: AdminClient,
-  purchase: CrankleadsPurchase,
-  tier: CrankleadsTier,
+  purchase: DoneForYouPurchase,
+  tier: PlanTier,
   ownerId: string,
   existingUser: boolean,
 ): Promise<Tables<"organizations">> {
@@ -364,23 +364,23 @@ async function ensureOrganization(
 
   const slug = await uniqueOrgSlug(admin, purchase.business_name);
   return createOrganization(admin, ownerId, ownerId, { name: purchase.business_name, slug }, {
-    plan: CRANKLEADS_TIER_PLAN[tier],
+    plan: DONE_FOR_YOU_TIER_PLAN[tier],
     subscriptionStatus: "active",
     stripeCustomerId: customerId,
     billingEmail: purchase.owner_email,
-    crankleadsTier: tier,
-    // A CrankLeads buyer sees CrankLeads everywhere, never EmpireVu (docs/everdoer-branding.md).
+    planTier: tier,
+    // A done-for-you buyer sees Everdoer everywhere, never EmpireVu (docs/everdoer-branding.md).
     platformBrand: "crankleads",
     // Never move an existing user's default org out from under them.
     setAsDefaultOrganization: !existingUser,
   });
 }
 
-async function upsertSubscriptionMirror(admin: AdminClient, organizationId: string, purchase: CrankleadsPurchase, tier: CrankleadsTier): Promise<void> {
+async function upsertSubscriptionMirror(admin: AdminClient, organizationId: string, purchase: DoneForYouPurchase, tier: PlanTier): Promise<void> {
   if (!purchase.stripe_subscription_id) return;
   const row: Inserts<"subscriptions"> = {
     organization_id: organizationId,
-    plan: CRANKLEADS_TIER_PLAN[tier],
+    plan: DONE_FOR_YOU_TIER_PLAN[tier],
     status: "active",
     stripe_subscription_id: purchase.stripe_subscription_id,
   };
@@ -390,7 +390,7 @@ async function upsertSubscriptionMirror(admin: AdminClient, organizationId: stri
 
 // ── Company, pack, form, onboarding ───────────────────────────────────────────
 
-async function ensureCompany(ctx: TenantServiceContext, purchase: CrankleadsPurchase): Promise<string> {
+async function ensureCompany(ctx: TenantServiceContext, purchase: DoneForYouPurchase): Promise<string> {
   let companyId = purchase.company_id;
   if (!companyId) {
     const [first] = await listCompanies(ctx, { limit: 1 });
@@ -403,7 +403,7 @@ async function ensureCompany(ctx: TenantServiceContext, purchase: CrankleadsPurc
   }
   await updateCompany(ctx, companyId, {
     ownerEmail: purchase.owner_email,
-    timezone: CRANKLEADS_DEFAULT_TIMEZONE,
+    timezone: DONE_FOR_YOU_DEFAULT_TIMEZONE,
   });
   // The paying buyer's own number from checkout: the verified owner phone (owner-phone.ts).
   const ownerPhone = toE164(purchase.owner_phone);
@@ -423,7 +423,7 @@ interface WelcomeFacts {
   servicesNeedingPrices: number;
 }
 
-async function welcomeFacts(ctx: TenantServiceContext, purchase: CrankleadsPurchase, companyId: string): Promise<WelcomeFacts> {
+async function welcomeFacts(ctx: TenantServiceContext, purchase: DoneForYouPurchase, companyId: string): Promise<WelcomeFacts> {
   const packId = packIdForBusinessType(purchase.business_type);
   const pack = packId ? getPack(packId) : null;
   const forms = await listPublicFormKeys(ctx, { companyId });
@@ -450,8 +450,8 @@ async function sendRendered(deps: ProvisionDeps, to: string, email: RenderedEmai
 async function sendWelcome(
   admin: AdminClient,
   ctx: TenantServiceContext,
-  purchase: CrankleadsPurchase,
-  tier: CrankleadsTier,
+  purchase: DoneForYouPurchase,
+  tier: PlanTier,
   companyId: string,
   existingUser: boolean,
   deps: ProvisionDeps,
@@ -475,7 +475,7 @@ async function sendWelcome(
   // Resend accepted it. If the buyer says it never arrived, look this id up in Resend → Emails
   // (delivered / bounced / suppressed) — the address itself is masked here.
   console.log(
-    `[crankleads/provision] welcome email accepted for purchase ${purchase.id} → ${maskEmail(purchase.owner_email)} ` +
+    `[dfy/provision] welcome email accepted for purchase ${purchase.id} → ${maskEmail(purchase.owner_email)} ` +
       `(resend id ${messageId ?? "unknown"}, ${setPasswordUrl ? "set-password link" : "existing user: log-in link"})`,
   );
 }
@@ -518,13 +518,13 @@ export async function requeueDeferredBillingEvents(admin: AdminClient, customerI
 }
 
 /**
- * Is there a CrankLeads purchase that WILL own this event's customer once provisioning
+ * Is there a done-for-you purchase that WILL own this event's customer once provisioning
  * finishes? Used by the billing processor to retry (not dead-letter) an event for an
  * unknown customer. A `failed` purchase is not pending: those dead-letter, and the re-run
  * job re-queues them after it succeeds.
  */
-export async function crankleadsPurchasePendingFor(admin: AdminClient, object: StripeObject): Promise<boolean> {
-  const metadata = crankleadsMetadataOf(object);
+export async function doneForYouPurchasePendingFor(admin: AdminClient, object: StripeObject): Promise<boolean> {
+  const metadata = doneForYouMetadataOf(object);
   const purchaseId = typeof metadata?.purchaseId === "string" ? metadata.purchaseId : null;
   if (purchaseId) {
     const purchase = await findPurchaseById(admin, purchaseId);
@@ -549,9 +549,9 @@ export interface ProvisionOptions {
 }
 
 /** The provisioning steps. Every step is idempotent, so a retry after a crash resumes safely. */
-async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase, deps: ProvisionDeps): Promise<string> {
+async function provisionClaimed(admin: AdminClient, purchase: DoneForYouPurchase, deps: ProvisionDeps): Promise<string> {
   const tier = purchase.tier;
-  if (!isCrankleadsTier(tier)) throw new Error(`Unknown Everdoer tier "${tier}".`);
+  if (!isDoneForYouTier(tier)) throw new Error(`Unknown Everdoer tier "${tier}".`);
 
   // 1) Owner login — create, or attach to the existing EmpireVu user with this email.
   let ownerId = purchase.owner_profile_id;
@@ -602,7 +602,7 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
   // 6) Wizard resumes after what is already done.
   await upsertOnboardingStep(ctx, companyId, "business", {
     completed: true,
-    data: { source: CRANKLEADS_SOURCE, tier },
+    data: { source: DONE_FOR_YOU_SOURCE, tier },
   });
   if (pack) {
     await upsertOnboardingStep(ctx, companyId, "services", { completed: true, data: { packId: pack.id } });
@@ -621,7 +621,7 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
       await updatePurchase(admin, purchase.id, { welcome_email_sent_at: new Date().toISOString(), welcome_email_error: null });
     } catch (err) {
       welcomeError = errorMessage(err);
-      console.error(`[crankleads/provision] WELCOME EMAIL FAILED for purchase ${purchase.id}: ${welcomeError}`);
+      console.error(`[dfy/provision] WELCOME EMAIL FAILED for purchase ${purchase.id}: ${welcomeError}`);
       await updatePurchase(admin, purchase.id, { welcome_email_error: welcomeError.slice(0, 1000) });
     }
   }
@@ -629,7 +629,7 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
   try {
     await createAndSendSetupIntake(admin, { organizationId: org.id, companyId, emailBackup: welcomeError ? "always" : "if_sms_fails" });
   } catch (err) {
-    console.error(`[crankleads/provision] setup intake send failed for purchase ${purchase.id}: ${errorMessage(err)}`);
+    console.error(`[dfy/provision] setup intake send failed for purchase ${purchase.id}: ${errorMessage(err)}`);
   }
 
   const operator = operatorEmailAddress();
@@ -655,7 +655,7 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
       );
       await updatePurchase(admin, purchase.id, { operator_notified_at: new Date().toISOString() });
     } catch (err) {
-      console.error(`[crankleads/provision] operator notification failed for purchase ${purchase.id}: ${errorMessage(err)}`);
+      console.error(`[dfy/provision] operator notification failed for purchase ${purchase.id}: ${errorMessage(err)}`);
     }
   }
 
@@ -671,16 +671,16 @@ async function provisionClaimed(admin: AdminClient, purchase: CrankleadsPurchase
     try {
       await requeueDeferredBillingEvents(admin, purchase.stripe_customer_id);
     } catch (err) {
-      console.error(`[crankleads/provision] requeue of deferred billing events failed: ${errorMessage(err)}`);
+      console.error(`[dfy/provision] requeue of deferred billing events failed: ${errorMessage(err)}`);
     }
   }
 
-  console.log(`[crankleads/provision] provisioned purchase ${purchase.id} → org ${org.id} company ${companyId} (${tier})`);
+  console.log(`[dfy/provision] provisioned purchase ${purchase.id} → org ${org.id} company ${companyId} (${tier})`);
   return org.id;
 }
 
 /** Raised after the operator has been alerted (final attempt), so nobody alerts twice. */
-export class CrankleadsProvisioningFailedError extends Error {
+export class DoneForYouProvisioningFailedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "CrankleadsProvisioningFailedError";
@@ -700,11 +700,11 @@ interface FailureContext {
 }
 
 /**
- * The ONE failure policy for every CrankLeads provisioning entry point. Any error at all
+ * The ONE failure policy for every done-for-you provisioning entry point. Any error at all
  * (DB, missing metadata, claim race, a step, even recording the failure):
  *   • not the last attempt → DeferBillingEventError, so the billing queue retries it;
  *   • last attempt → operator "ACTION NEEDED" alert (whatever state the purchase is in),
- *     then CrankleadsProvisioningFailedError (the job dead-letters; the ledger row stays).
+ *     then DoneForYouProvisioningFailedError (the job dead-letters; the ledger row stays).
  */
 async function handleProvisioningFailure(
   err: unknown,
@@ -712,10 +712,10 @@ async function handleProvisioningFailure(
   deps: ProvisionDeps,
   context: FailureContext,
 ): Promise<never> {
-  if (err instanceof CrankleadsProvisioningFailedError) throw err;
+  if (err instanceof DoneForYouProvisioningFailedError) throw err;
   const reason = errorMessage(err);
   console.error(
-    `[crankleads/provision] PROVISIONING FAILED (session ${context.sessionId ?? "-"}, final=${options.finalAttempt}): ${reason}`,
+    `[dfy/provision] PROVISIONING FAILED (session ${context.sessionId ?? "-"}, final=${options.finalAttempt}): ${reason}`,
   );
   if (!options.finalAttempt) {
     if (err instanceof DeferBillingEventError) throw err;
@@ -727,15 +727,15 @@ async function handleProvisioningFailure(
       await sendRendered(
         deps,
         operator,
-        renderOperatorFailureEmail({ ...context, tier: isCrankleadsTier(context.tier) ? context.tier : null, error: reason }),
+        renderOperatorFailureEmail({ ...context, tier: isDoneForYouTier(context.tier) ? context.tier : null, error: reason }),
       );
     } catch (mailErr) {
-      console.error(`[crankleads/provision] operator FAILURE alert could not be sent: ${errorMessage(mailErr)}`);
+      console.error(`[dfy/provision] operator FAILURE alert could not be sent: ${errorMessage(mailErr)}`);
     }
   } else {
-    console.error("[crankleads/provision] OWNER_EMAIL is not set — no operator alert for a failed paid purchase!");
+    console.error("[dfy/provision] OWNER_EMAIL is not set — no operator alert for a failed paid purchase!");
   }
-  throw new CrankleadsProvisioningFailedError(reason);
+  throw new DoneForYouProvisioningFailedError(reason);
 }
 
 /** Claim + run the steps. On a step failure records `failed` (best-effort) and rethrows. */
@@ -760,7 +760,7 @@ async function provisionPurchaseUnguarded(admin: AdminClient, purchaseId: string
     try {
       await markPurchaseFailed(admin, purchaseId, errorMessage(err));
     } catch (markErr) {
-      console.error(`[crankleads/provision] could not record failure on purchase ${purchaseId}: ${errorMessage(markErr)}`);
+      console.error(`[dfy/provision] could not record failure on purchase ${purchaseId}: ${errorMessage(markErr)}`);
     }
     throw err;
   }
@@ -779,7 +779,7 @@ async function failureContextForPurchase(admin: AdminClient, purchaseId: string)
 /**
  * Provision a paid purchase exactly once (status-guarded claim + idempotent steps). Failures
  * follow handleProvisioningFailure: retry while attempts remain, operator alert on the last.
- * Re-run: `npm run job:crankleads-provision -- --session cs_...`.
+ * Re-run: `npm run job:dfy-provision -- --session cs_...`.
  */
 export async function provisionPurchase(
   admin: AdminClient,
@@ -795,20 +795,20 @@ export async function provisionPurchase(
 }
 
 /**
- * Billing-worker entry for a CrankLeads `checkout.session.completed` /
+ * Billing-worker entry for a done-for-you `checkout.session.completed` /
  * `checkout.session.async_payment_succeeded`. Returns the org id once provisioned, or null
  * when the session isn't settled yet (async payment methods — the *_succeeded event follows).
  * EVERYTHING in here (resolving/rebuilding the purchase, marking it paid, provisioning) is
  * covered by the same failure policy, so a paid purchase can never dead-letter silently.
  */
-export async function handleCrankleadsCheckoutPaid(
+export async function handleDoneForYouCheckoutPaid(
   admin: AdminClient,
   session: StripeObject,
   options: ProvisionOptions,
 ): Promise<string | null> {
   const deps: ProvisionDeps = { ...defaultDeps, ...options.deps };
   if (!isProvisionablePaymentStatus(session.payment_status)) {
-    console.log(`[crankleads/provision] session ${idOf(session.id)} not paid yet (${String(session.payment_status)}); waiting`);
+    console.log(`[dfy/provision] session ${idOf(session.id)} not paid yet (${String(session.payment_status)}); waiting`);
     return null;
   }
   try {
@@ -842,7 +842,7 @@ export async function resendWelcomeEmail(
   const deps: ProvisionDeps = { ...defaultDeps, ...depsOverride };
   const purchase = await findPurchaseBySession(admin, sessionId);
   if (!purchase) return "not_found";
-  if (purchase.status !== "provisioned" || !purchase.organization_id || !purchase.company_id || !isCrankleadsTier(purchase.tier)) {
+  if (purchase.status !== "provisioned" || !purchase.organization_id || !purchase.company_id || !isDoneForYouTier(purchase.tier)) {
     return "not_ready";
   }
   // A set-password link is a login credential: once the owner has signed in, or a week after

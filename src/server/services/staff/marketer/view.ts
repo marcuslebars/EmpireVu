@@ -34,7 +34,7 @@ export async function getMarketingView(admin: AdminClient, scope: { organization
   ]);
   return {
     companyId: company.companyId,
-    crankleads: company.crankleads,
+    crankleads: company.doneForYou,
     settings: company.settings,
     lastCampaign: campaign
       ? { ...(await campaignResults(admin, campaign)), active: ACTIVE_STATUSES.includes(campaign.status), holdReason: campaign.held_since ? campaign.hold_reason ?? "on hold" : null }

@@ -1,5 +1,5 @@
 /**
- * CrankLeads tier → plan / price / pack / recipe mapping, the phone-step gating by plan,
+ * Done-for-you tier → plan / price / pack / recipe mapping, the phone-step gating by plan,
  * the Stripe catalog setup script (mocked Stripe), the welcome email copy, and the
  * set-password link plumbing on the SPA side.
  */
@@ -9,15 +9,15 @@ import { PLAN_FEATURE_DEFAULTS } from "@/server/services/billing/config";
 import { planForStripePriceId } from "@/server/services/billing/env";
 import {
   CATCH_RECIPE_SLUGS,
-  CRANKLEADS_BUSINESS_TYPES,
-  CRANKLEADS_TIER_PLAN,
-  crankleadsTierForPriceId,
+  DONE_FOR_YOU_BUSINESS_TYPES,
+  DONE_FOR_YOU_TIER_PLAN,
+  planTierForPriceId,
   packIdForBusinessType,
   packRecipesForTier,
   RECEPTIONIST_RECIPE_SLUGS,
-} from "@/server/services/crankleads/config";
-import { renderWelcomeEmail } from "@/server/services/crankleads/emails";
-import { parseProvisionJobArgs } from "@/server/services/crankleads/rerun";
+} from "@/server/services/done-for-you/config";
+import { renderWelcomeEmail } from "@/server/services/done-for-you/emails";
+import { parseProvisionJobArgs } from "@/server/services/done-for-you/rerun";
 import { getPack } from "@/server/services/packs";
 import { getRecipe } from "@/server/services/workflow-engine/recipes";
 import { isPublicPath, safeNextPath } from "@/lib/public-routes";
@@ -25,9 +25,9 @@ import {
   formatEnv,
   isLiveKey,
   parseArgs,
-  setupCrankleads,
+  setupDoneForYou,
   UsageError,
-} from "../../scripts/stripe/setup-crankleads.mjs";
+} from "../../scripts/stripe/setup-done-for-you.mjs";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -35,7 +35,7 @@ afterEach(() => {
 
 describe("tier → plan", () => {
   it("Catch and Close run on operate (workflows + SMS); Front Desk on front_desk", () => {
-    expect(CRANKLEADS_TIER_PLAN).toEqual({ catch: "operate", close: "operate", front_desk: "front_desk" });
+    expect(DONE_FOR_YOU_TIER_PLAN).toEqual({ catch: "operate", close: "operate", front_desk: "front_desk" });
     // Catch needs the missed-call text-back + instant replies: workflows + SMS.
     expect(PLAN_FEATURE_DEFAULTS.operate.workflows).toBe(true);
     expect(PLAN_FEATURE_DEFAULTS.operate.sms_sequences).toBe(true);
@@ -44,7 +44,7 @@ describe("tier → plan", () => {
     expect(PLAN_FEATURE_DEFAULTS.front_desk.marina_reception).toBe(true);
   });
 
-  it("maps CrankLeads monthly price ids to plans in the billing worker (alongside the plan prices)", () => {
+  it("maps done-for-you monthly price ids to plans in the billing worker (alongside the plan prices)", () => {
     vi.stubEnv("STRIPE_PRICE_OPERATE", "price_operate");
     vi.stubEnv("STRIPE_PRICE_CL_CATCH", "price_cl_catch");
     vi.stubEnv("STRIPE_PRICE_CL_CLOSE", "price_cl_close");
@@ -54,20 +54,20 @@ describe("tier → plan", () => {
     expect(planForStripePriceId("price_cl_close")).toBe("operate");
     expect(planForStripePriceId("price_cl_fd")).toBe("front_desk");
     expect(planForStripePriceId("price_unknown")).toBeNull();
-    expect(crankleadsTierForPriceId("price_cl_close")).toBe("close");
-    expect(crankleadsTierForPriceId("price_operate")).toBeNull();
+    expect(planTierForPriceId("price_cl_close")).toBe("close");
+    expect(planTierForPriceId("price_operate")).toBeNull();
   });
 
-  it("an unset CrankLeads env never matches an empty price id", () => {
+  it("an unset done-for-you env never matches an empty price id", () => {
     vi.stubEnv("STRIPE_PRICE_CL_CATCH", "");
-    expect(crankleadsTierForPriceId("")).toBeNull();
+    expect(planTierForPriceId("")).toBeNull();
     expect(planForStripePriceId(null)).toBeNull();
   });
 });
 
 describe("business type → industry pack", () => {
   it("maps every crankleads.com business type", () => {
-    const mapped = Object.fromEntries(CRANKLEADS_BUSINESS_TYPES.map((t) => [t, packIdForBusinessType(t)]));
+    const mapped = Object.fromEntries(DONE_FOR_YOU_BUSINESS_TYPES.map((t) => [t, packIdForBusinessType(t)]));
     expect(mapped).toEqual({
       "Property maintenance & snow": "property-maintenance-snow",
       Landscaping: "landscaping",
@@ -178,7 +178,7 @@ describe("SPA set-password plumbing", () => {
   });
 });
 
-// ── scripts/stripe/setup-crankleads.mjs (mocked Stripe client) ─────────────────
+// ── scripts/stripe/setup-done-for-you.mjs (mocked Stripe client) ─────────────────
 
 const ARGS = [
   "--catch-setup", "100",
@@ -255,7 +255,7 @@ function fakeStripe() {
   return { stripe, prices, products, coupons };
 }
 
-describe("stripe:setup-crankleads", () => {
+describe("stripe:setup-done-for-you", () => {
   const silent = () => undefined;
 
   it("requires every amount (no defaults) and validates them", () => {
@@ -274,13 +274,13 @@ describe("stripe:setup-crankleads", () => {
     expect(isLiveKey("rk_live_x")).toBe(true);
     expect(isLiveKey("sk_test_x")).toBe(false);
     const { stripe } = fakeStripe();
-    await expect(setupCrankleads({ stripe, args: parseArgs(ARGS), keyIsLive: true, log: silent })).rejects.toThrow(/LIVE/);
+    await expect(setupDoneForYou({ stripe, args: parseArgs(ARGS), keyIsLive: true, log: silent })).rejects.toThrow(/LIVE/);
     expect(stripe.products.create).not.toHaveBeenCalled();
   });
 
   it("dry run creates nothing", async () => {
     const { stripe } = fakeStripe();
-    await setupCrankleads({ stripe, args: parseArgs([...ARGS, "--dry-run", "--founding-percent", "50", "--founding-max", "5"]), keyIsLive: false, log: silent });
+    await setupDoneForYou({ stripe, args: parseArgs([...ARGS, "--dry-run", "--founding-percent", "50", "--founding-max", "5"]), keyIsLive: false, log: silent });
     expect(stripe.products.create).not.toHaveBeenCalled();
     expect(stripe.prices.create).not.toHaveBeenCalled();
     expect(stripe.coupons.create).not.toHaveBeenCalled();
@@ -289,7 +289,7 @@ describe("stripe:setup-crankleads", () => {
   it("creates products, CAD prices with lookup keys and a setup-only founding coupon — and is idempotent", async () => {
     const { stripe, prices } = fakeStripe();
     const args = parseArgs([...ARGS, "--founding-percent", "50", "--founding-max", "5"]);
-    const env = await setupCrankleads({ stripe, args, keyIsLive: false, log: silent });
+    const env = await setupDoneForYou({ stripe, args, keyIsLive: false, log: silent });
 
     expect(Object.keys(env)).toEqual([
       "STRIPE_PRICE_CL_CATCH",
@@ -317,7 +317,7 @@ describe("stripe:setup-crankleads", () => {
     });
 
     // Second run: everything found, nothing created, same env.
-    const again = await setupCrankleads({ stripe, args, keyIsLive: false, log: silent });
+    const again = await setupDoneForYou({ stripe, args, keyIsLive: false, log: silent });
     expect(again).toEqual(env);
     expect(stripe.prices.create).toHaveBeenCalledTimes(6);
     expect(stripe.products.create).toHaveBeenCalledTimes(6);
@@ -326,17 +326,17 @@ describe("stripe:setup-crankleads", () => {
 
   it("refuses a lookup key that points at a price on the WRONG product", async () => {
     const { stripe, prices } = fakeStripe();
-    await setupCrankleads({ stripe, args: parseArgs(ARGS), keyIsLive: false, log: silent });
+    await setupDoneForYou({ stripe, args: parseArgs(ARGS), keyIsLive: false, log: silent });
     prices.find((p) => p.lookup_key === "crankleads_close_monthly")!.product = "prod_someone_else";
-    await expect(setupCrankleads({ stripe, args: parseArgs(ARGS), keyIsLive: false, log: silent })).rejects.toThrow(/belongs to product prod_someone_else/);
+    await expect(setupDoneForYou({ stripe, args: parseArgs(ARGS), keyIsLive: false, log: silent })).rejects.toThrow(/belongs to product prod_someone_else/);
   });
 
   it("a changed amount needs --replace (prices are immutable), which moves the lookup key", async () => {
     const { stripe } = fakeStripe();
-    const first = await setupCrankleads({ stripe, args: parseArgs(ARGS), keyIsLive: false, log: silent });
+    const first = await setupDoneForYou({ stripe, args: parseArgs(ARGS), keyIsLive: false, log: silent });
     const changed = [...ARGS.slice(0, 3), "11", ...ARGS.slice(4)];
-    await expect(setupCrankleads({ stripe, args: parseArgs(changed), keyIsLive: false, log: silent })).rejects.toThrow(/--replace/);
-    const replaced = await setupCrankleads({ stripe, args: parseArgs([...changed, "--replace"]), keyIsLive: false, log: silent });
+    await expect(setupDoneForYou({ stripe, args: parseArgs(changed), keyIsLive: false, log: silent })).rejects.toThrow(/--replace/);
+    const replaced = await setupDoneForYou({ stripe, args: parseArgs([...changed, "--replace"]), keyIsLive: false, log: silent });
     expect(replaced.STRIPE_PRICE_CL_CATCH).not.toBe(first.STRIPE_PRICE_CL_CATCH);
     expect(replaced.STRIPE_SETUP_FEE_CL_CATCH).toBe(first.STRIPE_SETUP_FEE_CL_CATCH);
     expect(stripe.prices.create.mock.calls.at(-1)?.[0]).toMatchObject({ transfer_lookup_key: true, unit_amount: 11 });

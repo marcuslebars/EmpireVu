@@ -85,7 +85,7 @@ export async function getSmsAgentSettingsView(ctx: TenantServiceContext, company
     enabled: settings.enabled,
     autonomy: settings.autonomy,
     enabledIsDefault: settings.enabledIsDefault,
-    defaultEnabled: settings.crankleads,
+    defaultEnabled: settings.doneForYou,
     stats: { conversations30d, aiReplies30d, withOwner, pendingApprovals },
   };
 }

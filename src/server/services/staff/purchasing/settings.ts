@@ -49,16 +49,16 @@ const intIn = (value: unknown, min: number, max: number): number | null =>
   typeof value === "number" && Number.isInteger(value) && value >= min && value <= max ? value : null;
 
 /** companies.ai_settings (any shape) → the Purchasing section with defaults. PURE. */
-export function readPurchasingSettings(aiSettings: unknown, org: { crankleads: boolean }): PurchasingSettings {
+export function readPurchasingSettings(aiSettings: unknown, org: { doneForYou: boolean }): PurchasingSettings {
   const s = record(record(aiSettings)[SETTINGS_KEY]);
   const enabled = typeof s.enabled === "boolean" ? s.enabled : null;
   return {
-    enabled: enabled ?? org.crankleads,
+    enabled: enabled ?? org.doneForYou,
     leadDays: intIn(s.lead_days, 1, 14) ?? DEFAULT_LEAD_DAYS,
     maxPerDay: intIn(s.max_per_day, 1, 20) ?? DEFAULT_MAX_PER_DAY,
     defaultFulfilment: s.default_fulfilment === "delivery" ? "delivery" : "pickup",
     aiEstimate: typeof s.ai_estimate === "boolean" ? s.ai_estimate : true,
-    defaultEnabled: org.crankleads,
+    defaultEnabled: org.doneForYou,
     enabledIsDefault: enabled === null,
   };
 }
@@ -94,7 +94,7 @@ export interface PurchasingCompany {
   companyId: string;
   name: string;
   timeZone: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   platformBrand: string | null;
   /** Verified owner cell (approvals + reminders go here), else null. */
   ownerPhone: string | null;
@@ -123,20 +123,20 @@ interface CompanyRow {
 }
 
 function toCompany(row: CompanyRow, platformBrand: string | null): PurchasingCompany {
-  const crankleads = isDoneForYou(platformBrand);
+  const doneForYou = isDoneForYou(platformBrand);
   return {
     organizationId: row.organization_id,
     companyId: row.id,
     name: (row.brand_from_name?.trim() || row.name || "").trim() || "the business",
     timeZone: zoneOf(row.timezone),
-    crankleads,
+    doneForYou,
     platformBrand,
     ownerPhone: row.owner_phone_verified_at && row.owner_phone_e164?.trim() ? row.owner_phone_e164.trim() : null,
     ownerEmail: row.owner_email?.trim() || null,
     industryPack: row.industry_pack ?? null,
     serviceArea: typeof row.service_area === "string" ? row.service_area : null,
     active: !row.stage || !["archived", "paused", "cancelled"].includes(row.stage),
-    settings: readPurchasingSettings(row.ai_settings, { crankleads }),
+    settings: readPurchasingSettings(row.ai_settings, { doneForYou }),
   };
 }
 

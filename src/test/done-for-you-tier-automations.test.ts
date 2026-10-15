@@ -1,12 +1,12 @@
 /**
- * CrankLeads: only the tier's automations may be active (crankleads/tier-automations.ts) — the
+ * Done-for-you: only the tier's automations may be active (done-for-you/tier-automations.ts) — the
  * restriction itself and the one-off repair (dry run by default, --apply, idempotent).
  */
 import { describe, expect, it } from "vitest";
 
 import { createFakeDb } from "./helpers/fake-supabase";
-import { tierAllowedRecipeSlugs } from "@/server/services/crankleads/config";
-import { repairTierAutomations, restrictAutomationsToTier } from "@/server/services/crankleads/tier-automations";
+import { tierAllowedRecipeSlugs } from "@/server/services/done-for-you/config";
+import { repairTierAutomations, restrictAutomationsToTier } from "@/server/services/done-for-you/tier-automations";
 
 const wf = (id: string, org: string, company: string, slug: string, status = "active") => ({ id, organization_id: org, company_id: company, slug, status });
 
@@ -51,7 +51,7 @@ describe("tier automations", () => {
     expect(status).toMatchObject({ w1: "active", w2: "draft", w3: "draft", w4: "active", w5: "active", w7: "active" });
   });
 
-  it("repair job: dry run changes nothing; --apply fixes every CrankLeads org (never house orgs); idempotent", async () => {
+  it("repair job: dry run changes nothing; --apply fixes every done-for-you org (never house orgs); idempotent", async () => {
     const db = seed();
     const dry = await repairTierAutomations(db.client as never);
     expect(dry.map((i) => [i.companyId, i.deactivated.sort()])).toEqual([

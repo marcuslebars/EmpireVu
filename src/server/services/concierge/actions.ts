@@ -21,8 +21,8 @@ import { PHONE_CARRIERS, PHONE_KINDS, type ConciergeActionInfo } from "@/lib/con
 import type { Json, Tables, Updates } from "@/server/db/database.types";
 import { slugify } from "@/server/db/helpers";
 import { ValidationError } from "@/server/organizations/context";
-import { resendWelcomeEmail } from "@/server/services/crankleads/provision";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
+import { resendWelcomeEmail } from "@/server/services/done-for-you/provision";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
 import { resolveAccount, type ResolvedAccount } from "@/server/services/concierge/accounts";
 import type { OperatorIdentity } from "@/server/services/concierge/auth";
 import { needsPrice } from "@/server/services/packs/apply";

@@ -1,5 +1,5 @@
 /**
- * CrankLeads setup follow-ups: the setup checklist (per tier), the reminder schedule
+ * Done-for-you setup follow-ups: the setup checklist (per tier), the reminder schedule
  * (business days, timezone, weekends, quiet hours), the follow-up pass against the in-memory
  * PostgREST fake (idempotency, stop-on-live, stop-on-cancel, opt-out, day-10 operator note),
  * and the message templates (golden).
@@ -14,7 +14,7 @@ import {
   optionalSetupSteps,
   requiredSetupSteps,
   type SetupFacts,
-} from "@/server/services/crankleads/setup-checklist";
+} from "@/server/services/done-for-you/setup-checklist";
 import {
   addBusinessDays,
   inLiveWindow,
@@ -22,20 +22,20 @@ import {
   localClock,
   reminderDueDates,
   selectReminderStage,
-} from "@/server/services/crankleads/followup-schedule";
+} from "@/server/services/done-for-you/followup-schedule";
 import {
   renderLiveEmail,
   renderLiveSms,
   renderReminderEmail,
   renderReminderSms,
   type ReminderMessageInput,
-} from "@/server/services/crankleads/followup-messages";
+} from "@/server/services/done-for-you/followup-messages";
 import {
   isStopToken,
   processSetupFollowups,
   stopSetupReminders,
   type SetupFollowupDeps,
-} from "@/server/services/crankleads/setup-followups";
+} from "@/server/services/done-for-you/setup-followups";
 import type { DeliverMessageInput } from "@/server/services/workflow-engine/messaging";
 
 type Row = Record<string, unknown>;
@@ -222,7 +222,7 @@ describe("setup checklist — loader", () => {
     }
   });
 
-  it("returns null for a non-CrankLeads org, a checklist for a CrankLeads one", async () => {
+  it("returns null for a non-done-for-you org, a checklist for a done-for-you one", async () => {
     const plain = createFakeDb(baseTables({ organizations: [{ id: ORG, crankleads_tier: null }] }));
     expect(await loadSetupChecklist({ organizationId: ORG, actorProfileId: null, supabase: plain.client }, { appBaseUrl: APP })).toBeNull();
     const live = createFakeDb(liveTables());

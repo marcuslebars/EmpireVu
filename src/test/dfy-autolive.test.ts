@@ -44,7 +44,7 @@ import {
 } from "@/server/services/dfy/messages";
 import { dfyRecipeSlugs, switchOnAutomations } from "@/server/services/dfy/switch-on";
 import { buildSetupProgressView, loadSetupProgressView } from "@/server/services/dfy/progress-view";
-import { computeSetupChecklist } from "@/server/services/crankleads/setup-checklist";
+import { computeSetupChecklist } from "@/server/services/done-for-you/setup-checklist";
 import { conciergeItem } from "@/server/services/operator-health/rules";
 import type { RetellClient } from "@/server/services/retell/provision";
 import type { TwilioNumbersClient } from "@/server/services/twilio/provision";

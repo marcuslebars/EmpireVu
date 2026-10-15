@@ -4,8 +4,8 @@
  * "EmpireVu"); no prices, no invented facts. Operator emails are plain text in a <pre>.
  */
 import { prettyPhone, type ForwardingPlan } from "@/lib/carrier-forwarding";
-import { CRANKLEADS_OFFER_NAME, CRANKLEADS_TIER_LABELS, type CrankleadsTier } from "@/server/services/crankleads/config";
-import type { RenderedEmail } from "@/server/services/crankleads/emails";
+import { DONE_FOR_YOU_OFFER_NAME, PLAN_TIER_LABELS, type PlanTier } from "@/server/services/done-for-you/config";
+import type { RenderedEmail } from "@/server/services/done-for-you/emails";
 import { smsPlatformName } from "@/server/services/rebrand/sms-branding";
 
 function escapeHtml(value: string): string {
@@ -68,7 +68,7 @@ export function renderForwardingEmail(input: ForwardingMessageInput): RenderedEm
     "",
     "Rather have us do it? Open the link and tap \"Have us set it up\" — we'll call you.",
     "",
-    `— The ${CRANKLEADS_OFFER_NAME} team`,
+    `— The ${DONE_FOR_YOU_OFFER_NAME} team`,
   ].join("\n");
   const html = [
     `<p>Hi ${escapeHtml(firstName(input.ownerName))},</p>`,
@@ -76,16 +76,16 @@ export function renderForwardingEmail(input: ForwardingMessageInput): RenderedEm
     button(input.forwardUrl, "Turn on forwarding"),
     `<p>Open it on your business phone. ${escapeHtml(checkLine(input.phonePath))}</p>`,
     "<p>Rather have us do it? Open the link and tap “Have us set it up” — we'll call you.</p>",
-    `<p>— The ${CRANKLEADS_OFFER_NAME} team</p>`,
+    `<p>— The ${DONE_FOR_YOU_OFFER_NAME} team</p>`,
   ].join("\n");
-  return { subject, body, html, fromName: CRANKLEADS_OFFER_NAME };
+  return { subject, body, html, fromName: DONE_FOR_YOU_OFFER_NAME };
 }
 
 // ── Operator ─────────────────────────────────────────────────────────────────
 
 export interface OperatorCallInput {
   businessName: string;
-  tier: CrankleadsTier;
+  tier: PlanTier;
   ownerName: string;
   ownerPhone: string;
   ownerEmail: string;
@@ -105,7 +105,7 @@ function operatorBody(subject: string, input: OperatorCallInput): string {
     input.reason,
     "",
     `Owner: ${input.ownerName}  ${prettyPhone(input.ownerPhone)}  <${input.ownerEmail}>`,
-    `Plan: ${CRANKLEADS_TIER_LABELS[input.tier]}`,
+    `Plan: ${PLAN_TIER_LABELS[input.tier]}`,
     "",
     "Done automatically:",
     ...(input.done.length ? input.done.map((d) => `  [x] ${d}`) : ["  (nothing yet)"]),
@@ -120,13 +120,13 @@ function operatorBody(subject: string, input: OperatorCallInput): string {
 /** 24h escalation: "Call <name> <phone> to finish setup". */
 export function renderOperatorEscalationEmail(input: OperatorCallInput): RenderedEmail {
   const subject = `Call ${input.ownerName} ${prettyPhone(input.ownerPhone)} to finish setup — ${input.businessName}`;
-  return { subject, body: operatorBody(subject, input), html: pre(operatorBody(subject, input)), fromName: CRANKLEADS_OFFER_NAME };
+  return { subject, body: operatorBody(subject, input), html: pre(operatorBody(subject, input)), fromName: DONE_FOR_YOU_OFFER_NAME };
 }
 
 /** The owner tapped "Have us set it up" on the forwarding page. */
 export function renderOperatorForwardingHelpEmail(input: OperatorCallInput): RenderedEmail {
   const subject = `Call ${input.ownerName} ${prettyPhone(input.ownerPhone)} — wants us to set up call forwarding (${input.businessName})`;
-  return { subject, body: operatorBody(subject, input), html: pre(operatorBody(subject, input)), fromName: CRANKLEADS_OFFER_NAME };
+  return { subject, body: operatorBody(subject, input), html: pre(operatorBody(subject, input)), fromName: DONE_FOR_YOU_OFFER_NAME };
 }
 
 export interface OperatorNumberFlaggedInput {
@@ -149,5 +149,5 @@ export function renderOperatorNumberFlaggedEmail(input: OperatorNumberFlaggedInp
     `Concierge: ${input.conciergeUrl}`,
     `Organization: ${input.organizationId}`,
   ].join("\n");
-  return { subject, body, html: pre(body), fromName: CRANKLEADS_OFFER_NAME };
+  return { subject, body, html: pre(body), fromName: DONE_FOR_YOU_OFFER_NAME };
 }

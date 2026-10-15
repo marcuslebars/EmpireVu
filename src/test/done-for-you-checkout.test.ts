@@ -1,5 +1,5 @@
 /**
- * Public CrankLeads checkout — POST /api/public/crankleads/checkout, the welcome-page status
+ * Public done-for-you checkout — POST /api/public/crankleads/checkout, the welcome-page status
  * poll, and the resend endpoint. Proves: validation, CORS allow-list (no credentials), rate
  * limits, body cap, the durable staging row BEFORE Stripe, the EXACT Checkout Session params
  * (prices from env, no amounts), and that the status endpoint leaks nothing but
@@ -31,15 +31,15 @@ vi.mock("@/server/services/billing/stripe", () => ({
 }));
 
 const resendWelcomeEmail = vi.fn();
-vi.mock("@/server/services/crankleads/provision", () => ({
+vi.mock("@/server/services/done-for-you/provision", () => ({
   resendWelcomeEmail: (...args: unknown[]) => resendWelcomeEmail(...args),
 }));
 
 import { OPTIONS, POST } from "@/app/api/public/crankleads/checkout/route";
 import { GET as STATUS } from "@/app/api/public/crankleads/checkout/[sessionId]/route";
 import { POST as RESEND } from "@/app/api/public/crankleads/checkout/[sessionId]/resend/route";
-import { maskEmail } from "@/server/services/crankleads/purchases";
-import { utmMetadata } from "@/server/services/crankleads/checkout";
+import { maskEmail } from "@/server/services/done-for-you/purchases";
+import { utmMetadata } from "@/server/services/done-for-you/checkout";
 
 const SITE = "https://crankleads.com";
 const URL_ = "https://app.empirevu.test/api/public/crankleads/checkout";
@@ -151,7 +151,7 @@ describe("POST /api/public/crankleads/checkout", () => {
       allow_promotion_codes: false,
       metadata,
       subscription_data: { metadata },
-      // The buyer lands on the CrankLeads app host, never the EmpireVu one.
+      // The buyer lands on the done-for-you app host, never the EmpireVu one.
       success_url: "https://app.crankleads.test/welcome/crankleads?session_id={CHECKOUT_SESSION_ID}",
       cancel_url: "https://crankleads.com/#pricing",
     });

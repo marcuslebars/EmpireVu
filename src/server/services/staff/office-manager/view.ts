@@ -44,7 +44,7 @@ export async function getOfficeManagerView(admin: AdminClient, organizationId: s
     companyId,
     companyName: company.name,
     settings: { ...company.settings, emailCopy: company.settings.channels.includes("email") },
-    defaultEnabled: company.crankleads,
+    defaultEnabled: company.doneForYou,
     ownerPhoneOnFile: Boolean(company.ownerPhone),
     ownerEmailOnFile: Boolean(owner.email),
     foldsMoneyAlert: Boolean(collections?.enabled && collections.dailyAlert),

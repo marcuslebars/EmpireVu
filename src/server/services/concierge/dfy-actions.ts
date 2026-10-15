@@ -9,7 +9,7 @@
 // Loaded by services/concierge/register-all.ts (what the concierge routes import) — never
 // import this module from actions.ts itself (registration order / import cycle).
 // ─────────────────────────────────────────────────────────────────────────────
-import { isCrankleadsTier } from "@/server/services/crankleads/config";
+import { isDoneForYouTier } from "@/server/services/done-for-you/config";
 import { ValidationError } from "@/server/organizations/context";
 import { emptySchema, registerConciergeAction } from "@/server/services/concierge/actions";
 import { isNewFlowCompany, loadOwnerTextBlock } from "@/server/services/dfy/eligibility";
@@ -136,7 +136,7 @@ registerConciergeAction({
   schema: emptySchema,
   async run(ctx) {
     const rawTier = ctx.org.crankleads_tier ?? ctx.purchase?.tier ?? null;
-    if (!isCrankleadsTier(rawTier)) throw new ValidationError("This account has no Everdoer done-for-you plan.");
+    if (!isDoneForYouTier(rawTier)) throw new ValidationError("This account has no Everdoer done-for-you plan.");
     const row = await ensureProgress(ctx.admin, ctx.organizationId, ctx.companyId);
     const before = { flaggedAt: row.number_flagged_at, attempts: row.number_attempts, lastError: row.number_last_error };
     // Clear the flag + attempt count so the purchase runs again now (with its usual area-code order).

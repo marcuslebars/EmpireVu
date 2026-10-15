@@ -68,13 +68,13 @@ function termsText(value: unknown): string | null {
 }
 
 /** companies.ai_settings (any shape) → the Customer care section with defaults. PURE. */
-export function readCustomerCareSettings(aiSettings: unknown, org: { crankleads: boolean }): CustomerCareSettings {
+export function readCustomerCareSettings(aiSettings: unknown, org: { doneForYou: boolean }): CustomerCareSettings {
   const s = record(record(aiSettings)[SETTINGS_KEY]);
   const c = record(s.checkins);
   const w = record(s.warranty);
   const enabled = typeof s.enabled === "boolean" ? s.enabled : null;
   return {
-    enabled: enabled ?? org.crankleads,
+    enabled: enabled ?? org.doneForYou,
     checkins: {
       enabled: typeof c.enabled === "boolean" ? c.enabled : true,
       time: checkinTime(c.time) ?? DEFAULT_CHECKIN_TIME,
@@ -85,7 +85,7 @@ export function readCustomerCareSettings(aiSettings: unknown, org: { crankleads:
       months: intIn(w.months, 0, MAX_WARRANTY_MONTHS) ?? DEFAULT_WARRANTY_MONTHS,
       terms: termsText(w.terms),
     },
-    defaultEnabled: org.crankleads,
+    defaultEnabled: org.doneForYou,
     enabledIsDefault: enabled === null,
   };
 }
@@ -131,7 +131,7 @@ export interface CareCompany {
   companyId: string;
   name: string;
   timeZone: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   platformBrand: string | null;
   /** Verified owner cell (alerts + approvals), else null. */
   ownerPhone: string | null;
@@ -156,18 +156,18 @@ interface CompanyRow {
 }
 
 export function toCareCompany(row: CompanyRow, platformBrand: string | null): CareCompany {
-  const crankleads = isDoneForYou(platformBrand);
+  const doneForYou = isDoneForYou(platformBrand);
   return {
     organizationId: row.organization_id,
     companyId: row.id,
     name: (row.brand_from_name?.trim() || row.name || "").trim() || "the business",
     timeZone: zoneOf(row.timezone),
-    crankleads,
+    doneForYou,
     platformBrand,
     ownerPhone: row.owner_phone_verified_at && row.owner_phone_e164?.trim() ? row.owner_phone_e164.trim() : null,
     active: !row.stage || !["archived", "paused", "cancelled"].includes(row.stage),
-    smsAgentOn: smsAgentActive(readSmsAgentSettings(row.ai_settings, { crankleads })),
-    settings: readCustomerCareSettings(row.ai_settings, { crankleads }),
+    smsAgentOn: smsAgentActive(readSmsAgentSettings(row.ai_settings, { doneForYou })),
+    settings: readCustomerCareSettings(row.ai_settings, { doneForYou }),
   };
 }
 
