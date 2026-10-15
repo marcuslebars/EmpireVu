@@ -671,12 +671,22 @@ async function main(): Promise<void> {
       }
       await page.goto(`${BUYER_APP}/`);
       await page.getByText("Weekly report").first().waitFor({ timeout: 30_000 }).catch(() => undefined);
-      await page.waitForTimeout(8000);
+      // ApprovalsCard renders nothing until GET …/approvals answers. On this first dashboard visit
+      // Next dev compiles that route and the dashboard's other dozen on demand, so the answer took
+      // ~8 s, and a fixed 8 s pause raced it. Wait for the card's own buttons. Use exact names:
+      // a loose "Approve" also matches the "Captured" card ("— approved"), which is always there.
+      const approveBtn = page.getByRole("button", { name: "Approve", exact: true });
+      const skipBtn = page.getByRole("button", { name: "Skip", exact: true });
+      if (approvalPendingForShots) await approveBtn.first().waitFor({ timeout: 60_000 }).catch(() => undefined);
+      await page.waitForTimeout(approvalPendingForShots ? 1500 : 8000);
       const card = page.getByText("Approvals", { exact: false }).first();
       if (await card.count()) await card.scrollIntoViewIfNeeded();
       await shot(page, `p1-dashboard-approvals-${width}`, true);
       const dash = await page.locator("body").innerText();
-      check(!approvalPendingForShots || /Approve/.test(dash), `dashboard (${width}): Approvals card with Approve / Skip`);
+      check(
+        !approvalPendingForShots || ((await approveBtn.count()) > 0 && (await skipBtn.count()) > 0 && /Could you do it for \$600/.test(dash)),
+        `dashboard (${width}): Approvals card with Approve / Skip`,
+      );
       check(!/Marina/.test(dash), `dashboard (${width}): no "Marina" for a CrankLeads owner`);
       await page.goto(`${BUYER_APP}/settings`);
       await page.waitForTimeout(2500);
