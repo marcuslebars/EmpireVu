@@ -24,9 +24,9 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const TIERS = [
-  { key: "catch", flag: "catch", name: "CrankLeads Catch", env: "CATCH" },
-  { key: "close", flag: "close", name: "CrankLeads Close", env: "CLOSE" },
-  { key: "front_desk", flag: "front-desk", name: "CrankLeads Front Desk", env: "FRONT_DESK" },
+  { key: "catch", flag: "catch", name: "Everdoer Catch", env: "CATCH" },
+  { key: "close", flag: "close", name: "Everdoer Close", env: "CLOSE" },
+  { key: "front_desk", flag: "front-desk", name: "Everdoer Front Desk", env: "FRONT_DESK" },
 ];
 
 export const CURRENCY = "cad";
@@ -84,8 +84,16 @@ async function ensureProduct(stripe, tier, opts, log) {
   const id = `crankleads_${tier.key}`;
   try {
     const existing = await stripe.products.retrieve(id);
-    if (!existing.active && !opts.dryRun) await stripe.products.update(id, { active: true });
-    log(`product ${id}: exists`);
+    // The id stays crankleads_<tier> (live object); only the display name the buyer sees changes.
+    const patch = {};
+    if (!existing.active) patch.active = true;
+    if (existing.name !== tier.name) patch.name = tier.name;
+    if (Object.keys(patch).length > 0 && !opts.dryRun) await stripe.products.update(id, patch);
+    log(
+      patch.name
+        ? `product ${id}: ${opts.dryRun ? "WOULD RENAME" : "renamed"} "${existing.name}" → "${tier.name}"`
+        : `product ${id}: exists`,
+    );
     return id;
   } catch (err) {
     if (!isMissing(err)) throw err;
@@ -149,6 +157,11 @@ async function ensurePrice(stripe, { productId, tierKey, kind, amount }, opts, l
   return created.id;
 }
 
+/** What the buyer sees on Checkout. Stripe caps coupon names at 40 characters. */
+export function foundingCouponName(percent) {
+  return `Everdoer founding ${percent}% off setup`;
+}
+
 async function ensureFoundingCoupon(stripe, founding, setupProductIds, opts, log) {
   const id = `crankleads_founding_${founding.percent}`;
   try {
@@ -157,6 +170,12 @@ async function ensureFoundingCoupon(stripe, founding, setupProductIds, opts, log
     const sameProducts = setupProductIds.every((p) => products.includes(p)) && products.length === setupProductIds.length;
     if (existing.percent_off !== founding.percent || !sameProducts) {
       throw new UsageError(`coupon ${id} exists with different settings — delete it in the Stripe dashboard or pick another percent.`);
+    }
+    const wantName = foundingCouponName(founding.percent);
+    if (existing.name !== wantName) {
+      // Coupon names are editable (percent/products/limits aren't); the id stays the same.
+      if (!opts.dryRun) await stripe.coupons.update(id, { name: wantName });
+      log(`coupon ${id}: ${opts.dryRun ? "WOULD RENAME" : "renamed"} "${existing.name}" → "${wantName}"`);
     }
     if (existing.max_redemptions !== founding.max) {
       log(`coupon ${id}: exists (max_redemptions is ${existing.max_redemptions}; Stripe can't change it — delete + re-run to use ${founding.max})`);
@@ -174,7 +193,7 @@ async function ensureFoundingCoupon(stripe, founding, setupProductIds, opts, log
   }
   await stripe.coupons.create({
     id,
-    name: `CrankLeads founding ${founding.percent}% off setup`, // Stripe caps coupon names at 40 chars
+    name: foundingCouponName(founding.percent),
     percent_off: founding.percent,
     duration: "once",
     max_redemptions: founding.max,

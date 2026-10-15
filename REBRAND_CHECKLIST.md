@@ -284,7 +284,14 @@ To be filled in. It covers:
 - A1's Care agent, by hand
 - Telnyx
 - Stripe endpoint URLs edited in place
-- Stripe lookup keys transferred, metadata backfilled, and product/price display names renamed
+- **Stripe display names (what buyers see on Checkout, invoices and receipts).** After this PR deploys, run against live with your live secret key in the shell:
+  1. `npm run stripe:setup-done-for-you -- --live --dry-run <the same --*-setup/--*-monthly cents as before> --founding-percent 50 --founding-max 5`. Check that it prints only `WOULD RENAME` lines and no `WOULD CREATE`.
+  2. Run the same command without `--dry-run`.
+
+  This renames products `crankleads_<tier>` and `crankleads_<tier>_setup` to "Everdoer Catch/Close/Front Desk" and "… — setup", and coupon `crankleads_founding_50` to "Everdoer founding 50% off setup". Ids, prices and lookup keys don't change.
+
+  Or rename the same 7 objects by hand in the dashboard (Product catalog → each product → Edit; Coupons → the coupon → Edit name).
+- Stripe metadata (`source: crankleads`) and lookup keys stay until PR 7/8.
 - the Intuit/Xero redirect URIs, added alongside the old ones
 - Google consent screen
 

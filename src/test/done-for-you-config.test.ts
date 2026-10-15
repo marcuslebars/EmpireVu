@@ -23,6 +23,7 @@ import { getRecipe } from "@/server/services/workflow-engine/recipes";
 import { isPublicPath, safeNextPath } from "@/lib/public-routes";
 import {
   formatEnv,
+  foundingCouponName,
   isLiveKey,
   parseArgs,
   setupDoneForYou,
@@ -200,7 +201,7 @@ interface FakePrice {
 }
 
 function fakeStripe() {
-  const products = new Map<string, { id: string; active: boolean }>();
+  const products = new Map<string, { id: string; active: boolean; name?: string }>();
   const prices: FakePrice[] = [];
   const coupons = new Map<string, Record<string, unknown>>();
   let seq = 0;
@@ -212,11 +213,15 @@ function fakeStripe() {
         if (!p) throw missing();
         return p;
       }),
-      create: vi.fn(async (params: { id: string }) => {
-        products.set(params.id, { id: params.id, active: true });
+      create: vi.fn(async (params: { id: string; name?: string }) => {
+        products.set(params.id, { id: params.id, active: true, name: params.name });
         return products.get(params.id);
       }),
-      update: vi.fn(),
+      update: vi.fn(async (id: string, patch: Record<string, unknown>) => {
+        const p = products.get(id);
+        if (p) Object.assign(p, patch);
+        return p;
+      }),
     },
     prices: {
       list: vi.fn(async ({ lookup_keys }: { lookup_keys: string[] }) => ({
@@ -248,6 +253,11 @@ function fakeStripe() {
       create: vi.fn(async (params: Record<string, unknown>) => {
         const c = { ...params, applies_to: params.applies_to };
         coupons.set(params.id as string, c);
+        return c;
+      }),
+      update: vi.fn(async (id: string, patch: Record<string, unknown>) => {
+        const c = coupons.get(id);
+        if (c) Object.assign(c, patch);
         return c;
       }),
     },
@@ -322,6 +332,39 @@ describe("stripe:setup-done-for-you", () => {
     expect(stripe.prices.create).toHaveBeenCalledTimes(6);
     expect(stripe.products.create).toHaveBeenCalledTimes(6);
     expect(stripe.coupons.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("names everything Everdoer, and renames existing CrankLeads-named products and coupon in place (ids unchanged)", async () => {
+    const { stripe, products, coupons } = fakeStripe();
+    const args = parseArgs([...ARGS, "--founding-percent", "50", "--founding-max", "5"]);
+    await setupDoneForYou({ stripe, args, keyIsLive: false, log: silent });
+    expect(products.get("crankleads_close")?.name).toBe("Everdoer Close");
+    expect(products.get("crankleads_close_setup")?.name).toBe("Everdoer Close — setup");
+    expect(coupons.get("crankleads_founding_50")?.name).toBe("Everdoer founding 50% off setup");
+    expect(foundingCouponName(50).length).toBeLessThanOrEqual(40);
+
+    // Live objects created before the rebrand.
+    products.get("crankleads_close")!.name = "CrankLeads Close";
+    products.get("crankleads_close_setup")!.name = "CrankLeads Close — setup";
+    coupons.get("crankleads_founding_50")!.name = "CrankLeads founding 50% off setup";
+
+    // Dry run reports, changes nothing.
+    stripe.products.update.mockClear();
+    stripe.coupons.update.mockClear();
+    const logs: string[] = [];
+    await setupDoneForYou({ stripe, args: { ...args, dryRun: true }, keyIsLive: false, log: (m: string) => logs.push(m) });
+    expect(stripe.products.update).not.toHaveBeenCalled();
+    expect(stripe.coupons.update).not.toHaveBeenCalled();
+    expect(logs.join("\n")).toContain('WOULD RENAME "CrankLeads Close" → "Everdoer Close"');
+
+    // Real run renames in place; nothing new is created.
+    await setupDoneForYou({ stripe, args, keyIsLive: false, log: silent });
+    expect(stripe.products.update).toHaveBeenCalledWith("crankleads_close", { name: "Everdoer Close" });
+    expect(stripe.products.update).toHaveBeenCalledWith("crankleads_close_setup", { name: "Everdoer Close — setup" });
+    expect(stripe.coupons.update).toHaveBeenCalledWith("crankleads_founding_50", { name: "Everdoer founding 50% off setup" });
+    expect(stripe.products.create).toHaveBeenCalledTimes(6);
+    expect(stripe.coupons.create).toHaveBeenCalledTimes(1);
+    expect(products.get("crankleads_close")?.name).toBe("Everdoer Close");
   });
 
   it("refuses a lookup key that points at a price on the WRONG product", async () => {
