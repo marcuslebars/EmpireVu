@@ -9,7 +9,7 @@ import { isDoneForYou } from "@/lib/product-line";
 import { createHash } from "node:crypto";
 
 import type { Tables } from "@/server/db/database.types";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
 import { bookingPageUrl } from "@/server/services/scheduling/urls";
 import { parseOnlineBookingSettings } from "@/server/services/scheduling/rules";
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
@@ -19,11 +19,11 @@ import { renderSitePage, type SiteRenderOptions } from "./site-render";
 import { siteUrl } from "./site-url";
 
 /** Default target of the generated sites' "Powered by Everdoer" link. */
-export const CRANKLEADS_SITE_CREDIT_URL = "https://everdoer.com";
+export const DONE_FOR_YOU_SITE_CREDIT_URL = "https://everdoer.com";
 
 /** EVERDOER_SITE_URL [web] overrides the credit link target (the renderer still vets it with safeHref). */
 export function siteCreditUrl(): string {
-  return process.env.EVERDOER_SITE_URL?.trim() || CRANKLEADS_SITE_CREDIT_URL;
+  return process.env.EVERDOER_SITE_URL?.trim() || DONE_FOR_YOU_SITE_CREDIT_URL;
 }
 
 export interface RenderedSite {

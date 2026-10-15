@@ -3,7 +3,7 @@
 // company_sites is server-written only (migration 20261008100000_done_for_you). Every function
 // here takes the service-role client and an explicit companyId; owner routes verify org
 // membership + role and that the company belongs to the org BEFORE calling in, and the sweep
-// derives company ids from DB state (setup_intakes / CrankLeads orgs), never from a request.
+// derives company ids from DB state (setup_intakes / done-for-you orgs), never from a request.
 // Each write is filtered by company_id (and organization_id where we have it).
 // docs/done-for-you.md → "Generated sites".
 // ─────────────────────────────────────────────────────────────────────────────
@@ -11,8 +11,8 @@ import { isDoneForYou } from "@/lib/product-line";
 import type { Json, Tables } from "@/server/db/database.types";
 import { writeSiteCopy as defaultWriteSiteCopy, type SiteCopyResult } from "@/server/ai/site-copy";
 import { isAIConfigured } from "@/server/ai/claude";
-import { LIVE_WINDOW, localClock } from "@/server/services/crankleads/followup-schedule";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
+import { LIVE_WINDOW, localClock } from "@/server/services/done-for-you/followup-schedule";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
 import { generatePublicFormKey } from "@/server/services/lead-intake/public-form-keys";
 import { getPack } from "@/server/services/packs";
 import { parseAppliedIndustryPack } from "@/server/services/packs/types";
@@ -350,8 +350,8 @@ export interface SweepResult {
   notified: Array<{ companyId: string; channel: string; status: string }>;
 }
 
-/** Of these org ids, the active CrankLeads ones (bounded batch lookup). */
-async function activeCrankleadsOrgs(admin: AdminClient, orgIds: string[]): Promise<Set<string>> {
+/** Of these org ids, the active done-for-you ones (bounded batch lookup). */
+async function activeDoneForYouOrgs(admin: AdminClient, orgIds: string[]): Promise<Set<string>> {
   const unique = [...new Set(orgIds)];
   if (unique.length === 0) return new Set();
   const { data, error } = await admin.from("organizations").select("id, subscription_status, platform_brand").in("id", unique);
@@ -389,7 +389,7 @@ export function hasEnoughSiteData(company: Pick<CompanyRow, "name" | "owner_phon
  * Company ids that should get a site this pass (no company_sites row yet). Done-for-you buyers
  * ONLY (they have a setup_intakes row): an intake enriched in the last 30 days, or a company the
  * orchestrator switched on (the backstop for its inline build, incl. the 2 h fallback).
- * Legacy CrankLeads companies are never auto-built or published (docs: "Who done-for-you
+ * Legacy done-for-you companies are never auto-built or published (docs: "Who done-for-you
  * applies to"). Paged queries over candidates only — never a list of every org/company.
  */
 export async function pendingSiteCompanyIds(admin: AdminClient, limit = SITE_SWEEP_BATCH, nowMs: number = Date.now()): Promise<string[]> {
@@ -398,7 +398,7 @@ export async function pendingSiteCompanyIds(admin: AdminClient, limit = SITE_SWE
   const consider = async (rows: Array<{ company_id: string; organization_id: string }>, requireIntake: boolean) => {
     if (rows.length === 0) return;
     const [orgs, sites, intakes] = await Promise.all([
-      activeCrankleadsOrgs(admin, rows.map((r) => r.organization_id)),
+      activeDoneForYouOrgs(admin, rows.map((r) => r.organization_id)),
       companiesWithSite(admin, rows.map((r) => r.company_id)),
       requireIntake ? newFlowCompanyIds(admin, rows.map((r) => r.company_id)) : Promise.resolve(null),
     ]);
@@ -441,7 +441,7 @@ export async function pendingSiteCompanyIds(admin: AdminClient, limit = SITE_SWE
   return out;
 }
 
-/** Generate + publish every pending CrankLeads site (done-for-you). Idempotent: a company with a row is skipped. */
+/** Generate + publish every pending done-for-you site. Idempotent: a company with a row is skipped. */
 export async function generatePendingSites(
   admin: AdminClient,
   options: { limit?: number; deps?: Partial<SiteGeneratorDeps>; nowMs?: number } = {},
@@ -522,7 +522,7 @@ export function sitePublishedSms(url: string, settingsUrl: string): string {
 }
 
 /**
- * Text the owner once per published CrankLeads site ("Your new page is live") — unless it is
+ * Text the owner once per published done-for-you site ("Your new page is live") — unless it is
  * folded into the done-for-you "You're live" message (pageTextHeldForLive). The send is
  * CLAIMED first (owner_notified_at set where null) so overlapping workers can't double-send;
  * outside 08:00–21:00 company time it waits for the next pass. A landline business number
@@ -542,7 +542,7 @@ export async function notifyPublishedSites(admin: AdminClient, options: { deps?:
   const candidates = (data ?? []) as Array<Pick<CompanySiteRow, "id" | "organization_id" | "company_id" | "slug">>;
   if (candidates.length === 0) return [];
   const [orgs, newFlow] = await Promise.all([
-    activeCrankleadsOrgs(admin, candidates.map((c) => c.organization_id)),
+    activeDoneForYouOrgs(admin, candidates.map((c) => c.organization_id)),
     newFlowCompanyIds(admin, candidates.map((c) => c.company_id)),
   ]);
 

@@ -1,6 +1,6 @@
 # Monthly results scorecard
 
-The CrankLeads promise: **"Monthly results scorecard: leads caught, replies sent, jobs booked,
+The done-for-you promise: **"Monthly results scorecard: leads caught, replies sent, jobs booked,
 and what we're tuning next."** On the 1st of every month each client company's owner gets an
 email with last month's numbers compared with the month before, up to three rule-based
 "what we're tuning next" items, and an optional note from the operator. The same scorecard is
@@ -22,7 +22,7 @@ statement can reuse this service's metric definitions and month helpers.
 | Scorecard assembly, deltas, settings, operator note | `src/server/services/monthly-scorecard/scorecard.ts` |
 | Send pass (idempotent, opt-out, dry-run) | `src/server/services/monthly-scorecard/send.ts` |
 | Email template (HTML + text, pure) | `src/server/templates/monthly-scorecard.ts` |
-| Platform brand (the ONE place) | `src/server/services/monthly-scorecard/platform-brand.ts` (`PLATFORM_BRAND_NAME`, default `Everdoer`) |
+| Platform brand (the ONE place) | `src/server/services/monthly-scorecard/platform-brand.ts` (`EVERDOER_BRAND_NAME`, old `PLATFORM_BRAND_NAME` still read; default `Everdoer`) |
 | Cron job | `src/server/jobs/monthly-scorecard.ts`, `npm run job:monthly-scorecard`, `railway.monthly-scorecard.json` |
 | API | `GET/PUT /api/organizations/:orgId/ui/monthly-scorecard` |
 | In-app page | `src/screens/ReportsMonthlyPage.tsx` (`/reports/monthly`, linked from the attribution report and the command palette) |
@@ -88,7 +88,7 @@ When no rule fires, the email says "Everything's running well…".
 or from the Monthly results page. An empty value clears it. RLS also limits writes to
 admins (`monthly_scorecard_notes_admins_*` policies). It shows under "A note from your
 account team". The label doesn't use the platform brand, because any org admin can write the
-note, not just CrankLeads staff. To get a note into the email, set it for the month being reported (for
+note, not just Everdoer staff. To get a note into the email, set it for the month being reported (for
 example the October note before the November 1st run).
 
 ## Sending, idempotency, opt-out
@@ -100,7 +100,7 @@ example the October note before the November 1st run).
   platform, and the client would never get them. With no recipient, the company is skipped
   and logged as `skipped / no_email`.
 - **Delivery**: `deliverMessage` (email). It writes `message_log` with no contact and meters
-  `email_sent`. The From display name is `PLATFORM_BRAND_NAME`. Owner reporting has no consent
+  `email_sent`. The From display name is `EVERDOER_BRAND_NAME` (old `PLATFORM_BRAND_NAME` still read). Owner reporting has no consent
   check and no approval gate, the same as the digest.
 - **Opt-out**: `companies.monthly_scorecard = { "enabled": false }`. By default it's enabled,
   because every done-for-you client gets one. Admins can toggle it on the page or with

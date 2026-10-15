@@ -20,7 +20,7 @@ vi.mock("@/server/services/dfy/intake", () => ({ processPendingIntakeSends: step
 vi.mock("@/server/services/dfy/enrich", () => ({ processPendingEnrichments: step("enrich") }));
 vi.mock("@/server/services/dfy/orchestrator", () => ({ runDoneForYouSweep: step("switch-on") }));
 vi.mock("@/server/services/dfy/site-generator", () => ({ runGeneratedSitesPass: step("sites") }));
-vi.mock("@/server/services/crankleads/setup-followups", () => ({ processSetupFollowups: step("follow-ups"), SETUP_FOLLOWUP_INTERVAL_MS: 300_000 }));
+vi.mock("@/server/services/done-for-you/setup-followups", () => ({ processSetupFollowups: step("follow-ups"), SETUP_FOLLOWUP_INTERVAL_MS: 300_000 }));
 
 import { runDoneForYouPasses } from "@/server/services/workflow-engine/scheduler";
 

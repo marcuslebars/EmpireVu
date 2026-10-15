@@ -1,5 +1,5 @@
 /**
- * Provider-neutral shapes for accounting sync. The engine turns EmpireVu records into
+ * Provider-neutral shapes for accounting sync. The engine turns Everdoer records into
  * these documents (./mapping.ts, pure); each provider turns them into its own API calls.
  * Money is integer cents everywhere here; providers convert to decimal at the edge.
  */

@@ -38,7 +38,7 @@ import {
   type PeriodDates,
   type PersonHours,
 } from "./periods";
-import { isCrankleadsOrg, loadRecruiterCompany, readRecruiterSettings, type RecruiterCompany } from "./settings";
+import { isDoneForYouOrg, loadRecruiterCompany, readRecruiterSettings, type RecruiterCompany } from "./settings";
 
 /** The approval goes out from 08:00 local the day after the period ends … */
 export const PAYROLL_HOUR = 8;
@@ -97,8 +97,8 @@ export async function generalTimeCompanyId(admin: AdminClient, organizationId: s
     .order("id", { ascending: true })
     .limit(200);
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", organizationId).maybeSingle();
-  const crankleads = isCrankleadsOrg(org);
-  const first = ((data ?? []) as Array<{ id: string; ai_settings: unknown }>).find((c) => readRecruiterSettings(c.ai_settings, { crankleads }).payroll.enabled);
+  const doneForYou = isDoneForYouOrg(org);
+  const first = ((data ?? []) as Array<{ id: string; ai_settings: unknown }>).find((c) => readRecruiterSettings(c.ai_settings, { doneForYou }).payroll.enabled);
   return first?.id ?? null;
 }
 

@@ -16,7 +16,7 @@ export interface OfficeManagerView {
   companyId: string;
   companyName: string;
   settings: OfficeManagerSettings & { emailCopy: boolean };
-  /** What the default is for this org (on for CrankLeads, off for house orgs). */
+  /** What the default is for this org (on for done-for-you, off for house orgs). */
   defaultEnabled: boolean;
   ownerPhoneOnFile: boolean;
   ownerEmailOnFile: boolean;
@@ -44,7 +44,7 @@ export async function getOfficeManagerView(admin: AdminClient, organizationId: s
     companyId,
     companyName: company.name,
     settings: { ...company.settings, emailCopy: company.settings.channels.includes("email") },
-    defaultEnabled: company.crankleads,
+    defaultEnabled: company.doneForYou,
     ownerPhoneOnFile: Boolean(company.ownerPhone),
     ownerEmailOnFile: Boolean(owner.email),
     foldsMoneyAlert: Boolean(collections?.enabled && collections.dailyAlert),

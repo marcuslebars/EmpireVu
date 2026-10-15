@@ -5,7 +5,7 @@
  * both the SQL seed and the test fixture, so the two can never disagree — and the
  * golden fixtures then prove the extraction reproduces the engine exactly.
  *
- * ONE-TIME MIGRATION TOOL — @a1/pricing-engine has been removed from EmpireVu's
+ * ONE-TIME MIGRATION TOOL — @a1/pricing-engine has been removed from Everdoer's
  * dependencies (the catalog is now the source of truth), so this no longer runs
  * here as-is. Kept as the record of how the a1 catalogs were generated. To re-run
  * (e.g. if engine rates change), temporarily reinstall the engine, regenerate,

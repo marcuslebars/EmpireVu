@@ -1,25 +1,25 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SANCTIONED EXCEPTION (service role): the operator's CrankLeads re-run job
-// (`npm run job:crankleads-provision -- --session cs_...`). A CLI run has no user session;
+// SANCTIONED EXCEPTION (service role): the operator's done-for-you re-run job
+// (`npm run job:dfy-provision -- --session cs_...`). A CLI run has no user session;
 // the purchase is selected by its Checkout Session id and provisioned through
-// ./provision.ts exactly as the billing worker would. Listed in docs/EMPIREVU_RUNBOOK.md.
+// ./provision.ts exactly as the billing worker would. Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import type Stripe from "stripe";
 
 import { getStripeClient } from "@/server/services/billing/stripe";
 import {
-  handleCrankleadsCheckoutPaid,
+  handleDoneForYouCheckoutPaid,
   isProvisionablePaymentStatus,
   provisionPurchase,
   requeueDeferredBillingEvents,
   type ProvisionDeps,
-} from "@/server/services/crankleads/provision";
+} from "@/server/services/done-for-you/provision";
 import {
   findPurchaseBySession,
   type AdminClient,
-  type CrankleadsPurchase,
-} from "@/server/services/crankleads/purchases";
-import { isDoneForYouStripeSource } from "@/server/services/crankleads/stripe-source";
+  type DoneForYouPurchase,
+} from "@/server/services/done-for-you/purchases";
+import { isDoneForYouStripeSource } from "@/server/services/done-for-you/stripe-source";
 
 export interface ProvisionJobArgs {
   sessionId: string | null;
@@ -62,13 +62,13 @@ export interface ProvisionJobResult {
  *   • checkout_created (the webhook never arrived) → ask Stripe whether it's paid, then provision;
  *   • provisioned → nothing to build, but re-drive any billing events still waiting on it.
  */
-export async function runCrankleadsProvisionJob(
+export async function runDoneForYouProvisionJob(
   admin: AdminClient,
   args: ProvisionJobArgs,
   options: { stripe?: Stripe; deps?: Partial<ProvisionDeps> } = {},
 ): Promise<ProvisionJobResult> {
   if (!args.sessionId) {
-    throw new Error("Usage: npm run job:crankleads-provision -- --session cs_test_...");
+    throw new Error("Usage: npm run job:dfy-provision -- --session cs_test_...");
   }
   const purchase = await findPurchaseBySession(admin, args.sessionId);
 
@@ -90,7 +90,7 @@ export async function runCrankleadsProvisionJob(
     if (!isProvisionablePaymentStatus(session.payment_status)) {
       return { outcome: "not_paid", organizationId: null, detail: `Stripe says payment_status=${session.payment_status}` };
     }
-    const organizationId = await handleCrankleadsCheckoutPaid(admin, { ...session }, { finalAttempt: true, deps: options.deps });
+    const organizationId = await handleDoneForYouCheckoutPaid(admin, { ...session }, { finalAttempt: true, deps: options.deps });
     return { outcome: "provisioned", organizationId, detail: "provisioned from the Stripe session" };
   }
 
@@ -137,7 +137,7 @@ export async function runStuckPurchaseSweep(
 
   const results: StuckSweepItem[] = [];
   let stripe: Stripe | null = options.stripe ?? null;
-  for (const purchase of (data ?? []) as CrankleadsPurchase[]) {
+  for (const purchase of (data ?? []) as DoneForYouPurchase[]) {
     const base = { purchaseId: purchase.id, sessionId: purchase.stripe_checkout_session_id, status: purchase.status };
     try {
       if (purchase.status !== "checkout_created") {
@@ -152,7 +152,7 @@ export async function runStuckPurchaseSweep(
       stripe ??= getStripeClient();
       const session = await stripe.checkout.sessions.retrieve(purchase.stripe_checkout_session_id);
       if (isProvisionablePaymentStatus(session.payment_status)) {
-        const organizationId = await handleCrankleadsCheckoutPaid(admin, { ...session }, { finalAttempt: true, deps: options.deps });
+        const organizationId = await handleDoneForYouCheckoutPaid(admin, { ...session }, { finalAttempt: true, deps: options.deps });
         results.push({ ...base, outcome: "provisioned", detail: `org ${organizationId ?? "-"} (webhook was missed)` });
       } else {
         results.push({
@@ -162,7 +162,7 @@ export async function runStuckPurchaseSweep(
         });
       }
     } catch (err) {
-      // provisionPurchase / handleCrankleadsCheckoutPaid already alerted the operator.
+      // provisionPurchase / handleDoneForYouCheckoutPaid already alerted the operator.
       results.push({ ...base, outcome: "failed", detail: err instanceof Error ? err.message : String(err) });
     }
   }

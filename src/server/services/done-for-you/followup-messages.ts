@@ -1,18 +1,18 @@
 /**
- * CrankLeads setup follow-up messages — PURE renderers (golden-tested in
- * src/test/crankleads-setup-followups.test.ts). Purchase-context, so they are sent as
- * CrankLeads (sender name CRANKLEADS_OFFER_NAME), and the app the owner logs into is CrankLeads
- * too (appUrl = the CrankLeads app host). Never "EmpireVu" (docs/everdoer-branding.md).
+ * Done-for-you setup follow-up messages — PURE renderers (golden-tested in
+ * src/test/done-for-you-setup-followups.test.ts). Purchase-context, so they are sent as
+ * Done-for-you (sender name DONE_FOR_YOU_OFFER_NAME), and the app the owner logs into is the done-for-you
+ * app too (appUrl = the done-for-you app host). Never "EmpireVu" (docs/everdoer-branding.md).
  * No prices (Working Protocol #4). No employee names (Protocol #16) — "your AI receptionist".
  *
  * Done-for-you (docs/done-for-you.md): we set everything up, so a reminder asks for exactly
  * ONE thing with ONE no-login link — finish the 60-second quick setup, or tap the forwarding
  * link. Never a wizard step, never "connect Stripe".
  */
-import { CRANKLEADS_OFFER_NAME } from "@/server/services/crankleads/config";
-import type { RenderedEmail } from "@/server/services/crankleads/emails";
-import type { ReminderStage } from "@/server/services/crankleads/followup-schedule";
-import type { PhonePath } from "@/server/services/crankleads/setup-checklist";
+import { DONE_FOR_YOU_OFFER_NAME } from "@/server/services/done-for-you/config";
+import type { RenderedEmail } from "@/server/services/done-for-you/emails";
+import type { ReminderStage } from "@/server/services/done-for-you/followup-schedule";
+import type { PhonePath } from "@/server/services/done-for-you/setup-checklist";
 import { prettyPhone } from "@/lib/carrier-forwarding";
 import { smsPlatformName } from "@/server/services/rebrand/sms-branding";
 
@@ -116,7 +116,7 @@ export function renderReminderEmail(input: ReminderMessageInput): RenderedEmail 
     doneForYouLine(input.action),
     helpLine,
     "",
-    `— The ${CRANKLEADS_OFFER_NAME} team`,
+    `— The ${DONE_FOR_YOU_OFFER_NAME} team`,
     "",
     `Don't want these setup reminders? Stop them: ${input.stopUrl}`,
   ].join("\n");
@@ -126,11 +126,11 @@ export function renderReminderEmail(input: ReminderMessageInput): RenderedEmail 
     `<p>${escapeHtml(withLead(input.stage, actionSentence(input)))}</p>`,
     `<p><a href="${escapeHtml(input.actionUrl)}" style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600">${escapeHtml(actionLabel(input.action))}</a></p>`,
     `<p>${escapeHtml(doneForYouLine(input.action))}</p>`,
-    `<p>${escapeHtml(helpLine)}</p><p>— The ${CRANKLEADS_OFFER_NAME} team</p>`,
+    `<p>${escapeHtml(helpLine)}</p><p>— The ${DONE_FOR_YOU_OFFER_NAME} team</p>`,
     `<p style="font-size:12px;color:#6b7280">Don't want these setup reminders? <a href="${escapeHtml(input.stopUrl)}">Stop them</a>.</p>`,
   ].join("\n");
 
-  return { subject, body, html, fromName: CRANKLEADS_OFFER_NAME };
+  return { subject, body, html, fromName: DONE_FOR_YOU_OFFER_NAME };
 }
 
 /**
@@ -197,7 +197,7 @@ export function renderLiveEmail(input: LiveMessageInput): RenderedEmail {
     "",
     "Questions? Just reply to this email.",
     "",
-    `— The ${CRANKLEADS_OFFER_NAME} team`,
+    `— The ${DONE_FOR_YOU_OFFER_NAME} team`,
   ].join("\n");
   const linkify = (line: string) =>
     escapeHtml(line).replace(/(https?:\/\/[^\s<]+)/g, (url) => `<a href="${url}">${url}</a>`);
@@ -208,9 +208,9 @@ export function renderLiveEmail(input: LiveMessageInput): RenderedEmail {
     input.setPasswordUrl
       ? `<p><a href="${escapeHtml(input.setPasswordUrl)}" style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600">Set your password and log in</a></p><p style="font-size:12px;color:#6b7280">The button works once. Afterwards, log in at ${escapeHtml(input.appUrl)}.</p>`
       : `<p>Log in any time: <a href="${escapeHtml(input.appUrl)}">${escapeHtml(input.appUrl)}</a></p>`,
-    `<p>Questions? Just reply to this email.</p><p>— The ${CRANKLEADS_OFFER_NAME} team</p>`,
+    `<p>Questions? Just reply to this email.</p><p>— The ${DONE_FOR_YOU_OFFER_NAME} team</p>`,
   ].join("\n");
-  return { subject, body, html, fromName: CRANKLEADS_OFFER_NAME };
+  return { subject, body, html, fromName: DONE_FOR_YOU_OFFER_NAME };
 }
 
 /** Never carries a set-password link (texts get forwarded and previewed) — the plain app URL only. */

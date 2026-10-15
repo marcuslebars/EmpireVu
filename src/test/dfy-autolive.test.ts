@@ -44,7 +44,7 @@ import {
 } from "@/server/services/dfy/messages";
 import { dfyRecipeSlugs, switchOnAutomations } from "@/server/services/dfy/switch-on";
 import { buildSetupProgressView, loadSetupProgressView } from "@/server/services/dfy/progress-view";
-import { computeSetupChecklist } from "@/server/services/crankleads/setup-checklist";
+import { computeSetupChecklist } from "@/server/services/done-for-you/setup-checklist";
 import { conciergeItem } from "@/server/services/operator-health/rules";
 import type { RetellClient } from "@/server/services/retell/provision";
 import type { TwilioNumbersClient } from "@/server/services/twilio/provision";
@@ -570,7 +570,7 @@ describe("advanceDoneForYou — transitions + idempotency", () => {
     expect(h.operatorEmails).toHaveLength(1);
   });
 
-  it("no escalation once the checklist is live; skips live / cancelled / non-CrankLeads companies", async () => {
+  it("no escalation once the checklist is live; skips live / cancelled / non-done-for-you companies", async () => {
     db = createFakeDb(
       tables({
         voice_numbers: [catcherRow({ forwarding_verified_at: "2026-10-05T16:00:00Z" })],

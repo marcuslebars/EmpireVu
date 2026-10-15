@@ -9,7 +9,7 @@
  *     any_on:  boolean   // marker for the sweeps' server-side filter (house orgs that opted in)
  *   }
  *
- * Both switches default ON for CrankLeads orgs and OFF for house orgs (A1 …) unless turned on.
+ * Both switches default ON for done-for-you orgs and OFF for house orgs (A1 …) unless turned on.
  * The anchor is the first day of any one pay period (weekly / bi-weekly); semi-monthly periods
  * are always the 1st–15th and 16th–end of month. The CSV goes to `csv_email`, else the org
  * owner's email.
@@ -34,7 +34,7 @@ export interface RecruiterSettings {
     csvEmail: string | null;
   };
   hiring: { enabled: boolean };
-  /** The org's default for every switch (CrankLeads → on). */
+  /** The org's default for every switch (done-for-you → on). */
   defaultEnabled: boolean;
 }
 
@@ -65,11 +65,11 @@ export function isEmail(value: unknown): value is string {
 const bool = (value: unknown): boolean | null => (typeof value === "boolean" ? value : null);
 
 /** companies.ai_settings (any shape) → the Recruiter section with defaults. PURE. */
-export function readRecruiterSettings(aiSettings: unknown, org: { crankleads: boolean }): RecruiterSettings {
+export function readRecruiterSettings(aiSettings: unknown, org: { doneForYou: boolean }): RecruiterSettings {
   const section = record(record(aiSettings)[SETTINGS_KEY]);
   const payroll = record(section.payroll);
   const hiring = record(section.hiring);
-  const on = org.crankleads;
+  const on = org.doneForYou;
   const frequency = PAY_FREQUENCIES.includes(payroll.frequency as PayFrequency) ? (payroll.frequency as PayFrequency) : DEFAULT_FREQUENCY;
   return {
     payroll: {
@@ -102,8 +102,8 @@ export function mergeRecruiterSettings(aiSettings: unknown, patch: RecruiterSett
   return all;
 }
 
-/** organizations row → CrankLeads? PURE. */
-export function isCrankleadsOrg(org: unknown): boolean {
+/** organizations row → done-for-you? PURE. */
+export function isDoneForYouOrg(org: unknown): boolean {
   return isDoneForYou(record(org).platform_brand);
 }
 
@@ -124,7 +124,7 @@ export interface RecruiterCompany {
   companyId: string;
   name: string;
   timeZone: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   platformBrand: string | null;
   ownerPhone: string | null;
   /** Archived / paused companies are skipped by the sweeps. */
@@ -147,17 +147,17 @@ interface CompanyRow {
 }
 
 function toCompany(row: CompanyRow, platformBrand: string | null): RecruiterCompany {
-  const crankleads = isDoneForYou(platformBrand);
+  const doneForYou = isDoneForYou(platformBrand);
   return {
     organizationId: row.organization_id,
     companyId: row.id,
     name: (row.brand_from_name?.trim() || row.name || "").trim() || "the business",
     timeZone: zoneOf(row.timezone),
-    crankleads,
+    doneForYou,
     platformBrand,
     ownerPhone: row.owner_phone_verified_at && row.owner_phone_e164?.trim() ? row.owner_phone_e164.trim() : null,
     active: !row.stage || !["archived", "paused", "cancelled"].includes(row.stage),
-    settings: readRecruiterSettings(row.ai_settings, { crankleads }),
+    settings: readRecruiterSettings(row.ai_settings, { doneForYou }),
   };
 }
 
@@ -195,7 +195,7 @@ async function readAll<T>(make: (from: number, to: number) => PromiseLike<{ data
 }
 
 /**
- * Companies where the Recruiter may work: every company of a CrankLeads org, plus house-org
+ * Companies where the Recruiter may work: every company of a done-for-you org, plus house-org
  * companies that switched something on (ai_settings.recruiter.any_on). House orgs are filtered
  * out at the query, so A1-style tenants never enter a sweep unless they opted in.
  */

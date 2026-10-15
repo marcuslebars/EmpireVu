@@ -596,7 +596,7 @@ export async function settlePlanInvoice(admin: AdminClient, invoiceId: string, n
     if (!agreement) return "noop";
     const state = (await invoiceStates(admin, agreement.organization_id, [invoiceId])).get(invoiceId);
     const company = loadCompany ? await loadCompany(agreement.organization_id, agreement.company_id) : await loadPlanCompany(admin, agreement.organization_id, agreement.company_id);
-    if (!company || !company.crankleads) return "noop";
+    if (!company || !company.doneForYou) return "noop";
     if (agreement.status === "pending_payment" && isPaid(state)) {
       const started = await startAgreement(admin, company, agreement, { nowMs, from: ["pending_payment"] }, deps);
       if (started.ok) await tellOwnerPaidSignup(admin, company, started, state?.totalCents ?? 0, nowMs, deps);

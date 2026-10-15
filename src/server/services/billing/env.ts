@@ -9,7 +9,7 @@
  */
 
 import { PURCHASABLE_PLANS, type PurchasablePlan } from "@/server/services/billing/config";
-import { crankleadsPlanForPriceId } from "@/server/services/crankleads/config";
+import { doneForYouPlanForPriceId } from "@/server/services/done-for-you/config";
 
 function getRequiredEnv(name: string): string {
   const value = process.env[name];
@@ -60,8 +60,8 @@ export function getStripeSetupFeePriceId(plan: PurchasablePlan): string | null {
  * derive the plan straight from the subscription's price (source of truth in
  * Stripe) rather than trusting event metadata.
  *
- * Also recognises the CrankLeads monthly prices (STRIPE_PRICE_CL_*): Catch/Close →
- * `operate`, Front Desk → `front_desk` (src/server/services/crankleads/config.ts).
+ * Also recognises the done-for-you monthly prices (STRIPE_PRICE_CL_*): Catch/Close →
+ * `operate`, Front Desk → `front_desk` (src/server/services/done-for-you/config.ts).
  */
 export function planForStripePriceId(priceId: string | null | undefined): PurchasablePlan | null {
   if (!priceId) {
@@ -72,7 +72,7 @@ export function planForStripePriceId(priceId: string | null | undefined): Purcha
       return plan;
     }
   }
-  return crankleadsPlanForPriceId(priceId);
+  return doneForYouPlanForPriceId(priceId);
 }
 
 /**

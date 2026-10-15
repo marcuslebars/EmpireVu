@@ -199,7 +199,7 @@ async function stripePaid(invoiceId: string, deps: PlanDeps, nowMs = NOW + 60_00
   }, nowMs, deps);
 }
 
-async function crank(): Promise<PlanCompany> {
+async function dfyCompany(): Promise<PlanCompany> {
   return (await loadPlanCompany(db.client, ORG, CO)) as PlanCompany;
 }
 
@@ -289,9 +289,9 @@ describe("texts", () => {
 });
 
 describe("settings and gating", () => {
-  it("CrankLeads on by default; house orgs always off, whatever is stored", () => {
-    expect(readServicePlansSettings({}, { crankleads: true })).toMatchObject({ enabled: true, headsUp: { enabled: true }, renewals: { enabled: true } });
-    expect(readServicePlansSettings({ service_plans: { enabled: true } }, { crankleads: false }).enabled).toBe(false);
+  it("done-for-you on by default; house orgs always off, whatever is stored", () => {
+    expect(readServicePlansSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, headsUp: { enabled: true }, renewals: { enabled: true } });
+    expect(readServicePlansSettings({ service_plans: { enabled: true } }, { doneForYou: false }).enabled).toBe(false);
     expect(mergeServicePlansSettings({ sms_agent: { enabled: true } }, { renewals: { enabled: false } })).toEqual({ sms_agent: { enabled: true }, service_plans: { renewals: { enabled: false } } });
   });
 
@@ -526,7 +526,7 @@ describe("annual plan paid online", () => {
   it("no online payments → the owner is asked, Y sends the first-year invoice", async () => {
     const billing = fakeBilling({ stripe: false });
     const deps = depsWith(billing);
-    const r = await publicSignup(db.client, await crank(), rows("service_plans").find((p) => p.id === PLAN_YEAR) as never, { name: "Dana Jones", phone: DANA_PHONE, email: null, address: "12 Bay St", smsConsent: false }, NOW, deps);
+    const r = await publicSignup(db.client, await dfyCompany(), rows("service_plans").find((p) => p.id === PLAN_YEAR) as never, { name: "Dana Jones", phone: DANA_PHONE, email: null, address: "12 Bay St", smsConsent: false }, NOW, deps);
     expect(r.kind).toBe("requested");
     const approval = rows("owner_approvals")[0];
     expect(approval.summary).toContain("Y starts the plan, books the visits (first: Tue May 4), sends their first-year invoice and texts them to confirm.");
@@ -573,7 +573,7 @@ describe("owner tools", () => {
 async function activeAgreement(planId: string, termEnd: string, nowMs = NOW) {
   const deps = depsWith(fakeBilling({ stripe: false }));
   const p = rows("service_plans").find((x) => x.id === planId)!;
-  const c = await crank();
+  const c = await dfyCompany();
   const { createAgreement, startAgreement } = await import("@/server/services/staff/service-plans/agreements");
   const { agreement } = await createAgreement(db.client, c, { plan: p as never, contactId: DANA, status: "pending_owner", source: "settings" }, nowMs);
   // Started a year back, so the term ends on `termEnd`.
@@ -783,7 +783,7 @@ describe("lapse safety", () => {
     const row = await activeAgreement(PLAN_VISIT, "2026-10-31");
     row.status = "renewal_due";
     expect((await sweepRenewals(db.client, day(20))).lapsed).toBe(0);
-    expect((await lapseAgreement(db.client, await crank(), row as never, day(20))).reason).toBe("no renewal link sent");
+    expect((await lapseAgreement(db.client, await dfyCompany(), row as never, day(20))).reason).toBe("no renewal link sent");
     expect(textsTo(OWNER)).toHaveLength(0);
   });
 });
@@ -812,7 +812,7 @@ describe("double texts and consent", () => {
     vi.setSystemTime(start);
     const deps = depsWith(fakeBilling({ stripe: false }));
     const { createAgreement, startAgreement } = await import("@/server/services/staff/service-plans/agreements");
-    const c = await crank();
+    const c = await dfyCompany();
     const { agreement } = await createAgreement(db.client, c, { plan: rows("service_plans")[0] as never, contactId: DANA, status: "pending_owner", source: "settings" }, start);
     const started = await startAgreement(db.client, c, agreement, { nowMs: start, from: ["pending_owner"] }, deps);
     expect(started.firstVisit).toBe("2027-05-04");

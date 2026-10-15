@@ -79,7 +79,7 @@ export function chaseSummary(held: Pick<HeldBalances, "count" | "totalCents" | "
 
 export async function chaseEffectFor(admin: AdminClient, company: ImportCompany): Promise<string> {
   const { data } = await (admin as Db).from("companies").select("ai_settings").eq("organization_id", company.organizationId).eq("id", company.companyId).maybeSingle();
-  const collections = readCollectionsSettings((data as { ai_settings?: unknown } | null)?.ai_settings, { crankleads: company.crankleads });
+  const collections = readCollectionsSettings((data as { ai_settings?: unknown } | null)?.ai_settings, { doneForYou: company.doneForYou });
   const email = parseInvoiceSettings((company.invoiceSettings ?? null) as never).remindersEnabled;
   return chaseEffect({ bookkeeperOn: collections.enabled, textReminders: collections.textReminders, emailReminders: email });
 }

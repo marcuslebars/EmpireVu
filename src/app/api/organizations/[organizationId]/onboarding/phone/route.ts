@@ -12,8 +12,8 @@ import { createSupabaseServerClient } from "@/server/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-/** A CrankLeads Catch/Close org without a marina_reception override. */
-async function isCatcherOnlyCrankleadsOrg(
+/** A done-for-you Catch/Close org without a marina_reception override. */
+async function isCatcherOnlyDoneForYouOrg(
   supabase: ReturnType<typeof createSupabaseServerClient>,
   organizationId: string,
 ): Promise<boolean> {
@@ -63,11 +63,11 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     const ctx = { actorProfileId: organization.user.id, organizationId: organization.organizationId, supabase };
     const body = await parseJsonBody(request, provisionBodySchema);
 
-    // CrankLeads Catch / Close bought the missed-call catcher, not the AI receptionist
+    // Done-for-you Catch / Close bought the missed-call catcher, not the AI receptionist
     // (that's Front Desk). Only those orgs are gated here — every other org (self-serve
     // trials, existing operate/launch orgs, house orgs) behaves exactly as before. A
     // feature_flags override of marina_reception still lets the operator switch it on.
-    if (await isCatcherOnlyCrankleadsOrg(supabase, organization.organizationId)) {
+    if (await isCatcherOnlyDoneForYouOrg(supabase, organization.organizationId)) {
       throw new AuthorizationError(
         "The AI receptionist isn't included in your plan. Use the missed-call catcher, or upgrade to Front Desk.",
       );

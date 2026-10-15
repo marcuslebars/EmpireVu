@@ -5,7 +5,7 @@
  * scripted and builds every reply only from what it was sent). Run with
  * scripts/e2e-dfy/frontdesk.sh (fresh stack, fake clock at 09:05 Toronto).
  *
- * A live CrankLeads Close company is made the way a buyer gets one (signed Stripe webhook →
+ * A live done-for-you Close company is made the way a buyer gets one (signed Stripe webhook →
  * billing worker → provisioned org/company/catcher number), then switched on with the real
  * done-for-you switch-on (automations, booking hours) and marked live.
  */
@@ -17,7 +17,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import Stripe from "stripe";
 
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { createCrankleadsCheckout } from "@/server/services/crankleads/checkout";
+import { createDoneForYouCheckout } from "@/server/services/done-for-you/checkout";
 import { claimBillingEventJobs } from "@/server/services/billing/jobs";
 import { processBillingEventJob } from "@/server/services/billing/events";
 import { switchOnEverything } from "@/server/services/dfy/switch-on";
@@ -227,7 +227,7 @@ function fakeStripe(): Stripe {
 }
 
 async function buy(buyer: Buyer): Promise<void> {
-  const checkout = await createCrankleadsCheckout(
+  const checkout = await createDoneForYouCheckout(
     admin,
     { tier: buyer.tier, name: buyer.name, email: buyer.email, phone: buyer.phone, businessName: buyer.businessName, businessType: buyer.businessType },
     fakeStripe(),
@@ -350,7 +350,7 @@ async function main(): Promise<void> {
   }
   console.log(`clock now ${new Date().toISOString()} (${torontoTime(Date.now())} Toronto)`);
 
-  await step("0. a live CrankLeads Close company (purchase → provisioned → switch-on → live) + a house tenant", async () => {
+  await step("0. a live done-for-you Close company (purchase → provisioned → switch-on → live) + a house tenant", async () => {
     await seedHouse();
     await buy(dana);
     const { data: numbers } = await admin.from("voice_numbers").select("phone_e164, mode, provider").eq("company_id", dana.companyId!);
@@ -687,7 +687,7 @@ async function main(): Promise<void> {
         !approvalPendingForShots || ((await approveBtn.count()) > 0 && (await skipBtn.count()) > 0 && /Could you do it for \$600/.test(dash)),
         `dashboard (${width}): Approvals card with Approve / Skip`,
       );
-      check(!/Marina/.test(dash), `dashboard (${width}): no "Marina" for a CrankLeads owner`);
+      check(!/Marina/.test(dash), `dashboard (${width}): no "Marina" for a done-for-you owner`);
       await page.goto(`${BUYER_APP}/settings`);
       await page.waitForTimeout(2500);
       await page.locator("button", { hasText: "AI front desk" }).first().click();
@@ -760,7 +760,7 @@ async function main(): Promise<void> {
     setMark();
   });
 
-  await step("9. house (non-CrankLeads) org: no AI reply to a customer text; the catcher keeps voicemail", async () => {
+  await step("9. house (non-done-for-you) org: no AI reply to a customer text; the catcher keeps voicemail", async () => {
     if (!houseIds) throw new Error("no house tenant");
     await text(HOUSE.customer, HOUSE.catcher, "Hi, are you open Saturday?");
     const got = sinceMark();

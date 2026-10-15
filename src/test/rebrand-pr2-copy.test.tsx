@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EVERDOER_ENTITY_LINE } from "@/lib/platform-brand";
 import DeleteAccountPage from "@/screens/DeleteAccountPage";
 import PrivacyPolicyPage from "@/screens/PrivacyPolicyPage";
-import { renderLiveSms, renderReminderSms } from "@/server/services/crankleads/followup-messages";
+import { renderLiveSms, renderReminderSms } from "@/server/services/done-for-you/followup-messages";
 import { renderForwardingSms } from "@/server/services/dfy/messages";
 import { LEGACY_OWNER_SMS_PREFIX, OWNER_SMS_PREFIX, signaturePrefix } from "@/server/services/owner-channel/common";
 import { smsBrandingOn, smsPlatformName } from "@/server/services/rebrand/sms-branding";
@@ -48,7 +48,7 @@ describe("EVERDOER_SMS_BRANDING off (default): every SMS text is byte-identical 
     expect(LEGACY_OWNER_SMS_PREFIX).toBe("CrankLeads: ");
   });
 
-  it("platform-number unknown-sender / HELP reply is today's CrankLeads text", () => {
+  it("platform-number unknown-sender / HELP reply is today's done-for-you text", () => {
     expect(platformUnknownSenderText()).toBe(OLD_UNKNOWN_SENDER);
   });
 
@@ -57,6 +57,9 @@ describe("EVERDOER_SMS_BRANDING off (default): every SMS text is byte-identical 
     expect(smsPlatformName("standard")).toBe("EmpireVu");
     vi.stubEnv("PLATFORM_BRAND_NAME", "Acme");
     expect(smsPlatformName("standard")).toBe("Acme");
+    vi.stubEnv("EVERDOER_BRAND_NAME", "Acme Pro");
+    expect(smsPlatformName("standard")).toBe("Acme Pro"); // the new name wins over the old one
+    vi.stubEnv("EVERDOER_BRAND_NAME", "");
     expect(renderForwardingSms({ ownerName: "Jane Doe", businessName: "Jane's Roofing", forwardUrl: "https://x.test/f/t", phonePath: "missed_call_catcher", method: "dial_code" })).toMatch(/^CrankLeads: Hi Jane, /);
     expect(renderLiveSms({ ownerName: "Jane Doe", businessName: "Jane's Roofing", phonePath: "missed_call_catcher", number: null, siteUrl: null, appUrl: "https://x.test", setPasswordUrl: null })).toMatch(/^CrankLeads: /);
     expect(renderReminderSms({ ...REMINDER })).toMatch(/^CrankLeads: Hi Jane, /);

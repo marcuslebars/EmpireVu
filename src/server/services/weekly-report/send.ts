@@ -38,13 +38,13 @@ import { renderWeeklyEmail, renderWeeklySms, type RenderedWeeklyEmail } from "@/
  * later pass, at most hourly. A row stuck in `claimed` (worker died mid-send) is left alone
  * rather than risk a double send.
  *
- * Who gets it: SMS (CrankLeads orgs only) from the PLATFORM number to companies.owner_phone_e164;
+ * Who gets it: SMS (done-for-you orgs only) from the PLATFORM number to companies.owner_phone_e164;
  * email to the monthly scorecard's owner resolution (companies.owner_email → org owner/admin,
  * never the platform OWNER_EMAIL). Brand = the org's platform brand (never EmpireVu for a
- * CrankLeads org). Owner reporting is transactional — no consent check, no approval gate.
+ * done-for-you org). Owner reporting is transactional — no consent check, no approval gate.
  *
- * Who doesn't: settings off (ai_settings.weekly_report.enabled; default ON for CrankLeads,
- * OFF otherwise), paused/archived companies, cancelled orgs, CrankLeads accounts that weren't
+ * Who doesn't: settings off (ai_settings.weekly_report.enabled; default ON for done-for-you,
+ * OFF otherwise), paused/archived companies, cancelled orgs, done-for-you accounts that weren't
  * live yet (crankleads_purchases.live_at, stamped from the setup checklist's isLive) by the end
  * of the week, and quiet weeks for accounts with no activity at all in the last 30 days. A
  * quiet week after recent activity still gets a short "quiet week" note.
@@ -121,7 +121,7 @@ interface OrgInfo {
   brand: PlatformBrand;
 }
 
-/** A purchase row for the company: undefined = none (not a self-serve CrankLeads purchase). */
+/** A purchase row for the company: undefined = none (not a self-serve done-for-you purchase). */
 type LiveState = { liveAt: string | null } | undefined;
 
 function ctxFor(admin: Admin, organizationId: string): TenantServiceContext {
@@ -248,12 +248,12 @@ async function resolveRecipients(
   context: TenantServiceContext,
   company: WeeklyRunCompany,
   settings: WeeklyReportSettings,
-  isCrankleads: boolean,
+  isDoneForYou: boolean,
 ): Promise<Recipients> {
   const owner = await resolveOwnerContacts(context, company, { allowPlatformFallback: false });
   return {
     email: settings.channels.includes("email") ? owner.email : null,
-    phone: settings.channels.includes("sms") && isCrankleads ? owner.phone : null,
+    phone: settings.channels.includes("sms") && isDoneForYou ? owner.phone : null,
   };
 }
 
@@ -325,8 +325,8 @@ async function processCompany(
   const timeZone = companyTimeZone(company);
   const week = options.week ?? defaultReportWeek(timeZone, options.nowMs);
   const base = { companyId: company.id, companyName: company.name, week };
-  const isCrankleads = isDoneForYouBrand(org.brand);
-  const settings = parseWeeklyReportSettings(company.ai_settings, isCrankleads);
+  const isDoneForYou = isDoneForYouBrand(org.brand);
+  const settings = parseWeeklyReportSettings(company.ai_settings, isDoneForYou);
   const context = ctxFor(admin, company.organization_id);
   const skip = weeklySkipReason({ company, settings, orgSubscriptionStatus: org.subscriptionStatus, live, week, timeZone, nowMs: options.nowMs });
 
@@ -334,7 +334,7 @@ async function processCompany(
     const range = weekRangeForKey(timeZone, week);
     const metrics = await computeWeekForCompany(context, company.id, week, range, timeZone);
     const rendered = render(company, org.brand, metrics);
-    const to = await resolveRecipients(context, company, settings, isCrankleads);
+    const to = await resolveRecipients(context, company, settings, isDoneForYou);
     return {
       ...base,
       result: "dry_run",
@@ -362,7 +362,7 @@ async function processCompany(
     }
   }
 
-  const to = await resolveRecipients(context, company, settings, isCrankleads);
+  const to = await resolveRecipients(context, company, settings, isDoneForYou);
   if (!to.email && !to.phone) {
     console.warn(`[weekly-report] company ${company.id}: no owner email/phone for the chosen channels — skipping`);
     await recordSkip(admin, company, week, "no_recipient");
@@ -536,7 +536,7 @@ export interface WeeklyTestResult {
 }
 
 /**
- * Send last week's report now — email to the requesting user, and (CrankLeads, SMS channel
+ * Send last week's report now — email to the requesting user, and (done-for-you, SMS channel
  * on) the text to the owner's cell on file. Ignores the schedule, enabled flag and live gate,
  * and does NOT claim the week, so the real Monday send still goes out. Service-role client;
  * the caller (route) has already checked org admin + company-in-org.
@@ -558,8 +558,8 @@ export async function sendTestWeeklyReport(
     subscriptionStatus: null,
     brand: platformBrand(null),
   };
-  const isCrankleads = isDoneForYouBrand(org.brand);
-  const settings = parseWeeklyReportSettings(company.ai_settings, isCrankleads);
+  const isDoneForYou = isDoneForYouBrand(org.brand);
+  const settings = parseWeeklyReportSettings(company.ai_settings, isDoneForYou);
   const timeZone = companyTimeZone(company);
   const week = defaultReportWeek(timeZone, nowMs);
   const context = ctxFor(admin, company.organization_id);
@@ -568,7 +568,7 @@ export async function sendTestWeeklyReport(
   const rendersTest = { ...rendered, email: { ...rendered.email, subject: `[Test] ${rendered.email.subject}` } };
   const to: Recipients = {
     email: input.toEmail?.trim() || null,
-    phone: settings.channels.includes("sms") && isCrankleads ? company.owner_phone_e164?.trim() || null : null,
+    phone: settings.channels.includes("sms") && isDoneForYou ? company.owner_phone_e164?.trim() || null : null,
   };
   const delivery = await deliver(context, company, org.brand, rendersTest, to);
   return {

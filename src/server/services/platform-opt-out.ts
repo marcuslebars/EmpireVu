@@ -1,7 +1,7 @@
 /**
  * Platform-number SMS opt-out (platform_sms_opt_outs, migration 20261009121000): a STOP texted
  * to TWILIO_FROM_NUMBER stops every platform text to that phone — owner-channel replies and
- * approvals, CrankLeads setup reminders, done-for-you forwarding / page texts, the weekly report.
+ * approvals, done-for-you setup reminders, done-for-you forwarding / page texts, the weekly report.
  * deliverMessage(smsFrom: "platform") checks it, so every platform sender respects it.
  *
  * The table is service-role only. With a non-service client the read returns nothing and this

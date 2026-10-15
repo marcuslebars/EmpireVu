@@ -18,7 +18,7 @@ import {
   type SiteFactsInput,
 } from "@/server/services/dfy/site-content";
 import { pagesRewritePath, requestHost } from "@/server/services/dfy/site-host";
-import { CRANKLEADS_SITE_CREDIT_URL, siteCreditUrl } from "@/server/services/dfy/site-public";
+import { DONE_FOR_YOU_SITE_CREDIT_URL, siteCreditUrl } from "@/server/services/dfy/site-public";
 import { buildJsonLd, renderSitePage } from "@/server/services/dfy/site-render";
 import { siteUrl } from "@/server/services/dfy/site-url";
 
@@ -123,9 +123,9 @@ describe("page content", () => {
     expect(html.toLowerCase()).not.toContain("empirevu");
   });
 
-  it("the platform credit is 'Powered by Everdoer' (only when a credit URL is given); never CrankLeads", () => {
-    const html = renderSitePage(contentFor(snowCompany), { ...opts, url: "https://pages.everdoer.com/northshore", creditUrl: CRANKLEADS_SITE_CREDIT_URL });
-    expect(CRANKLEADS_SITE_CREDIT_URL).toBe("https://everdoer.com");
+  it("the platform credit is 'Powered by Everdoer' (only when a credit URL is given); never done-for-you", () => {
+    const html = renderSitePage(contentFor(snowCompany), { ...opts, url: "https://pages.everdoer.com/northshore", creditUrl: DONE_FOR_YOU_SITE_CREDIT_URL });
+    expect(DONE_FOR_YOU_SITE_CREDIT_URL).toBe("https://everdoer.com");
     expect(siteCreditUrl()).toBe("https://everdoer.com");
     vi.stubEnv("EVERDOER_SITE_URL", "https://www.everdoer.com");
     expect(siteCreditUrl()).toBe("https://www.everdoer.com");

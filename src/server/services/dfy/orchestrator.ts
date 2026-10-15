@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // SANCTIONED EXCEPTION (service role): the done-for-you orchestrator.
 // Runs in the workflow-event worker's scheduler pass (processDoneForYou, cross-tenant by
-// design: it walks provisioned, not-yet-live CrankLeads purchases) — no user session. Each
+// design: it walks provisioned, not-yet-live done-for-you purchases) — no user session. Each
 // company is handled with a context pinned to its OWN organization_id (from the companies
 // row, never from input); owner messages go only to that company's owner (platform sender),
 // operator emails only to OWNER_EMAIL. docs/done-for-you.md → "Automatic switch-on".
@@ -29,10 +29,10 @@ import { forwardingPlan } from "@/lib/carrier-forwarding";
 import type { Json, Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
 import { sendEmail as defaultSendEmail, type SendEmailInput, type SendEmailResult } from "@/server/outbound/email";
-import { isCrankleadsTier, type CrankleadsTier } from "@/server/services/crankleads/config";
-import { inLiveWindow, localClock } from "@/server/services/crankleads/followup-schedule";
-import type { AdminClient, CrankleadsPurchase } from "@/server/services/crankleads/purchases";
-import { loadSetupChecklist, type SetupChecklist } from "@/server/services/crankleads/setup-checklist";
+import { isDoneForYouTier, type PlanTier } from "@/server/services/done-for-you/config";
+import { inLiveWindow, localClock } from "@/server/services/done-for-you/followup-schedule";
+import type { AdminClient, DoneForYouPurchase } from "@/server/services/done-for-you/purchases";
+import { loadSetupChecklist, type SetupChecklist } from "@/server/services/done-for-you/setup-checklist";
 import {
   loadForwardTarget,
   maybeStartAutoForwardingTest,
@@ -95,7 +95,7 @@ export interface DoneForYouDeps extends ForwardingDeps {
   twilio?: DfyNumberDeps["twilio"];
   retell?: RetellClient;
   /** Switch-on (injectable for tests). */
-  switchOn?: (ctx: TenantServiceContext, companyId: string, tier: CrankleadsTier) => Promise<SwitchOnResult>;
+  switchOn?: (ctx: TenantServiceContext, companyId: string, tier: PlanTier) => Promise<SwitchOnResult>;
   /** Number purchase (injectable for tests). */
   ensureNumber?: typeof ensureDfyNumber;
   /** Build / rebuild the generated page (injectable for tests). */
@@ -111,7 +111,7 @@ async function defaultGoLive(
   nowMs: number,
   deliver: DoneForYouDeps["deliver"],
 ): Promise<unknown> {
-  const { processSetupFollowupForCompany } = await import("@/server/services/crankleads/setup-followups");
+  const { processSetupFollowupForCompany } = await import("@/server/services/done-for-you/setup-followups");
   return processSetupFollowupForCompany(admin, company, nowMs, { deliver });
 }
 
@@ -172,8 +172,8 @@ type OrgRow = Pick<Tables<"organizations">, "id" | "crankleads_tier" | "subscrip
 
 interface CompanyState {
   company: CompanyRow;
-  tier: CrankleadsTier;
-  purchase: CrankleadsPurchase | null;
+  tier: PlanTier;
+  purchase: DoneForYouPurchase | null;
   intake: IntakeRow | null;
 }
 
@@ -206,12 +206,12 @@ async function loadState(admin: AdminClient, companyId: string): Promise<Company
   if (orgRes.error) throw new Error(`organization lookup failed: ${orgRes.error.message}`);
   if (purchaseRes.error) throw new Error(`purchase lookup failed: ${purchaseRes.error.message}`);
   const orgRow = orgRes.data as OrgRow | null;
-  if (!orgRow || !isCrankleadsTier(orgRow.crankleads_tier)) return { skip: "not_crankleads" };
+  if (!orgRow || !isDoneForYouTier(orgRow.crankleads_tier)) return { skip: "not_crankleads" };
   if (orgRow.subscription_status === "canceled") return { skip: "subscription_canceled" };
   return {
     company,
     tier: orgRow.crankleads_tier,
-    purchase: ((purchaseRes.data ?? []) as CrankleadsPurchase[])[0] ?? null,
+    purchase: ((purchaseRes.data ?? []) as DoneForYouPurchase[])[0] ?? null,
     // setup_intakes is the intake builder's table; a read error just means "no intake yet".
     intake: intakeRes.error ? null : ((intakeRes.data as IntakeRow | null) ?? null),
   };
@@ -440,7 +440,7 @@ export async function advanceDoneForYou(
     const state = await loadState(admin, companyId);
     if ("skip" in state) return { companyId, skipped: state.skip, steps };
     const { company, tier, purchase } = state;
-    // Legacy CrankLeads companies (bought before the done-for-you flow — no quick-setup intake)
+    // Legacy done-for-you companies (bought before the done-for-you flow — no quick-setup intake)
     // are never switched on, sold a number, auto-published or texted by this sweep.
     if (!state.intake) return { companyId, skipped: "legacy_no_intake", steps };
     const ctx: TenantServiceContext = { organizationId: company.organization_id, actorProfileId: null, supabase: admin };
@@ -576,7 +576,7 @@ export async function advanceDoneForYou(
 
 /**
  * One sweep (from the worker scheduler): advance up to DFY_BATCH_SIZE provisioned, not-yet-live
- * CrankLeads companies, least-recently-advanced first. Never throws.
+ * done-for-you companies, least-recently-advanced first. Never throws.
  */
 export async function processDoneForYou(
   admin: AdminClient,
@@ -594,7 +594,7 @@ export async function processDoneForYou(
       .order("provisioned_at", { ascending: false })
       .limit(500);
     if (error) throw new Error(`purchase scan failed: ${error.message}`);
-    let rows = ((data ?? []) as Array<Pick<CrankleadsPurchase, "organization_id" | "company_id">>).filter(
+    let rows = ((data ?? []) as Array<Pick<DoneForYouPurchase, "organization_id" | "company_id">>).filter(
       (p): p is { organization_id: string; company_id: string } => Boolean(p.organization_id && p.company_id),
     );
     if (rows.length === 0) return results;
@@ -635,7 +635,7 @@ export async function runDoneForYouSweep(admin: AdminClient, nowMs: number = Dat
 /** Purchase provisioning → buy the number right away. Never throws (the sweep retries). */
 export async function provisionDoneForYouNumber(
   admin: AdminClient,
-  input: { organizationId: string; companyId: string; tier: CrankleadsTier; ownerPhone: string | null },
+  input: { organizationId: string; companyId: string; tier: PlanTier; ownerPhone: string | null },
   depsOverride: Partial<DoneForYouDeps> = {},
 ): Promise<EnsureNumberOutcome | null> {
   try {

@@ -12,8 +12,8 @@
  *   service-plans:heads-up  (30 min) 09:00–20:00 local: one text per plan visit ~10 days ahead.
  *   service-plans:queue     (2 min)  customer texts that waited for 09:00, re-checked first.
  *
- * Only agreements are scanned (they only exist for CrankLeads companies with a plan), so a company
- * without plans — every house org — costs nothing. A company that is no longer CrankLeads, is
+ * Only agreements are scanned (they only exist for done-for-you companies with a plan), so a company
+ * without plans — every house org — costs nothing. A company that is no longer done-for-you, is
  * paused / archived, or switched the feature off is skipped.
  */
 import { localDate, weekdayOf } from "@/server/services/booking-windows";
@@ -38,7 +38,7 @@ async function agreementsWhere(admin: AdminClient, build: (q: Db) => Db, limit =
 }
 
 function usable(company: PlanCompany | undefined): company is PlanCompany {
-  return Boolean(company && company.crankleads && company.active && company.settings.enabled);
+  return Boolean(company && company.doneForYou && company.active && company.settings.enabled);
 }
 
 // ── Payments ────────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ export async function sweepPayments(admin: AdminClient, nowMs: number, deps: Pla
     const states = await invoiceStates(admin, orgId, rows.map((r) => r.pending_invoice_id as string));
     for (const row of rows) {
       const company = companies.get(row.company_id);
-      if (!company?.crankleads) continue;
+      if (!company?.doneForYou) continue;
       let state = states.get(row.pending_invoice_id as string);
       // Paid online but the webhook couldn't issue the draft: issue it now, then settle.
       if (state?.status === "draft" && moneyIn(state)) {
@@ -92,7 +92,7 @@ export async function sweepPayments(admin: AdminClient, nowMs: number, deps: Pla
   const orphanCompanies = await loadPlanCompanies(admin, orphans.map((a) => a.company_id));
   for (const row of orphans) {
     const company = orphanCompanies.get(row.company_id);
-    if (!company?.crankleads) continue;
+    if (!company?.doneForYou) continue;
     try {
       const plan = await loadPlan(admin, company, row.plan_id);
       const contact = await loadContact(admin, company.organizationId, row.contact_id);

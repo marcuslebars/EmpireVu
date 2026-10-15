@@ -10,7 +10,7 @@
  *   Sharing   the texting assistant's share_compliance_doc → `share_compliance_doc` approval → the
  *             customer / GC gets a 7-day link through our own revocable, audited redirect.
  *
- * On for CrankLeads orgs (passive until a document exists), off for house orgs unless switched on.
+ * On for done-for-you orgs (passive until a document exists), off for house orgs unless switched on.
  */
 import { emptyRole, type StaffRoleModule, type StaffSweep } from "@/server/services/staff/types";
 import { complianceAgentTools } from "./agent-tools";

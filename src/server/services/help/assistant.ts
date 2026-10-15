@@ -33,7 +33,7 @@ export interface HelpAnswer {
 
 export const NOT_COVERED_ANSWER =
   "I'm not sure — I couldn't find that in the help articles. Click Contact support and a person will reply by email.";
-/** "…the CrankLeads team will reply" for a CrankLeads org. */
+/** "…the done-for-you team will reply" for a done-for-you org. */
 export function handoffAnswer(brand: Pick<PlatformBrand, "name"> = platformBrand(null)): string {
   return `Sure — click Contact support below and the ${brand.name} team will reply by email.`;
 }

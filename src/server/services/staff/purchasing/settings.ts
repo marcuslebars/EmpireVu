@@ -3,7 +3,7 @@
  * reader (docs/ai-staff.md → "Purchasing").
  *
  *   purchasing = {
- *     enabled,                       // CrankLeads on, house orgs (A1 …) off unless switched on
+ *     enabled,                       // Done-for-you on, house orgs (A1 …) off unless switched on
  *     lead_days: 2,                  // 1–14: draft only for jobs at least this many days out
  *     max_per_day: 3,                // 1–20: materials_order questions per company per local day
  *     default_fulfilment: "pickup",  // or "delivery"
@@ -28,7 +28,7 @@ export interface PurchasingSettings {
   maxPerDay: number;
   defaultFulfilment: Fulfilment;
   aiEstimate: boolean;
-  /** The org's default for the switch (CrankLeads → on). */
+  /** The org's default for the switch (done-for-you → on). */
   defaultEnabled: boolean;
   enabledIsDefault: boolean;
 }
@@ -49,16 +49,16 @@ const intIn = (value: unknown, min: number, max: number): number | null =>
   typeof value === "number" && Number.isInteger(value) && value >= min && value <= max ? value : null;
 
 /** companies.ai_settings (any shape) → the Purchasing section with defaults. PURE. */
-export function readPurchasingSettings(aiSettings: unknown, org: { crankleads: boolean }): PurchasingSettings {
+export function readPurchasingSettings(aiSettings: unknown, org: { doneForYou: boolean }): PurchasingSettings {
   const s = record(record(aiSettings)[SETTINGS_KEY]);
   const enabled = typeof s.enabled === "boolean" ? s.enabled : null;
   return {
-    enabled: enabled ?? org.crankleads,
+    enabled: enabled ?? org.doneForYou,
     leadDays: intIn(s.lead_days, 1, 14) ?? DEFAULT_LEAD_DAYS,
     maxPerDay: intIn(s.max_per_day, 1, 20) ?? DEFAULT_MAX_PER_DAY,
     defaultFulfilment: s.default_fulfilment === "delivery" ? "delivery" : "pickup",
     aiEstimate: typeof s.ai_estimate === "boolean" ? s.ai_estimate : true,
-    defaultEnabled: org.crankleads,
+    defaultEnabled: org.doneForYou,
     enabledIsDefault: enabled === null,
   };
 }
@@ -94,7 +94,7 @@ export interface PurchasingCompany {
   companyId: string;
   name: string;
   timeZone: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   platformBrand: string | null;
   /** Verified owner cell (approvals + reminders go here), else null. */
   ownerPhone: string | null;
@@ -123,20 +123,20 @@ interface CompanyRow {
 }
 
 function toCompany(row: CompanyRow, platformBrand: string | null): PurchasingCompany {
-  const crankleads = isDoneForYou(platformBrand);
+  const doneForYou = isDoneForYou(platformBrand);
   return {
     organizationId: row.organization_id,
     companyId: row.id,
     name: (row.brand_from_name?.trim() || row.name || "").trim() || "the business",
     timeZone: zoneOf(row.timezone),
-    crankleads,
+    doneForYou,
     platformBrand,
     ownerPhone: row.owner_phone_verified_at && row.owner_phone_e164?.trim() ? row.owner_phone_e164.trim() : null,
     ownerEmail: row.owner_email?.trim() || null,
     industryPack: row.industry_pack ?? null,
     serviceArea: typeof row.service_area === "string" ? row.service_area : null,
     active: !row.stage || !["archived", "paused", "cancelled"].includes(row.stage),
-    settings: readPurchasingSettings(row.ai_settings, { crankleads }),
+    settings: readPurchasingSettings(row.ai_settings, { doneForYou }),
   };
 }
 
@@ -175,7 +175,7 @@ async function readAll<T>(make: (from: number, to: number) => PromiseLike<{ data
 }
 
 /**
- * Companies where Purchasing works: every company of a CrankLeads org with it on, plus house-org
+ * Companies where Purchasing works: every company of a done-for-you org with it on, plus house-org
  * companies that switched it on (ai_settings.purchasing.any_on). House orgs are filtered out at
  * the query, so A1-style tenants never enter a sweep unless they opted in.
  */

@@ -1,5 +1,5 @@
 /**
- * Set-password links (CrankLeads welcome email) are one-time token_hash links. Email
+ * Set-password links (done-for-you welcome email) are one-time token_hash links. Email
  * security scanners open links in a real browser before the buyer does, so the page must
  * not verify the token on load — only when the person submits their new password.
  */

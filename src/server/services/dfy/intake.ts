@@ -20,8 +20,8 @@ import {
 import type { Tables } from "@/server/db/database.types";
 import { isBlockedHost, normalizeWebsiteUrl } from "@/server/net/safe-fetch";
 import { ValidationError } from "@/server/organizations/context";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
-import { inLiveWindow } from "@/server/services/crankleads/followup-schedule";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
+import { inLiveWindow } from "@/server/services/done-for-you/followup-schedule";
 import { loadOwnerTextBlock } from "@/server/services/dfy/eligibility";
 import { isPlaceId, isPlacesConfigured } from "@/server/services/dfy/places";
 import { appBaseUrlFor, loadOrganizationBrand, type PlatformBrand, type PlatformBrandKey } from "@/server/services/platform-brand";

@@ -7,7 +7,7 @@
 // mode='missed_call_catcher'); the request is HMAC-verified (X-Twilio-Signature) before
 // anything is read, and nothing in the payload can choose an organization or company.
 // Voicemail callbacks are tied to their tenant through the missed_calls row created for
-// the same CallSid. Listed in docs/EMPIREVU_RUNBOOK.md → "Service-role (sanctioned) surfaces".
+// the same CallSid. Listed in docs/EVERDOER_RUNBOOK.md → "Service-role (sanctioned) surfaces".
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Tables } from "@/server/db/database.types";
 import { toJson } from "@/server/db/json";
@@ -539,7 +539,7 @@ export function buildVoicemailOwnerAlert(args: {
   textBackStatus: string;
   /** An SMS to the caller was actually sent (message_log), not just an event emitted. */
   textedBack: boolean;
-  /** Product name the owner knows the app by (EmpireVu / CrankLeads). */
+  /** Product name the owner knows the app by (Everdoer). */
   productName?: string;
 }): { subject: string; body: string } {
   const who = args.callerNumber ?? "a private number";

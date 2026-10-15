@@ -11,7 +11,7 @@ import { sweepOwnerApprovals } from "@/server/services/owner-channel/notify";
 import { sweepUnansweredTexts } from "@/server/services/sms-agent/entry";
 import { processWeeklyReports } from "@/server/services/weekly-report/send";
 import { runDoneForYouSweep } from "@/server/services/dfy/orchestrator";
-import { processSetupFollowups, SETUP_FOLLOWUP_INTERVAL_MS } from "@/server/services/crankleads/setup-followups";
+import { processSetupFollowups, SETUP_FOLLOWUP_INTERVAL_MS } from "@/server/services/done-for-you/setup-followups";
 import { runGeneratedSitesPass } from "@/server/services/dfy/site-generator";
 import { OPERATOR_HEALTH_INTERVAL_MS, processOperatorHealth } from "@/server/services/operator-health/service";
 import type { TenantServiceContext } from "@/server/services/shared";
@@ -336,7 +336,7 @@ async function guarded<T>(name: string, fallback: T, step: () => Promise<T>): Pr
 }
 
 /**
- * Done-for-you CrankLeads (docs/done-for-you.md), in the order a buyer moves through it. Each
+ * Done-for-you (docs/done-for-you.md), in the order a buyer moves through it. Each
  * step runs once per scheduler tick, is throttled by its owner module, never throws, and is
  * wrapped again here so one can't stop the others:
  *   1. quick-setup link retries   — every tick; per row ≥ 10 min apart, 08–21 local, ≤ 3 tries
@@ -356,8 +356,8 @@ export async function runDoneForYouPasses(admin: Admin, nowMs: number): Promise<
   );
   await guarded("done-for-you switch-on", undefined, () => runDoneForYouSweep(admin, nowMs));
   await guarded("generated sites", null, () => runGeneratedSitesPass(admin, nowMs));
-  // CrankLeads setup follow-ups (reminders + "you're live") — throttled to every 5 min,
-  // idempotent per (purchase, stage) and self-guarded (docs/crankleads-purchase.md).
+  // Done-for-you setup follow-ups (reminders + "you're live") — throttled to every 5 min,
+  // idempotent per (purchase, stage) and self-guarded (docs/done-for-you-purchase.md).
   if (nowMs - lastSetupFollowupRunMs >= SETUP_FOLLOWUP_INTERVAL_MS) {
     lastSetupFollowupRunMs = nowMs;
     await guarded("setup follow-ups", [], () => processSetupFollowups(admin, nowMs));
@@ -393,7 +393,7 @@ export async function runScheduler(
   await processForwardingRetests(admin, nowMs).catch((error) =>
     console.error("[scheduler] forwarding retests failed", error instanceof Error ? error.message : error),
   );
-  // Done-for-you CrankLeads: quick setup → enrichment → switch-on → page → follow-ups.
+  // Done-for-you: quick setup → enrichment → switch-on → page → follow-ups.
   await runDoneForYouPasses(admin, nowMs);
   await guarded("owner approvals", null, () => sweepOwnerApprovals(admin, nowMs)); // expire + morning sends (docs/front-desk-ai.md)
   await guarded("unanswered texts", null, () => sweepUnansweredTexts(admin, nowMs)); // re-run lost SMS-agent turns, else tell the owner once

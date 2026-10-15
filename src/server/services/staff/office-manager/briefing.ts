@@ -92,7 +92,7 @@ async function sendEmailCopy(admin: AdminClient, company: BriefingCompany, gathe
   const email = renderBriefingEmail({ businessName: company.name, dayLabel: gathered.input.dayLabel, briefing: text, details: gathered.details });
   const result = await deliverMessage({ context, channel: "email", to: owner.email, subject: email.subject, body: email.text, html: email.html, companyId: company.companyId, contactId: null, consentContact: null,
     // A done-for-you org gets the platform name (Everdoer); a house org sees its own name.
-    fromName: company.crankleads ? EVERDOER_BRAND.name : company.name });
+    fromName: company.doneForYou ? EVERDOER_BRAND.name : company.name });
   return result.status;
 }
 

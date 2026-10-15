@@ -89,7 +89,7 @@ export async function resolveBusinessLineTenant(admin: AdminClient, calledNumber
   // Only a VERIFIED owner cell is rung (an unverified one might not be the owner's at all).
   const ownerPhone = company?.owner_phone_e164 && company.owner_phone_verified_at ? company.owner_phone_e164 : null;
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", number.organization_id).maybeSingle();
-  const ring = readPortingSettings(company?.ai_settings, { crankleads: isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand) }).ring;
+  const ring = readPortingSettings(company?.ai_settings, { doneForYou: isDoneForYou((org as { platform_brand: string | null } | null)?.platform_brand) }).ring;
 
   let crewPhones: Array<string | null> = [];
   if (ring.crew) {

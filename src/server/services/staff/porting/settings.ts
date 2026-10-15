@@ -12,7 +12,7 @@
  *     }
  *   }
  *
- * `enabled` defaults ON for CrankLeads orgs and OFF for house orgs (A1 etc.). The ring settings
+ * `enabled` defaults ON for done-for-you orgs and OFF for house orgs (A1 etc.). The ring settings
  * only ever matter for a company with a ported business line, so they default on everywhere.
  */
 import { isDoneForYou } from "@/lib/product-line";
@@ -49,13 +49,13 @@ export function clampRingSeconds(value: unknown): number {
   return Math.min(MAX_RING_SECONDS, Math.max(MIN_RING_SECONDS, n));
 }
 
-export function readPortingSettings(aiSettings: unknown, ctx: { crankleads: boolean }): PortingSettings {
+export function readPortingSettings(aiSettings: unknown, ctx: { doneForYou: boolean }): PortingSettings {
   const section = asRecord(asRecord(aiSettings).porting);
   const ring = asRecord(section.ring);
   return {
-    enabled: bool(section.enabled, ctx.crankleads),
+    enabled: bool(section.enabled, ctx.doneForYou),
     enabledIsDefault: typeof section.enabled !== "boolean",
-    defaultEnabled: ctx.crankleads,
+    defaultEnabled: ctx.doneForYou,
     ring: {
       enabled: bool(ring.enabled, true),
       seconds: clampRingSeconds(ring.seconds),
@@ -139,7 +139,7 @@ export async function loadPortingCompany(admin: AdminClient, scope: { organizati
     businessPhoneKind: c.business_phone_kind,
     businessPhoneCarrier: c.business_phone_carrier,
     platformBrand,
-    settings: readPortingSettings(c.ai_settings, { crankleads: isDoneForYou(platformBrand) }),
+    settings: readPortingSettings(c.ai_settings, { doneForYou: isDoneForYou(platformBrand) }),
     aiSettings: c.ai_settings,
   };
 }

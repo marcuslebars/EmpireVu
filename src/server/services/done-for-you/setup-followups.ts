@@ -1,17 +1,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SANCTIONED EXCEPTION (service role): CrankLeads setup follow-ups.
+// SANCTIONED EXCEPTION (service role): Done-for-you setup follow-ups.
 // Runs inside the workflow-event worker's scheduler pass (runScheduler) with the worker's
 // admin client — a scheduler pass has no user session. It reads crankleads_purchases (a
 // service-role-only table) and, per purchase, the purchase's OWN organization_id +
 // company_id (stamped by provisioning, never taken from input); every tenant read/write is
 // filtered by that org (+ company). Messages go only to that company's owner contacts and
-// to the operator (OWNER_EMAIL). Listed in docs/EMPIREVU_RUNBOOK.md.
+// to the operator (OWNER_EMAIL). Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import { randomBytes } from "node:crypto";
 
 import type { Tables } from "@/server/db/database.types";
 import { sendEmail as defaultSendEmail, type SendEmailInput, type SendEmailResult } from "@/server/outbound/email";
-import { isCrankleadsTier, type CrankleadsTier } from "@/server/services/crankleads/config";
+import { isDoneForYouTier, type PlanTier } from "@/server/services/done-for-you/config";
 import { publicDoneForYouApiPrefix } from "@/server/services/rebrand/route-alias";
 import {
   renderLiveEmail,
@@ -20,7 +20,7 @@ import {
   renderReminderSms,
   type ReminderAction,
   type ReminderMessageInput,
-} from "@/server/services/crankleads/followup-messages";
+} from "@/server/services/done-for-you/followup-messages";
 import {
   inLiveWindow,
   localClock,
@@ -28,10 +28,10 @@ import {
   selectReminderStage,
   type FollowupStage,
   type ReminderStage,
-} from "@/server/services/crankleads/followup-schedule";
-import { createSetPasswordUrl as defaultCreateSetPasswordUrl, getAuthUser } from "@/server/services/crankleads/provision";
-import type { AdminClient, CrankleadsPurchase } from "@/server/services/crankleads/purchases";
-import { computeSetupChecklist, loadSetupFacts, type SetupChecklist } from "@/server/services/crankleads/setup-checklist";
+} from "@/server/services/done-for-you/followup-schedule";
+import { createSetPasswordUrl as defaultCreateSetPasswordUrl, getAuthUser } from "@/server/services/done-for-you/provision";
+import type { AdminClient, DoneForYouPurchase } from "@/server/services/done-for-you/purchases";
+import { computeSetupChecklist, loadSetupFacts, type SetupChecklist } from "@/server/services/done-for-you/setup-checklist";
 import { forwardPageUrl, quickSetupUrl } from "@/server/services/dfy/links";
 import { siteUrl } from "@/server/services/dfy/site-url";
 import { ensureForwardToken, ensureProgress } from "@/server/services/dfy/progress";
@@ -91,7 +91,7 @@ export interface FollowupOutcome {
   reason?: string;
 }
 
-/** The buyer's app origin: the CrankLeads host (setup reminders go only to CrankLeads buyers). */
+/** The buyer's app origin: the done-for-you host (setup reminders go only to done-for-you buyers). */
 function appUrl(): string {
   return appBaseUrlFor("crankleads");
 }
@@ -113,7 +113,7 @@ export function stopRemindersUrl(base: string, token: string): string {
 
 // ── Loading ──────────────────────────────────────────────────────────────────
 
-async function loadCandidates(admin: AdminClient, nowMs: number): Promise<CrankleadsPurchase[]> {
+async function loadCandidates(admin: AdminClient, nowMs: number): Promise<DoneForYouPurchase[]> {
   const lookback = new Date(nowMs - LIVE_DETECTION_LOOKBACK_DAYS * 86_400_000).toISOString();
   const confirmLookback = new Date(nowMs - LIVE_CONFIRMATION_MAX_AGE_MS).toISOString();
   const [notLive, recentlyLive] = await Promise.all([
@@ -135,8 +135,8 @@ async function loadCandidates(admin: AdminClient, nowMs: number): Promise<Crankl
   if (notLive.error) throw new Error(`setup follow-ups: purchase scan failed: ${notLive.error.message}`);
   if (recentlyLive.error) throw new Error(`setup follow-ups: live scan failed: ${recentlyLive.error.message}`);
   const seen = new Set<string>();
-  const out: CrankleadsPurchase[] = [];
-  for (const row of [...(notLive.data ?? []), ...(recentlyLive.data ?? [])] as CrankleadsPurchase[]) {
+  const out: DoneForYouPurchase[] = [];
+  for (const row of [...(notLive.data ?? []), ...(recentlyLive.data ?? [])] as DoneForYouPurchase[]) {
     if (!seen.has(row.id)) {
       seen.add(row.id);
       out.push(row);
@@ -147,7 +147,7 @@ async function loadCandidates(admin: AdminClient, nowMs: number): Promise<Crankl
 
 type FollowupRow = Pick<Tables<"crankleads_setup_followups">, "stage" | "local_date">;
 
-async function loadSends(admin: AdminClient, purchase: CrankleadsPurchase, organizationId: string): Promise<FollowupRow[]> {
+async function loadSends(admin: AdminClient, purchase: DoneForYouPurchase, organizationId: string): Promise<FollowupRow[]> {
   const { data, error } = await admin
     .from("crankleads_setup_followups")
     .select("stage, local_date")
@@ -213,7 +213,7 @@ interface OwnerAddress {
   phone: string | null;
 }
 
-async function ownerAddress(ctx: TenantServiceContext, company: CompanyRow, purchase: CrankleadsPurchase): Promise<OwnerAddress> {
+async function ownerAddress(ctx: TenantServiceContext, company: CompanyRow, purchase: DoneForYouPurchase): Promise<OwnerAddress> {
   const contacts = await resolveOwnerContacts(ctx, company);
   return {
     email: contacts.email ?? purchase.owner_email ?? null,
@@ -254,7 +254,7 @@ async function deliverPair(
   return { email_status, sms_status };
 }
 
-async function ensureStopToken(admin: AdminClient, purchase: CrankleadsPurchase, deps: SetupFollowupDeps): Promise<string> {
+async function ensureStopToken(admin: AdminClient, purchase: DoneForYouPurchase, deps: SetupFollowupDeps): Promise<string> {
   if (purchase.setup_reminders_stop_token) return purchase.setup_reminders_stop_token;
   const token = deps.newStopToken();
   const { error } = await admin
@@ -274,7 +274,7 @@ async function ensureStopToken(admin: AdminClient, purchase: CrankleadsPurchase,
 
 async function setPasswordLinkIfNeeded(
   admin: AdminClient,
-  purchase: CrankleadsPurchase,
+  purchase: DoneForYouPurchase,
   ownerEmail: string,
   nextPath: string,
   deps: SetupFollowupDeps,
@@ -295,7 +295,7 @@ async function setPasswordLinkIfNeeded(
 async function sendLive(
   admin: AdminClient,
   ctx: TenantServiceContext,
-  purchase: CrankleadsPurchase,
+  purchase: DoneForYouPurchase,
   company: CompanyRow,
   checklist: SetupChecklist,
   liveAtMs: number,
@@ -375,7 +375,7 @@ export function reminderAction(checklist: SetupChecklist, links: SetupLinks): { 
 async function sendReminder(
   admin: AdminClient,
   ctx: TenantServiceContext,
-  purchase: CrankleadsPurchase,
+  purchase: DoneForYouPurchase,
   company: CompanyRow,
   checklist: SetupChecklist,
   links: SetupLinks,
@@ -497,7 +497,7 @@ interface ProcessOptions {
 
 async function processPurchase(
   admin: AdminClient,
-  purchase: CrankleadsPurchase,
+  purchase: DoneForYouPurchase,
   nowMs: number,
   deps: SetupFollowupDeps,
   options: ProcessOptions = {},
@@ -520,9 +520,9 @@ async function processPurchase(
   if (orgRow.subscription_status === "canceled") {
     return [{ purchaseId: purchase.id, action: "skipped", reason: "subscription_canceled" }];
   }
-  const tier: CrankleadsTier | null = isCrankleadsTier(orgRow.crankleads_tier)
+  const tier: PlanTier | null = isDoneForYouTier(orgRow.crankleads_tier)
     ? orgRow.crankleads_tier
-    : isCrankleadsTier(purchase.tier)
+    : isDoneForYouTier(purchase.tier)
       ? purchase.tier
       : null;
   if (!tier) return [{ purchaseId: purchase.id, action: "skipped", reason: "unknown_tier" }];
@@ -596,7 +596,7 @@ async function processPurchase(
 
 /**
  * One follow-up pass (from runScheduler, throttled to every SETUP_FOLLOWUP_INTERVAL_MS).
- * For every provisioned CrankLeads purchase that isn't live (or just went live): checklist →
+ * For every provisioned done-for-you purchase that isn't live (or just went live): checklist →
  * stamp live_at / send the live confirmation, or send the due reminder. Never throws: a
  * per-purchase failure is logged and the loop continues.
  */
@@ -607,7 +607,7 @@ export async function processSetupFollowups(
 ): Promise<FollowupOutcome[]> {
   const deps: SetupFollowupDeps = { ...defaultDeps, ...depsOverride };
   const outcomes: FollowupOutcome[] = [];
-  let purchases: CrankleadsPurchase[];
+  let purchases: DoneForYouPurchase[];
   try {
     purchases = await loadCandidates(admin, nowMs);
   } catch (err) {
@@ -656,7 +656,7 @@ export async function processSetupFollowupForCompany(
       .order("created_at", { ascending: false })
       .limit(1);
     if (error) throw new Error(`purchase lookup failed: ${error.message}`);
-    const purchase = ((data ?? []) as CrankleadsPurchase[])[0];
+    const purchase = ((data ?? []) as DoneForYouPurchase[])[0];
     if (!purchase) return [];
     return await processPurchase(admin, purchase, nowMs, deps, { liveOnly: true });
   } catch (err) {
@@ -695,7 +695,7 @@ export async function stopSetupReminders(admin: AdminClient, token: string, nowM
     .eq("setup_reminders_stop_token", token)
     .maybeSingle();
   if (error) throw new Error(`stop lookup failed: ${error.message}`);
-  const row = data as Pick<CrankleadsPurchase, "id" | "setup_reminders_stopped_at"> | null;
+  const row = data as Pick<DoneForYouPurchase, "id" | "setup_reminders_stopped_at"> | null;
   if (!row) return "not_found";
   if (row.setup_reminders_stopped_at) return "already_stopped";
   const { error: updateError } = await admin

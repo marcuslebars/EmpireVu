@@ -1,7 +1,7 @@
 # Call recordings & transcripts
 
 Owners can play back the recording of a Marina ↔ lead call and read its transcript from
-inside EmpireVu — on the contact page, under the **Calls** tab.
+inside Everdoer — on the contact page, under the **Calls** tab.
 
 ## Data
 
@@ -29,4 +29,4 @@ The recording URL is now captured too:
   with an `<audio controls>` player and a collapsible transcript, in the contact's **Calls**
   tab.
 
-No new env vars. The recording URL is served by Retell; EmpireVu stores and links to it.
+No new env vars. The recording URL is served by Retell; Everdoer stores and links to it.

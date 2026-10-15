@@ -3,7 +3,7 @@
  * reader (docs/ai-staff.md → "Customer care & warranty").
  *
  *   customer_care = {
- *     enabled,                       // CrankLeads on, house orgs (A1 …) off unless switched on
+ *     enabled,                       // Done-for-you on, house orgs (A1 …) off unless switched on
  *     checkins: {
  *       enabled: true,               // one "how did it go?" text after each completed job
  *       time: "10:00",               // local send time, 09:00–19:00
@@ -32,7 +32,7 @@ export interface CustomerCareSettings {
   enabled: boolean;
   checkins: { enabled: boolean; time: string; delayDays: number; minJobCents: number };
   warranty: { months: number; terms: string | null };
-  /** The org's default for the switch (CrankLeads → on). */
+  /** The org's default for the switch (done-for-you → on). */
   defaultEnabled: boolean;
   enabledIsDefault: boolean;
 }
@@ -68,13 +68,13 @@ function termsText(value: unknown): string | null {
 }
 
 /** companies.ai_settings (any shape) → the Customer care section with defaults. PURE. */
-export function readCustomerCareSettings(aiSettings: unknown, org: { crankleads: boolean }): CustomerCareSettings {
+export function readCustomerCareSettings(aiSettings: unknown, org: { doneForYou: boolean }): CustomerCareSettings {
   const s = record(record(aiSettings)[SETTINGS_KEY]);
   const c = record(s.checkins);
   const w = record(s.warranty);
   const enabled = typeof s.enabled === "boolean" ? s.enabled : null;
   return {
-    enabled: enabled ?? org.crankleads,
+    enabled: enabled ?? org.doneForYou,
     checkins: {
       enabled: typeof c.enabled === "boolean" ? c.enabled : true,
       time: checkinTime(c.time) ?? DEFAULT_CHECKIN_TIME,
@@ -85,7 +85,7 @@ export function readCustomerCareSettings(aiSettings: unknown, org: { crankleads:
       months: intIn(w.months, 0, MAX_WARRANTY_MONTHS) ?? DEFAULT_WARRANTY_MONTHS,
       terms: termsText(w.terms),
     },
-    defaultEnabled: org.crankleads,
+    defaultEnabled: org.doneForYou,
     enabledIsDefault: enabled === null,
   };
 }
@@ -131,7 +131,7 @@ export interface CareCompany {
   companyId: string;
   name: string;
   timeZone: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   platformBrand: string | null;
   /** Verified owner cell (alerts + approvals), else null. */
   ownerPhone: string | null;
@@ -156,18 +156,18 @@ interface CompanyRow {
 }
 
 export function toCareCompany(row: CompanyRow, platformBrand: string | null): CareCompany {
-  const crankleads = isDoneForYou(platformBrand);
+  const doneForYou = isDoneForYou(platformBrand);
   return {
     organizationId: row.organization_id,
     companyId: row.id,
     name: (row.brand_from_name?.trim() || row.name || "").trim() || "the business",
     timeZone: zoneOf(row.timezone),
-    crankleads,
+    doneForYou,
     platformBrand,
     ownerPhone: row.owner_phone_verified_at && row.owner_phone_e164?.trim() ? row.owner_phone_e164.trim() : null,
     active: !row.stage || !["archived", "paused", "cancelled"].includes(row.stage),
-    smsAgentOn: smsAgentActive(readSmsAgentSettings(row.ai_settings, { crankleads })),
-    settings: readCustomerCareSettings(row.ai_settings, { crankleads }),
+    smsAgentOn: smsAgentActive(readSmsAgentSettings(row.ai_settings, { doneForYou })),
+    settings: readCustomerCareSettings(row.ai_settings, { doneForYou }),
   };
 }
 
@@ -211,7 +211,7 @@ async function readAll<T>(make: (from: number, to: number) => PromiseLike<{ data
 }
 
 /**
- * Companies where Customer care works: every company of a CrankLeads org with it on, plus
+ * Companies where Customer care works: every company of a done-for-you org with it on, plus
  * house-org companies that switched it on (ai_settings.customer_care.any_on). House orgs are
  * filtered out at the query, so A1-style tenants never enter a sweep unless they opted in.
  */

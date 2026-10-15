@@ -6,15 +6,15 @@
 // `npm run job:operator-health` CLI, neither of which has a user session or a tenant to scope
 // by. Every per-account read (setup checklist, activity counts) is filtered by the row's OWN
 // organization_id (+ company_id) as stored in the database, never by anything a caller chose.
-// Output goes only to the operator inbox. Listed in docs/EMPIREVU_RUNBOOK.md.
+// Output goes only to the operator inbox. Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildForwardingInstructions } from "@/lib/carrier-forwarding";
 import type { Tables } from "@/server/db/database.types";
-import { isCrankleadsTier } from "@/server/services/crankleads/config";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
-import { loadSetupChecklist, setupStepPath } from "@/server/services/crankleads/setup-checklist";
+import { isDoneForYouTier } from "@/server/services/done-for-you/config";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
+import { loadSetupChecklist, setupStepPath } from "@/server/services/done-for-you/setup-checklist";
 import {
   BROKEN_FORWARDING_RESULTS,
   PAYING_STATUSES,
@@ -137,7 +137,7 @@ export async function loadSetupFacts(admin: AdminClient, input: LoadFactsInput, 
     const subscriptionStatus = org?.subscription_status ?? "none";
     if (subscriptionStatus === "canceled") continue;
     const rawTier = org?.crankleads_tier ?? purchase.tier;
-    const tier = isCrankleadsTier(rawTier) ? rawTier : isCrankleadsTier(purchase.tier) ? purchase.tier : null;
+    const tier = isDoneForYouTier(rawTier) ? rawTier : isDoneForYouTier(purchase.tier) ? purchase.tier : null;
     const fact: SetupFact = {
       organizationId,
       businessName: company?.name ?? purchase.business_name,

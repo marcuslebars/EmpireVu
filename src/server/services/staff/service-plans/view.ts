@@ -47,7 +47,7 @@ export interface AgreementView {
 export interface ServicePlansView {
   companyId: string;
   companyName: string;
-  /** CrankLeads only: house orgs see nothing to set up. */
+  /** Done-for-you only: house orgs see nothing to set up. */
   available: boolean;
   settings: { enabled: boolean; headsUp: { enabled: boolean }; renewals: { enabled: boolean } };
   stripeReady: boolean;
@@ -98,7 +98,7 @@ export async function getServicePlansView(
   const base: ServicePlansView = {
     companyId,
     companyName: company.name,
-    available: company.crankleads,
+    available: company.doneForYou,
     settings: { enabled: company.settings.enabled, headsUp: company.settings.headsUp, renewals: company.settings.renewals },
     stripeReady: false,
     plansUrl: null,
@@ -106,7 +106,7 @@ export async function getServicePlansView(
     counts: { active: 0, renewingSoon: 0, unpaidRenewals: 0, lapsed: 0, waiting: 0, annualRevenueCents: 0 },
     agreements: null,
   };
-  if (!company.crankleads) return base;
+  if (!company.doneForYou) return base;
   const nowMs = options.nowMs ?? Date.now();
   const today = localDate(new Date(nowMs), company.timeZone);
   const [plans, agreements, plansUrl, stripeReady] = await Promise.all([
@@ -152,7 +152,7 @@ export async function getServicePlansView(
 async function requireAvailable(admin: AdminClient, organizationId: string, companyId: string) {
   const company = await loadPlanCompany(admin, organizationId, companyId);
   if (!company) throw new ServicePlansError("Company not found.", 404);
-  if (!company.crankleads) throw new ServicePlansError("Service plans aren't available for this business.", 403);
+  if (!company.doneForYou) throw new ServicePlansError("Service plans aren't available for this business.", 403);
   return company;
 }
 

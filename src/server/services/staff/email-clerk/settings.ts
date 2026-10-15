@@ -3,7 +3,7 @@
  * reader (docs/ai-staff.md → "Email inbox").
  *
  *   email_clerk = {
- *     enabled,              // CrankLeads on (inert until mail arrives), house orgs (A1 …) off unless switched on
+ *     enabled,              // Done-for-you on (inert until mail arrives), house orgs (A1 …) off unless switched on
  *     draft_replies: true,  // customer emails get a drafted reply for the owner's Y/N
  *     digest: true,         // one daily text summing up the rest
  *     digest_time: "16:00", // 12:00–19:00 local
@@ -53,15 +53,15 @@ export function validDigestTime(value: unknown): value is string {
 }
 
 /** companies.ai_settings (any shape) → the Email inbox section with defaults. PURE. */
-export function readEmailClerkSettings(aiSettings: unknown, org: { crankleads: boolean }): EmailClerkSettings {
+export function readEmailClerkSettings(aiSettings: unknown, org: { doneForYou: boolean }): EmailClerkSettings {
   const s = record(record(aiSettings)[SETTINGS_KEY]);
   const enabled = typeof s.enabled === "boolean" ? s.enabled : null;
   return {
-    enabled: enabled ?? org.crankleads,
+    enabled: enabled ?? org.doneForYou,
     draftReplies: typeof s.draft_replies === "boolean" ? s.draft_replies : true,
     digest: typeof s.digest === "boolean" ? s.digest : true,
     digestTime: validDigestTime(s.digest_time) ? s.digest_time : DEFAULT_DIGEST_TIME,
-    defaultEnabled: org.crankleads,
+    defaultEnabled: org.doneForYou,
     enabledIsDefault: enabled === null,
   };
 }
@@ -142,7 +142,7 @@ export interface EmailClerkCompany {
   name: string;
   slug: string | null;
   timeZone: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   platformBrand: string | null;
   /** Verified owner cell (texts go here), else null. */
   ownerPhone: string | null;
@@ -168,19 +168,19 @@ interface CompanyRow {
 }
 
 function toCompany(row: CompanyRow, platformBrand: string | null): EmailClerkCompany {
-  const crankleads = isDoneForYou(platformBrand);
+  const doneForYou = isDoneForYou(platformBrand);
   return {
     organizationId: row.organization_id,
     companyId: row.id,
     name: (row.brand_from_name?.trim() || row.name || "").trim() || "the business",
     slug: typeof row.slug === "string" && row.slug.trim() ? row.slug.trim() : null,
     timeZone: zoneOf(row.timezone),
-    crankleads,
+    doneForYou,
     platformBrand,
     ownerPhone: row.owner_phone_verified_at && row.owner_phone_e164?.trim() ? row.owner_phone_e164.trim() : null,
     ownerEmail: row.owner_email?.trim() || null,
     active: !row.stage || !["archived", "paused", "cancelled"].includes(row.stage),
-    settings: readEmailClerkSettings(row.ai_settings, { crankleads }),
+    settings: readEmailClerkSettings(row.ai_settings, { doneForYou }),
   };
 }
 

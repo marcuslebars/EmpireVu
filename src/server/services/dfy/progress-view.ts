@@ -1,12 +1,12 @@
 /**
- * The in-app "We're setting you up" view for a CrankLeads org (GET
+ * The in-app "We're setting you up" view for a done-for-you org (GET
  * /api/organizations/{orgId}/setup-progress). Reads run on the caller's RLS client (org
  * member); the only service-role touch is minting the company's forwarding token, scoped to
  * the company the RLS read returned (SANCTIONED: dfy_progress is not member-writable).
  */
 import { prettyPhone } from "@/lib/carrier-forwarding";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
-import { loadSetupChecklist, type SetupChecklist } from "@/server/services/crankleads/setup-checklist";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
+import { loadSetupChecklist, type SetupChecklist } from "@/server/services/done-for-you/setup-checklist";
 import { forwardPageUrl, quickSetupUrl } from "@/server/services/dfy/links";
 import { ensureForwardToken, ensureProgress, type DfyProgress } from "@/server/services/dfy/progress";
 import { siteUrl } from "@/server/services/dfy/site-url";
@@ -104,7 +104,7 @@ export function buildSetupProgressView(input: Inputs): SetupProgressView {
 }
 
 /**
- * null for orgs that aren't CrankLeads purchases (or have no company yet).
+ * null for orgs that aren't done-for-you purchases (or have no company yet).
  * The no-login links (/setup/<token>, /forward/<token>) are credentials: only owners/admins
  * get them (`canSeeLinks`); members see the status only. The token columns aren't readable by
  * any client role (migration 20261008150000), so they are read with the service-role client,

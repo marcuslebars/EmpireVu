@@ -22,7 +22,7 @@ export default function UpdatePasswordPage() {
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const verifiedHash = useRef<string | null>(null);
-  // Where to go after setting the password (e.g. /onboarding from the CrankLeads welcome
+  // Where to go after setting the password (e.g. /onboarding from the done-for-you welcome
   // email). Same-origin paths only.
   const nextPath = safeNextPath(searchParams.get("next"));
 
@@ -44,7 +44,7 @@ export default function UpdatePasswordPage() {
       return;
     }
 
-    // token_hash links (server-generated, e.g. the CrankLeads welcome email) are one-time.
+    // token_hash links (server-generated, e.g. the done-for-you welcome email) are one-time.
     // They are NOT verified on load: email security scanners (Outlook Safe Links, Defender,
     // Proofpoint…) open links in a real browser before the person does, and verifying here
     // would burn the token so the buyer's own click fails. The hash is verified on submit.

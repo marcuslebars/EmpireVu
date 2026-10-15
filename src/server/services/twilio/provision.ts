@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Missed-call catcher number provisioning (docs/missed-call-catcher.md). Buys a Twilio
 // number (by area code) or attaches one already in the Twilio account, points its Voice +
-// SMS webhooks at EmpireVu, and records it in voice_numbers (provider='twilio',
+// SMS webhooks at Everdoer, and records it in voice_numbers (provider='twilio',
 // mode='missed_call_catcher') for the company. Idempotent:
 //   • a company that already has a catcher number gets its webhooks re-checked, not a
 //     second number;

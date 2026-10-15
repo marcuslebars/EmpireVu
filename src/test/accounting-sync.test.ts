@@ -856,7 +856,7 @@ describe("rebrand: product name in memos never re-pushes, generic contact is reu
       expect(calls[0].args[1]).toBe("contact-empirevu");
     });
 
-    it("a done-for-you org reuses its 'Expenses (CrankLeads)' contact first", async () => {
+    it("a done-for-you org reuses its 'Expenses (done-for-you)' contact first", async () => {
       setup({
         expenses: [{ ...EXP }],
         accounting_links: [vendorLink("Expenses (EmpireVu)", "contact-empirevu"), vendorLink("Expenses (CrankLeads)", "contact-crankleads")],

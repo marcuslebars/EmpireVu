@@ -334,16 +334,62 @@ It does **not** stop workflows, recurring jobs, review requests, quote expiry or
   - **Keep `quotes.a1marinestorage.ca` attached and its DNS alive for at least 12 months**, because links in past quotes, invoices and PDFs point there.
 
 ## PR 5: internal renames and dashboards
-To be filled in. It covers:
-- the GitHub repo renames
-- Railway projects and services: rename `billiing-worker`, delete jobber-sync
-- the Supabase project name
-- Resend, the Twilio subaccount and messaging services
-- the Stripe account name and branding
-- the Google Cloud project
-- the Intuit/Xero app names
-- logging and monitoring
-- **Docs pass:** every doc that uses A1 Marine Storage as its example company switches to A1 Marine Care. That's `docs/one-dollar-runbook.md` first, then `tenant-provisioning.md`, `retell-integration.md`, `empirevu-hub-setup.md`, `EMPIREVU_RUNBOOK.md`, `stripe-org-scoping.md`, `LEAD_SCHEMA.md`, `telnyx-integration.md` and `EMPIREVU_AUDIT.md`. Don't do this before PR 5.
+PR 5 renames code, files, docs and the test harness. **Nothing changes behaviour.**
+
+Old names that keep working for one release, then get removed in PR 8:
+- **Routes:** `/api/public/crankleads/*` and `/welcome/crankleads`.
+- **npm scripts:** `job:crankleads-provision`, `job:crankleads-repair-automations` and `stripe:setup-crankleads`.
+- **Railway config:** `railway.crankleads-sweep.json`.
+- **Env names:** every old env name still read as a fallback.
+
+Database names (`crankleads_*`, `platform_brand` values) stay until PR 7.
+
+Wire and stored names were deliberately kept; PR 7/8 decide them:
+- **API fields:** `isCrankleads`, `crankleads`, `crankleads_tier`.
+- **Help request context:** `crankleadsTier`.
+- **Twilio payload:** `EmpireVuForwardingTestId`.
+- **Orchestrator reason:** `not_crankleads`.
+- **Error name:** `CrankleadsProvisioningFailedError`.
+- **Stripe idempotency keys:** `crankleads-checkout-*`.
+- **Rate-limit scopes:** `crankleads_*`. Renaming them resets live counters.
+
+### 5.1 After PR 5 is deployed
+- [ ] **Railway → Everdoer project → `crankleads-sweep` → Settings → Config-as-code path:** `railway.dfy-sweep.json`. Or set the start command to `npm run job:dfy-provision -- --stuck`.
+  - Check that one 15-minute run logs `[dfy-sweep] checked N stuck purchase(s)`.
+- [ ] **Log searches and alerts:** the old prefixes are now:
+  - `[crankleads/provision|checkout|resend|status|stop-reminders]` → `[dfy/…]`
+  - `[crankleads-sweep]` → `[dfy-sweep]`
+  - `[crankleads-provision]` → `[dfy-provision]`
+
+  Update any Railway alert or saved search, especially `PROVISIONING FAILED` and `WELCOME EMAIL FAILED`.
+- [ ] **`PLATFORM_BRAND_NAME` → `EVERDOER_BRAND_NAME`.** Both are unset today, and nothing needs setting. If you ever set it, use the new name; the old one is still read.
+
+### 5.2 Dashboard renames (any time after 5.1)
+- [ ] **Railway service renames, in this order:**
+  1. **Repoint references first.** Other services reference the web service by name, e.g. workflow-events has `OWNER_EMAIL=${{EmpireVu.LEAD_NOTIFY_EMAIL}}`. Before renaming the `EmpireVu` service, open each service's Variables tab, search for `${{EmpireVu.` and confirm Railway updated each reference after the rename. Otherwise re-point them by hand.
+  2. Rename:
+     - `EmpireVu` → `Everdoer web`
+     - `crankleads-sweep` → `dfy-sweep`
+     - `billiing-worker` → `billing-worker`
+  3. Delete:
+     - **`EmpireVu worker`:** crash-looping since at least Oct 4 against a Supabase project that no longer exists. `workflow-events` does its job.
+     - **`jobber-sync`:** only if it's confirmed dead.
+  4. **Railway projects:**
+     - `CrankLeads` → `Everdoer site`
+     - `EmpireVu Frontend` → `Everdoer redirects` (or delete it once empirevu.com no longer needs to redirect)
+- [ ] **GitHub:**
+  - `crankleads-system` → `everdoer-site`.
+  - Archive `empirevu-site` after a week of clean redirects (3.3).
+  - After each rename, check Railway → service → Source still shows the repo, and update local remotes.
+- [ ] **Supabase:** project name → `Everdoer`. The project URL and keys don't change.
+- [ ] **Resend:** the audience and API-key names. Domains are done in PR 1/2.
+- [ ] **Twilio:** the subaccount friendly name and Messaging Service names. Don't touch numbers or A2P campaigns here; those go through PR 4 and the A2P re-registration.
+- [ ] **Stripe → Settings → Business:** public business name `Everdoer` and statement descriptor. **Customers see this on card statements and receipts.** Check the A2P and Stripe descriptor rules before changing it. The code's checkout display name already says Everdoer.
+- [ ] **Google Cloud project display name; Intuit and Xero app names.** These are display names only; the redirect URIs are PR 4.
+
+### 5.3 Behaviour follow-ups (separate small PRs, not PR 5)
+- [ ] `RETELL_SOURCE_SITE` code default `"a1marinestorage"` → `"a1marinecare"` (`retell/config.ts`). Railway already sets `a1marinecare`.
+- [ ] Remove `a1marinestorage: "a1-marine-storage"` from `lead-intake/routing.ts`, once the audit shows no Storage traffic (D.4).
 
 ## PR 6: new mobile app
 To be filled in once you've confirmed the store install counts. It covers:

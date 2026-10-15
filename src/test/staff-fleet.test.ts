@@ -270,14 +270,14 @@ describe("what's due (pure)", () => {
 // ── Settings, registry, house orgs ─────────────────────────────────────────────────────
 
 describe("settings and the registry", () => {
-  it("on by default for CrankLeads, off for house orgs; merge touches only `fleet`", () => {
-    expect(readFleetSettings({}, { crankleads: true })).toMatchObject({ enabled: true, reminders: true, enabledIsDefault: true });
-    expect(readFleetSettings({}, { crankleads: false })).toMatchObject({ enabled: false, defaultEnabled: false });
-    expect(readFleetSettings({ fleet: { enabled: true, reminders: false } }, { crankleads: false })).toMatchObject({ enabled: true, reminders: false });
+  it("on by default for done-for-you, off for house orgs; merge touches only `fleet`", () => {
+    expect(readFleetSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, reminders: true, enabledIsDefault: true });
+    expect(readFleetSettings({}, { doneForYou: false })).toMatchObject({ enabled: false, defaultEnabled: false });
+    expect(readFleetSettings({ fleet: { enabled: true, reminders: false } }, { doneForYou: false })).toMatchObject({ enabled: true, reminders: false });
     expect(mergeFleetSettings({ sms_agent: { x: 1 }, fleet: { reminders: false } }, { enabled: false })).toEqual({ sms_agent: { x: 1 }, fleet: { reminders: false, enabled: false } });
   });
 
-  it("activeFor: CrankLeads yes, A1 no; fleet is last in line for owner photos", async () => {
+  it("activeFor: done-for-you yes, A1 no; fleet is last in line for owner photos", async () => {
     expect(await fleetActiveFor(db.client, scope)).toBe(true);
     expect(await fleetActiveFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO })).toBe(false);
     expect(await fleetActiveFor(db.client, { organizationId: HOUSE_ORG, companyId: CO })).toBe(false); // not that org's company

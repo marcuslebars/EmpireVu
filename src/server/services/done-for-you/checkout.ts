@@ -1,11 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SANCTIONED EXCEPTION (service role): public CrankLeads checkout.
+// SANCTIONED EXCEPTION (service role): public done-for-you checkout.
 // POST /api/public/crankleads/checkout is called by crankleads.com with NO session — the
 // buyer has no account yet — so there is no RLS identity. This module writes only the
 // service-role-only staging table crankleads_purchases (via ./purchases.ts) and creates a
 // Stripe Checkout Session from env price ids. It never reads or writes tenant data; the
-// tier/price can only be one of the three configured CrankLeads prices.
-// Listed in docs/EMPIREVU_RUNBOOK.md.
+// tier/price can only be one of the three configured done-for-you prices.
+// Listed in docs/EVERDOER_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import type Stripe from "stripe";
 import { z } from "zod";
@@ -13,16 +13,16 @@ import { z } from "zod";
 import { appBaseUrlFor } from "@/server/services/platform-brand";
 import { getStripeClient } from "@/server/services/billing/stripe";
 import {
-  CRANKLEADS_TIER_PLAN,
-  CRANKLEADS_TIERS,
-  crankleadsAutomaticTax,
-  crankleadsCancelUrl,
-  crankleadsCheckoutBranding,
-  crankleadsFoundingCouponId,
-  crankleadsMonthlyPriceId,
-  crankleadsSetupPriceId,
-} from "@/server/services/crankleads/config";
-import { stripeSourceForWrite } from "@/server/services/crankleads/stripe-source";
+  DONE_FOR_YOU_TIER_PLAN,
+  PLAN_TIERS,
+  doneForYouAutomaticTax,
+  doneForYouCancelUrl,
+  doneForYouCheckoutBranding,
+  doneForYouFoundingCouponId,
+  doneForYouMonthlyPriceId,
+  doneForYouSetupPriceId,
+} from "@/server/services/done-for-you/config";
+import { stripeSourceForWrite } from "@/server/services/done-for-you/stripe-source";
 import { writeNewNames } from "@/server/services/rebrand/write-names";
 import {
   findPurchaseBySession,
@@ -30,11 +30,11 @@ import {
   maskEmail,
   updatePurchase,
   type AdminClient,
-  type CrankleadsPurchase,
-} from "@/server/services/crankleads/purchases";
+  type DoneForYouPurchase,
+} from "@/server/services/done-for-you/purchases";
 
 /** Hard cap on the request body (bytes). The real payload is well under 2 KB. */
-export const CRANKLEADS_CHECKOUT_MAX_BODY_BYTES = 8 * 1024;
+export const DONE_FOR_YOU_CHECKOUT_MAX_BODY_BYTES = 8 * 1024;
 
 const MAX_UTM_KEYS = 10;
 const MAX_UTM_KEY = 40;
@@ -44,8 +44,8 @@ const STRIPE_METADATA_VALUE_MAX = 500;
 
 const trimmed = (max: number) => z.string().trim().min(1).max(max);
 
-export const crankleadsCheckoutSchema = z.object({
-  tier: z.enum(CRANKLEADS_TIERS),
+export const doneForYouCheckoutSchema = z.object({
+  tier: z.enum(PLAN_TIERS),
   name: trimmed(200),
   email: z.string().trim().toLowerCase().email().max(320),
   phone: z
@@ -60,7 +60,7 @@ export const crankleadsCheckoutSchema = z.object({
   utm: z.record(z.string(), z.string()).optional(),
 });
 
-export type CrankleadsCheckoutInput = z.infer<typeof crankleadsCheckoutSchema>;
+export type DoneForYouCheckoutInput = z.infer<typeof doneForYouCheckoutSchema>;
 
 /** Keep at most 10 utm keys with bounded lengths (it lands in Stripe metadata). */
 export function sanitizeUtm(utm: Record<string, string> | undefined): Record<string, string> {
@@ -92,33 +92,33 @@ export function utmMetadata(utm: Record<string, string>): string {
   return "{}";
 }
 
-export class CrankleadsCheckoutUnavailableError extends Error {}
+export class DoneForYouCheckoutUnavailableError extends Error {}
 
 /**
  * Session params plus `managed_payments`, which this stripe SDK version doesn't type yet.
  *
  * The account has Stripe Managed Payments (Stripe as merchant of record) ON by default.
- * It only supports digital products and rejects `automatic_tax`; CrankLeads includes a
- * done-for-you setup service and EmpireVu runs its own invoicing, so every CrankLeads
+ * It only supports digital products and rejects `automatic_tax`; the done-for-you offer includes a
+ * setup service and Everdoer runs its own invoicing, so every done-for-you
  * session opts out explicitly. HST is then handled by `automatic_tax` (Stripe Tax) when
- * STRIPE_AUTOMATIC_TAX=true. See docs/crankleads-purchase.md.
+ * STRIPE_AUTOMATIC_TAX=true. See docs/done-for-you-purchase.md.
  */
-export type CrankleadsSessionCreateParams = Stripe.Checkout.SessionCreateParams & {
+export type DoneForYouSessionCreateParams = Stripe.Checkout.SessionCreateParams & {
   managed_payments: { enabled: boolean };
 };
 
 /** The exact Stripe Checkout Session params for a staged purchase (pure — golden-tested). */
-export function buildCrankleadsSessionParams(
-  purchase: Pick<CrankleadsPurchase, "id">,
-  input: CrankleadsCheckoutInput,
+export function buildDoneForYouSessionParams(
+  purchase: Pick<DoneForYouPurchase, "id">,
+  input: DoneForYouCheckoutInput,
   utm: Record<string, string>,
   /** A coupon already verified usable (founding offer), or null. */
   coupon: string | null,
-): CrankleadsSessionCreateParams {
-  const monthly = crankleadsMonthlyPriceId(input.tier);
-  const setup = crankleadsSetupPriceId(input.tier);
+): DoneForYouSessionCreateParams {
+  const monthly = doneForYouMonthlyPriceId(input.tier);
+  const setup = doneForYouSetupPriceId(input.tier);
   if (!monthly || !setup) {
-    throw new CrankleadsCheckoutUnavailableError(
+    throw new DoneForYouCheckoutUnavailableError(
       `Everdoer ${input.tier} prices are not configured (STRIPE_PRICE_EVERDOER_* / STRIPE_SETUP_FEE_EVERDOER_*, or the old STRIPE_PRICE_CL_* / STRIPE_SETUP_FEE_CL_*).`,
     );
   }
@@ -128,7 +128,7 @@ export function buildCrankleadsSessionParams(
     source: stripeSourceForWrite(),
     purchaseId: purchase.id,
     tier: input.tier,
-    plan: CRANKLEADS_TIER_PLAN[input.tier],
+    plan: DONE_FOR_YOU_TIER_PLAN[input.tier],
     businessName: truncate(input.businessName),
     businessType: truncate(input.businessType),
     ownerName: truncate(input.name),
@@ -136,10 +136,10 @@ export function buildCrankleadsSessionParams(
     utm: utmMetadata(utm),
   };
 
-  // After paying, the buyer lands on the CrankLeads app host (CRANKLEADS_APP_BASE_URL) — the
+  // After paying, the buyer lands on the done-for-you app host (CRANKLEADS_APP_BASE_URL) — the
   // same host their welcome email and every later link uses (docs/everdoer-branding.md).
   const base = appBaseUrlFor("crankleads");
-  const brand = crankleadsCheckoutBranding();
+  const brand = doneForYouCheckoutBranding();
 
   // Subscription mode with BOTH prices: the recurring monthly price becomes the
   // subscription; the one-time setup price rides on the first invoice only (Stripe
@@ -155,9 +155,9 @@ export function buildCrankleadsSessionParams(
     client_reference_id: purchase.id,
     currency: "cad",
     billing_address_collection: "required",
-    automatic_tax: { enabled: crankleadsAutomaticTax() },
+    automatic_tax: { enabled: doneForYouAutomaticTax() },
     managed_payments: { enabled: false },
-    // The buyer bought CrankLeads: brand the payment page as CrankLeads, not the account's
+    // The buyer bought done-for-you: brand the payment page as Everdoer, not the account's
     // EmpireVu default (Stripe allows a logo OR an icon, not both — the wordmark logo).
     branding_settings: {
       display_name: brand.displayName,
@@ -167,14 +167,14 @@ export function buildCrankleadsSessionParams(
       font_family: "inter",
       border_style: "rounded",
     },
-    // Only our server-side founding coupon can discount a CrankLeads checkout — no
+    // Only our server-side founding coupon can discount a done-for-you checkout — no
     // promotion-code box (any active promo code in the account would otherwise apply).
     ...(coupon ? { discounts: [{ coupon }] } : { allow_promotion_codes: false }),
     metadata,
     subscription_data: { metadata },
     // Rebrand: the /welcome/everdoer twin exists from PR 1; we link to it only once writers switch.
     success_url: `${base}/welcome/${writeNewNames() ? "everdoer" : "crankleads"}?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: crankleadsCancelUrl(),
+    cancel_url: doneForYouCancelUrl(),
   };
 }
 
@@ -183,14 +183,14 @@ export function buildCrankleadsSessionParams(
  * If remembering the id fails the purchase is still found later by client_reference_id /
  * metadata.purchaseId, so the buyer is never blocked on it.
  */
-export async function createCrankleadsCheckout(
+export async function createDoneForYouCheckout(
   admin: AdminClient,
-  input: CrankleadsCheckoutInput,
+  input: DoneForYouCheckoutInput,
   stripe: Stripe = getStripeClient(),
 ): Promise<{ url: string; sessionId: string; purchaseId: string }> {
   // Fail fast (before staging anything) when the tier's prices aren't configured.
-  if (!crankleadsMonthlyPriceId(input.tier) || !crankleadsSetupPriceId(input.tier)) {
-    throw new CrankleadsCheckoutUnavailableError(`Everdoer ${input.tier} prices are not configured.`);
+  if (!doneForYouMonthlyPriceId(input.tier) || !doneForYouSetupPriceId(input.tier)) {
+    throw new DoneForYouCheckoutUnavailableError(`Everdoer ${input.tier} prices are not configured.`);
   }
 
   const utm = sanitizeUtm(input.utm);
@@ -208,7 +208,7 @@ export async function createCrankleadsCheckout(
   const coupon = input.founding ? await usableFoundingCoupon(stripe) : null;
   let session: Stripe.Checkout.Session;
   try {
-    session = await stripe.checkout.sessions.create(buildCrankleadsSessionParams(purchase, input, utm, coupon), {
+    session = await stripe.checkout.sessions.create(buildDoneForYouSessionParams(purchase, input, utm, coupon), {
       idempotencyKey: `crankleads-checkout-${purchase.id}`,
     });
   } catch (err) {
@@ -216,9 +216,9 @@ export async function createCrankleadsCheckout(
     // The founding coupon went invalid between the check and the create (e.g. the last
     // redemption raced us): sell at full price rather than failing the checkout.
     console.warn(
-      `[crankleads/checkout] session with founding coupon ${coupon} failed (${err instanceof Error ? err.message : err}); retrying without it`,
+      `[dfy/checkout] session with founding coupon ${coupon} failed (${err instanceof Error ? err.message : err}); retrying without it`,
     );
-    session = await stripe.checkout.sessions.create(buildCrankleadsSessionParams(purchase, input, utm, null), {
+    session = await stripe.checkout.sessions.create(buildDoneForYouSessionParams(purchase, input, utm, null), {
       idempotencyKey: `crankleads-checkout-${purchase.id}-nodiscount`,
     });
   }
@@ -230,7 +230,7 @@ export async function createCrankleadsCheckout(
     await updatePurchase(admin, purchase.id, { stripe_checkout_session_id: session.id });
   } catch (err) {
     console.error(
-      `[crankleads/checkout] could not record session ${session.id} on purchase ${purchase.id} ` +
+      `[dfy/checkout] could not record session ${session.id} on purchase ${purchase.id} ` +
         `(the worker will match it by client_reference_id):`,
       err instanceof Error ? err.message : err,
     );
@@ -246,14 +246,14 @@ export async function createCrankleadsCheckout(
  * to break sales).
  */
 export async function usableFoundingCoupon(stripe: Stripe): Promise<string | null> {
-  const id = crankleadsFoundingCouponId();
+  const id = doneForYouFoundingCouponId();
   if (!id) return null;
   try {
     const coupon = await stripe.coupons.retrieve(id);
     if (coupon.valid) return id;
-    console.warn(`[crankleads/checkout] founding coupon ${id} is no longer valid (exhausted or expired); full price`);
+    console.warn(`[dfy/checkout] founding coupon ${id} is no longer valid (exhausted or expired); full price`);
   } catch (err) {
-    console.warn(`[crankleads/checkout] founding coupon ${id} lookup failed (${err instanceof Error ? err.message : err}); full price`);
+    console.warn(`[dfy/checkout] founding coupon ${id} lookup failed (${err instanceof Error ? err.message : err}); full price`);
   }
   return null;
 }

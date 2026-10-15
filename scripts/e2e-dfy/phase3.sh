@@ -20,7 +20,7 @@ export E2E_CLOCK_FILE="${E2E_CLOCK_FILE:-/var/tmp/e2e-faketime-p3}"
 export SMS_AGENT_COALESCE_MS=200
 # Keep your number: the account number + PIN are only collected with a key (a fixed test key).
 export PORTING_ENCRYPTION_KEY="${PORTING_ENCRYPTION_KEY:-ZTJlLXBoYXNlMy1wb3J0aW5nLWtleS0zMi1ieXRlcyE=}"
-getent hosts app.crankleads.localhost >/dev/null || { echo "add: 127.0.0.1 app.crankleads.localhost  to /etc/hosts" >&2; exit 1; }
+getent hosts app.everdoer.localhost >/dev/null || { echo "add: 127.0.0.1 app.everdoer.localhost  to /etc/hosts" >&2; exit 1; }
 # A re-run starts clean: the storage stub's files and the old capture log go with the old database.
 port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 if [ "${E2E_SKIP_START:-0}" != 1 ]; then

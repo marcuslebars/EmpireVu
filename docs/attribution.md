@@ -1,6 +1,6 @@
 # Revenue attribution — "Captured by Everdoer"
 
-Task 14 answers one question for the owner: **how much revenue did EmpireVu capture this
+Task 14 answers one question for the owner: **how much revenue did Everdoer capture this
 month, and where did it come from?** It is a read-only report — a dashboard card with the
 headline number and a `/reports/attribution` screen with the per-quote drill-down and a
 client-side CSV export. No new writes, no new Stripe handling, no new export endpoint.

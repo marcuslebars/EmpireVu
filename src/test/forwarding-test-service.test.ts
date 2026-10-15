@@ -422,8 +422,8 @@ describe("outcomes", () => {
 });
 
 describe("done-for-you: a forwarding pass sends ONE message, not two", () => {
-  /** A CrankLeads Catch buyer mid-setup: number + text-back automation on, not live yet. */
-  function crankleadsBuyer(purchase: Record<string, unknown> = {}, followups: Array<Record<string, unknown>> = []) {
+  /** A done-for-you Catch buyer mid-setup: number + text-back automation on, not live yet. */
+  function doneForYouBuyer(purchase: Record<string, unknown> = {}, followups: Array<Record<string, unknown>> = []) {
     const base = seed({ org: { crankleads_tier: "catch", platform_brand: "crankleads" } });
     Object.assign(base.tables, {
       crankleads_purchases: [
@@ -448,7 +448,7 @@ describe("done-for-you: a forwarding pass sends ONE message, not two", () => {
   });
 
   it("the pass that makes them live sends the 'You're live' text + email NOW — and no '✅ text-back is live'", async () => {
-    h.db = crankleadsBuyer();
+    h.db = doneForYouBuyer();
     await startTest();
     await forwardedLeg();
     expect(tests()[0].status).toBe("passed");
@@ -461,14 +461,14 @@ describe("done-for-you: a forwarding pass sends ONE message, not two", () => {
   });
 
   it("reminders stopped (or exempt) → no owner text at all: the stop flags silence every setup text", async () => {
-    h.db = crankleadsBuyer({ setup_reminders_stopped_at: new Date(T0 - 3_600_000).toISOString() });
+    h.db = doneForYouBuyer({ setup_reminders_stopped_at: new Date(T0 - 3_600_000).toISOString() });
     await startTest();
     await forwardedLeg();
     expect(h.sent).toEqual([]);
   });
 
   it("re-verified after it broke (already told they're live) → the ✅ note, not a second 'You're live'", async () => {
-    h.db = crankleadsBuyer({ live_at: new Date(T0 - 5 * 864e5).toISOString() }, [
+    h.db = doneForYouBuyer({ live_at: new Date(T0 - 5 * 864e5).toISOString() }, [
       { organization_id: ORG, purchase_id: "purchase-1", stage: "live", local_date: "2026-10-01" },
     ]);
     await startTest();
@@ -477,7 +477,7 @@ describe("done-for-you: a forwarding pass sends ONE message, not two", () => {
   });
 
   it("not forwarded → the fix text links the no-login one-tap forwarding page, not the wizard", async () => {
-    h.db = crankleadsBuyer();
+    h.db = doneForYouBuyer();
     const { view } = await startTest();
     await job(view.id, "status", { CallStatus: "no-answer" });
     await job(view.id, "finalize", {}, T0 + 110_000);

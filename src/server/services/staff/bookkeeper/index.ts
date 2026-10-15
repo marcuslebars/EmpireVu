@@ -9,7 +9,7 @@
  *   • approvals: collections_final_notice, payment_plan, record_payment, send_invoice_reminder   approvals.ts
  *   • the 08:00 owner money alert with reconciliation flags          daily-alert.ts
  *
- * Settings: companies.ai_settings.collections (settings.ts) — on by default for CrankLeads orgs,
+ * Settings: companies.ai_settings.collections (settings.ts) — on by default for done-for-you orgs,
  * off for house orgs (A1 keeps today's behaviour unless switched on).
  */
 import { bookkeeperActiveFor } from "@/server/services/staff/bookkeeper/settings";

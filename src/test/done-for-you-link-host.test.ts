@@ -4,21 +4,21 @@ import { quotePublicBaseUrlFor } from "@/server/services/quotes/config";
 import { quotePublicBaseUrlForCompanyId } from "@/server/services/quotes/public-url";
 import { createFakeDb } from "@/test/helpers/fake-supabase";
 
-describe("customer link host for CrankLeads companies", () => {
+describe("customer link host for done-for-you companies", () => {
   afterEach(() => {
     delete process.env.QUOTE_PUBLIC_BASE_URL_CRANKLEADS;
     delete process.env.QUOTE_PUBLIC_BASE_URL;
     delete process.env.CRANKLEADS_APP_BASE_URL;
   });
 
-  it("CrankLeads orgs default to the CrankLeads app domain when no override is set", () => {
+  it("Done-for-you orgs default to the done-for-you app domain when no override is set", () => {
     process.env.QUOTE_PUBLIC_BASE_URL = "https://app.empirevu.com";
     process.env.CRANKLEADS_APP_BASE_URL = "https://app.crankleads.com";
     expect(quotePublicBaseUrlFor({ platform_brand: "crankleads" })).toBe("https://app.crankleads.com");
     expect(quotePublicBaseUrlFor({ platform_brand: "empirevu" })).toBe("https://app.empirevu.com");
   });
 
-  it("company override → QUOTE_PUBLIC_BASE_URL_CRANKLEADS (CrankLeads orgs) → the platform default", () => {
+  it("company override → QUOTE_PUBLIC_BASE_URL_CRANKLEADS (done-for-you orgs) → the platform default", () => {
     process.env.QUOTE_PUBLIC_BASE_URL = "https://app.empirevu.com";
     process.env.QUOTE_PUBLIC_BASE_URL_CRANKLEADS = "https://go.example-neutral.ca";
     expect(quotePublicBaseUrlFor({ quote_public_base_url: "https://quotes.northshore.ca", platform_brand: "crankleads" })).toBe("https://quotes.northshore.ca");

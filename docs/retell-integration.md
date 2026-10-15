@@ -1,13 +1,15 @@
 # Retell AI phone-lead intake
 
-EmpireVu turns [Retell AI](https://retellai.com) voice-receptionist calls into leads. Retell
+Everdoer turns [Retell AI](https://retellai.com) voice-receptionist calls into leads. Retell
 answers the phone, runs its post-call analysis, and POSTs a signed `call_analyzed` webhook to
-EmpireVu, which maps the call onto the **same canonical lead envelope** every web form emits and
+Everdoer, which maps the call onto the **same canonical lead envelope** every web form emits and
 pushes it through the **identical** intake path — durable `raw_leads` write, cross-brand dedup,
 activity, and owner notification. A phone lead is just another lead.
 
-A1 Marine Storage is **tenant zero** (`sourceSite = a1marinestorage`), but everything is
-org-scoped from day one, so adding more brands later is a config change, not a rewrite.
+A1 Marine Storage was **tenant zero** (`sourceSite = a1marinestorage`), but everything is
+org-scoped from day one, so adding more brands later is a config change, not a rewrite. Storage
+is decommissioned (2026-10-14; see REBRAND_CHECKLIST.md "A1 Marine Storage decommission"), and
+`a1marinestorage` is still the code default for `RETELL_SOURCE_SITE` (below).
 
 The whole feature is **inert unless `RETELL_INTAKE_ENABLED === "1"`**. With the flag off the
 webhook still verifies the signature but ACKs without doing any work, so nothing runs until you
@@ -29,7 +31,7 @@ turn it on.
 ## Flow
 
 ```
-Caller ──dials──▶ Retell agent ──────────────────────▶ EmpireVu (api.empirevu.com)
+Caller ──dials──▶ Retell agent ──────────────────────▶ Everdoer (api.empirevu.com)
                     │  post-call analysis                POST /api/retell/webhook   (X-Retell-Signature)
                     └── call_analyzed webhook ──────────▶  1. verify HMAC · ACK fast · process async
                                                             2. retell_calls upsert   (durable + transcript)
@@ -46,7 +48,7 @@ Caller ──dials──▶ Retell agent ─────────────
 | Route | Auth | Purpose |
 | --- | --- | --- |
 | `POST /api/retell/webhook` | `X-Retell-Signature` HMAC | Receives `call_analyzed` (ignores other events). ACK-fast, async. |
-| `POST /api/retell/functions/capture-lead` | `x-empirevu-retell-secret` header | Optional mid-call tool: capture a lead before the call ends. |
+| `POST /api/retell/functions/capture-lead` | `x-everdoer-retell-secret` header (old `x-empirevu-retell-secret` still accepted) | Optional mid-call tool: capture a lead before the call ends. |
 
 ## Signature verification (reconciled)
 
@@ -62,17 +64,18 @@ dashboard. **The signing secret IS the API key**; there is no separate "webhook 
 `RETELL_WEBHOOK_SECRET` is accepted as an **alias/override** if you ever want a distinct value, but
 normally you only set `RETELL_API_KEY`.
 
-## Environment (Railway — EmpireVu web service)
+## Environment (Railway — Everdoer web service)
 
-Set these on the **EmpireVu** Railway service (the app that serves `api.empirevu.com`). **Never** on
-the storage site, and **never** `VITE_`-prefixed.
+Set these on the **Everdoer** Railway web service (still named "EmpireVu" in Railway until it is
+renamed; the app that serves `api.empirevu.com`). **Never** on a tenant's own site, and **never**
+`VITE_`-prefixed.
 
 | Variable | Required | Default | Notes |
 | --- | --- | --- | --- |
 | `RETELL_INTAKE_ENABLED` | yes | `0` (off) | Master flag. Set to `1` to go live. |
 | `RETELL_API_KEY` | yes | — | Retell API key; also the webhook signing secret. |
 | `RETELL_WEBHOOK_SECRET` | no | falls back to `RETELL_API_KEY` | Only if you use a distinct signing value. |
-| `RETELL_SOURCE_SITE` | no | `a1marinestorage` | Brand key intake routes on (tenant zero). |
+| `RETELL_SOURCE_SITE` | no | `a1marinestorage` | Brand key intake routes on (tenant zero). Legacy fallback only; the default names A1 Marine Storage, which is decommissioned — map numbers in `voice_numbers` instead. |
 | `RETELL_LEAD_SOURCE` | no | `retell_voice_agent` | Stamped on every phone lead's `source`. |
 | `RETELL_FUNCTION_SECRET` | only for capture-lead | — | Shared secret for the mid-call tool. |
 | `RETELL_WEBHOOK_TOLERANCE_MS` | no | `300000` | Replay window (5 min). |
@@ -140,7 +143,8 @@ A business **without** the AI receptionist gets the same `call.missed` trigger f
    (others are harmlessly ignored). Retell signs it with the API key automatically.
 2. **(Optional) capture-lead tool** → add a custom function named `capture_lead` pointing at
    `https://api.empirevu.com/api/retell/functions/capture-lead`, sending the header
-   `x-empirevu-retell-secret: <RETELL_FUNCTION_SECRET>`, with arguments mirroring the field names
+   `x-everdoer-retell-secret: <RETELL_FUNCTION_SECRET>` (the old `x-empirevu-retell-secret` is
+   still accepted), with arguments mirroring the field names
    above. The agent calls it once it has the caller's number + a service interest.
 3. **Marina's quote / booking / deposit tools and the returning-caller webhook** — see
    [marina-tools.md](marina-tools.md).
@@ -154,7 +158,7 @@ then it's live. RLS: org members read; only the service role (this webhook) writ
 ## Go-live checklist
 
 1. Apply the migration in Supabase.
-2. Set `RETELL_API_KEY` (+ `RETELL_FUNCTION_SECRET` if using the mid-call tool) on the EmpireVu
+2. Set `RETELL_API_KEY` (+ `RETELL_FUNCTION_SECRET` if using the mid-call tool) on the Everdoer
    Railway service.
 3. Configure the post-call analysis fields + webhook URL in the Retell dashboard.
 4. Flip `RETELL_INTAKE_ENABLED=1` and redeploy.
@@ -188,7 +192,7 @@ The same `/api/retell/webhook` handles both directions and branches on `call.dir
 Outbound outcomes arrive by **webhook push** — no polling. The Cartesia outcome poll skips Retell
 calls (tagged `provider: "retell"` on the placed-call event).
 
-### Env (EmpireVu Railway service)
+### Env (Everdoer Railway service)
 
 | Variable | Required | Notes |
 | --- | --- | --- |
@@ -207,7 +211,7 @@ calls (tagged `provider: "retell"` on the placed-call event).
 
 Marina calls each lead **as the brand the lead came in from**. Because a Retell knowledge base
 is attached to an agent, each company gets its **own Retell agent** (its KB + system prompt,
-authored in the Retell dashboard). EmpireVu maps company → agent in `company_voice_profiles`
+authored in the Retell dashboard). Everdoer maps company → agent in `company_voice_profiles`
 and, at call time, resolves the calling contact's `company_id` → that profile →
 `override_agent_id` + per-brand caller ID + merged dynamic variables.
 
@@ -219,8 +223,8 @@ POST /api/organizations/{organizationId}/voice-profiles
   "companyId": "<uuid>",
   "retellOutboundAgentId": "agent_...",
   "fromNumber": "+1705...",
-  "brandLabel": "A1 Marine Storage",
-  "dynamicVariables": { "services": "winterization, shrink wrapping, storage" }
+  "brandLabel": "A1 Marine Care",
+  "dynamicVariables": { "services": "shrink wrapping" }
 }
 ```
 
@@ -231,19 +235,19 @@ prompt can interpolate. `GET` lists them. A company with no profile (or an empty
 back to the global `RETELL_OUTBOUND_AGENT_ID` / `RETELL_FROM_NUMBER`. Apply the migration
 `20260812120000_add_company_voice_profiles.sql`.
 
-**Division of labor:** author each brand's agent + KB in Retell; EmpireVu routes each call to
+**Division of labor:** author each brand's agent + KB in Retell; Everdoer routes each call to
 the right one based on the lead's company. The **prompt** can live in either place — see next.
 
-### Managing the prompt in EmpireVu
+### Managing the prompt in Everdoer
 
-Keep each brand's **system prompt in EmpireVu** (the source of truth) instead of the Retell
-dashboard. Set `systemPrompt` on the company's voice profile; at call time EmpireVu renders it
+Keep each brand's **system prompt in Everdoer** (the source of truth) instead of the Retell
+dashboard. Set `systemPrompt` on the company's voice profile; at call time Everdoer renders it
 with the call's variables (`{{customer_name}}`, `{{company_name}}`, and the brand's own
 `dynamicVariables`) and injects the result as the `system_prompt` dynamic variable.
 
 One-time Retell setup: set the agent's **general prompt to `{{system_prompt}}`** (a passthrough);
 its knowledge base stays attached to the agent. (Retell's per-call `agent_override` can't
-override the LLM prompt, so injecting via a dynamic variable is the sync-free path — EmpireVu
+override the LLM prompt, so injecting via a dynamic variable is the sync-free path — Everdoer
 stays the single source of truth, no drift.)
 
 ```json
@@ -252,12 +256,12 @@ POST /api/organizations/{organizationId}/voice-profiles
   "companyId": "<uuid>",
   "retellOutboundAgentId": "agent_...",
   "systemPrompt": "You are Marina calling on behalf of {{company_name}}. You're reaching out to {{customer_name}} about {{services}}. Be warm and concise...",
-  "dynamicVariables": { "services": "winterization, shrink wrapping, storage" }
+  "dynamicVariables": { "services": "shrink wrapping" }
 }
 ```
 
 Write `{{customer_name}}` / `{{company_name}}` / any brand variable directly in the prompt —
-EmpireVu fills them in server-side before the call. Apply
+Everdoer fills them in server-side before the call. Apply
 `20260812130000_add_voice_profile_system_prompt.sql`.
 
 ### Fully retiring Cartesia (later)

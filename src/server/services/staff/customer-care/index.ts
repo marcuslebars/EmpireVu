@@ -10,7 +10,7 @@
  *   Visits      the owner's Y texts the customer open times; book_care_visit books the pick as a
  *               new booking linked through care_case_bookings — never auto-invoiced.
  *
- * On for CrankLeads companies where the SMS agent is on; house orgs off unless switched on.
+ * On for done-for-you companies where the SMS agent is on; house orgs off unless switched on.
  */
 import { emptyRole, type StaffRoleModule, type StaffSweep } from "@/server/services/staff/types";
 import { customerCareAgentTools } from "./agent-tools";

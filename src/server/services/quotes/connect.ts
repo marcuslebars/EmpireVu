@@ -221,7 +221,7 @@ export async function backfillConnectedAccountCapabilities(
 
 /**
  * Where Stripe sends the tenant back to after onboarding — their own app host
- * (appBaseUrlFor: CRANKLEADS_APP_BASE_URL for a CrankLeads org once set; APP_BASE_URL otherwise).
+ * (appBaseUrlFor: CRANKLEADS_APP_BASE_URL for a done-for-you org once set; APP_BASE_URL otherwise).
  */
 export function onboardingUrls(
   companyId: string,

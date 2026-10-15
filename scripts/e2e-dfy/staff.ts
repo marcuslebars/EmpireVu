@@ -25,7 +25,7 @@ import { join } from "node:path";
 import Stripe from "stripe";
 
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { createCrankleadsCheckout } from "@/server/services/crankleads/checkout";
+import { createDoneForYouCheckout } from "@/server/services/done-for-you/checkout";
 import { claimBillingEventJobs } from "@/server/services/billing/jobs";
 import { processBillingEventJob } from "@/server/services/billing/events";
 import { switchOnEverything } from "@/server/services/dfy/switch-on";
@@ -240,7 +240,7 @@ function fakeStripe(): Stripe {
   } as unknown as Stripe;
 }
 async function buy(buyer: Buyer): Promise<void> {
-  const checkout = await createCrankleadsCheckout(admin, { tier: buyer.tier, name: buyer.name, email: buyer.email, phone: buyer.phone, businessName: buyer.businessName, businessType: buyer.businessType }, fakeStripe());
+  const checkout = await createDoneForYouCheckout(admin, { tier: buyer.tier, name: buyer.name, email: buyer.email, phone: buyer.phone, businessName: buyer.businessName, businessType: buyer.businessType }, fakeStripe());
   buyer.purchaseId = checkout.purchaseId;
   const suffix = checkout.purchaseId.slice(0, 8);
   const event = {
@@ -396,7 +396,7 @@ async function seedHouse(): Promise<void> {
   must(await db.from("voice_numbers").insert({ organization_id: org.id, company_id: company.id, provider: "twilio", mode: "missed_call_catcher", phone_e164: HOUSE.catcher, active: true }).select("id").single(), "house number");
   houseIds = { orgId: org.id, companyId: company.id };
   const scope = houseIds;
-  // The same shapes the CrankLeads company gets: an overdue invoice, a past customer, jobs tomorrow, a crew cell.
+  // The same shapes the done-for-you company gets: an overdue invoice, a past customer, jobs tomorrow, a crew cell.
   const debtor = await contact(scope, { first: "Hank", last: "Owes", phone: HOUSE.debtor });
   await invoice(scope, debtor, { number: "A1-0001", cents: 80000, dueDaysAgo: 5, title: "Winterize boat" });
   const past = await contact(scope, { first: "Paula", last: "Past", phone: HOUSE.past });
@@ -425,7 +425,7 @@ async function main(): Promise<void> {
   const FRIDAY = addDays(SUNDAY, 5);
   const scope = () => ({ orgId: dana.orgId!, companyId: dana.companyId! });
 
-  await step("0. seed: a live CrankLeads Close company (purchase → switch-on → live) with customers, invoices, jobs, a crew cell, past customers; a house tenant with the same", async () => {
+  await step("0. seed: a live done-for-you Close company (purchase → switch-on → live) with customers, invoices, jobs, a crew cell, past customers; a house tenant with the same", async () => {
     await seedHouse();
     await buy(dana);
     const { data: numbers } = await admin.from("voice_numbers").select("phone_e164, mode").eq("company_id", dana.companyId!);
@@ -863,12 +863,12 @@ async function main(): Promise<void> {
     setMark();
   });
 
-  await step("H. house (non-CrankLeads) tenant: roles off — no reminders, no campaign, no crew text, nothing moved, no approvals; its SMS agent gets the Phase 1 tool list only", async () => {
+  await step("H. house (non-done-for-you) tenant: roles off — no reminders, no campaign, no crew text, nothing moved, no approvals; its SMS agent gets the Phase 1 tool list only", async () => {
     if (!houseIds) throw new Error("no house tenant");
     const h = houseIds;
     const roles = await activeRolesFor(admin, { organizationId: h.orgId, companyId: h.companyId });
     check(roles.length === 0, `activeRolesFor(house) = [${roles.map((r) => r.role).join(", ")}]`);
-    // Every registered role is on for the CrankLeads buyer except the two gated on setup this run
+    // Every registered role is on for the done-for-you buyer except the two gated on setup this run
     // doesn't do: service_plans needs an active plan (Phase 4 seeds one), email_clerk needs inbound
     // email configured on the server (INBOUND_EMAIL_DOMAIN + RESEND_WEBHOOK_SECRET; Phase 5 sets
     // them). Derived from staffRoles() so a role added later is expected on unless it's gated too.
@@ -877,7 +877,7 @@ async function main(): Promise<void> {
     const danaRoles = (await activeRolesFor(admin, { organizationId: dana.orgId!, companyId: dana.companyId! })).map((r) => r.role);
     check(
       ["estimator", "bookkeeper", "dispatcher", "marketer"].every((r) => danaRoles.includes(r)) && JSON.stringify(danaRoles) === JSON.stringify(expectedDana),
-      `activeRolesFor(CrankLeads) = [${danaRoles.join(", ")}] (expected [${expectedDana.join(", ")}])`,
+      `activeRolesFor(done-for-you) = [${danaRoles.join(", ")}] (expected [${expectedDana.join(", ")}])`,
     );
     const houseNumbers = [HOUSE.owner, HOUSE.customer, HOUSE.debtor, HOUSE.past, HOUSE.crew, HOUSE.jobCustomer];
     const toHouse = captured().filter((c) => c.kind === "sms" && houseNumbers.includes(String(c.to)));

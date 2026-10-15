@@ -27,7 +27,7 @@ registerConciergeAction({
       .maybeSingle();
     if (error) throw new Error(`company lookup failed: ${error.message}`);
     const current = (data as { ai_settings: unknown } | null)?.ai_settings ?? {};
-    const before = readCallAnsweringSettings(current, { crankleads: true }).includedMinutes;
+    const before = readCallAnsweringSettings(current, { doneForYou: true }).includedMinutes;
     const next = mergeCallAnsweringSettings(current, { included_minutes: input.minutes });
     const { error: updateError } = await ctx.admin
       .from("companies")

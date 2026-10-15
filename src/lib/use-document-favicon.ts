@@ -2,8 +2,8 @@ import { useEffect } from "react";
 
 /**
  * Swap the browser-tab icon while a page is mounted, restoring the app's own icons on
- * unmount. Used by the CrankLeads purchase page so a buyer coming from crankleads.com keeps
- * seeing the CrankLeads icon; the rest of the app keeps the EmpireVu favicon.
+ * unmount. Used by the done-for-you purchase page so a buyer coming from crankleads.com keeps
+ * seeing the done-for-you icon; the rest of the app keeps the Everdoer favicon.
  */
 export function useDocumentFavicon(href: string | null | undefined, type = "image/svg+xml"): void {
   useEffect(() => {

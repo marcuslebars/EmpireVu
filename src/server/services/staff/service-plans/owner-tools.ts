@@ -36,7 +36,7 @@ function data(value: string | null | undefined, max = 80): string | null {
 
 async function companyFor(state: ToolRunState): Promise<PlanCompany | { error: string }> {
   const company = await loadPlanCompany(state.admin, state.scope.organizationId, state.scope.companyId);
-  if (!company || !company.crankleads || !company.settings.enabled) return { error: OFF };
+  if (!company || !company.doneForYou || !company.settings.enabled) return { error: OFF };
   return company;
 }
 

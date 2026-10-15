@@ -59,7 +59,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const supabase = createSupabaseAdminClient();
     await recordBillingEvent(supabase, event);
-    // NOTE: this endpoint serves the PLATFORM account only (EmpireVu billing orgs
+    // NOTE: this endpoint serves the PLATFORM account only (Everdoer billing orgs
     // for their subscriptions). Quote deposits run on each org's OWN Stripe
     // account and arrive at /api/webhooks/stripe/connect carrying event.account.
     // Do not add merchant handling here — the accounts would be conflated.

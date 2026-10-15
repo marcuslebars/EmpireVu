@@ -148,7 +148,7 @@ function deps(over: Partial<PurchasingDeps> = {}): PurchasingDeps {
   return { ...defaultPurchasingDeps, model: noModel, ...over };
 }
 
-async function crank(): Promise<PurchasingCompany> {
+async function dfyCompany(): Promise<PurchasingCompany> {
   return (await loadPurchasingCompany(db.client, ORG, CO)) as PurchasingCompany;
 }
 
@@ -178,15 +178,15 @@ const ROOF_LINES = [L("shingles", 22, "bundles", 3850), L("underlay", 3, "rolls"
 // ── Pure ─────────────────────────────────────────────────────────────────────────
 
 describe("settings", () => {
-  it("on for CrankLeads, off for house orgs unless switched on; merge only touches purchasing", () => {
-    expect(readPurchasingSettings({}, { crankleads: true })).toMatchObject({ enabled: true, leadDays: 2, maxPerDay: 3, defaultFulfilment: "pickup", aiEstimate: true, enabledIsDefault: true });
-    expect(readPurchasingSettings({}, { crankleads: false }).enabled).toBe(false);
-    expect(readPurchasingSettings({ purchasing: { enabled: true, lead_days: 99, max_per_day: 0 } }, { crankleads: false })).toMatchObject({ enabled: true, leadDays: 2, maxPerDay: 3 });
+  it("on for done-for-you, off for house orgs unless switched on; merge only touches purchasing", () => {
+    expect(readPurchasingSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, leadDays: 2, maxPerDay: 3, defaultFulfilment: "pickup", aiEstimate: true, enabledIsDefault: true });
+    expect(readPurchasingSettings({}, { doneForYou: false }).enabled).toBe(false);
+    expect(readPurchasingSettings({ purchasing: { enabled: true, lead_days: 99, max_per_day: 0 } }, { doneForYou: false })).toMatchObject({ enabled: true, leadDays: 2, maxPerDay: 3 });
     const merged = mergePurchasingSettings({ sms_agent: { autonomy: "ask_first" } }, { enabled: true, leadDays: 4, maxPerDay: 5, defaultFulfilment: "delivery", aiEstimate: false });
     expect(merged).toEqual({ sms_agent: { autonomy: "ask_first" }, purchasing: { enabled: true, lead_days: 4, max_per_day: 5, default_fulfilment: "delivery", ai_estimate: false, any_on: true } });
   });
 
-  it("activeFor: CrankLeads yes, A1 no (so its owner agent never sees the tools)", async () => {
+  it("activeFor: done-for-you yes, A1 no (so its owner agent never sees the tools)", async () => {
     expect(await purchasingActiveFor(db.client, { organizationId: ORG, companyId: CO })).toBe(true);
     expect(await purchasingActiveFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO })).toBe(false);
     const house = await activeRolesFor(db.client, { organizationId: HOUSE_ORG, companyId: HOUSE_CO });
@@ -299,7 +299,7 @@ describe("the list", () => {
 
 describe("the draft sweep", () => {
   it("a confirmed quoted job 2+ days out: recipe list → PO-1 → the owner's question by text", async () => {
-    const result = await runCompanyDrafts(db.client, await crank(), NOW, deps());
+    const result = await runCompanyDrafts(db.client, await dfyCompany(), NOW, deps());
     expect(result).toEqual({ asked: 1, skipped: 0 });
     const [po] = rows("purchase_orders");
     expect(po).toMatchObject({ booking_id: "b-jones", supplier_id: HD, supplier_name: "Home Depot Pro (Barrie)", status: "draft", po_number: "PO-1", needed_by: "2026-10-14", fulfilment: "pickup", est_total_cents: 116_200, basis: "recipe", source: "auto" });
@@ -321,7 +321,7 @@ describe("the draft sweep", () => {
   });
 
   it("once per job across passes and workers", async () => {
-    const c = await crank();
+    const c = await dfyCompany();
     await Promise.all([runCompanyDrafts(db.client, c, NOW, deps()), runCompanyDrafts(db.client, c, NOW, deps())]);
     await runCompanyDrafts(db.client, c, NOW + HOUR, deps());
     expect(rows("purchase_orders")).toHaveLength(1);
@@ -331,7 +331,7 @@ describe("the draft sweep", () => {
   it("caps the questions per local day", async () => {
     db.tables.bookings.push(booking("b-2", { scheduled_for: "2026-10-16T12:00:00.000Z" }), booking("b-3", { scheduled_for: "2026-10-17T12:00:00.000Z" }));
     db.tables.companies[0].ai_settings = { purchasing: { max_per_day: 2 } };
-    const c = await crank();
+    const c = await dfyCompany();
     expect((await runCompanyDrafts(db.client, c, NOW, deps())).asked).toBe(2);
     expect((await runCompanyDrafts(db.client, c, NOW + HOUR, deps())).asked).toBe(0);
     // Next local day: the third goes out.
@@ -346,7 +346,7 @@ describe("the draft sweep", () => {
       calls += 1;
       return '{"materials":[]}';
     };
-    const c = await crank();
+    const c = await dfyCompany();
     expect(await runCompanyDrafts(db.client, c, NOW, deps({ model: none }))).toEqual({ asked: 0, skipped: 1 });
     await runCompanyDrafts(db.client, c, NOW + HOUR, deps({ model: none }));
     expect(calls).toBe(1);
@@ -356,7 +356,7 @@ describe("the draft sweep", () => {
     db = seed();
     db.tables.bookings = [booking("b-gutter", { quote_id: "q-2", title: "Gutter repair" })];
     const est: PurchasingModel = async () => '{"materials":[{"label":"gutter hangers","qty":10,"unit":"pcs","unit_cost":3}]}';
-    await runCompanyDrafts(db.client, await crank(), NOW, deps({ model: est }));
+    await runCompanyDrafts(db.client, await dfyCompany(), NOW, deps({ model: est }));
     expect(rows("purchase_orders")[0]).toMatchObject({ basis: "ai", est_total_cents: 3000 });
     expect(rows("owner_approvals")[0].summary).toContain("(~$30, AI estimate - check it)");
   });
@@ -365,12 +365,12 @@ describe("the draft sweep", () => {
     db.tables.bookings = [booking("b-gutter", { quote_id: "q-2" })];
     db.tables.companies[0].ai_settings = { purchasing: { ai_estimate: false } };
     const model = vi.fn(noModel);
-    expect((await runCompanyDrafts(db.client, await crank(), NOW, deps({ model }))).asked).toBe(0);
+    expect((await runCompanyDrafts(db.client, await dfyCompany(), NOW, deps({ model }))).asked).toBe(0);
     expect(model).not.toHaveBeenCalled();
   });
 
   it("a failure is retried later (max 3 tries), never drafting twice", async () => {
-    const c = await crank();
+    const c = await dfyCompany();
     db.failNext("purchase_orders", "insert");
     await runCompanyDrafts(db.client, c, NOW, deps());
     expect(rows("purchase_order_drafts")[0]).toMatchObject({ outcome: "failed", attempts: 1 });
@@ -394,7 +394,7 @@ describe("the draft sweep", () => {
 // ── Y / N / expiry through the owner channel ──────────────────────────────────────
 
 async function drafted(): Promise<{ id: string; code: number }> {
-  await runCompanyDrafts(db.client, await crank(), NOW, deps());
+  await runCompanyDrafts(db.client, await dfyCompany(), NOW, deps());
   const a = rows("owner_approvals")[0];
   sendSms.mockClear();
   return { id: String(a.id), code: Number(a.short_code) };
@@ -509,7 +509,7 @@ describe("tracking", () => {
 
   it("the afternoon before: one reminder when it isn't picked up; none once it is", async () => {
     await sent();
-    const c = await crank();
+    const c = await dfyCompany();
     const morning = Date.parse("2026-10-14T14:00:00Z"); // Wed 10:00
     const afternoon = Date.parse("2026-10-14T19:30:00Z"); // Wed 15:30
     expect(await runCompanyReminders(db.client, c, morning, deps())).toBe(0);
@@ -523,7 +523,7 @@ describe("tracking", () => {
     db = seed();
     await sent();
     await runOwnerTool(ownerState(), "mark_materials", { order: "PO-1", status: "picked_up" });
-    expect(await runCompanyReminders(db.client, await crank(), afternoon, deps())).toBe(0);
+    expect(await runCompanyReminders(db.client, await dfyCompany(), afternoon, deps())).toBe(0);
     expect(reminderText({ poNumber: "PO-2", supplier: null, job: "Lee", jobTime: "9 a.m.", fulfilment: "delivery", status: "sent" })).toContain("aren't marked delivered yet");
   });
 
@@ -566,7 +566,7 @@ describe("tracking", () => {
     const again = await runOwnerTool(ownerState(), "order_materials", { job: "Jones" });
     expect(again.tell_owner).toBe('Jones - Roof replacement already has PO-1 (waiting on your Y/N). Text "materials status" for it.');
     // The draft sweep doesn't add a second one either.
-    await runCompanyDrafts(db.client, await crank(), NOW, deps());
+    await runCompanyDrafts(db.client, await dfyCompany(), NOW, deps());
     expect(rows("purchase_orders")).toHaveLength(1);
   });
 
@@ -607,7 +607,7 @@ describe("robustness", () => {
   });
 
   it("orderNoteFits: only a note that reads in full against that order's lines", async () => {
-    await runCompanyDrafts(db.client, await crank(), NOW, deps());
+    await runCompanyDrafts(db.client, await dfyCompany(), NOW, deps());
     const a = rows("owner_approvals")[0] as never;
     expect(await orderNoteFits(db.client, a, "delivery")).toBe(true);
     expect(await orderNoteFits(db.client, a, "no nails")).toBe(true);
@@ -617,7 +617,7 @@ describe("robustness", () => {
   });
 
   it("the sweep and order_materials racing: one order (23505 → already ordered)", async () => {
-    const c = await crank();
+    const c = await dfyCompany();
     const job = (await loadJob(db.client, c, "b-jones"))!;
     await draftForJob(db.client, c, job, { source: "owner", nowMs: NOW, askedInlineTo: OWNER }, deps());
     // The other one lost the race at the unique index.
@@ -636,7 +636,7 @@ describe("robustness", () => {
   });
 
   it("a stuck 'working' claim is re-claimed after 15 min; a sweep failure mid-way leaves no question without its order", async () => {
-    const c = await crank();
+    const c = await dfyCompany();
     db.tables.purchase_order_drafts.push({ id: "cl-1", organization_id: ORG, company_id: CO, booking_id: "b-jones", outcome: "working", attempts: 1, updated_at: new Date(NOW - 5 * 60_000).toISOString() });
     expect((await runCompanyDrafts(db.client, c, NOW, deps())).asked).toBe(0);
     expect((await runCompanyDrafts(db.client, c, NOW + 11 * 60_000, deps())).asked).toBe(1);
@@ -648,7 +648,7 @@ describe("robustness", () => {
     db.tables.owner_approvals.push({ id: "a-orphan", organization_id: ORG, company_id: CO, kind: MATERIALS_ORDER_KIND, status: "pending", short_code: 1, payload: { poId: "po-orphan" }, notified_at: new Date(NOW).toISOString(), notified_to: null, created_at: new Date(NOW).toISOString() });
     // A fresh one (still being asked) is left alone.
     expect(await clearOrphanDrafts(db.client, CO, NOW - 6 * 60_000)).toBe(0);
-    await runCompanyDrafts(db.client, await crank(), NOW, deps());
+    await runCompanyDrafts(db.client, await dfyCompany(), NOW, deps());
     expect(rows("purchase_orders").find((p) => p.id === "po-orphan")).toMatchObject({ status: "cancelled", cancel_reason: "orphan" });
     expect(rows("owner_approvals").find((a) => a.id === "a-orphan")!.status).toBe("superseded");
     expect(rows("purchase_orders").filter((p) => p.status === "draft").map((p) => p.po_number)).toEqual(["PO-2"]);
@@ -657,7 +657,7 @@ describe("robustness", () => {
   it("the daily cap holds across overlapping workers", async () => {
     db.tables.bookings.push(booking("b-2", { scheduled_for: "2026-10-16T12:00:00.000Z" }), booking("b-3", { scheduled_for: "2026-10-17T12:00:00.000Z" }));
     db.tables.companies[0].ai_settings = { purchasing: { max_per_day: 1 } };
-    const c = await crank();
+    const c = await dfyCompany();
     await Promise.all([runCompanyDrafts(db.client, c, NOW, deps()), runCompanyDrafts(db.client, c, NOW, deps()), runCompanyDrafts(db.client, c, NOW, deps())]);
     expect(rows("owner_approvals")).toHaveLength(1);
     expect(rows("purchasing_daily_counts")).toEqual([expect.objectContaining({ local_date: "2026-10-12", asked: 1 })]);
@@ -666,7 +666,7 @@ describe("robustness", () => {
   it("a slot is given back when nothing was asked", async () => {
     db.tables.bookings = [booking("b-gutter", { quote_id: "q-2" }), booking("b-jones")];
     db.tables.companies[0].ai_settings = { purchasing: { max_per_day: 1 } };
-    await runCompanyDrafts(db.client, await crank(), NOW, deps()); // gutter: no materials → slot back → Jones asked
+    await runCompanyDrafts(db.client, await dfyCompany(), NOW, deps()); // gutter: no materials → slot back → Jones asked
     expect(rows("owner_approvals")).toHaveLength(1);
     expect(rows("purchasing_daily_counts")[0].asked).toBe(1);
   });
@@ -674,21 +674,21 @@ describe("robustness", () => {
   it("a quote that can't be read: no draft (no guessing)", async () => {
     db.tables.bookings = [booking("b-jones", { quote_id: "q-missing" })];
     const model = vi.fn(noModel);
-    expect(await runCompanyDrafts(db.client, await crank(), NOW, deps({ model }))).toEqual({ asked: 0, skipped: 1 });
+    expect(await runCompanyDrafts(db.client, await dfyCompany(), NOW, deps({ model }))).toEqual({ asked: 0, skipped: 1 });
     expect(model).not.toHaveBeenCalled();
   });
 
   it("AI caps: ≤1,000 per line; a total over $100k loses its prices; both say check it", async () => {
     db.tables.bookings = [booking("b-gutter", { quote_id: "q-2", title: "Gutter repair" })];
     const huge: PurchasingModel = async () => '{"materials":[{"label":"gutter hangers","qty":50000,"unit":"pcs","unit_cost":40}]}';
-    await runCompanyDrafts(db.client, await crank(), NOW, deps({ model: huge }));
+    await runCompanyDrafts(db.client, await dfyCompany(), NOW, deps({ model: huge }));
     const [po] = rows("purchase_orders");
     expect((po.lines as PoLine[])[0]).toMatchObject({ qty: 1000, capped: true, estUnitCostCents: 4000 });
     expect(rows("owner_approvals")[0].summary).toContain("(~$40,000, AI estimate capped - check it)");
     db = seed();
     db.tables.bookings = [booking("b-gutter", { quote_id: "q-2", title: "Gutter repair" })];
     const pricey: PurchasingModel = async () => '{"materials":[{"label":"copper","qty":900,"unit":"ft","unit_cost":5000}]}';
-    await runCompanyDrafts(db.client, await crank(), NOW, deps({ model: pricey }));
+    await runCompanyDrafts(db.client, await dfyCompany(), NOW, deps({ model: pricey }));
     expect(rows("purchase_orders")[0]).toMatchObject({ est_total_cents: 0 });
     expect(rows("owner_approvals")[0].summary).toContain("(no prices yet, AI estimate capped - check it)");
   });
@@ -705,7 +705,7 @@ describe("robustness", () => {
     const { id } = await drafted();
     await decide(id, true);
     expect(rows("purchase_orders")[0]).toMatchObject({ job_label: "Jones - Roof replacement", job_scheduled_for: JOB_AT });
-    const c = await crank();
+    const c = await dfyCompany();
     // The reminder went out for Thursday's job…
     expect(await runCompanyReminders(db.client, c, Date.parse("2026-10-14T19:30:00Z"), deps())).toBe(1);
     sendSms.mockClear();

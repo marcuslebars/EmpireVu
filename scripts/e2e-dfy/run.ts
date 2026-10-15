@@ -1,5 +1,5 @@
 /**
- * Done-for-you CrankLeads, end to end, as a buyer would experience it (scripts/e2e-dfy/README.md).
+ * Done-for-you, end to end, as a buyer would experience it (scripts/e2e-dfy/README.md).
  * Real local Postgres + PostgREST + Next dev + Vite dev; only third parties are fake (fakes.mjs).
  * Run through scripts/e2e-dfy/run.sh (it starts the stack and puts this process on the fake clock).
  */
@@ -11,14 +11,14 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import Stripe from "stripe";
 
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { createCrankleadsCheckout } from "@/server/services/crankleads/checkout";
+import { createDoneForYouCheckout } from "@/server/services/done-for-you/checkout";
 import { claimBillingEventJobs } from "@/server/services/billing/jobs";
 import { processBillingEventJob } from "@/server/services/billing/events";
 import { processPendingEnrichments } from "@/server/services/dfy/enrich";
 import { processDoneForYou } from "@/server/services/dfy/orchestrator";
 import { generatePendingSites, notifyPublishedSites } from "@/server/services/dfy/site-generator";
 import { processPendingIntakeSends } from "@/server/services/dfy/intake";
-import { processSetupFollowups } from "@/server/services/crankleads/setup-followups";
+import { processSetupFollowups } from "@/server/services/done-for-you/setup-followups";
 import { processInboundWebhookJobs } from "@/server/services/inbound-webhook-jobs";
 import { runScheduler } from "@/server/services/workflow-engine/scheduler";
 import { claimWorkflowEventJobs, processWorkflowEventJob } from "@/server/services/workflow-event-jobs";
@@ -182,7 +182,7 @@ function fakeStripe(): Stripe {
 }
 
 async function buy(buyer: Buyer): Promise<void> {
-  const checkout = await createCrankleadsCheckout(
+  const checkout = await createDoneForYouCheckout(
     admin,
     { tier: buyer.tier, name: buyer.name, email: buyer.email, phone: buyer.phone, businessName: buyer.businessName, businessType: buyer.businessType },
     fakeStripe(),
@@ -367,10 +367,10 @@ async function main(): Promise<void> {
   }
   console.log(`clock now ${new Date().toISOString()} (${torontoTime(Date.now())} Toronto)`);
 
-  await step("0. seed a non-CrankLeads house tenant", seedHouseTenant);
+  await step("0. seed a non-done-for-you house tenant", seedHouseTenant);
 
   // ── 1 + 2 ──────────────────────────────────────────────────────────────────
-  await step("1. paid CrankLeads Close purchase (signed Stripe webhook → billing worker)", async () => {
+  await step("1. paid done-for-you Close purchase (signed Stripe webhook → billing worker)", async () => {
     await buy(dana);
   });
 
@@ -390,7 +390,7 @@ async function main(): Promise<void> {
     check(setupSms, `quick-setup SMS captured: "${setupSms?.body}"`);
     check(setupSms?.from === env("TWILIO_FROM_NUMBER"), `quick-setup SMS from the platform number (${setupSms?.from})`);
     const setupLink = linkIn(setupSms?.body, "/setup/");
-    check(setupLink?.startsWith(BUYER_APP), `setup link on the CrankLeads host (${setupLink})`);
+    check(setupLink?.startsWith(BUYER_APP), `setup link on the done-for-you host (${setupLink})`);
     for (const m of msgs) check(noEmpireVu(`${m.subject ?? ""}\n${m.body ?? ""}\n${m.html ?? ""}`), `no "EmpireVu" in ${m.kind} "${(m.subject ?? m.body ?? "").slice(0, 50)}"`);
   });
 
@@ -550,7 +550,7 @@ async function main(): Promise<void> {
     check(alert.length >= 1, `owner alerted about the new lead (${alert.map((a) => `${a.kind}: ${String(a.body).slice(0, 80)}`).join(" | ")})`);
     for (const a of alert) check(noEmpireVu(`${a.subject ?? ""} ${a.body}`), `lead alert never says EmpireVu`);
     const leaked = operatorEmails().filter((e) => /Pat Homeowner|pat\.homeowner|555-0199/i.test(`${e.subject ?? ""} ${e.body ?? ""}`));
-    check(leaked.length === 0, `PRIVACY: the CrankLeads lead is NOT copied to the operator mailbox (${leaked.length})`);
+    check(leaked.length === 0, `PRIVACY: the done-for-you lead is NOT copied to the operator mailbox (${leaked.length})`);
     await mctx.close();
     await dctx.close();
   });

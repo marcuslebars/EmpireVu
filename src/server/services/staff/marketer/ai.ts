@@ -100,7 +100,7 @@ export async function loadBusinessBrief(admin: AdminClient, company: MarketingCo
   let bookingUrl: string | null = null;
   try {
     if (parseOnlineBookingSettings(raw.online_booking_settings).enabled) {
-      bookingUrl = `${quotePublicBaseUrlFor({ quote_public_base_url: raw.quote_public_base_url, platform_brand: company.crankleads ? "crankleads" : null })}/book/${company.companyId}`;
+      bookingUrl = `${quotePublicBaseUrlFor({ quote_public_base_url: raw.quote_public_base_url, platform_brand: company.doneForYou ? "crankleads" : null })}/book/${company.companyId}`;
     }
   } catch {
     bookingUrl = null;
@@ -127,7 +127,7 @@ async function generatedSiteUrl(db: Db, company: MarketingCompany): Promise<stri
       .eq("status", "published")
       .limit(1);
     const slug = ((data ?? []) as Array<{ slug: string | null }>)[0]?.slug;
-    return slug ? siteUrl(slug, company.crankleads ? "crankleads" : "empirevu") : null;
+    return slug ? siteUrl(slug, company.doneForYou ? "crankleads" : "empirevu") : null;
   } catch {
     return null;
   }

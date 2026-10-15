@@ -3,9 +3,9 @@ import type { Json } from "@/server/db/database.types";
 /**
  * Weekly report settings — the ONE reader of companies.ai_settings.weekly_report
  * (docs/front-desk-ai.md → "Weekly report"). Missing keys = defaults here:
- *   - enabled: ON for CrankLeads orgs (it's the proof of value), OFF for everyone else.
- *   - channels: CrankLeads → ["sms", "email"]; others → ["email"].
- * SMS goes from the platform number and is CrankLeads-only, so a non-CrankLeads org's
+ *   - enabled: ON for done-for-you orgs (it's the proof of value), OFF for everyone else.
+ *   - channels: done-for-you → ["sms", "email"]; others → ["email"].
+ * SMS goes from the platform number and is done-for-you-only, so a non-done-for-you org's
  * channels are always filtered down to email.
  */
 
@@ -23,19 +23,19 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-export function defaultWeeklyReportChannels(isCrankleads: boolean): WeeklyReportChannel[] {
-  return isCrankleads ? ["sms", "email"] : ["email"];
+export function defaultWeeklyReportChannels(isDoneForYou: boolean): WeeklyReportChannel[] {
+  return isDoneForYou ? ["sms", "email"] : ["email"];
 }
 
 /** companies.ai_settings (whole blob) → typed weekly-report settings with defaults. */
-export function parseWeeklyReportSettings(aiSettings: Json | null | undefined, isCrankleads: boolean): WeeklyReportSettings {
+export function parseWeeklyReportSettings(aiSettings: Json | null | undefined, isDoneForYou: boolean): WeeklyReportSettings {
   const section = asRecord(asRecord(aiSettings).weekly_report);
   const explicit = typeof section.enabled === "boolean";
-  const enabled = explicit ? (section.enabled as boolean) : isCrankleads;
+  const enabled = explicit ? (section.enabled as boolean) : isDoneForYou;
   let channels: WeeklyReportChannel[] = Array.isArray(section.channels)
     ? WEEKLY_REPORT_CHANNELS.filter((channel) => (section.channels as unknown[]).includes(channel))
-    : defaultWeeklyReportChannels(isCrankleads);
-  if (!isCrankleads) channels = channels.filter((channel) => channel !== "sms");
+    : defaultWeeklyReportChannels(isDoneForYou);
+  if (!isDoneForYou) channels = channels.filter((channel) => channel !== "sms");
   if (channels.length === 0) channels = ["email"];
   return { enabled, channels, explicit };
 }

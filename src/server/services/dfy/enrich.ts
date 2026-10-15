@@ -18,7 +18,7 @@ import { combinePageTexts, draftCatalogFromText, type CatalogDraft } from "@/ser
 import { isAIConfigured, type AiUsageMeta } from "@/server/ai/claude";
 import type { Inserts, Json, Tables } from "@/server/db/database.types";
 import { slugify } from "@/server/db/helpers";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
 import { crawlWebsite, type CrawlDeps, type CrawlResult } from "@/server/services/dfy/crawl";
 import { readAnswers, type SetupIntake } from "@/server/services/dfy/intake";
 import { getPlaceDetails, serviceAreaFromPlace, type PlaceDetails } from "@/server/services/dfy/places";

@@ -166,7 +166,7 @@ const rows = (t: string) => (db.tables[t] ?? []) as Array<Record<string, unknown
 const notify = { notify: vi.fn(async () => ({ notified: true })) };
 const emailDeps = { ...defaultPayrollDeps, ...notify, sendEmail: (input: Parameters<typeof sendEmail>[0]) => sendEmail(input) as Promise<{ id: string | null }> };
 
-async function crank(): Promise<RecruiterCompany> {
+async function dfyCompany(): Promise<RecruiterCompany> {
   return (await loadRecruiterCompany(db.client, ORG, CO)) as RecruiterCompany;
 }
 
@@ -260,13 +260,13 @@ describe("hours and Ontario overtime", () => {
 // ── Settings ────────────────────────────────────────────────────────────────
 
 describe("settings", () => {
-  it("defaults on for CrankLeads, off for house orgs; merges only the recruiter key", () => {
-    expect(readRecruiterSettings({}, { crankleads: true })).toMatchObject({ payroll: { enabled: true, frequency: "biweekly", anchorDate: "2026-01-05", csvEmail: null }, hiring: { enabled: true } });
-    expect(readRecruiterSettings({}, { crankleads: false })).toMatchObject({ payroll: { enabled: false }, hiring: { enabled: false } });
+  it("defaults on for done-for-you, off for house orgs; merges only the recruiter key", () => {
+    expect(readRecruiterSettings({}, { doneForYou: true })).toMatchObject({ payroll: { enabled: true, frequency: "biweekly", anchorDate: "2026-01-05", csvEmail: null }, hiring: { enabled: true } });
+    expect(readRecruiterSettings({}, { doneForYou: false })).toMatchObject({ payroll: { enabled: false }, hiring: { enabled: false } });
     const merged = mergeRecruiterSettings({ sms_agent: { x: 1 } }, { payroll: { frequency: "weekly", anchorDate: "2026-02-30", csvEmail: "Books@X.test" }, hiring: { enabled: true } });
     expect(merged.sms_agent).toEqual({ x: 1 });
     expect(merged.recruiter).toEqual({ payroll: { frequency: "weekly", csv_email: "books@x.test" }, hiring: { enabled: true }, any_on: true });
-    expect(readRecruiterSettings(merged, { crankleads: false }).payroll.anchorDate).toBe("2026-01-05"); // not a real date
+    expect(readRecruiterSettings(merged, { doneForYou: false }).payroll.anchorDate).toBe("2026-01-05"); // not a real date
   });
 
   it("house orgs never enter a sweep unless they opted in, and their tools stay hidden", async () => {
@@ -290,7 +290,7 @@ describe("settings", () => {
 
 describe("payroll_period", () => {
   it("is not due before 08:00 the morning after; at 08:00 asks once with everyone's hours", async () => {
-    const c = await crank();
+    const c = await dfyCompany();
     expect((await runCompanyPayroll(db.client, c, NOW - 10 * 60_000, emailDeps)).status).toBe("not_due");
     const out = await runCompanyPayroll(db.client, c, NOW, emailDeps);
     expect(out.status).toBe("asked");
@@ -312,12 +312,12 @@ describe("payroll_period", () => {
     expect(rows("owner_approvals")[0].summary).toMatch(/^Payroll Sep 28 - Oct 11: Mike 3h\. Total 3h\./);
     db = seed();
     db.tables.time_entries = [];
-    expect((await runCompanyPayroll(db.client, await crank(), NOW, emailDeps)).status).toBe("empty");
+    expect((await runCompanyPayroll(db.client, await dfyCompany(), NOW, emailDeps)).status).toBe("empty");
     expect(rows("owner_approvals")).toHaveLength(0);
   });
 
   it("E2E: Y through decideApproval locks the period, emails the CSV and confirms by text", async () => {
-    await runCompanyPayroll(db.client, await crank(), NOW, emailDeps);
+    await runCompanyPayroll(db.client, await dfyCompany(), NOW, emailDeps);
     const id = String(rows("owner_approvals")[0].id);
     const out = await decideApproval(db.client, id, { approved: true, decidedVia: "sms", decidedBy: OWNER }, { organizationId: ORG });
     expect(out.outcome).toBe("done");
@@ -340,7 +340,7 @@ describe("payroll_period", () => {
 
   it("open entries: Y re-asks with a fresh code; \"Y 2 anyway\" locks as is", async () => {
     rows("time_entries").push(entry(ANA, "2026-10-06", 8, 8, { ended_at: null }));
-    await runCompanyPayroll(db.client, await crank(), NOW, emailDeps);
+    await runCompanyPayroll(db.client, await dfyCompany(), NOW, emailDeps);
     const first = rows("owner_approvals")[0];
     expect(first.summary).toContain("1 open entry (no clock-out): Ana Tue Oct 6.");
     expect(replyInstruction("payroll_period", 1, first.payload as Record<string, unknown>)).toBe("Fix the open entry in the app and reply Y 1, or reply Y 1 anyway to lock as is. N 1 to skip.");
@@ -359,21 +359,21 @@ describe("payroll_period", () => {
   });
 
   it("N leaves it unlocked; expiry says so; a stale approval can't lock", async () => {
-    await runCompanyPayroll(db.client, await crank(), NOW, emailDeps);
+    await runCompanyPayroll(db.client, await dfyCompany(), NOW, emailDeps);
     const out = await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: false, decidedVia: "sms", decidedBy: OWNER });
     expect(out.message).toBe("OK, payroll Sep 28 - Oct 11 isn't locked. You can lock it or download the CSV in Settings any time.");
     expect(rows("pay_periods")[0].status).toBe("skipped");
     expect(sendEmail).not.toHaveBeenCalled();
     // Expiry (another period).
     db = seed();
-    await runCompanyPayroll(db.client, await crank(), NOW, emailDeps);
+    await runCompanyPayroll(db.client, await dfyCompany(), NOW, emailDeps);
     const row = rows("owner_approvals")[0];
     const expired = await expireApproval(db.client, row as never, Date.parse(String(row.expires_at)) + 1);
     expect(expired.result?.message).toBe("Payroll Sep 28 - Oct 11 wasn't locked (no answer). You can lock it or download the CSV in Settings > AI front desk > Hiring & payroll.");
     expect(rows("pay_periods")[0].status).toBe("expired");
     // A stale approval (the period moved on to a newer ask) can't lock it.
     db = seed();
-    await runCompanyPayroll(db.client, await crank(), NOW, emailDeps);
+    await runCompanyPayroll(db.client, await dfyCompany(), NOW, emailDeps);
     rows("pay_periods")[0].approval_id = "someone-else";
     const stale = await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER });
     expect(stale.message).toBe("#1 is out of date - answer the newer payroll text for Sep 28 - Oct 11.");
@@ -382,7 +382,7 @@ describe("payroll_period", () => {
 
   it("the CSV goes to the bookkeeper email when set; an email failure still locks and says where to download", async () => {
     rows("companies")[0].ai_settings = mergeRecruiterSettings({}, { payroll: { csvEmail: "books@acct.test" } });
-    await runCompanyPayroll(db.client, await crank(), NOW, emailDeps);
+    await runCompanyPayroll(db.client, await dfyCompany(), NOW, emailDeps);
     expect(rows("owner_approvals")[0].summary).toContain("emails the CSV to books@acct.test.");
     sendEmail.mockRejectedValueOnce(new Error("Resend down"));
     const out = await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER });
@@ -391,7 +391,7 @@ describe("payroll_period", () => {
   });
 
   it("unlock (logged) lets hours be edited; lock from Settings emails a fresh CSV; any period's CSV downloads", async () => {
-    await runCompanyPayroll(db.client, await crank(), NOW, emailDeps);
+    await runCompanyPayroll(db.client, await dfyCompany(), NOW, emailDeps);
     const periodId = String(rows("pay_periods")[0].id);
     await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER });
     const unlocked = await unlockPeriod(db.client, { organizationId: ORG, companyId: CO }, periodId, { profileId: "p-owner", reason: "Fix Mike's Tuesday" }, NOW);
@@ -409,7 +409,7 @@ describe("payroll_period", () => {
   });
 
   it("the settings view lists periods and jobs for managers only", async () => {
-    await runCompanyPayroll(db.client, await crank(), NOW, emailDeps);
+    await runCompanyPayroll(db.client, await dfyCompany(), NOW, emailDeps);
     const manager = await getRecruiterView(db.client, ORG, CO, { manager: true, nowMs: NOW });
     expect(manager).toMatchObject({ currentPeriod: { start: "2026-10-12", end: "2026-10-25" }, nextAskOn: "2026-10-26", siteLive: true, fallbackEmail: "dana@northshore.test" });
     expect(manager?.periods?.[0]).toMatchObject({ start: "2026-09-28", status: "awaiting_owner", totalMinutes: 128 * 60 });
@@ -501,7 +501,7 @@ describe("human rights guard", () => {
 describe("start_hiring → job_post", () => {
   it("drafts with the model, strips protected-ground lines and invented pay, and asks inline", async () => {
     const m = model(draftJson);
-    const r = await startHiring(db.client, await crank(), { request: "I need a labourer, $22/hr, start Monday" }, { askedInlineTo: OWNER, nowMs: NOW }, { ...defaultHiringDeps, ...notify, model: m });
+    const r = await startHiring(db.client, await dfyCompany(), { request: "I need a labourer, $22/hr, start Monday" }, { askedInlineTo: OWNER, nowMs: NOW }, { ...defaultHiringDeps, ...notify, model: m });
     expect(r.ok).toBe(true);
     expect(r.draft?.requirements).toEqual(["Able to lift 50 lbs and work at heights", "Must be 18 or older"]);
     expect(r.draft?.niceToHave).toEqual(["Valid driver's licence"]);
@@ -519,10 +519,10 @@ describe("start_hiring → job_post", () => {
   });
 
   it("an invented pay is dropped; no model → a plain template; a new request withdraws the old draft", async () => {
-    const r = await startHiring(db.client, await crank(), { request: "need a helper" }, { askedInlineTo: OWNER, nowMs: NOW }, { ...defaultHiringDeps, ...notify, model: model(draftJson) });
+    const r = await startHiring(db.client, await dfyCompany(), { request: "need a helper" }, { askedInlineTo: OWNER, nowMs: NOW }, { ...defaultHiringDeps, ...notify, model: model(draftJson) });
     expect(r.draft?.pay).toBeNull();
     expect(rows("owner_approvals")[0].summary).toContain("No pay given - Ontario requires the pay or a pay range on public job posts");
-    const t = await startHiring(db.client, await crank(), { request: "I need a labourer, $22/hr, start Monday" }, { askedInlineTo: OWNER, nowMs: NOW }, { ...defaultHiringDeps, ...notify, model: model(null) });
+    const t = await startHiring(db.client, await dfyCompany(), { request: "I need a labourer, $22/hr, start Monday" }, { askedInlineTo: OWNER, nowMs: NOW }, { ...defaultHiringDeps, ...notify, model: model(null) });
     expect(t.draft).toMatchObject({ title: "Labourer", pay: "$22/hr", start: "Monday", source: "template" });
     expect(rows("job_postings")[0].status).toBe("rejected");
     expect(rows("owner_approvals")[0].status).toBe("superseded");
@@ -539,7 +539,7 @@ describe("start_hiring → job_post", () => {
   });
 
   it("E2E: Y through decideApproval publishes the job and texts the owner copy for Indeed/Facebook", async () => {
-    await startHiring(db.client, await crank(), { request: "I need a labourer, $22/hr, start Monday" }, { askedInlineTo: OWNER, nowMs: NOW }, { ...defaultHiringDeps, ...notify, model: model(draftJson) });
+    await startHiring(db.client, await dfyCompany(), { request: "I need a labourer, $22/hr, start Monday" }, { askedInlineTo: OWNER, nowMs: NOW }, { ...defaultHiringDeps, ...notify, model: model(draftJson) });
     const job = rows("job_postings")[0];
     const out = await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: true, decidedVia: "sms", decidedBy: OWNER }, { organizationId: ORG });
     const url = `${siteUrl("northshore-roofing", "crankleads")}/jobs/${job.id}`;
@@ -555,7 +555,7 @@ describe("start_hiring → job_post", () => {
   });
 
   it("N doesn't post it", async () => {
-    await startHiring(db.client, await crank(), { request: "I need a labourer, $22/hr" }, { askedInlineTo: OWNER, nowMs: NOW }, { ...defaultHiringDeps, ...notify, model: model(null) });
+    await startHiring(db.client, await dfyCompany(), { request: "I need a labourer, $22/hr" }, { askedInlineTo: OWNER, nowMs: NOW }, { ...defaultHiringDeps, ...notify, model: model(null) });
     const out = await decideApproval(db.client, String(rows("owner_approvals")[0].id), { approved: false, decidedVia: "sms", decidedBy: OWNER });
     expect(out.message).toBe("OK, the Labourer job isn't posted. Text me what to change (e.g. the pay or start date) and I'll redraft it.");
     expect(rows("job_postings")[0].status).toBe("rejected");
@@ -722,7 +722,7 @@ async function applicants(n: number): Promise<string> {
 describe("daily applicant digest", () => {
   it("at 08:30 texts the owner the top applicants and asks about inviting at most 3; once a day", async () => {
     await applicants(5);
-    const c = await crank();
+    const c = await dfyCompany();
     expect((await runCompanyDigest(db.client, c, NOW)).status).toBe("not_due"); // 08:05
     const at = Date.parse("2026-10-12T12:31:00Z");
     const out = await runCompanyDigest(db.client, c, at);
@@ -741,7 +741,7 @@ describe("daily applicant digest", () => {
 
   it("E2E: interview_invite Y texts the applicant the exact invite and hands their reply to the owner", async () => {
     await applicants(1);
-    await runCompanyDigest(db.client, await crank(), Date.parse("2026-10-12T12:31:00Z"));
+    await runCompanyDigest(db.client, await dfyCompany(), Date.parse("2026-10-12T12:31:00Z"));
     const invite = rows("owner_approvals").find((a) => a.kind === "interview_invite")!;
     sendSms.mockClear();
     const out = await decideApproval(db.client, String(invite.id), { approved: true, decidedVia: "sms", decidedBy: OWNER }, { organizationId: ORG });
@@ -799,7 +799,7 @@ describe("owner channel and routing", () => {
 describe("general time and overtime across companies", () => {
   it("general time is paid AND locked by the oldest company with payroll on — the same rule", async () => {
     // CO (oldest) has payroll on → its period covers general time; CO2's doesn't.
-    await runCompanyPayroll(db.client, await crank(), NOW, emailDeps);
+    await runCompanyPayroll(db.client, await dfyCompany(), NOW, emailDeps);
     const c2 = (await loadRecruiterCompany(db.client, ORG, CO2)) as RecruiterCompany;
     await runCompanyPayroll(db.client, c2, NOW, emailDeps);
     const [p1, p2] = rows("pay_periods");
@@ -829,7 +829,7 @@ describe("general time and overtime across companies", () => {
       ...["2026-10-05", "2026-10-06", "2026-10-07"].map((d) => entry(MIKE, d, 7, 10)), // CO, Mon-Wed: 30h
       ...["2026-10-08", "2026-10-09", "2026-10-10"].map((d) => entry(MIKE, d, 7, 10, { company_id: CO2 })), // CO2, Thu-Sat: 30h
     ];
-    await runCompanyPayroll(db.client, await crank(), NOW, emailDeps);
+    await runCompanyPayroll(db.client, await dfyCompany(), NOW, emailDeps);
     await runCompanyPayroll(db.client, (await loadRecruiterCompany(db.client, ORG, CO2)) as RecruiterCompany, NOW, emailDeps);
     const [a, b] = rows("pay_periods");
     expect(a).toMatchObject({ company_id: CO, total_minutes: 30 * 60, ot_minutes: 0 });
@@ -838,10 +838,10 @@ describe("general time and overtime across companies", () => {
   });
 
   it("a frequency / anchor change never creates an overlapping period", async () => {
-    await runCompanyPayroll(db.client, await crank(), NOW, emailDeps); // Sep 28 - Oct 11
+    await runCompanyPayroll(db.client, await dfyCompany(), NOW, emailDeps); // Sep 28 - Oct 11
     rows("companies")[0].ai_settings = mergeRecruiterSettings({}, { payroll: { frequency: "weekly", anchorDate: "2026-01-07" } }); // Wed weeks
     const wed = Date.parse("2026-10-14T12:05:00Z"); // Wed: last week Oct 7 - 13 overlaps
-    expect((await runCompanyPayroll(db.client, await crank(), wed, emailDeps)).status).toBe("overlap");
+    expect((await runCompanyPayroll(db.client, await dfyCompany(), wed, emailDeps)).status).toBe("overlap");
     expect(rows("pay_periods")).toHaveLength(1);
   });
 });
@@ -864,7 +864,7 @@ describe("the timesheet dialog stopping a forgotten clock in a locked period", (
 describe("applicant texts and sweeps", () => {
   it("an interview invite OK'd at 23:40 waits for 08:00 and tells the owner so", async () => {
     await applicants(1);
-    await runCompanyDigest(db.client, await crank(), Date.parse("2026-10-12T12:31:00Z"));
+    await runCompanyDigest(db.client, await dfyCompany(), Date.parse("2026-10-12T12:31:00Z"));
     const invite = rows("owner_approvals").find((a) => a.kind === "interview_invite")!;
     sendSms.mockClear();
     const late = Date.parse("2026-10-13T03:40:00Z"); // 23:40 Mon

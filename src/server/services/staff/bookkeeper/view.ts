@@ -15,7 +15,7 @@ export interface CollectionsView {
   companyId: string;
   companyName: string;
   settings: CollectionsSettings;
-  /** What the default is for this org (on for CrankLeads, off for house orgs). */
+  /** What the default is for this org (on for done-for-you, off for house orgs). */
   defaultEnabled: boolean;
   emailReminders: { enabled: boolean; days: number[] };
   ownerPhoneOnFile: boolean;
@@ -39,7 +39,7 @@ export async function getCollectionsView(admin: AdminClient, organizationId: str
     companyId,
     companyName: ctx.name,
     settings: ctx.settings,
-    defaultEnabled: ctx.crankleads,
+    defaultEnabled: ctx.doneForYou,
     emailReminders: ctx.emailReminders,
     ownerPhoneOnFile: Boolean(ctx.ownerPhone),
     stats: {

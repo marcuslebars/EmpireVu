@@ -12,7 +12,7 @@
  *   Briefing   briefing-items.ts for the Office manager's 07:00 briefing.
  *
  * Record keeping only — nothing texts a customer or moves money, so there's no approval kind.
- * Vehicle insurance stays with Compliance (shown read-only). On for CrankLeads orgs (inert until
+ * Vehicle insurance stays with Compliance (shown read-only). On for done-for-you orgs (inert until
  * something is added), off for house orgs unless switched on.
  */
 import { emptyRole, type StaffRoleModule, type StaffSweep } from "@/server/services/staff/types";

@@ -22,13 +22,13 @@ vi.mock("@/server/services/quotes/company-stripe", () => ({ getPlatformStripe: (
 import { POST as connectPOST } from "@/app/api/webhooks/stripe/connect/route";
 import { POST as platformPOST } from "@/app/api/webhooks/stripe/route";
 import { constructStripeEvent, secondaryWebhookSecret } from "@/server/services/billing/webhook-secrets";
-import { buildCrankleadsSessionParams } from "@/server/services/crankleads/checkout";
-import { isCrankleadsObject } from "@/server/services/crankleads/provision";
+import { buildDoneForYouSessionParams } from "@/server/services/done-for-you/checkout";
+import { isDoneForYouObject } from "@/server/services/done-for-you/provision";
 import {
   DONE_FOR_YOU_STRIPE_SOURCES,
   isDoneForYouStripeSource,
   stripeSourceForWrite,
-} from "@/server/services/crankleads/stripe-source";
+} from "@/server/services/done-for-you/stripe-source";
 
 const ENV_KEYS = [
   "STRIPE_SECRET_KEY",
@@ -66,14 +66,14 @@ describe("metadata.source readers accept both values", () => {
     expect(isDoneForYouStripeSource(undefined)).toBe(false);
   });
 
-  it("isCrankleadsObject: session, subscription_details and parent.subscription_details, either value", async () => {
+  it("isDoneForYouObject: session, subscription_details and parent.subscription_details, either value", async () => {
     for (const source of ["crankleads", "everdoer"]) {
-      expect(isCrankleadsObject({ metadata: { source } } as never)).toBe(true);
-      expect(isCrankleadsObject({ subscription_details: { metadata: { source } } } as never)).toBe(true);
-      expect(isCrankleadsObject({ parent: { subscription_details: { metadata: { source } } } } as never)).toBe(true);
+      expect(isDoneForYouObject({ metadata: { source } } as never)).toBe(true);
+      expect(isDoneForYouObject({ subscription_details: { metadata: { source } } } as never)).toBe(true);
+      expect(isDoneForYouObject({ parent: { subscription_details: { metadata: { source } } } } as never)).toBe(true);
     }
-    expect(isCrankleadsObject({ metadata: { source: "something_else" } } as never)).toBe(false);
-    expect(isCrankleadsObject({ metadata: {} } as never)).toBe(false);
+    expect(isDoneForYouObject({ metadata: { source: "something_else" } } as never)).toBe(false);
+    expect(isDoneForYouObject({ metadata: {} } as never)).toBe(false);
     // Reads of the old value are deliberately NOT counted (every live subscription has it).
     expect(await usage.rows()).toEqual([]);
   });
@@ -97,7 +97,7 @@ describe("metadata.source writer", () => {
     const input = { tier: "catch", email: "a@b.co", name: "Pat", phone: "+17055550100", businessName: "Pat's", businessType: "plumbing" } as never;
     for (const [flag, value] of [[undefined, "crankleads"], ["1", "everdoer"]] as const) {
       if (flag) process.env.EVERDOER_WRITE_NEW_NAMES = flag;
-      const params = buildCrankleadsSessionParams({ id: "p1" }, input, {}, null);
+      const params = buildDoneForYouSessionParams({ id: "p1" }, input, {}, null);
       expect(params.metadata?.source).toBe(value);
       expect((params.subscription_data?.metadata as Record<string, string>).source).toBe(value);
     }

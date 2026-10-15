@@ -3,7 +3,7 @@
  * reader (docs/ai-staff.md → "Service plans").
  *
  *   service_plans = {
- *     enabled:   boolean,              // CrankLeads default on; house orgs are ALWAYS off
+ *     enabled:   boolean,              // Done-for-you default on; house orgs are ALWAYS off
  *     heads_up:  { enabled: boolean }, // the text ~10 days before each plan visit
  *     renewals:  { enabled: boolean }, // the weekly renewal batch (plan_renewals)
  *   }
@@ -30,7 +30,7 @@ export interface ServicePlansSettings {
   enabled: boolean;
   headsUp: { enabled: boolean };
   renewals: { enabled: boolean };
-  /** True for CrankLeads orgs (the only ones the role may ever work for). */
+  /** True for done-for-you orgs (the only ones the role may ever work for). */
   available: boolean;
 }
 
@@ -47,9 +47,9 @@ function record(value: unknown): Record<string, unknown> {
 const bool = (value: unknown): boolean | null => (typeof value === "boolean" ? value : null);
 
 /** companies.ai_settings (any shape) → the service-plans section with defaults. PURE. */
-export function readServicePlansSettings(aiSettings: unknown, org: { crankleads: boolean }): ServicePlansSettings {
+export function readServicePlansSettings(aiSettings: unknown, org: { doneForYou: boolean }): ServicePlansSettings {
   const section = record(record(aiSettings)[SETTINGS_KEY]);
-  const available = org.crankleads;
+  const available = org.doneForYou;
   return {
     // House orgs (A1 …) are always off, whatever is stored.
     enabled: available && (bool(section.enabled) ?? true),
@@ -87,7 +87,7 @@ export interface PlanCompany {
   companyId: string;
   name: string;
   timeZone: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   platformBrand: string | null;
   /** The verified owner cell (owner texts), or null. */
   ownerPhone: string | null;
@@ -111,17 +111,17 @@ interface CompanyRow {
 }
 
 export function toPlanCompany(row: CompanyRow, platformBrand: string | null): PlanCompany {
-  const crankleads = isDoneForYou(platformBrand);
+  const doneForYou = isDoneForYou(platformBrand);
   return {
     organizationId: row.organization_id,
     companyId: row.id,
     name: (row.brand_from_name?.trim() || row.name || "").trim() || "the business",
     timeZone: zoneOf(row.timezone),
-    crankleads,
+    doneForYou,
     platformBrand,
     ownerPhone: row.owner_phone_verified_at && row.owner_phone_e164?.trim() ? row.owner_phone_e164.trim() : null,
     active: !row.stage || !["archived", "paused", "cancelled"].includes(row.stage),
-    settings: readServicePlansSettings(row.ai_settings, { crankleads }),
+    settings: readServicePlansSettings(row.ai_settings, { doneForYou }),
   };
 }
 
@@ -168,13 +168,13 @@ export async function hasActivePlan(admin: AdminClient, scope: { organizationId:
 }
 
 /**
- * Is Service plans working for this company? CrankLeads org, switched on, company active, and at
+ * Is Service plans working for this company? Done-for-you org, switched on, company active, and at
  * least one active plan. House orgs: never. Never throws (a failed read counts as off).
  */
 export async function servicePlansActiveFor(admin: AdminClient, scope: { organizationId: string; companyId: string }): Promise<boolean> {
   try {
     const company = await loadPlanCompany(admin, scope.organizationId, scope.companyId);
-    if (!company || !company.crankleads || !company.active || !company.settings.enabled) return false;
+    if (!company || !company.doneForYou || !company.active || !company.settings.enabled) return false;
     return await hasActivePlan(admin, scope);
   } catch {
     return false;

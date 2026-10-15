@@ -14,8 +14,8 @@ import { fetchPublicFormConfig, submitPublicForm, type PublicFormConfig } from "
  *      the header and reports its height to the parent so the iframe auto-resizes);
  *   3. the "Send a test lead" button in Settings posts to the same endpoint.
  * Shows only display-safe company info (name, logo, public phone, service labels). The
- * page is the COMPANY's: no platform credit (a CrankLeads tenant's customers must not see
- * "EmpireVu"), and the tab icon is the company's logo or a neutral one.
+ * page is the COMPANY's: no platform credit (a done-for-you tenant's customers must not see
+ * "Everdoer"), and the tab icon is the company's logo or a neutral one.
  */
 
 const OTHER = "__other__";

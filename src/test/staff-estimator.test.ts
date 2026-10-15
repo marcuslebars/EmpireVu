@@ -239,7 +239,7 @@ async function turnState(): Promise<TurnState> {
   return {
     admin: db.client,
     facts,
-    settings: readSmsAgentSettings({}, { crankleads: true }),
+    settings: readSmsAgentSettings({}, { doneForYou: true }),
     contact: contact as never,
     conversation: conversation!,
     services: {} as never,
@@ -278,14 +278,14 @@ afterEach(() => {
 // ── settings ──────────────────────────────────────────────────────────────────────
 
 describe("estimator settings", () => {
-  it("default ON for CrankLeads, OFF for house orgs (A1) unless switched on", () => {
-    expect(readEstimatorSettings({}, { crankleads: true })).toEqual({ enabled: true, followUps: true, cadenceDays: [2, 5, 10], enabledIsDefault: true });
-    expect(readEstimatorSettings({}, { crankleads: false })).toMatchObject({ enabled: false, followUps: false, enabledIsDefault: true });
-    expect(readEstimatorSettings({ estimator: { enabled: true, follow_ups: true } }, { crankleads: false })).toMatchObject({ enabled: true, followUps: true, enabledIsDefault: false });
-    expect(readEstimatorSettings({ estimator: { cadence_days: [3, 1] } }, { crankleads: true }).cadenceDays).toEqual([2, 5, 10]);
+  it("default ON for done-for-you, OFF for house orgs (A1) unless switched on", () => {
+    expect(readEstimatorSettings({}, { doneForYou: true })).toEqual({ enabled: true, followUps: true, cadenceDays: [2, 5, 10], enabledIsDefault: true });
+    expect(readEstimatorSettings({}, { doneForYou: false })).toMatchObject({ enabled: false, followUps: false, enabledIsDefault: true });
+    expect(readEstimatorSettings({ estimator: { enabled: true, follow_ups: true } }, { doneForYou: false })).toMatchObject({ enabled: true, followUps: true, enabledIsDefault: false });
+    expect(readEstimatorSettings({ estimator: { cadence_days: [3, 1] } }, { doneForYou: true }).cadenceDays).toEqual([2, 5, 10]);
   });
 
-  it("estimatorActiveFor: on for a CrankLeads company, off for a house org, another org, or a missing company", async () => {
+  it("estimatorActiveFor: on for a done-for-you company, off for a house org, another org, or a missing company", async () => {
     expect(await estimatorActiveFor(db.client, { organizationId: ORG, companyId: CO })).toBe(true);
     expect(await estimatorActiveFor(db.client, { organizationId: "other-org", companyId: CO })).toBe(false);
     expect(await estimatorActiveFor(db.client, { organizationId: ORG, companyId: "nope" })).toBe(false);
@@ -922,7 +922,7 @@ describe("ai-settings/estimator route", () => {
   const params = { params: { organizationId: ORG, companyId: CO } };
   const patch = (body: unknown) => settingsPATCH(new Request("http://localhost/x", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), params);
 
-  it("GET shows the CrankLeads default", async () => {
+  it("GET shows the done-for-you default", async () => {
     const res = await settingsGET(new Request("http://localhost/x"), params);
     expect(res.status).toBe(200);
     expect((await res.json()).data).toMatchObject({ enabled: true, followUps: true, cadenceDays: [2, 5, 10], enabledIsDefault: true, defaultEnabled: true });

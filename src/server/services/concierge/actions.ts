@@ -21,8 +21,8 @@ import { PHONE_CARRIERS, PHONE_KINDS, type ConciergeActionInfo } from "@/lib/con
 import type { Json, Tables, Updates } from "@/server/db/database.types";
 import { slugify } from "@/server/db/helpers";
 import { ValidationError } from "@/server/organizations/context";
-import { resendWelcomeEmail } from "@/server/services/crankleads/provision";
-import type { AdminClient } from "@/server/services/crankleads/purchases";
+import { resendWelcomeEmail } from "@/server/services/done-for-you/provision";
+import type { AdminClient } from "@/server/services/done-for-you/purchases";
 import { resolveAccount, type ResolvedAccount } from "@/server/services/concierge/accounts";
 import type { OperatorIdentity } from "@/server/services/concierge/auth";
 import { needsPrice } from "@/server/services/packs/apply";
@@ -79,7 +79,7 @@ export function listConciergeActions(): ConciergeActionInfo[] {
 
 export const actionRequestSchema = z.object({
   action: z.string().min(1).max(64),
-  /** Optional: must belong to the org (else 404). Defaults to the org's CrankLeads company. */
+  /** Optional: must belong to the org (else 404). Defaults to the org's done-for-you company. */
   companyId: z.string().uuid().optional(),
   input: z.record(z.string(), z.unknown()).default({}),
 });

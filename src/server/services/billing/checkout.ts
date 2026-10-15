@@ -8,7 +8,7 @@ import {
   getStripeSetupFeePriceId,
 } from "@/server/services/billing/env";
 import { getStripeClient } from "@/server/services/billing/stripe";
-import { crankleadsCheckoutBranding } from "@/server/services/crankleads/config";
+import { doneForYouCheckoutBranding } from "@/server/services/done-for-you/config";
 import { appBaseUrlFor, brandForOrg, type PlatformBrand } from "@/server/services/platform-brand";
 import type { createSupabaseAdminClient } from "@/server/supabase/admin";
 
@@ -41,14 +41,14 @@ function billingBaseUrl(brand: PlatformBrand): string {
 
 /**
  * Checkout branding: Everdoer for EVERY org (one platform brand, D3), the same look as the
- * everdoer.com purchase checkout (crankleadsCheckoutBranding). Before PR 2 only done-for-you orgs
+ * everdoer.com purchase checkout (doneForYouCheckoutBranding). Before PR 2 only done-for-you orgs
  * got it and standard orgs saw the Stripe account's own (EmpireVu) name and logo.
  */
 export function checkoutBrandingFor(
   brand?: PlatformBrand,
 ): Stripe.Checkout.SessionCreateParams["branding_settings"] | undefined {
   void brand; // same for every product line
-  const b = crankleadsCheckoutBranding();
+  const b = doneForYouCheckoutBranding();
   return {
     display_name: b.displayName,
     logo: { type: "url", url: b.logoUrl },
@@ -167,7 +167,7 @@ export async function createBillingPortalSession(
   }
 
   // The billing portal has no per-session branding (its look is the Stripe account's
-  // portal configuration — EmpireVu). Only the return URL follows the org's brand host.
+  // portal configuration — Everdoer). Only the return URL follows the org's brand host.
   const stripe = getStripeClient();
   const session = await stripe.billingPortal.sessions.create({
     customer: org.stripe_customer_id,

@@ -49,7 +49,7 @@ export function PhoneModeStep({ orgId, companyId, stepData, onDone, aiStep }: Ph
   const { data: billing } = useBilling(orgId);
   // Optimistic while billing loads (the server is the real boundary).
   const modes = availablePhoneModes({
-    crankleadsTier: billing?.organization?.crankleads_tier ?? null,
+    planTier: billing?.organization?.crankleads_tier ?? null,
     aiReceptionistAllowed: billing?.gating?.marina_reception ?? true,
   });
   const catcherOnly = !modes.includes("ai_receptionist");

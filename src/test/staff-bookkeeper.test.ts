@@ -1,6 +1,6 @@
 /**
  * The AI Bookkeeper (docs/ai-staff.md → "Bookkeeper"): money formatting, settings defaults (on for
- * CrankLeads, off for house orgs like A1), the reminder schedule and send window, the sweep against
+ * done-for-you, off for house orgs like A1), the reminder schedule and send window, the sweep against
  * the fake DB (consent, quiet hours, idempotency), the approvals end to end through the owner
  * channel's decideApproval, the SMS-agent and owner tools, the daily money alert and the route.
  */
@@ -103,7 +103,7 @@ function seed(extra: Record<string, Array<Record<string, unknown>>> = {}) {
     companies: [
       {
         id: CO, organization_id: ORG, name: "Northshore Snow & Lawn", brand_from_name: null, timezone: "America/Toronto", owner_phone_e164: OWNER,
-        // The Office manager's morning briefing (on by default for CrankLeads) would carry the 8am
+        // The Office manager's morning briefing (on by default for done-for-you) would carry the 8am
         // alert instead (staff-office-manager.test.ts); these tests cover the standalone alert.
         owner_phone_verified_at: "2026-10-01T00:00:00Z", ai_settings: { office_manager: { enabled: false } }, quote_public_base_url: "https://pay.northshore.test", invoice_settings: null,
         updated_at: "2026-10-01T00:00:00Z",
@@ -215,11 +215,11 @@ describe("money formatting", () => {
 });
 
 describe("settings", () => {
-  it("default ON for CrankLeads, OFF for house orgs (A1) unless switched on", () => {
-    expect(readCollectionsSettings({}, { crankleads: true })).toMatchObject({ enabled: true, enabledIsDefault: true, textReminders: true, finalNotice: true, dailyAlert: true, reminderDays: [3, 10, 20, 30] });
-    expect(readCollectionsSettings({}, { crankleads: false })).toMatchObject({ enabled: false, enabledIsDefault: true });
-    expect(readCollectionsSettings({ collections: { enabled: true } }, { crankleads: false }).enabled).toBe(true);
-    expect(readCollectionsSettings({ collections: { reminderDays: [30, 5, 5, 0, 500, 12] } }, { crankleads: true }).reminderDays).toEqual([5, 12, 30]);
+  it("default ON for done-for-you, OFF for house orgs (A1) unless switched on", () => {
+    expect(readCollectionsSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, enabledIsDefault: true, textReminders: true, finalNotice: true, dailyAlert: true, reminderDays: [3, 10, 20, 30] });
+    expect(readCollectionsSettings({}, { doneForYou: false })).toMatchObject({ enabled: false, enabledIsDefault: true });
+    expect(readCollectionsSettings({ collections: { enabled: true } }, { doneForYou: false }).enabled).toBe(true);
+    expect(readCollectionsSettings({ collections: { reminderDays: [30, 5, 5, 0, 500, 12] } }, { doneForYou: true }).reminderDays).toEqual([5, 12, 30]);
   });
 
   it("merge touches only ai_settings.collections", () => {
@@ -774,7 +774,7 @@ describe("ai-settings/collections route", () => {
   const params = { params: { organizationId: ORG, companyId: CO } };
   const patch = (body: unknown) => new Request("http://localhost/x", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
-  it("GET shows the CrankLeads default and the email schedule it works around", async () => {
+  it("GET shows the done-for-you default and the email schedule it works around", async () => {
     const res = await GET(new Request("http://localhost/x"), params);
     expect(res.status).toBe(200);
     const { data } = await res.json();
@@ -834,7 +834,7 @@ describe("review fixes", () => {
     expect(invoiceReads.length).toBeGreaterThan(0);
     for (const q of invoiceReads) expect(q.filters).toContainEqual({ kind: "eq", column: "company_id", value: CO });
     expect(smsTo("+17055550777")).toHaveLength(0);
-    // Opted in → included; a CrankLeads company switched off → excluded.
+    // Opted in → included; a done-for-you company switched off → excluded.
     rows("companies")[1].ai_settings = { collections: { enabled: true } };
     rows("companies")[0].ai_settings = { collections: { enabled: false } };
     expect((await loadActiveCompanies(h.db!.client)).map((c) => c.companyId)).toEqual([A1_CO]);

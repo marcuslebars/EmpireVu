@@ -16,8 +16,8 @@ vi.mock("@/server/services/rate-limit", () => ({
   enforceRateLimit: async () => null,
 }));
 vi.mock("@/server/services/billing/stripe", () => ({ getStripeClient: () => ({}) }));
-vi.mock("@/server/services/crankleads/provision", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/server/services/crankleads/provision")>()),
+vi.mock("@/server/services/done-for-you/provision", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/services/done-for-you/provision")>()),
   resendWelcomeEmail: async () => "not_found",
 }));
 
@@ -29,9 +29,9 @@ import * as newCheckout from "@/app/api/public/everdoer/checkout/route";
 import * as newStatus from "@/app/api/public/everdoer/checkout/[sessionId]/route";
 import * as newResend from "@/app/api/public/everdoer/checkout/[sessionId]/resend/route";
 import * as newStop from "@/app/api/public/everdoer/setup-reminders/route";
-import { purchaseApiPrefix } from "@/lib/crankleads-purchase-api";
+import { purchaseApiPrefix } from "@/lib/done-for-you-purchase-api";
 import { isPublicPath } from "@/lib/public-routes";
-import { stopRemindersUrl } from "@/server/services/crankleads/setup-followups";
+import { stopRemindersUrl } from "@/server/services/done-for-you/setup-followups";
 import { publicDoneForYouApiPrefix } from "@/server/services/rebrand/route-alias";
 
 const SESSION = "cs_test_a1B2c3D4e5F6g7H8i9J0";
@@ -135,7 +135,7 @@ describe("SPA /welcome/everdoer", () => {
 
   it("routes to the same page as /welcome/crankleads (old route kept)", () => {
     const app = readFileSync(resolve(__dirname, "../App.tsx"), "utf8");
-    expect(app).toContain('<Route path="/welcome/crankleads" element={<CrankleadsWelcomePage />} />');
-    expect(app).toContain('<Route path="/welcome/everdoer" element={<CrankleadsWelcomePage />} />');
+    expect(app).toContain('<Route path="/welcome/crankleads" element={<DoneForYouWelcomePage />} />');
+    expect(app).toContain('<Route path="/welcome/everdoer" element={<DoneForYouWelcomePage />} />');
   });
 });

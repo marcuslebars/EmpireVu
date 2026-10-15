@@ -1,7 +1,7 @@
 import { ApiError, resolveApiUrl } from "@/lib/api-client";
 
 /**
- * Client for the CrankLeads purchase welcome page (/welcome/crankleads?session_id=…).
+ * Client for the done-for-you purchase welcome page (/welcome/crankleads?session_id=…).
  * Public endpoints — the Stripe Checkout Session id is the credential; no auth header.
  * Kept out of the shared api-client so the mobile app's typecheck is unaffected.
  */

@@ -58,7 +58,7 @@ export async function notifyCrewAssigned(ctx: TenantServiceContext, booking: Tab
         ? ctx.supabase.from("profiles").select("full_name, email").eq("id", ctx.actorProfileId).maybeSingle()
         : Promise.resolve({ data: null }),
     ]);
-    // The crew's own app host (the CrankLeads host for a CrankLeads org).
+    // The crew's own app host (the done-for-you host for a done-for-you org).
     const base = configuredAppBaseUrlFor(await loadOrganizationBrand(ctx.supabase, ctx.organizationId));
     const message = renderAssignmentMessage({
       title: booking.title,

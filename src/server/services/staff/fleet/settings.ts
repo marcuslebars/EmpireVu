@@ -7,7 +7,7 @@
  *     reminders,  // the daily heads-up text (service, plate sticker, safety, equipment, rentals)
  *   }
  *
- * `enabled` defaults ON for CrankLeads orgs (inert until a vehicle, machine or rental is added) and
+ * `enabled` defaults ON for done-for-you orgs (inert until a vehicle, machine or rental is added) and
  * OFF for house orgs (A1 etc.). `reminders` defaults on and only matters while `enabled`.
  */
 import { isDoneForYou } from "@/lib/product-line";
@@ -20,7 +20,7 @@ export const DEFAULT_TIMEZONE = "America/Toronto";
 export interface FleetSettings {
   enabled: boolean;
   reminders: boolean;
-  /** The org's default for the switch (CrankLeads → on). */
+  /** The org's default for the switch (done-for-you → on). */
   defaultEnabled: boolean;
   enabledIsDefault: boolean;
 }
@@ -35,13 +35,13 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 /** companies.ai_settings (any shape) → the Fleet section with defaults. PURE. */
-export function readFleetSettings(aiSettings: unknown, org: { crankleads: boolean }): FleetSettings {
+export function readFleetSettings(aiSettings: unknown, org: { doneForYou: boolean }): FleetSettings {
   const s = record(record(aiSettings)[SETTINGS_KEY]);
   const enabled = typeof s.enabled === "boolean" ? s.enabled : null;
   return {
-    enabled: enabled ?? org.crankleads,
+    enabled: enabled ?? org.doneForYou,
     reminders: typeof s.reminders === "boolean" ? s.reminders : true,
-    defaultEnabled: org.crankleads,
+    defaultEnabled: org.doneForYou,
     enabledIsDefault: enabled === null,
   };
 }
@@ -103,7 +103,7 @@ function toCompany(row: CompanyRow, platformBrand: string | null): FleetCompany 
     platformBrand,
     ownerPhone: row.owner_phone_verified_at && row.owner_phone_e164?.trim() ? row.owner_phone_e164.trim() : null,
     active: !row.stage || !["archived", "paused", "cancelled"].includes(row.stage),
-    settings: readFleetSettings(row.ai_settings, { crankleads: isDoneForYou(platformBrand) }),
+    settings: readFleetSettings(row.ai_settings, { doneForYou: isDoneForYou(platformBrand) }),
   };
 }
 

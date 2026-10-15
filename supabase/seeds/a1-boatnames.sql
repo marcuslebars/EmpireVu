@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Seed: boatnames.ca as company `a1-boatnames` under org `a1-group`.
 --
--- Run this against the EmpireVu database BEFORE the boatnames forward gate is
+-- Run this against the Everdoer database BEFORE the boatnames forward gate is
 -- flipped on. Until this row exists AND the sourceSite code map knows about
 -- "boatnames" (see below), a boatnames lead resolves to no company and lands in
 -- raw_leads instead of creating a contact.

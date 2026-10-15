@@ -19,7 +19,7 @@ export interface SmsAgentSettingsView {
   autonomy: SmsAgentAutonomy;
   /** On/off is the plan default (no explicit owner choice yet). */
   enabledIsDefault: boolean;
-  /** The default for this org: on for CrankLeads accounts. */
+  /** The default for this org: on for done-for-you accounts. */
   defaultEnabled: boolean;
   stats: {
     /** Conversations the AI replied in, last 30 days. */
@@ -85,7 +85,7 @@ export async function getSmsAgentSettingsView(ctx: TenantServiceContext, company
     enabled: settings.enabled,
     autonomy: settings.autonomy,
     enabledIsDefault: settings.enabledIsDefault,
-    defaultEnabled: settings.crankleads,
+    defaultEnabled: settings.doneForYou,
     stats: { conversations30d, aiReplies30d, withOwner, pendingApprovals },
   };
 }

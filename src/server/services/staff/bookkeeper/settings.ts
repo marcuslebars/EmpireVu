@@ -2,7 +2,7 @@
  * The Bookkeeper's settings: companies.ai_settings.collections, read with defaults. The ONE typed
  * reader (docs/ai-staff.md → "Bookkeeper").
  *
- *   enabled        master switch. Default ON for CrankLeads orgs, OFF for house orgs (A1…) unless
+ *   enabled        master switch. Default ON for done-for-you orgs, OFF for house orgs (A1…) unless
  *                  the owner turns it on. Off → no texts, no alerts, and the tools say so.
  *   textReminders  overdue invoices get reminder texts with the pay link (default on).
  *   reminderDays   days past due for each text (default 3, 10, 20, 30 — between the email
@@ -53,11 +53,11 @@ export function normalizeReminderDays(value: unknown): number[] | null {
 const bool = (value: unknown, fallback: boolean) => (typeof value === "boolean" ? value : fallback);
 
 /** companies.ai_settings (any shape) → the Bookkeeper section with defaults. PURE. */
-export function readCollectionsSettings(aiSettings: unknown, org: { crankleads: boolean }): CollectionsSettings {
+export function readCollectionsSettings(aiSettings: unknown, org: { doneForYou: boolean }): CollectionsSettings {
   const s = record(record(aiSettings)[SETTINGS_KEY]);
   const explicit = typeof s.enabled === "boolean" ? s.enabled : null;
   return {
-    enabled: explicit ?? org.crankleads,
+    enabled: explicit ?? org.doneForYou,
     enabledIsDefault: explicit === null,
     textReminders: bool(s.textReminders, true),
     reminderDays: normalizeReminderDays(s.reminderDays) ?? DEFAULT_REMINDER_DAYS,
@@ -84,7 +84,7 @@ export function mergeCollectionsSettings(aiSettings: unknown, patch: Collections
 export interface CompanyCollectionsSettings extends CollectionsSettings {
   organizationId: string;
   companyId: string;
-  crankleads: boolean;
+  doneForYou: boolean;
 }
 
 /** One company's settings (service role). Null → no such company in that org. */
@@ -93,12 +93,12 @@ export async function loadCollectionsSettings(admin: AdminClient, organizationId
   const { data } = await db.from("companies").select("id, organization_id, ai_settings").eq("organization_id", organizationId).eq("id", companyId).maybeSingle();
   if (!data) return null;
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", organizationId).maybeSingle();
-  const crankleads = isCrankleadsOrg(org);
-  return { ...readCollectionsSettings((data as { ai_settings: unknown }).ai_settings, { crankleads }), organizationId, companyId, crankleads };
+  const doneForYou = isDoneForYouOrg(org);
+  return { ...readCollectionsSettings((data as { ai_settings: unknown }).ai_settings, { doneForYou }), organizationId, companyId, doneForYou };
 }
 
-/** organizations row → CrankLeads? (platform_brand 'crankleads', like the front desk's readers). PURE. */
-export function isCrankleadsOrg(org: unknown): boolean {
+/** organizations row → done-for-you? (platform_brand 'crankleads', like the front desk's readers). PURE. */
+export function isDoneForYouOrg(org: unknown): boolean {
   return isDoneForYou(record(org).platform_brand);
 }
 
@@ -139,12 +139,12 @@ export interface ActiveCompany {
   organizationId: string;
   companyId: string;
   timeZone: string | null;
-  crankleads: boolean;
+  doneForYou: boolean;
   settings: CollectionsSettings;
 }
 
 /**
- * Companies with the Bookkeeper on: every company of a CrankLeads org (unless switched off), plus
+ * Companies with the Bookkeeper on: every company of a done-for-you org (unless switched off), plus
  * house-org companies that switched it on (ai_settings.collections.enabled = true). House orgs are
  * filtered out at the query, so A1-style tenants never enter a sweep unless they opted in.
  */
@@ -152,9 +152,9 @@ export async function loadActiveCompanies(admin: AdminClient): Promise<ActiveCom
   const db = admin as Db;
   const columns = "id, organization_id, timezone, ai_settings";
   const orgs = await readAllPages<{ id: string }>((from, to) => db.from("organizations").select("id").in("platform_brand", [...PRODUCT_LINE_DB_VALUES.done_for_you]).order("id", { ascending: true }).range(from, to));
-  const crankOrgs = new Set(orgs.map((o) => o.id));
+  const doneForYouOrgs = new Set(orgs.map((o) => o.id));
   const rows = new Map<string, { id: string; organization_id: string; timezone: string | null; ai_settings: unknown }>();
-  for (const ids of chunks([...crankOrgs])) {
+  for (const ids of chunks([...doneForYouOrgs])) {
     const page = await readAllPages<{ id: string; organization_id: string; timezone: string | null; ai_settings: unknown }>((from, to) =>
       db.from("companies").select(columns).in("organization_id", ids).order("id", { ascending: true }).range(from, to),
     );
@@ -166,9 +166,9 @@ export async function loadActiveCompanies(admin: AdminClient): Promise<ActiveCom
   for (const r of optedIn) rows.set(r.id, r);
   const out: ActiveCompany[] = [];
   for (const r of rows.values()) {
-    const crankleads = crankOrgs.has(r.organization_id);
-    const settings = readCollectionsSettings(r.ai_settings, { crankleads });
-    if (settings.enabled) out.push({ organizationId: r.organization_id, companyId: r.id, timeZone: r.timezone, crankleads, settings });
+    const doneForYou = doneForYouOrgs.has(r.organization_id);
+    const settings = readCollectionsSettings(r.ai_settings, { doneForYou });
+    if (settings.enabled) out.push({ organizationId: r.organization_id, companyId: r.id, timeZone: r.timezone, doneForYou, settings });
   }
   return out;
 }

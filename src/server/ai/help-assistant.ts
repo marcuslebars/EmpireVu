@@ -15,7 +15,7 @@ import { extractAiUsage, parseModelJson, type AiUsageMeta } from "@/server/ai/cl
  */
 
 /**
- * The rules, naming the product the asker knows (EmpireVu or CrankLeads — the org's platform
+ * The rules, naming the product the asker knows (Everdoer — the org's platform
  * brand). Only the name differs, so each brand's prompt is still cached.
  */
 export function helpSystemPrompt(productName: string): string {

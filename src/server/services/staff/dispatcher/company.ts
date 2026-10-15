@@ -16,7 +16,7 @@ export interface DispatchCompany {
   businessName: string;
   timeZone: string;
   platformBrand: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   settings: DispatchSettings;
   latitude: number | null;
   longitude: number | null;
@@ -71,7 +71,7 @@ async function build(admin: AdminClient, rows: CompanyRow[]): Promise<DispatchCo
   const orgIds = [...new Set(rows.map((r) => r.organization_id))];
   const orgs = await selectIn<{ id: string; platform_brand: string | null }>(admin, "organizations", "id, platform_brand", "id", orgIds);
   const brandOf = new Map(orgs.map((o) => [o.id, o.platform_brand ?? "empirevu"]));
-  // The CrankLeads business type is only a hint for companies without an industry pack.
+  // The done-for-you business type is only a hint for companies without an industry pack.
   const needType = rows.filter((r) => isDoneForYou(brandOf.get(r.organization_id)) && !r.industry_pack).map((r) => r.id);
   const purchases = needType.length
     ? await selectIn<{ company_id: string | null; business_type: string | null }>(admin, "crankleads_purchases", "company_id, business_type", "company_id", needType).catch(() => [])
@@ -79,15 +79,15 @@ async function build(admin: AdminClient, rows: CompanyRow[]): Promise<DispatchCo
   const typeOf = new Map(purchases.map((p) => [p.company_id, p.business_type]));
   return rows.map((r) => {
     const platformBrand = brandOf.get(r.organization_id) ?? "empirevu";
-    const crankleads = isDoneForYou(platformBrand);
+    const doneForYou = isDoneForYou(platformBrand);
     return {
       organizationId: r.organization_id,
       companyId: r.id,
       businessName: text(r.brand_from_name) ?? r.name,
       timeZone: zoneOf(r.timezone),
       platformBrand,
-      crankleads,
-      settings: readDispatchSettings(r.ai_settings, { crankleads, industryPack: r.industry_pack, hints: [r.name, typeOf.get(r.id) ?? null] }),
+      doneForYou,
+      settings: readDispatchSettings(r.ai_settings, { doneForYou, industryPack: r.industry_pack, hints: [r.name, typeOf.get(r.id) ?? null] }),
       latitude: typeof r.latitude === "number" ? r.latitude : null,
       longitude: typeof r.longitude === "number" ? r.longitude : null,
       locationCheckedAt: r.location_checked_at ?? null,
@@ -115,7 +115,7 @@ async function pageAll<T>(fetchPage: (from: number, to: number) => PromiseLike<{
 
 /**
  * Companies where some Dispatcher feature is on (paused / archived companies are left alone),
- * settings resolved. Filtered server-side: companies of CrankLeads orgs (on by default), plus
+ * settings resolved. Filtered server-side: companies of done-for-you orgs (on by default), plus
  * house-org companies that switched something on (ai_settings.dispatch.any_on, written by
  * mergeDispatchSettings).
  */

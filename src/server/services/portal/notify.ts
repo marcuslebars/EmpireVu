@@ -3,7 +3,7 @@
  * The caller (portal/links.ts) has already resolved the contact and company through its
  * own RLS-scoped session; this module only sends to that contact and writes the
  * message log (which members can't insert into directly), pinned to the caller's org.
- * Listed in docs/EMPIREVU_RUNBOOK.md (service-role surfaces).
+ * Listed in docs/EVERDOER_RUNBOOK.md (service-role surfaces).
  */
 import type { Tables } from "@/server/db/database.types";
 import { isEmailSendConfigured } from "@/server/outbound/email";

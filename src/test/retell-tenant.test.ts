@@ -103,7 +103,7 @@ describe("resolveRetellTenant", () => {
   });
 });
 
-describe("pinnedRetellTenant (AI-answered catcher calls, CrankLeads Front Desk numbers)", () => {
+describe("pinnedRetellTenant (AI-answered catcher calls, done-for-you Front Desk numbers)", () => {
   it("a non-A1 company is tagged with its own slug, so the phone lead is a valid envelope (contact created)", async () => {
     const { pinnedRetellTenant } = await import("@/server/services/retell/tenant");
     const { buildPhoneLeadEnvelope } = await import("@/server/services/retell/lead-adapter");

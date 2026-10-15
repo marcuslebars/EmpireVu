@@ -15,7 +15,7 @@ export interface ImportOverview {
   companyId: string;
   companyName: string;
   settings: ImportSettings;
-  /** What the default is for this org (on for CrankLeads, off for house orgs). */
+  /** What the default is for this org (on for done-for-you, off for house orgs). */
   defaultEnabled: boolean;
   ownerPhoneOnFile: boolean;
   batches: BatchSummary[];
@@ -33,7 +33,7 @@ export async function overviewFor(admin: AdminClient, company: ImportCompany): P
     companyId: company.companyId,
     companyName: company.name,
     settings: company.settings,
-    defaultEnabled: company.crankleads,
+    defaultEnabled: company.doneForYou,
     ownerPhoneOnFile: Boolean(company.ownerPhone),
     batches,
     held: { count: held.count, totalCents: held.totalCents, pendingCode: pending?.short_code ?? null },

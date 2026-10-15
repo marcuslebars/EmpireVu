@@ -68,15 +68,15 @@ beforeEach(() => {
 });
 
 describe("readCallAnsweringSettings", () => {
-  it("defaults: AI for CrankLeads, voicemail for house orgs, 100 minutes", () => {
-    expect(readCallAnsweringSettings({}, { crankleads: true })).toEqual({ mode: "ai", includedMinutes: 100, modeExplicit: false });
-    expect(readCallAnsweringSettings(null, { crankleads: false })).toEqual({ mode: "voicemail", includedMinutes: 100, modeExplicit: false });
-    expect(readCallAnsweringSettings({ call_answering: { mode: "ai", included_minutes: 250 } }, { crankleads: false })).toEqual({
+  it("defaults: AI for done-for-you, voicemail for house orgs, 100 minutes", () => {
+    expect(readCallAnsweringSettings({}, { doneForYou: true })).toEqual({ mode: "ai", includedMinutes: 100, modeExplicit: false });
+    expect(readCallAnsweringSettings(null, { doneForYou: false })).toEqual({ mode: "voicemail", includedMinutes: 100, modeExplicit: false });
+    expect(readCallAnsweringSettings({ call_answering: { mode: "ai", included_minutes: 250 } }, { doneForYou: false })).toEqual({
       mode: "ai",
       includedMinutes: 250,
       modeExplicit: true,
     });
-    expect(readCallAnsweringSettings({ call_answering: { mode: "robot", included_minutes: -5 } }, { crankleads: true }).mode).toBe("ai");
+    expect(readCallAnsweringSettings({ call_answering: { mode: "robot", included_minutes: -5 } }, { doneForYou: true }).mode).toBe("ai");
   });
 
   it("merge touches ONLY call_answering", () => {

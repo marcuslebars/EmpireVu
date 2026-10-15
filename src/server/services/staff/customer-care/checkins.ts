@@ -5,7 +5,7 @@
  *    or tell us anything we missed."
  *
  * Planning (`customer_care:jobs`): `booking.completed` activity events from the last 3 days, for
- * companies where the role works (CrankLeads + the SMS agent on; house orgs only if they opted in).
+ * companies where the role works (done-for-you + the SMS agent on; house orgs only if they opted in).
  * Each job gets ONE care_checkins row (unique booking_id: the claim) — scheduled, or skipped with
  * the reason — and its job_warranties row. Callback / warranty visits get neither.
  *

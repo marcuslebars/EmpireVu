@@ -754,11 +754,11 @@ describe("parseOwnerNote", () => {
 // ── pure pieces ─────────────────────────────────────────────────────────────────
 
 describe("settings", () => {
-  it("defaults: on for CrankLeads, off for house orgs, standard autonomy", () => {
-    expect(readSmsAgentSettings({}, { crankleads: true })).toMatchObject({ enabled: true, autonomy: "standard", enabledIsDefault: true });
-    expect(readSmsAgentSettings(null, { crankleads: false })).toMatchObject({ enabled: false });
-    expect(readSmsAgentSettings({ sms_agent: { enabled: true, autonomy: "ask_first" } }, { crankleads: false })).toMatchObject({ enabled: true, autonomy: "ask_first", enabledIsDefault: false });
-    expect(readSmsAgentSettings({ sms_agent: { autonomy: "yolo" } }, { crankleads: true }).autonomy).toBe("standard");
+  it("defaults: on for done-for-you, off for house orgs, standard autonomy", () => {
+    expect(readSmsAgentSettings({}, { doneForYou: true })).toMatchObject({ enabled: true, autonomy: "standard", enabledIsDefault: true });
+    expect(readSmsAgentSettings(null, { doneForYou: false })).toMatchObject({ enabled: false });
+    expect(readSmsAgentSettings({ sms_agent: { enabled: true, autonomy: "ask_first" } }, { doneForYou: false })).toMatchObject({ enabled: true, autonomy: "ask_first", enabledIsDefault: false });
+    expect(readSmsAgentSettings({ sms_agent: { autonomy: "yolo" } }, { doneForYou: true }).autonomy).toBe("standard");
   });
   it("merging touches only the sms_agent section", () => {
     const merged = mergeSmsAgentSettings({ call_answering: { mode: "ai" }, sms_agent: { enabled: true } }, { autonomy: "ask_first" });
@@ -964,7 +964,7 @@ describe("runSmsAgent — after the phone AI took a call (voice/post-call.ts see
 const PLATFORM_LINK = "https://app.empirevu.com/q/tok1";
 
 describe("links are never touched by the platform-name scrub, and go out exactly once", () => {
-  it("stripPlatformNames leaves URLs alone (scheme, www, bare host, CrankLeads hosts)", () => {
+  it("stripPlatformNames leaves URLs alone (scheme, www, bare host, done-for-you hosts)", () => {
     expect(stripPlatformNames(`Quote: ${PLATFORM_LINK} from EmpireVu`, "Northshore Snow & Lawn")).toBe(`Quote: ${PLATFORM_LINK} from Northshore Snow & Lawn`);
     expect(stripPlatformNames("Book at https://app.crankleads.com/book/abc-123?x=1 or www.crankleads.com/p/9", "Northshore")).toBe(
       "Book at https://app.crankleads.com/book/abc-123?x=1 or www.crankleads.com/p/9",

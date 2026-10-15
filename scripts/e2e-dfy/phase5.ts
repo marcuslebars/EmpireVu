@@ -29,7 +29,7 @@ import { join } from "node:path";
 import Stripe from "stripe";
 
 import { createSupabaseAdminClient } from "@/server/supabase/admin";
-import { createCrankleadsCheckout } from "@/server/services/crankleads/checkout";
+import { createDoneForYouCheckout } from "@/server/services/done-for-you/checkout";
 import { claimBillingEventJobs } from "@/server/services/billing/jobs";
 import { processBillingEventJob } from "@/server/services/billing/events";
 import { updateBookingStatus } from "@/server/services/bookings";
@@ -341,7 +341,7 @@ function fakeStripe(): Stripe {
   } as unknown as Stripe;
 }
 async function buy(buyer: Buyer): Promise<void> {
-  const checkout = await createCrankleadsCheckout(admin, { tier: buyer.tier, name: buyer.name, email: buyer.email, phone: buyer.phone, businessName: buyer.businessName, businessType: buyer.businessType }, fakeStripe());
+  const checkout = await createDoneForYouCheckout(admin, { tier: buyer.tier, name: buyer.name, email: buyer.email, phone: buyer.phone, businessName: buyer.businessName, businessType: buyer.businessType }, fakeStripe());
   buyer.purchaseId = checkout.purchaseId;
   const suffix = checkout.purchaseId.slice(0, 8);
   const event = {
@@ -556,7 +556,7 @@ async function main(): Promise<void> {
   await clockTo(at(D0, "09:15"));
   console.log(`clock now ${new Date().toISOString()} (${torontoTime(Date.now())} Toronto); D0 = ${D0} (Mon), D1 = ${D(1)} is the first Tuesday`);
 
-  await step("0. seed: a live CrankLeads Close company (purchase → switch-on → live), crew with pay rates, six months of costed jobs + quotes (an underpriced, high-win-rate gutter cleaning), this week's three jobs, a supplier; a second CrankLeads company; a house tenant (A1) with review requests + job-done invoicing", async () => {
+  await step("0. seed: a live done-for-you Close company (purchase → switch-on → live), crew with pay rates, six months of costed jobs + quotes (an underpriced, high-win-rate gutter cleaning), this week's three jobs, a supplier; a second done-for-you company; a house tenant (A1) with review requests + job-done invoicing", async () => {
     await seedHouse();
     await buy(dana);
     await buy(bay);
@@ -756,7 +756,7 @@ async function main(): Promise<void> {
       appr?.status === "pending" &&
         ask.length === 1 &&
         ask[0].from === PLATFORM &&
-        noPrefix(ask[0].body) === `#${appr?.short_code} Email from Robin Lake: "Can you quote a full roof on 12 Bay St?" Draft: "${draft}" Full draft: http://app.crankleads.localhost:${env("E2E_GATEWAY_PORT")}/settings?section=front-desk&email=${row?.id} Reply Y ${appr?.short_code} to send it, N ${appr?.short_code} to skip.`,
+        noPrefix(ask[0].body) === `#${appr?.short_code} Email from Robin Lake: "Can you quote a full roof on 12 Bay St?" Draft: "${draft}" Full draft: http://app.everdoer.localhost:${env("E2E_GATEWAY_PORT")}/settings?section=front-desk&email=${row?.id} Reply Y ${appr?.short_code} to send it, N ${appr?.short_code} to skip.`,
       `email_reply #${appr?.short_code} texted with the exact wording`,
     );
     check(emails(got).length === 0, "nothing emailed to the customer yet");

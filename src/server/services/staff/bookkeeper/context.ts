@@ -9,7 +9,7 @@ import type { TenantServiceContext } from "@/server/services/shared";
 import { deliverMessage, type ConsentContact, type DeliverMessageResult } from "@/server/services/workflow-engine/messaging";
 import { CONTACT_COLUMNS, INVOICE_COLUMNS, type BookkeeperContact, type BookkeeperInvoice, type Db, type InvoiceCollectionsRow } from "./db-types";
 import { localParts } from "./format";
-import { chunks, isCrankleadsOrg, readCollectionsSettings, type CollectionsSettings } from "./settings";
+import { chunks, isDoneForYouOrg, readCollectionsSettings, type CollectionsSettings } from "./settings";
 
 /** message_log.sent_by for the Bookkeeper's texts. */
 export const BOOKKEEPER_SENDER = "bookkeeper";
@@ -21,7 +21,7 @@ export interface CompanyCtx {
   /** The name customers know (brand_from_name, else the company name). */
   name: string;
   timeZone: string;
-  crankleads: boolean;
+  doneForYou: boolean;
   platformBrand: string;
   /** The VERIFIED owner cell, else null (no owner texts). */
   ownerPhone: string | null;
@@ -61,7 +61,7 @@ export async function loadCompanyCtx(admin: AdminClient, organizationId: string,
   if (!data) return null;
   const c = data as Record<string, unknown>;
   const { data: org } = await db.from("organizations").select("platform_brand").eq("id", organizationId).maybeSingle();
-  const crankleads = isCrankleadsOrg(org);
+  const doneForYou = isDoneForYouOrg(org);
   const platformBrand = str((org as Record<string, unknown> | null)?.platform_brand) ?? "empirevu";
   const invoiceSettings = parseInvoiceSettings(c.invoice_settings ?? null);
   return {
@@ -69,12 +69,12 @@ export async function loadCompanyCtx(admin: AdminClient, organizationId: string,
     companyId,
     name: str(c.brand_from_name) ?? str(c.name) ?? "us",
     timeZone: str(c.timezone) ?? process.env.BUSINESS_TIMEZONE?.trim() ?? "America/Toronto",
-    crankleads,
+    doneForYou,
     platformBrand,
     ownerPhone: str(c.owner_phone_e164) && c.owner_phone_verified_at ? str(c.owner_phone_e164) : null,
     ownerFirstName: await ownerFirstName(db, organizationId),
-    settings: readCollectionsSettings(c.ai_settings, { crankleads }),
-    quoteBaseCompany: { quote_public_base_url: str(c.quote_public_base_url), platform_brand: crankleads ? "crankleads" : platformBrand },
+    settings: readCollectionsSettings(c.ai_settings, { doneForYou }),
+    quoteBaseCompany: { quote_public_base_url: str(c.quote_public_base_url), platform_brand: doneForYou ? "crankleads" : platformBrand },
     emailReminders: { enabled: invoiceSettings.remindersEnabled, days: invoiceSettings.reminderDays },
   };
 }

@@ -13,8 +13,8 @@ interface RouteContext {
 }
 
 /**
- * The "We're setting you up" view for a CrankLeads org (docs/done-for-you.md). Org member
- * (RLS reads). `data` is null for orgs that aren't CrankLeads purchases. The admin client is
+ * The "We're setting you up" view for a done-for-you org (docs/done-for-you.md). Org member
+ * (RLS reads). `data` is null for orgs that aren't done-for-you purchases. The admin client is
  * used only to mint / read the company's one-tap forwarding and quick-setup tokens (not
  * client-readable), for the company the caller's own RLS read returned — and those links are
  * returned to owners/admins only; members get the status.

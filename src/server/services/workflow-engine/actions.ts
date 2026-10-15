@@ -371,7 +371,7 @@ export async function executeWorkflowActions(
       case "notify_owner": {
         const data = await getTemplateData();
         const owner = await getOwnerContacts();
-        // Default subject names the org's platform brand ("CrankLeads alert" for a CrankLeads org).
+        // Default subject names the org's platform brand (e.g. "Everdoer alert").
         const subject = action.subject
           ? renderTemplate(action.subject, data)
           : `${(await loadOrganizationBrand(context.supabase, context.organizationId)).name} alert`;
