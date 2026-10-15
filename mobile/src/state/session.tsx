@@ -6,6 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { fetchSessionContext, type SessionContext } from "@m/lib/api";
 import { consumeCredentialAuth, handleAuthCallback } from "@m/lib/auth";
 import { authenticate, biometricInfo, clearBiometricOffer, disableBiometrics, getBiometricProfile } from "@m/lib/biometrics";
+import { clearQueryCache, hydrateQueryCache, setCacheOwner } from "@m/lib/offlineCache";
 import { noteSignedOut, restoreSession, supabase } from "@m/lib/supabase";
 import { useDevice } from "@m/state/device";
 import { clearStoredScope } from "@m/state/scope";
@@ -101,6 +102,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setStatus("signedOut");
         return;
       }
+      // Before the first signed-in render, so a cold start with no signal shows this
+      // user's last-known jobs instead of an empty screen. Hydrate never overwrites
+      // fresher data, so online this is invisible.
+      setCacheOwner(sessionUser.id);
+      await hydrateQueryCache(queryClient, sessionUser.id);
+      if (!mounted.current) return;
       // Biometrics on and still available → stay locked until the user unlocks.
       const [profile, info] = await Promise.all([getBiometricProfile(), biometricInfo()]);
       if (mounted.current) setStatus(profile && info.available ? "locked" : "signedIn");
@@ -109,6 +116,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_IN") {
         setUser(session?.user ?? null);
+        setCacheOwner(session?.user?.id ?? null);
         // auth-js replays SIGNED_IN for an already-stored session every time the app returns
         // to the foreground. Only a real credential sign-in may clear the biometric lock — and a
         // replay while reconnecting goes through leaveReconnecting's lock check instead.
@@ -127,6 +135,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setUser(null);
         setStatus("signedOut");
         queryClient.clear();
+        void clearQueryCache();
       } else if (event === "USER_UPDATED") {
         setUser(session?.user ?? null);
       }
@@ -196,6 +205,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     noteSignedOut();
     await supabase.auth.signOut();
     queryClient.clear();
+    await clearQueryCache();
   }, [queryClient]);
 
   const value = useMemo<SessionValue>(
