@@ -48,8 +48,8 @@ describe("HelpPanel", () => {
 
   it("shows the D10 entity line once, at the foot of the panel", () => {
     const dialog = openPanel();
-    expect(within(dialog).getByTestId("help-entity-line")).toHaveTextContent("Everdoer is a product of Thinker Holdings Inc.");
-    expect(within(dialog).getAllByText("Everdoer is a product of Thinker Holdings Inc.")).toHaveLength(1);
+    expect(within(dialog).getByTestId("help-entity-line")).toHaveTextContent("Everdoer is operated by Everdoer Technologies Inc.");
+    expect(within(dialog).getAllByText("Everdoer is operated by Everdoer Technologies Inc.")).toHaveLength(1);
   });
 
   it("searches articles and opens one", () => {

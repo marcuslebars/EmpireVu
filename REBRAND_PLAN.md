@@ -63,7 +63,7 @@ So the plan is:
 | D7 | Email senders | Today *all* mail (A1's customer mail and platform mail alike) goes from one `OUTBOUND_FROM_EMAIL`. Docs say `quotes@a1marinestorage.ca`, an **A1 domain**. Add a per-company sender (`companies.email_from_address`, null = platform default `hello@everdoer.com`). A migration pins A1 companies to their current A1 addresses, so A1 customer mail is byte-identical and everyone else moves to @everdoer.com once the domain is verified. |
 | D8 | Tenant repos | Don't edit A1 or boatnames repos (tenant-owned). Their env and URLs keep working because old hosts and headers keep working. The checklist lists optional env updates. |
 | D9 | thinker-holdings | Rename the "Syncoree" portfolio card to Everdoer (name, screenshot, link everdoer.com). |
-| D10 | Legal entity | "Thinker Holdings Inc." appears nowhere today. Add "Everdoer is a product of Thinker Holdings Inc." to the privacy/delete pages and the site footer? |
+| D10 | Legal entity | "Thinker Holdings Inc." appears nowhere today. Add "Everdoer is a product of Thinker Holdings Inc." to the privacy/delete pages and the site footer?  **Superseded 2026-10-14 (owner):** Everdoer is its own company, Everdoer Technologies Inc., operating as Everdoer, separate from Thinker Holdings. The line is now "Everdoer is operated by Everdoer Technologies Inc." |
 | D11 | Brand kit | `Everdoer-brand-kit-fully-rounded.zip` isn't in this session. Please attach it before Phase 2. |
 
 ---

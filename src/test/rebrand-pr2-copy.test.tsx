@@ -98,7 +98,7 @@ describe("caller-echo platform-name filter (voice/post-call safeEcho)", () => {
 
 describe("D10 entity line", () => {
   it("is the approved wording", () => {
-    expect(EVERDOER_ENTITY_LINE).toBe("Everdoer is a product of Thinker Holdings Inc.");
+    expect(EVERDOER_ENTITY_LINE).toBe("Everdoer is operated by Everdoer Technologies Inc.");
   });
 
   it("privacy policy: Everdoer, hello@everdoer.com, the entity line and the new date; the old name only as '(formerly EmpireVu)'", () => {
