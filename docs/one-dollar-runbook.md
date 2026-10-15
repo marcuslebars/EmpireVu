@@ -13,39 +13,46 @@ tax registration, or deliverability — which are the three things that break.
 
 ---
 
-## Step 0 is already done
+## Step 0: the company is connected to Stripe
 
-A1 Marine Storage is connected and **ready to charge** — verified in Settings →
-Payments ("Charges enabled · payouts enabled") and confirmed by a live Stripe
-session opening on the connected account. Nothing to do here.
+The example company is **A1 Marine Care**. Check it is connected and **ready to
+charge**: Settings → Payments, pick it, and look for "Charges enabled · payouts
+enabled". If it isn't connected, press **Connect Stripe account**. Payments is not
+Billing & Plans — Billing is what you pay for Everdoer, Payments is how a company
+gets paid by its customers.
 
-For any FUTURE company: Settings → Payments, pick it, press **Connect Stripe
-account**. Payments is not Billing & Plans — Billing is what you pay for
-EmpireVu, Payments is how a company gets paid by its customers.
+> This runbook was first written against **A1 Marine Storage**, which was connected
+> and verified this way. Storage is decommissioned (2026-10-14); see
+> REBRAND_CHECKLIST.md "A1 Marine Storage decommission". Don't run this against it.
 
 ---
 
 ## Before you start
 
 - [ ] Migrations applied through `20260902000000_catalog_modifiers_and_bands`
-- [ ] A1MS branding set — logo, colours, from-name, reply email, cancellation policy
-- [ ] `a1marinestorage.ca` verified in Resend, SPF + DKIM published
-- [ ] `quotes.a1marinestorage.ca` resolves with a valid certificate
-- [ ] Railway env on **EmpireVu's** web service: `QUOTE_PUBLIC_BASE_URL`,
+- [ ] A1 Marine Care branding set — logo, colours, from-name, reply email, cancellation policy
+- [ ] The domain of Care's from-address verified in Resend, SPF + DKIM published
+- [ ] Care's quote host resolves with a valid certificate: its own
+      `quote_public_base_url` (e.g. `quotes.a1marinecare.ca`) if set, otherwise the
+      platform-wide `QUOTE_PUBLIC_BASE_URL` — which is still
+      `https://quotes.a1marinestorage.ca`, on the decommissioned Storage's domain
+- [ ] Railway env on **Everdoer's** web service: `QUOTE_PUBLIC_BASE_URL`,
       `STRIPE_SECRET_KEY`, `STRIPE_CONNECT_WEBHOOK_SECRET`, and the Resend
       from-address config
-- [ ] `RESUME_TOKEN_SECRET` on **a1marinestorage**, not here — it signs the
-      calculator's PDF resume links and this app never reads it
+- [ ] `RESUME_TOKEN_SECRET` is not set here: it lived on the **a1marinestorage** site
+      (decommissioned 2026-10-14), signed the calculator's PDF resume links, and this
+      app never reads it
 - [ ] Connect webhook registered at
-      `https://app.empirevu.com/api/webhooks/stripe/connect`, listening on
+      `https://app.empirevu.com/api/webhooks/stripe/connect` (the old host still
+      answers `/api/*`), listening on
       **connected accounts**, events `checkout.session.completed` and
       `account.updated`
 
-**Pre-flight.** Note the id is HARD-CODED. An earlier version of this file
-looked the company up with `name ilike '%a1 marine%' limit 1`, and three of the
-four companies match that — it returned **A1 Marine Care**, which is how a set of
-A1 Marine Storage's branding ended up on the wrong company. Never guess a company
-by name here.
+**Pre-flight.** Use the company's exact id, never a name match. An earlier version
+of this file looked the company up with `name ilike '%a1 marine%' limit 1`, and
+three of the four companies match that — it returned **A1 Marine Care** when
+**A1 Marine Storage** was meant, which is how a set of Storage's branding ended up
+on the wrong company. Never guess a company by name here.
 
 ```sql
 select name,
@@ -57,15 +64,15 @@ select name,
        exists (select 1 from public.service_catalog_items i
                where i.company_id = c.id)            as catalog_seeded
 from public.companies c
-where id = 'a1000000-0000-4000-8000-000000000003';   -- A1 Marine Storage
+where id = '<A1 Marine Care company id>';   -- A1 Marine Care
 ```
 
-All four true as of the last check. The company ids, for reference:
+All four must be true. The company ids, for reference:
 
 | id | company |
 |---|---|
-| `a1000000-…-0002` | A1 Marine **Care** |
-| `a1000000-…-0003` | A1 Marine **Storage** ← this one |
+| `a1000000-…-0002` | A1 Marine **Care** ← this one |
+| `a1000000-…-0003` | A1 Marine **Storage** (decommissioned 2026-10-14) |
 | `a1000000-…-0004` | A1 Coatings |
 
 **Ontario tax registration must be ACTIVE on the connected account.** Checkout
@@ -88,13 +95,13 @@ the **contact**, not to you as the operator.
 
 ### 1. Create the draft (2 min)
 
-Go to **app.empirevu.com/quotes**. The page is a JSON body — replace the template with
-this. The single custom line is chosen so the deposit lands on exactly **$1.00**:
+Go to **app.everdoer.com/quotes** (or the old app.empirevu.com host). The page is a
+JSON body — replace the template with this. The single custom line is chosen so the deposit lands on exactly **$1.00**:
 
 ```json
 {
   "title": "Deposit flow verification",
-  "companyId": "a1000000-0000-4000-8000-000000000003",
+  "companyId": "<A1 Marine Care company id>",
   "contactId": "<the contact id from above>",
   "services": [],
   "customLines": [
@@ -126,12 +133,13 @@ emails the contact.
 If the contact has no email address you now get an amber **notice**, not an
 error: "Quote sent. No email address on file — share the link directly." The
 quote is genuinely sent and payable either way. It used to return a 500 for that
-case while the quote was live, which is how Q-2026-0001 came to exist.
+case while the quote was live, which is how Q-2026-0001 (an A1 Marine Storage
+quote) came to exist.
 
-**Check:** the email arrives from the A1 Marine Storage from-name at the address
+**Check:** the email arrives from the A1 Marine Care from-name at the address
 in `brand_reply_email`, brand-styled, with one button.
 
-**Check the email says nothing about EmpireVu.** The platform is the backend; if
+**Check the email says nothing about Everdoer (or EmpireVu).** The platform is the backend; if
 its name reaches a customer, that is a bug.
 
 If no email arrives, read the events before blaming Resend:
@@ -150,8 +158,8 @@ Tap the button in the email. A phone is how a customer will see this, so look at
 it on one.
 
 **Check:** logo, brand colour, quote number, valid-until, the line item, totals,
-the deposit amount, and your cancellation policy. The URL should read
-`quotes.a1marinestorage.ca/q/…` — verified working, signed out.
+the deposit amount, and your cancellation policy. The URL should be on Care's
+quote host (`<Care's quote host>/q/…`, see "Before you start"), signed out.
 
 **Check** the status moved:
 
@@ -202,11 +210,11 @@ is the handler throwing, and Stripe will retry.
 
 **Check the receipt email** arrives, brand-styled.
 
-**Check the money is in the A1MS account, not the platform account.** If it
+**Check the money is in A1 Marine Care's connected account, not the platform account.** If it
 landed in the platform balance, the charge did not go through the connected
 account, and nobody else should pay until that is fixed.
 
-**Check the statement descriptor** on the charge reads as A1 Marine Storage.
+**Check the statement descriptor** on the charge reads as A1 Marine Care.
 
 ### 6. Refund (1 min)
 
@@ -231,7 +239,7 @@ Until it is set, qualifying leads are quoted by hand exactly as they are today.
 | Symptom | Cause |
 |---|---|
 | No quote email | Check `quote_email_skipped` / `_failed` in `quote_events` |
-| Email in spam | SPF/DKIM not published on `a1marinestorage.ca` |
+| Email in spam | SPF/DKIM not published on the from-address's domain |
 | Quotes screen says "not enabled" | `STRIPE_QUOTES_ENABLED=0` |
 | **Send** greyed out | Click **Edit** on the quote first |
 | Approve → "not connected" | Step 0 not done, or done against another company |
@@ -258,9 +266,11 @@ everyone, so it is the bigger hammer.
 ## What this runbook no longer has to prove
 
 The self-serve path was verified end to end on 2026-09-01, signed out, on the
-customer's own domain:
+customer's own domain. That was **A1 Marine Storage**, now decommissioned (see
+REBRAND_CHECKLIST.md "A1 Marine Storage decommission"); the record below is kept as
+history. A run for A1 Marine Care still checks its own domain and branding:
 
-- calculator submit → lead reaches EmpireVu → auto-quote created and sent
+- calculator submit → lead reaches EmpireVu (now Everdoer) → auto-quote created and sent
 - the confirmation screen shows a real **Pay 25% Deposit** button
 - the link opens `quotes.a1marinestorage.ca/q/{token}` and renders the quote
   with A1MS branding, correct totals, and no mention of the platform
@@ -271,5 +281,6 @@ That covers everything up to the card form. **The only unproven link is the
 payment itself**: that `checkout.session.completed` arrives on the Connect
 webhook, that `deposit_paid` is recorded, and that the receipt email sends.
 
-That is what the dollar is for. `Q-2026-0001` is already approved with an open
-session, so it can be paid directly without creating anything new.
+That is what the dollar is for. `Q-2026-0001` was an approved Storage quote with an
+open session; the Storage decommission cancels open quotes, so don't use it — create
+a fresh quote for A1 Marine Care as above.
