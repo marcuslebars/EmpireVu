@@ -135,7 +135,7 @@ describe("SPA /welcome/everdoer", () => {
 
   it("routes to the same page as /welcome/crankleads (old route kept)", () => {
     const app = readFileSync(resolve(__dirname, "../App.tsx"), "utf8");
-    expect(app).toContain('<Route path="/welcome/crankleads" element={<CrankleadsWelcomePage />} />');
-    expect(app).toContain('<Route path="/welcome/everdoer" element={<CrankleadsWelcomePage />} />');
+    expect(app).toContain('<Route path="/welcome/crankleads" element={<DoneForYouWelcomePage />} />');
+    expect(app).toContain('<Route path="/welcome/everdoer" element={<DoneForYouWelcomePage />} />');
   });
 });

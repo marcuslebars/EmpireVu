@@ -11,7 +11,7 @@
  *   npm run job:dfy-provision -- --stuck [--older-than-minutes 15]
  *
  * `--stuck` is the safety-net sweep, deployed as a Railway cron every 15 minutes
- * (railway.crankleads-sweep.json). It needs STRIPE_SECRET_KEY.
+ * (railway.dfy-sweep.json; the old railway.crankleads-sweep.json is kept). It needs STRIPE_SECRET_KEY.
  */
 import {
   parseProvisionJobArgs,
@@ -26,15 +26,15 @@ async function main(): Promise<number> {
     const items = await runStuckPurchaseSweep(createSupabaseAdminClient(), { olderThanMinutes: args.olderThanMinutes });
     for (const item of items) {
       console.log(
-        `[crankleads-sweep] ${item.outcome} purchase=${item.purchaseId} session=${item.sessionId ?? "-"} was=${item.status} — ${item.detail}`,
+        `[dfy-sweep] ${item.outcome} purchase=${item.purchaseId} session=${item.sessionId ?? "-"} was=${item.status} — ${item.detail}`,
       );
     }
-    console.log(`[crankleads-sweep] checked ${items.length} stuck purchase(s)`);
+    console.log(`[dfy-sweep] checked ${items.length} stuck purchase(s)`);
     return items.some((i) => i.outcome === "failed") ? 1 : 0;
   }
   const result = await runDoneForYouProvisionJob(createSupabaseAdminClient(), args);
   console.log(
-    `[crankleads-provision] ${result.outcome} session=${args.sessionId} org=${result.organizationId ?? "-"} — ${result.detail}`,
+    `[dfy-provision] ${result.outcome} session=${args.sessionId} org=${result.organizationId ?? "-"} — ${result.detail}`,
   );
   return result.outcome === "provisioned" || result.outcome === "already_provisioned" ? 0 : 1;
 }
@@ -42,6 +42,6 @@ async function main(): Promise<number> {
 main()
   .then((code) => process.exit(code))
   .catch((err) => {
-    console.error("[crankleads-provision] FAILED:", err instanceof Error ? err.message : err);
+    console.error("[dfy-provision] FAILED:", err instanceof Error ? err.message : err);
     process.exit(1);
   });

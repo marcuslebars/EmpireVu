@@ -216,7 +216,7 @@ export async function createDoneForYouCheckout(
     // The founding coupon went invalid between the check and the create (e.g. the last
     // redemption raced us): sell at full price rather than failing the checkout.
     console.warn(
-      `[crankleads/checkout] session with founding coupon ${coupon} failed (${err instanceof Error ? err.message : err}); retrying without it`,
+      `[dfy/checkout] session with founding coupon ${coupon} failed (${err instanceof Error ? err.message : err}); retrying without it`,
     );
     session = await stripe.checkout.sessions.create(buildDoneForYouSessionParams(purchase, input, utm, null), {
       idempotencyKey: `crankleads-checkout-${purchase.id}-nodiscount`,
@@ -230,7 +230,7 @@ export async function createDoneForYouCheckout(
     await updatePurchase(admin, purchase.id, { stripe_checkout_session_id: session.id });
   } catch (err) {
     console.error(
-      `[crankleads/checkout] could not record session ${session.id} on purchase ${purchase.id} ` +
+      `[dfy/checkout] could not record session ${session.id} on purchase ${purchase.id} ` +
         `(the worker will match it by client_reference_id):`,
       err instanceof Error ? err.message : err,
     );
@@ -251,9 +251,9 @@ export async function usableFoundingCoupon(stripe: Stripe): Promise<string | nul
   try {
     const coupon = await stripe.coupons.retrieve(id);
     if (coupon.valid) return id;
-    console.warn(`[crankleads/checkout] founding coupon ${id} is no longer valid (exhausted or expired); full price`);
+    console.warn(`[dfy/checkout] founding coupon ${id} is no longer valid (exhausted or expired); full price`);
   } catch (err) {
-    console.warn(`[crankleads/checkout] founding coupon ${id} lookup failed (${err instanceof Error ? err.message : err}); full price`);
+    console.warn(`[dfy/checkout] founding coupon ${id} lookup failed (${err instanceof Error ? err.message : err}); full price`);
   }
   return null;
 }

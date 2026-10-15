@@ -1,5 +1,5 @@
 {
-  "name": "empirevu",
+  "name": "everdoer",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -29,8 +29,10 @@
     "job:import-a1-care": "tsx src/server/jobs/import-a1-care.ts",
     "job:backfill-stripe-capabilities": "tsx src/server/jobs/backfill-stripe-capabilities.ts",
     "job:seed-demo": "tsx src/server/jobs/seed-demo-org.ts",
-    "job:crankleads-provision": "tsx src/server/jobs/crankleads-provision.ts",
-    "job:crankleads-repair-automations": "tsx src/server/jobs/crankleads-repair-tier-automations.ts",
+    "job:dfy-provision": "tsx src/server/jobs/dfy-provision.ts",
+    "job:dfy-repair-automations": "tsx src/server/jobs/dfy-repair-tier-automations.ts",
+    "job:crankleads-provision": "tsx src/server/jobs/dfy-provision.ts",
+    "job:crankleads-repair-automations": "tsx src/server/jobs/dfy-repair-tier-automations.ts",
     "job:accounting-sync": "tsx src/server/jobs/accounting-sync.ts",
     "job:operator-health": "tsx src/server/jobs/operator-health.ts",
     "job:weather-check": "tsx src/server/jobs/weather-check.ts",
@@ -38,7 +40,8 @@
     "job:twilio-repoint": "tsx src/server/jobs/twilio-repoint.ts",
     "job:twilio-retag": "tsx src/server/jobs/twilio-retag.ts",
     "job:retell-repoint": "tsx src/server/jobs/retell-repoint.ts",
-    "stripe:setup-crankleads": "node scripts/stripe/setup-crankleads.mjs"
+    "stripe:setup-done-for-you": "node scripts/stripe/setup-done-for-you.mjs",
+    "stripe:setup-crankleads": "node scripts/stripe/setup-done-for-you.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",

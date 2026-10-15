@@ -152,7 +152,7 @@ async function resolvePurchaseForSession(admin: AdminClient, session: StripeObje
   if (!isDoneForYouTier(tier) || typeof email !== "string" || !email) {
     throw new Error(`Everdoer session ${sessionId ?? "(no id)"} has no staged purchase and not enough metadata to rebuild it.`);
   }
-  console.error(`[crankleads/provision] purchase row missing for session ${sessionId}; rebuilding it from Stripe metadata`);
+  console.error(`[dfy/provision] purchase row missing for session ${sessionId}; rebuilding it from Stripe metadata`);
   const row: Inserts<"crankleads_purchases"> = {
     status: "checkout_created",
     tier,
@@ -241,7 +241,7 @@ async function reclaimUnconfirmedUser(admin: AdminClient, id: string): Promise<v
   if (error) throw new Error(`could not reclaim unconfirmed user ${id}: ${error.message}`);
   const { error: unbanError } = await admin.auth.admin.updateUserById(id, { ban_duration: "none" });
   if (unbanError) throw new Error(`could not unban reclaimed user ${id}: ${unbanError.message}`);
-  console.warn(`[crankleads/provision] reclaimed UNCONFIRMED auth user ${id} for the paying buyer (sessions revoked)`);
+  console.warn(`[dfy/provision] reclaimed UNCONFIRMED auth user ${id} for the paying buyer (sessions revoked)`);
 }
 
 /** Existing + confirmed → attach (existing). Existing + unconfirmed → reclaim (treated as new). */
@@ -475,7 +475,7 @@ async function sendWelcome(
   // Resend accepted it. If the buyer says it never arrived, look this id up in Resend → Emails
   // (delivered / bounced / suppressed) — the address itself is masked here.
   console.log(
-    `[crankleads/provision] welcome email accepted for purchase ${purchase.id} → ${maskEmail(purchase.owner_email)} ` +
+    `[dfy/provision] welcome email accepted for purchase ${purchase.id} → ${maskEmail(purchase.owner_email)} ` +
       `(resend id ${messageId ?? "unknown"}, ${setPasswordUrl ? "set-password link" : "existing user: log-in link"})`,
   );
 }
@@ -621,7 +621,7 @@ async function provisionClaimed(admin: AdminClient, purchase: DoneForYouPurchase
       await updatePurchase(admin, purchase.id, { welcome_email_sent_at: new Date().toISOString(), welcome_email_error: null });
     } catch (err) {
       welcomeError = errorMessage(err);
-      console.error(`[crankleads/provision] WELCOME EMAIL FAILED for purchase ${purchase.id}: ${welcomeError}`);
+      console.error(`[dfy/provision] WELCOME EMAIL FAILED for purchase ${purchase.id}: ${welcomeError}`);
       await updatePurchase(admin, purchase.id, { welcome_email_error: welcomeError.slice(0, 1000) });
     }
   }
@@ -629,7 +629,7 @@ async function provisionClaimed(admin: AdminClient, purchase: DoneForYouPurchase
   try {
     await createAndSendSetupIntake(admin, { organizationId: org.id, companyId, emailBackup: welcomeError ? "always" : "if_sms_fails" });
   } catch (err) {
-    console.error(`[crankleads/provision] setup intake send failed for purchase ${purchase.id}: ${errorMessage(err)}`);
+    console.error(`[dfy/provision] setup intake send failed for purchase ${purchase.id}: ${errorMessage(err)}`);
   }
 
   const operator = operatorEmailAddress();
@@ -655,7 +655,7 @@ async function provisionClaimed(admin: AdminClient, purchase: DoneForYouPurchase
       );
       await updatePurchase(admin, purchase.id, { operator_notified_at: new Date().toISOString() });
     } catch (err) {
-      console.error(`[crankleads/provision] operator notification failed for purchase ${purchase.id}: ${errorMessage(err)}`);
+      console.error(`[dfy/provision] operator notification failed for purchase ${purchase.id}: ${errorMessage(err)}`);
     }
   }
 
@@ -671,11 +671,11 @@ async function provisionClaimed(admin: AdminClient, purchase: DoneForYouPurchase
     try {
       await requeueDeferredBillingEvents(admin, purchase.stripe_customer_id);
     } catch (err) {
-      console.error(`[crankleads/provision] requeue of deferred billing events failed: ${errorMessage(err)}`);
+      console.error(`[dfy/provision] requeue of deferred billing events failed: ${errorMessage(err)}`);
     }
   }
 
-  console.log(`[crankleads/provision] provisioned purchase ${purchase.id} → org ${org.id} company ${companyId} (${tier})`);
+  console.log(`[dfy/provision] provisioned purchase ${purchase.id} → org ${org.id} company ${companyId} (${tier})`);
   return org.id;
 }
 
@@ -715,7 +715,7 @@ async function handleProvisioningFailure(
   if (err instanceof DoneForYouProvisioningFailedError) throw err;
   const reason = errorMessage(err);
   console.error(
-    `[crankleads/provision] PROVISIONING FAILED (session ${context.sessionId ?? "-"}, final=${options.finalAttempt}): ${reason}`,
+    `[dfy/provision] PROVISIONING FAILED (session ${context.sessionId ?? "-"}, final=${options.finalAttempt}): ${reason}`,
   );
   if (!options.finalAttempt) {
     if (err instanceof DeferBillingEventError) throw err;
@@ -730,10 +730,10 @@ async function handleProvisioningFailure(
         renderOperatorFailureEmail({ ...context, tier: isDoneForYouTier(context.tier) ? context.tier : null, error: reason }),
       );
     } catch (mailErr) {
-      console.error(`[crankleads/provision] operator FAILURE alert could not be sent: ${errorMessage(mailErr)}`);
+      console.error(`[dfy/provision] operator FAILURE alert could not be sent: ${errorMessage(mailErr)}`);
     }
   } else {
-    console.error("[crankleads/provision] OWNER_EMAIL is not set — no operator alert for a failed paid purchase!");
+    console.error("[dfy/provision] OWNER_EMAIL is not set — no operator alert for a failed paid purchase!");
   }
   throw new DoneForYouProvisioningFailedError(reason);
 }
@@ -760,7 +760,7 @@ async function provisionPurchaseUnguarded(admin: AdminClient, purchaseId: string
     try {
       await markPurchaseFailed(admin, purchaseId, errorMessage(err));
     } catch (markErr) {
-      console.error(`[crankleads/provision] could not record failure on purchase ${purchaseId}: ${errorMessage(markErr)}`);
+      console.error(`[dfy/provision] could not record failure on purchase ${purchaseId}: ${errorMessage(markErr)}`);
     }
     throw err;
   }
@@ -808,7 +808,7 @@ export async function handleDoneForYouCheckoutPaid(
 ): Promise<string | null> {
   const deps: ProvisionDeps = { ...defaultDeps, ...options.deps };
   if (!isProvisionablePaymentStatus(session.payment_status)) {
-    console.log(`[crankleads/provision] session ${idOf(session.id)} not paid yet (${String(session.payment_status)}); waiting`);
+    console.log(`[dfy/provision] session ${idOf(session.id)} not paid yet (${String(session.payment_status)}); waiting`);
     return null;
   }
   try {

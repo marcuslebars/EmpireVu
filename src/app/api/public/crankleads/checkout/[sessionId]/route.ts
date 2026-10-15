@@ -1,46 +1,6 @@
-import { NextResponse } from "next/server";
+// Old path kept for the Everdoer rebrand: /api/public/crankleads/checkout/[sessionId] is the same handler as /api/public/everdoer/checkout/[sessionId]
+// (counted as legacy use by the handler; see src/server/services/rebrand/route-alias.ts).
+export { GET } from "@/app/api/public/everdoer/checkout/[sessionId]/route";
 
-import { getPublicPurchaseStatus, isCheckoutSessionId } from "@/server/services/done-for-you/checkout";
-import { enforceRateLimit, trustedClientIp } from "@/server/services/rate-limit";
-import { noteLegacyRoute } from "@/server/services/rebrand/route-alias";
-import { createSupabaseAdminClient } from "@/server/supabase/admin";
-
+// Route segment config must be declared in this file (Next reads it statically).
 export const dynamic = "force-dynamic";
-
-interface RouteContext {
-  params: { sessionId: string };
-}
-
-/**
- * Welcome-page poll (/welcome/crankleads?session_id=…). Public: the Checkout Session id
- * Stripe put in the success URL is the credential. Returns ONLY
- * `{ status, businessName, emailMasked }` — no ids, no phone, no full email.
- * Same-origin (the app's own page), so no CORS.
- */
-export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
-  noteLegacyRoute(request, "checkout/[sessionId]");
-  const headers = { "Cache-Control": "no-store" };
-  const limited = await enforceRateLimit(request, {
-    scope: "crankleads_status",
-    limit: 120,
-    windowSeconds: 600,
-    keyParts: [trustedClientIp(request)],
-  });
-  if (limited) return limited;
-
-  const sessionId = context.params.sessionId;
-  if (!isCheckoutSessionId(sessionId)) {
-    return NextResponse.json({ error: "Not found." }, { status: 404, headers });
-  }
-
-  try {
-    const view = await getPublicPurchaseStatus(createSupabaseAdminClient(), sessionId);
-    if (!view) {
-      return NextResponse.json({ error: "Not found." }, { status: 404, headers });
-    }
-    return NextResponse.json({ data: view }, { status: 200, headers });
-  } catch (err) {
-    console.error("[crankleads/status] lookup failed:", err instanceof Error ? err.message : err);
-    return NextResponse.json({ error: "Couldn't check your setup. Please refresh." }, { status: 500, headers });
-  }
-}
