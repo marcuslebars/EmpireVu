@@ -1,6 +1,8 @@
-# EmpireVu Mobile (iOS + Android)
+# Everdoer Mobile (iOS + Android)
 
-The native app for EmpireVu, built from the Claude Design handoff (`EmpireVu Mobile.dc.html`).
+The native app for Everdoer (*the employee who never clocks out*), built from the Claude Design
+mobile handoff. App id `com.everdoer.app`, display name **Everdoer**, deep-link scheme
+`com.everdoer.app://`.
 It is a [Capacitor 8](https://capacitorjs.com) shell around a React bundle that ships inside
 the app, talking to the same Next.js API and Supabase project as the web app.
 
@@ -25,7 +27,7 @@ mobile/
 
 ```bash
 cd mobile
-cp .env.example .env        # VITE_API_BASE_URL, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+cp .env.example .env        # VITE_API_BASE_URL (defaults to https://api.everdoer.com), VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 npm install
 npm run dev                 # browser preview on :5174 (native plugins fall back or no-op)
 npm run typecheck && npm test
@@ -34,7 +36,9 @@ npm run typecheck && npm test
 Run on a device: `npm run sync`, then `npm run open:android` (Android Studio) or
 `npm run open:ios` (Xcode, macOS only).
 
-Regenerate icons and splash screens after changing `assets/`: `npm run assets`.
+Regenerate icons and splash screens after changing `assets/`: `npm run assets`. The sources in
+`assets/` are rendered from the brand kit's `public/brand/everdoer/everdoer-icon.svg` (lime mark on
+#0C0E12); the sign-in wordmark `src/assets/everdoer-logo.png` is `everdoer-logo-on-dark.svg`.
 
 ## Backend prerequisites (one-time, before the first build ships)
 
@@ -44,15 +48,15 @@ Regenerate icons and splash screens after changing `assets/`: `npm run assets`.
 2. **Apply the migrations** `supabase/migrations/20260913120000_mobile_app.sql` (adds
    `device_tokens`, `notification_preferences`, `job_photos` and the private `job-photos` bucket)
    and `20260913130000_push_digest_log.sql` (once-a-day claim for the morning digest push).
-3. **Supabase Auth → URL Configuration → Redirect URLs:** add `com.empirevu.app://auth-callback`.
+3. **Supabase Auth → URL Configuration → Redirect URLs:** add `com.everdoer.app://auth-callback`.
    Password reset, email confirmation, Google and Apple sign-in all return through it.
 4. **Sign in with Apple.** The iOS app offers Google sign-in, so App Store Guideline 4.8 requires
    Sign in with Apple as well. Enable the Apple provider in Supabase Auth: Services ID, key and
    team ID from the Apple Developer portal.
 5. **Push credentials on the web and worker services** (see the root `.env.example`):
    - iOS: create an APNs auth key (.p8) and set `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
-     `APNS_BUNDLE_ID=com.empirevu.app`, and `APNS_PRODUCTION=true`.
-   - Android: create a Firebase project with Android app `com.empirevu.app`. Set
+     `APNS_BUNDLE_ID=com.everdoer.app`, and `APNS_PRODUCTION=true`.
+   - Android: create a Firebase project with Android app `com.everdoer.app`. Set
      `FCM_SERVICE_ACCOUNT_JSON` on the server and put `google-services.json` in
      `android/app/` (it is git-ignored).
 
@@ -63,18 +67,18 @@ Regenerate icons and splash screens after changing `assets/`: `npm run assets`.
 Requirements: JDK 21 and the Android SDK (API 36). Android Studio installs both.
 
 1. Create an upload key once and keep it safe:
-   `keytool -genkeypair -v -keystore upload.keystore -alias empirevu -keyalg RSA -keysize 2048 -validity 10000`
+   `keytool -genkeypair -v -keystore upload.keystore -alias everdoer -keyalg RSA -keysize 2048 -validity 10000`
 2. Create `android/keystore.properties` (git-ignored):
    ```
    storeFile=/absolute/path/upload.keystore
    storePassword=…
-   keyAlias=empirevu
+   keyAlias=everdoer
    keyPassword=…
    ```
 3. Build: `npm run sync`, then `cd android && ./gradlew bundleRelease`. The bundle is written to
    `android/app/build/outputs/bundle/release/app-release.aab`.
 4. Play Console:
-   - Create the app with package `com.empirevu.app` and enroll in Play App Signing.
+   - Create the app with package `com.everdoer.app` and enroll in Play App Signing.
    - Upload the AAB to Internal testing first.
    - **Data safety:** declare collection of name, email and phone (account management and app
      functionality), photos (job photos), app activity (in-app actions) and device IDs (push token).
@@ -97,7 +101,7 @@ Requirements: a Mac with Xcode 16 or newer, and an Apple Developer Program membe
    - Choose your Team.
    - Keep **Push Notifications**; the entitlement is already in `App/App.entitlements`.
    - Add **Background Modes → Remote notifications** if Xcode doesn't pick it up from `Info.plist`.
-3. In the Apple Developer portal, register App ID `com.empirevu.app` with Push Notifications and
+3. In the Apple Developer portal, register App ID `com.everdoer.app` with Push Notifications and
    Sign in with Apple.
 4. *Product → Archive → Distribute App → App Store Connect.* Test through TestFlight before
    submitting.
@@ -106,7 +110,7 @@ Requirements: a Mac with Xcode 16 or newer, and an Apple Developer Program membe
      and Identifiers (device ID). All are linked to the user, used only for app functionality,
      and not used for tracking. This matches `App/PrivacyInfo.xcprivacy`.
    - **Review notes:** provide a demo account with an organization that has data. Explain that
-     EmpireVu is a business tool sold to organizations, and that billing is not offered in the app.
+     Everdoer is a business tool sold to organizations, and that billing is not offered in the app.
    - Screenshots: 6.9" (1320×2868) and 6.5" (1284×2778) iPhone. The app is iPhone-only.
    - Export compliance: `ITSAppUsesNonExemptEncryption` is `false` (standard HTTPS only).
 
@@ -173,6 +177,6 @@ are listed at the top of the workflow.
 - **Android release builds do not run R8** (`minifyEnabled false`, the Capacitor default). Plugins
   are reflection-loaded from `capacitor.plugins.json`, so turning it on needs keep rules and a full
   pass over the release variant on a device first.
-- **Deep links are scheme-only** (`com.empirevu.app://auth-callback`, `://invite/<token>`). There are
+- **Deep links are scheme-only** (`com.everdoer.app://auth-callback`, `://invite/<token>`). There are
   no verified https App Links — those need an `assetlinks.json` hosted on the domain — so an emailed
   https link opens in the browser rather than the app.
