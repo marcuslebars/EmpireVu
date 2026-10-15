@@ -157,7 +157,7 @@ Checkout Session: `mode: subscription`, line items = tier monthly price + tier s
 (one-time prices ride on the first invoice only), `customer_email`, `client_reference_id` =
 purchase id, `currency: cad`, `billing_address_collection: required`, `automatic_tax` off unless
 `STRIPE_AUTOMATIC_TAX=true`, `discounts: [{coupon}]` when `founding` and
-`STRIPE_COUPON_CL_FOUNDING` is set **and still valid in Stripe** (an exhausted/expired/missing
+`STRIPE_COUPON_EVERDOER_FOUNDING` (old `STRIPE_COUPON_CL_FOUNDING` still read) is set **and still valid in Stripe** (an exhausted/expired/missing
 coupon — or a create that rejects it — falls back to full price instead of failing the sale),
 `allow_promotion_codes: false` (no other promo code can be applied), `metadata` and
 `subscription_data.metadata` = `{source: "crankleads", purchaseId, tier, plan, businessName,
@@ -208,15 +208,18 @@ is a credential; this public endpoint stops minting them).
    `--replace` (Stripe prices are immutable; the lookup key moves to the new price).
    Setup fees sit on their own `…_setup` products so the founding coupon (`duration: once`,
    `applies_to` the three setup products) discounts **only the setup fee**.
-3. **Paste the env** the script prints into Railway:
-   - **[web]**: `STRIPE_PRICE_CL_*`, `STRIPE_SETUP_FEE_CL_*`, optional `STRIPE_COUPON_CL_FOUNDING`,
+3. **Paste the env** the script prints into Railway. The new names are `STRIPE_PRICE_EVERDOER_*`,
+   `STRIPE_SETUP_FEE_EVERDOER_*` and `STRIPE_COUPON_EVERDOER_FOUNDING`; the old `STRIPE_PRICE_CL_*`,
+   `STRIPE_SETUP_FEE_CL_*` and `STRIPE_COUPON_CL_FOUNDING` names (which the script may still print)
+   are read as fallbacks for one release:
+   - **[web]**: `STRIPE_PRICE_EVERDOER_*`, `STRIPE_SETUP_FEE_EVERDOER_*`, optional `STRIPE_COUPON_EVERDOER_FOUNDING`,
      optional `EVERDOER_SITE_ORIGINS` (old `CRANKLEADS_SITE_ORIGINS` still read),
      `EVERDOER_CANCEL_URL` (old `CRANKLEADS_CANCEL_URL` still read), `STRIPE_AUTOMATIC_TAX`.
-   - **[billing-worker]**: `STRIPE_PRICE_CL_*` **plus** (existing values, same as web)
+   - **[billing-worker]**: `STRIPE_PRICE_EVERDOER_*` **plus** (existing values, same as web)
      `APP_BASE_URL`, `RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL` (opt. `OUTBOUND_REPLY_TO`),
      `OWNER_EMAIL`, and `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` (only so
      the SMS starter automations install **active** — the worker never sends SMS).
-   - **[reconcile]**: `STRIPE_PRICE_CL_*` (plan-drift check).
+   - **[reconcile]**: `STRIPE_PRICE_EVERDOER_*` (plan-drift check).
    - **[dfy-sweep]** (Railway service still named `crankleads-sweep` until it is renamed) —
      Railway **cron** service, config file `railway.dfy-sweep.json`
      (`npm run job:dfy-provision -- --stuck`, `*/15 * * * *`; the old
