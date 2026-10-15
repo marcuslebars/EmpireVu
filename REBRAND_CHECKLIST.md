@@ -227,12 +227,46 @@ After PR 2 deploys, **every org, A1 included, sees the lime Everdoer app.** Cust
 - Accounting sync hashes use the old product names (`HASH_PRODUCT_NAMES`), so the rename never re-pushes already-synced records into QuickBooks or Xero. They come out in PR 8 with a one-time rehash job: for each synced record whose stored hash still matches, it recomputes the hash with the new name. No record is pushed. Don't remove the constant without that job.
 
 ## PR 3: marketing
-To be filled in. It covers:
-- everdoer.com and www on the crankleads-system service
-- the crankleads.com and empirevu.com 301s
-- Search Console
-- archiving empirevu-site
-- the thinker-holdings card
+Three repos, each with a `rebrand/everdoer` PR:
+- crankleads-system becomes everdoer.com
+- empirevu-site becomes a redirect-only server
+- thinker-holdings swaps the Syncoree card for Everdoer
+
+There's also a small platform PR: the kit README is no longer served, plus this checklist.
+
+### 3.1 Before merging the site
+- [ ] **Issue an intake key for the site's question form.** Production has never had one (`[boot] EMPIREVU_INTAKE_KEY is not set` in the crankleads-system logs since 2026-10-03), so the form has answered 503. The logs show only one form submit since October 1, a 400 test, so no leads were lost.
+  - Platform → Settings → Integrations, signed in to the org that should receive site enquiries (the tenant that gets crankleads.com leads) → create an intake key labelled `everdoer.com site`.
+  - Railway → project CrankLeads → crankleads-system: set `EVERDOER_INTAKE_KEY=<the key>`. Leave `EVERDOER_INTAKE_URL` unset; it defaults to `https://api.everdoer.com/api/intake`.
+- [ ] **Railway → crankleads-system → Settings → Networking**, add custom domains `everdoer.com` and `www.everdoer.com`. In DNS (everdoer.com zone):
+  - apex: `ALIAS`/`ANAME` or a flattened `CNAME` → `‹target›`
+  - `CNAME www → ‹target›`
+- [ ] **Find out where `www.crankleads.com` points.** Only the apex `crankleads.com` is attached to this Railway service. If `www` still points at an old host (the repo began as a Lovable project), that would explain the old "We Crank Leads" hero you saw. Attach `www.crankleads.com` to crankleads-system too, so it 301s with everything else.
+- [ ] **Confirm the platform still allows checkout from everdoer.com.** `EVERDOER_SITE_ORIGINS` and `CRANKLEADS_SITE_ORIGINS` are unset on EmpireVu (web) (checked 2026-10-14), so the built-in default applies, and it already includes `https://everdoer.com` and `https://www.everdoer.com`.
+
+### 3.2 Merge and deploy the site, then verify
+- [ ] `https://everdoer.com/version.json` shows the merged commit. `https://crankleads.com/version.json` shows the same commit; if it shows HTML or 404, that host isn't this service.
+- [ ] Submit a test question on everdoer.com and check it lands in the platform as a lead.
+- [ ] Test the checkout dialog up to the Stripe page. Don't pay.
+
+### 3.3 Turn on the old-domain 301s
+- [ ] crankleads-system: `EVERDOER_CANONICAL_ORIGIN=https://everdoer.com`. After that:
+  - crankleads.com and www.crankleads.com 301 to everdoer.com, keeping the path and query;
+  - www.everdoer.com 301s to the apex;
+  - `/brand/crankleads-*` (Stripe Checkout logo), `/api/*`, `/healthz` and `/version.json` are served in place.
+  - The 301s are cached for 1 hour during the rollout. Undo: unset the variable.
+- [ ] Merge **empirevu-site**. empirevu.com then 301s every GET to everdoer.com, sends 308 for other methods, and answers `410` with the new intake URL for `/api/*`.
+  - Railway → EmpireVu Frontend → empirevu-site: optional `EVERDOER_ORIGIN`, default `https://everdoer.com`.
+  - Delete `TURNSTILE_SECRET_KEY`, `TURNSTILE_SITE_KEY` and `VITE_TURNSTILE_SITE_KEY` there; the server no longer uses them. Keep `WAITLIST_NOTIFY_EMAIL` only if something else reads it.
+- [ ] After a week of clean redirects, **archive the empirevu-site repo** on GitHub (Settings → Archive).
+
+### 3.4 Search and portfolio
+- [ ] **Google Search Console:** add the `everdoer.com` domain property and submit `https://everdoer.com/sitemap.xml`. On the old `crankleads.com` property, use **Change of address** → everdoer.com, once the 301s are on.
+- [ ] Merge **thinker-holdings**. The card says Everdoer, links to https://everdoer.com and uses a new 16:9 screenshot. **Its description still says "CRM / Operations Software"**: your call (PR note).
+
+### 3.5 Open decisions (owner)
+- **CASL mailing address:** add Thinker Holdings Inc.'s mailing address to the site's consent text or privacy page.
+- **"Live in 5 business days or first month free":** kept. The platform tracks the deadline, but the first-month waiver is applied by hand.
 
 ## PR 4: provider re-point
 To be filled in. It covers:
@@ -245,13 +279,59 @@ To be filled in. It covers:
   - **It re-pushes each whole receptionist agent** (prompt, tools, analysis fields) from today's company data, not just the URLs, so any prompt edited by hand in Retell is overwritten. Review the dry run first.
   - `--apply` refuses while `APP_BASE_URL` is still an old host.
   - It skips any company whose live Retell number uses a different agent (such as A1's hand-made Care agent).
-  - Set `RETELL_REPOINT_SKIP_COMPANIES=<A1 Marine Care company id>,<A1 Marine Storage company id>` on the shell you run it from, as a belt-and-braces deny-list.
+  - Set `RETELL_REPOINT_SKIP_COMPANIES=<A1 Marine Care company id>` on the shell you run it from, as a belt-and-braces deny-list.
+- **A1 Marine Storage is decommissioned, not re-pointed.** Do the "A1 Marine Storage decommission" section below instead of re-pointing its numbers and agent. Leave Storage's numbers out of the hand re-point step.
 - A1's Care agent, by hand
 - Telnyx
 - Stripe endpoint URLs edited in place
 - Stripe lookup keys transferred, metadata backfilled, and product/price display names renamed
 - the Intuit/Xero redirect URIs, added alongside the old ones
 - Google consent screen
+
+## A1 Marine Storage decommission (owner, 2026-10-14)
+Storage is wound down: A1 Marine Care does the shrink wrapping, and the facility is gone. It isn't carried through the rebrand.
+
+### D.1 See what's still live (read-only)
+- [ ] Supabase → SQL editor → `supabase/tests/storage_decommission_audit.sql`. It lists every live item for the Storage company (quotes, invoices, recurring series, numbers, keys, Stripe Connect, AI settings, queued jobs and more), plus its activity over the last 30 days.
+
+### D.2 Stop the automations
+There is a company flag, `companies.stage` (`prospect | active | paused | archived`), but **no screen can change it**, and **only some systems check it**. Archiving it stops:
+- the weekly report and monthly scorecard;
+- the AI staff roles: dispatcher, marketer, office manager, compliance, customer care, email clerk, fleet, profit advisor, purchasing, recruiter, tax clerk and service plans.
+
+It does **not** stop workflows, recurring jobs, review requests, quote expiry or follow-ups, invoice reminders, the SMS agent, call answering, Stripe, online booking, the estimator, bookkeeper, importer, porting, the owner digest or lead routing. Do both:
+- [ ] Set the flag in the SQL editor:
+  `update public.companies set stage = 'archived', updated_at = now() where organization_id = (select id from public.organizations where slug = 'a1-group') and slug = 'a1-marine-storage';`
+- [ ] Then turn off each item the audit shows, with the company switcher set to **A1 Marine Storage**:
+  - **Automations:** pause every Storage workflow. Org-wide workflows (no company) also fire for Storage; check them.
+  - **Recurring jobs:** end each active series.
+  - **Quotes:** cancel open quotes. Their expiry reminder has no per-company switch.
+  - **Invoices:** void or settle them, or turn reminders off in Settings → Invoices.
+  - **Settings → Reviews:** off.
+  - **Settings → Online booking:** "Take bookings online" off. The `/book/<id>` link otherwise stays open.
+  - **Settings → AI front desk:** turn every role off, plus SMS agent and call answering.
+  - **Settings → Notifications:** daily digest off.
+  - **Settings → Accounting:** disconnect, if connected.
+  - **Settings → Integrations:** deactivate its numbers, and revoke its intake keys and its `evpk_` form keys.
+- [ ] **Stripe Connect:** nothing in the app can disconnect it. Close or deactivate the Storage connected account in the Stripe dashboard, or clear `stripe_connected_account_id` in SQL once no payments are pending.
+- If you want archiving one company to stop **everything** (and to be a button, not SQL), that's a small platform PR: add `stage` checks to the systems listed above, plus an archive control.
+
+### D.3 Phones and voice (replaces Storage's PR 4 re-point)
+- [ ] **Storage's phone number(s), from audit row 20:** either forward them to A1 Marine Care's number (Twilio console → the number → Voice "A call comes in" → forward), or set a short closed-business greeting ("A1 Marine Storage has closed; for shrink wrapping call A1 Marine Care at …"). Then deactivate them in Settings → Integrations, or release them in Twilio once forwarding is no longer needed.
+- [ ] **Storage's Retell agent** (audit rows 20 and 22, `provider_agent_id` / `retell_outbound_agent_id`): delete it in Retell, or release its Retell number.
+- [ ] **`RETELL_SOURCE_SITE` isn't set** on EmpireVu (web) or the worker, so the code default `a1marinestorage` applies: **any Retell call that matches no number is filed as an A1 Marine Storage lead** (`retell/config.ts:32`, `retell/tenant.ts:120-125`). Set `RETELL_SOURCE_SITE=a1marinecare` on EmpireVu (web), EmpireVu worker and workflow-events.
+- [ ] `TELNYX_DEFAULT_TENANT_ID` is set on EmpireVu (web), worker and workflow-events. If its value is Storage's company id, change it to A1 Marine Care's.
+
+### D.4 Lead routing
+- [ ] The platform still maps `sourceSite: "a1marinestorage"` → the Storage company (`lead-intake/routing.ts:13`). The site redirects to a1marinecare.ca and posts nothing (no old-header traffic since 2026-10-13). Remove the mapping in the PR 5 code pass.
+- [ ] Revoke Storage's intake keys and public form keys (D.2).
+
+### D.5 ⚠️ The a1marinestorage.ca domain carries A1 Marine Care's mail and quote links
+`docs/empirevu-hub-setup.md` documents `OUTBOUND_FROM_EMAIL=quotes@a1marinestorage.ca` and `QUOTE_PUBLIC_BASE_URL=https://quotes.a1marinestorage.ca` as **platform-wide** values. The house org's companies (A1 Marine Care included) send from that address, and its quote links use that host.
+- [ ] **Don't let a1marinestorage.ca lapse** until both have moved:
+  - Verify an `a1marinecare.ca` sending address in Resend (e.g. `quotes@a1marinecare.ca`), then change `OUTBOUND_FROM_EMAIL` on every EmpireVu service. Do this before the PR 8 sender migration, which then pins that address to A1 Marine Care by UUID.
+  - `quotes.a1marinecare.ca` is already attached to the EmpireVu web service. Set A1 Marine Care's `companies.quote_public_base_url` to `https://quotes.a1marinecare.ca` (Settings → Branding, or SQL). Then change `QUOTE_PUBLIC_BASE_URL` to it.
+  - **Keep `quotes.a1marinestorage.ca` attached and its DNS alive for at least 12 months**, because links in past quotes, invoices and PDFs point there.
 
 ## PR 5: internal renames and dashboards
 To be filled in. It covers:
@@ -263,6 +343,7 @@ To be filled in. It covers:
 - the Google Cloud project
 - the Intuit/Xero app names
 - logging and monitoring
+- **Docs pass:** every doc that uses A1 Marine Storage as its example company switches to A1 Marine Care. That's `docs/one-dollar-runbook.md` first, then `tenant-provisioning.md`, `retell-integration.md`, `empirevu-hub-setup.md`, `EMPIREVU_RUNBOOK.md`, `stripe-org-scoping.md`, `LEAD_SCHEMA.md`, `telnyx-integration.md` and `EMPIREVU_AUDIT.md`. Don't do this before PR 5.
 
 ## PR 6: new mobile app
 To be filled in once you've confirmed the store install counts. It covers:
@@ -274,4 +355,8 @@ To be filled in once you've confirmed the store install counts. It covers:
 To be filled in: the migration and rollback that you run.
 
 ## PR 8: remove shims
-To be filled in, using the table in 1.8.
+To be filled in, using the table in 1.8. Already decided:
+- [ ] **Pin A1's sender in data instead of code.**
+  - **Today (PR 2):** `src/server/outbound/company-sender.ts` `isHouseOrgRow` treats an org as the house org when `plan = 'internal'` or its slug equals `LEAD_INTAKE_ORG_SLUG`. The code hard-codes the default for that variable, `a1-group`. House-org companies always send from `OUTBOUND_FROM_EMAIL`.
+  - **PR 8:** a migration sets `companies.email_from_address` **by explicit UUID** for A1 Marine Care only, plus A1 Coatings if it still sends mail, using values you confirm from the audit. **There's no row for A1 Marine Storage** (decommissioned). It raises an exception if any listed UUID is missing. A rollback goes with it.
+  - **Then** delete the house-org branch from `resolveFromAddress` (and its `a1-group` default), so no company's sender depends on a slug or plan.
