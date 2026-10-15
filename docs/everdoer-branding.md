@@ -29,7 +29,7 @@ files stay in `public/brand/` because emails and pages already sent link to them
 
 ### Where people see Everdoer
 
-* Sidebar, auth pages, onboarding, Dashboard and Reports ("Captured by Everdoer"), the command palette, settings text, the Help panel (with the D10 line "Everdoer is a product of Thinker Holdings Inc." at its foot), help articles (`{{product}}`, filled in by `brandHelpArticle`) and the help assistant.
+* Sidebar, auth pages, onboarding, Dashboard and Reports ("Captured by Everdoer"), the command palette, settings text, the Help panel (with the D10 line "Everdoer is operated by Everdoer Technologies Inc." at its foot), help articles (`{{product}}`, filled in by `brandHelpArticle`) and the help assistant.
 * `/privacy` and `/delete-account` (same paths on every host; they're in the app-store listings), with `hello@everdoer.com` and the D10 line.
 * Emails to owners and staff: invites, the workflow "notify owner" subject ("Everdoer alert"), voicemail emails, digests, the monthly scorecard, the purchase welcome email, setup reminders, "you're live", the support email subject ("[Everdoer Help] …"), and accounting memos ("From Everdoer"; already-synced memos stay as they were).
 * **SMS is the exception** (A2P): every text stays exactly as before ("CrankLeads: " on done-for-you owner texts, no prefix for other orgs, the CrankLeads platform-number reply) until `EVERDOER_SMS_BRANDING=1`. Then every org's owner texts start with **"Everdoer: "** and every platform SMS says Everdoer (see below).
