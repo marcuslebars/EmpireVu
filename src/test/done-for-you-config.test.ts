@@ -1,5 +1,5 @@
 /**
- * CrankLeads tier → plan / price / pack / recipe mapping, the phone-step gating by plan,
+ * Done-for-you tier → plan / price / pack / recipe mapping, the phone-step gating by plan,
  * the Stripe catalog setup script (mocked Stripe), the welcome email copy, and the
  * set-password link plumbing on the SPA side.
  */
@@ -44,7 +44,7 @@ describe("tier → plan", () => {
     expect(PLAN_FEATURE_DEFAULTS.front_desk.marina_reception).toBe(true);
   });
 
-  it("maps CrankLeads monthly price ids to plans in the billing worker (alongside the plan prices)", () => {
+  it("maps done-for-you monthly price ids to plans in the billing worker (alongside the plan prices)", () => {
     vi.stubEnv("STRIPE_PRICE_OPERATE", "price_operate");
     vi.stubEnv("STRIPE_PRICE_CL_CATCH", "price_cl_catch");
     vi.stubEnv("STRIPE_PRICE_CL_CLOSE", "price_cl_close");
@@ -58,7 +58,7 @@ describe("tier → plan", () => {
     expect(planTierForPriceId("price_operate")).toBeNull();
   });
 
-  it("an unset CrankLeads env never matches an empty price id", () => {
+  it("an unset done-for-you env never matches an empty price id", () => {
     vi.stubEnv("STRIPE_PRICE_CL_CATCH", "");
     expect(planTierForPriceId("")).toBeNull();
     expect(planForStripePriceId(null)).toBeNull();

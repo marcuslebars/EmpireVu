@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SANCTIONED EXCEPTION (service role): the operator's CrankLeads re-run job
+// SANCTIONED EXCEPTION (service role): the operator's done-for-you re-run job
 // (`npm run job:dfy-provision -- --session cs_...`). A CLI run has no user session;
 // the purchase is selected by its Checkout Session id and provisioned through
 // ./provision.ts exactly as the billing worker would. Listed in docs/EMPIREVU_RUNBOOK.md.
@@ -162,7 +162,7 @@ export async function runStuckPurchaseSweep(
         });
       }
     } catch (err) {
-      // provisionPurchase / handleCrankleadsCheckoutPaid already alerted the operator.
+      // provisionPurchase / handleDoneForYouCheckoutPaid already alerted the operator.
       results.push({ ...base, outcome: "failed", detail: err instanceof Error ? err.message : String(err) });
     }
   }

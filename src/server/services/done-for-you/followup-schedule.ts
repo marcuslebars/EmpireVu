@@ -1,5 +1,5 @@
 /**
- * PURE timing for the CrankLeads setup follow-ups (golden-tested in
+ * PURE timing for the done-for-you setup follow-ups (golden-tested in
  * src/test/done-for-you-setup-followups.test.ts). No I/O, no clock — `nowMs` is always passed in.
  *
  *   • Reminder stages are BUSINESS days after provisioning, counted in the company's timezone:

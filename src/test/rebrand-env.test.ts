@@ -52,7 +52,7 @@ async function envRows(): Promise<string[]> {
   return (await capture.rows()).filter((r) => r.kind === "env").map((r) => r.key);
 }
 
-describe("crankleads/config.ts env renames", () => {
+describe("done-for-you/config.ts env renames", () => {
   it("lists the exact new → old names", () => {
     expect(ENV_RENAMES).toEqual({
       STRIPE_PRICE_EVERDOER_CATCH: ["STRIPE_PRICE_CL_CATCH"],

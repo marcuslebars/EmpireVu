@@ -1,5 +1,5 @@
 /**
- * CrankLeads purchase → provisioning, end to end through the billing processor.
+ * Done-for-you purchase → provisioning, end to end through the billing processor.
  *
  * The REAL services run (billing processor, createOrganization, createCompany + recipe install,
  * applyIndustryPack, public form keys, onboarding progress) against the in-memory PostgREST
@@ -198,7 +198,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("checkout.session.completed (CrankLeads) → provisioned account", () => {
+describe("checkout.session.completed (done-for-you) → provisioned account", () => {
   it("a Catch buyer runs only Catch automations: the rest of the installed catalog is draft", async () => {
     await processBillingEventJob(admin, seedEvent("checkout.session.completed", sessionObject()) as never);
     const workflows = (db.tables.workflows ?? []) as Array<{ slug: string; status: string }>;
@@ -316,7 +316,7 @@ describe("checkout.session.completed (CrankLeads) → provisioned account", () =
     expect(sendSms.mock.calls[0][0].body).toBe(`CrankLeads: you're in. 60 seconds and we'll set the rest up for you: ${setupUrl}`);
     // Nothing a buyer reads names the platform, and no link points at the EmpireVu host.
     expect(`${welcome?.subject}\n${welcome?.body}\n${welcome?.html}`).not.toMatch(/empire\s*vu/i);
-    // The recovery link Supabase builds redirects to the CrankLeads host too.
+    // The recovery link Supabase builds redirects to the done-for-you host too.
     expect(generateLink).toHaveBeenCalledWith(
       expect.objectContaining({ options: { redirectTo: "https://app.crankleads.test/update-password" } }),
     );
@@ -481,7 +481,7 @@ describe("subscription / invoice events that arrive before provisioning finishes
     expect(db.tables.billing_events[0].processed_at).toBeNull();
   });
 
-  it("an unknown NON-CrankLeads customer still dead-letters immediately; subscription.created stays a no-op", async () => {
+  it("an unknown NON-done-for-you customer still dead-letters immediately; subscription.created stays a no-op", async () => {
     setup({ crankleads_purchases: [] });
     const updated = seedEvent("customer.subscription.updated", { id: "sub_x", customer: "cus_other", status: "active", items: { data: [] } });
     await expect(processBillingEventJob(admin, updated as never)).rejects.toThrow(/No organization/);

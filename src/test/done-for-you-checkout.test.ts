@@ -1,5 +1,5 @@
 /**
- * Public CrankLeads checkout — POST /api/public/crankleads/checkout, the welcome-page status
+ * Public done-for-you checkout — POST /api/public/crankleads/checkout, the welcome-page status
  * poll, and the resend endpoint. Proves: validation, CORS allow-list (no credentials), rate
  * limits, body cap, the durable staging row BEFORE Stripe, the EXACT Checkout Session params
  * (prices from env, no amounts), and that the status endpoint leaks nothing but
@@ -151,7 +151,7 @@ describe("POST /api/public/crankleads/checkout", () => {
       allow_promotion_codes: false,
       metadata,
       subscription_data: { metadata },
-      // The buyer lands on the CrankLeads app host, never the EmpireVu one.
+      // The buyer lands on the done-for-you app host, never the EmpireVu one.
       success_url: "https://app.crankleads.test/welcome/crankleads?session_id={CHECKOUT_SESSION_ID}",
       cancel_url: "https://crankleads.com/#pricing",
     });

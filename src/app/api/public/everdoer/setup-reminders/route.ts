@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SANCTIONED EXCEPTION (service role): CrankLeads "stop setup reminders" link. The owner
+// SANCTIONED EXCEPTION (service role): Done-for-you "stop setup reminders" link. The owner
 // clicks it from an email, possibly signed out — there is no RLS identity, and
 // crankleads_purchases is service-role only. The purchase is found ONLY by the random token
 // the link carries (never by an id the request chooses), and the one write is
@@ -16,7 +16,7 @@ import { createSupabaseAdminClient } from "@/server/supabase/admin";
 export const dynamic = "force-dynamic";
 
 /**
- * "Stop these setup reminders" — the link in the footer of every CrankLeads setup reminder
+ * "Stop these setup reminders" — the link in the footer of every done-for-you setup reminder
  * email. Public: the 48-hex-char random token (crankleads_purchases.setup_reminders_stop_token)
  * is the credential; it can do exactly one thing — stop that purchase's setup reminders.
  * GET only shows a confirm button (mail scanners prefetch links; a GET must not change state);

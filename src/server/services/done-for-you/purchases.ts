@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SANCTIONED EXCEPTION (service role): CrankLeads purchase staging.
+// SANCTIONED EXCEPTION (service role): Done-for-you purchase staging.
 // crankleads_purchases is written BEFORE any organization exists (the buyer has no
 // account when they submit the crankleads.com form), so there is no RLS identity and no
 // tenant to scope by. The table has RLS on with NO policies; only this module (via the

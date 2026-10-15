@@ -1,5 +1,5 @@
 /**
- * One-off repair: CrankLeads companies provisioned before the "only the tier's automations"
+ * One-off repair: Done-for-you companies provisioned before the "only the tier's automations"
  * rule got the whole recipe catalog at default status (a Catch buyer could have stale-lead
  * nudges or quote follow-ups texting their leads). This lists — and with --apply sets to draft
  * — every ACTIVE catalog recipe outside the company's tier (packRecipesForTier ∪ the tier's

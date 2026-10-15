@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SANCTIONED EXCEPTION (service role): CrankLeads setup follow-ups.
+// SANCTIONED EXCEPTION (service role): Done-for-you setup follow-ups.
 // Runs inside the workflow-event worker's scheduler pass (runScheduler) with the worker's
 // admin client — a scheduler pass has no user session. It reads crankleads_purchases (a
 // service-role-only table) and, per purchase, the purchase's OWN organization_id +
@@ -91,7 +91,7 @@ export interface FollowupOutcome {
   reason?: string;
 }
 
-/** The buyer's app origin: the CrankLeads host (setup reminders go only to CrankLeads buyers). */
+/** The buyer's app origin: the done-for-you host (setup reminders go only to done-for-you buyers). */
 function appUrl(): string {
   return appBaseUrlFor("crankleads");
 }
@@ -596,7 +596,7 @@ async function processPurchase(
 
 /**
  * One follow-up pass (from runScheduler, throttled to every SETUP_FOLLOWUP_INTERVAL_MS).
- * For every provisioned CrankLeads purchase that isn't live (or just went live): checklist →
+ * For every provisioned done-for-you purchase that isn't live (or just went live): checklist →
  * stamp live_at / send the live confirmation, or send the due reminder. Never throws: a
  * per-purchase failure is logged and the loop continues.
  */

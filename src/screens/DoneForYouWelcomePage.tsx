@@ -15,7 +15,7 @@ import {
 } from "@/lib/done-for-you-purchase-api";
 
 /**
- * Where Stripe Checkout sends a CrankLeads buyer after paying:
+ * Where Stripe Checkout sends a done-for-you buyer after paying:
  *   /welcome/crankleads?session_id=cs_…
  * Public (no account exists yet — the session id is the credential). Polls the purchase
  * status while the billing worker provisions the account, then tells the buyer to check their
@@ -35,8 +35,8 @@ const openAppClass =
   "flex-1 flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90";
 
 /**
- * "Open CrankLeads": sign in on THIS host — the one Stripe's success URL used
- * (appBaseUrlFor("crankleads")). Signed in, a CrankLeads org is branded CrankLeads on any host.
+ * "Open Everdoer": sign in on THIS host — the one Stripe's success URL used
+ * (appBaseUrlFor("crankleads")). Signed in, a done-for-you org is branded Everdoer on any host.
  */
 function doneForYouSignInHref(): string {
   return "/signin";
@@ -66,8 +66,8 @@ export default function DoneForYouWelcomePage() {
     return () => clearTimeout(timer);
   }, [cooldownUntil]);
 
-  // The buyer just paid for CrankLeads on crankleads.com: this page — and the app they log
-  // into afterwards — is CrankLeads (logo, tab title, icon, theme).
+  // The buyer just paid for done-for-you on crankleads.com: this page — and the app they log
+  // into afterwards — is done-for-you branded (logo, tab title, icon, theme).
   useBrandOverride("crankleads");
   useDocumentTitle(`Welcome — ${PURCHASED_OFFER_NAME}`);
   useDocumentFavicon(DONE_FOR_YOU_FAVICON_URL);
@@ -129,7 +129,7 @@ export default function DoneForYouWelcomePage() {
             width={EVERDOER_BRAND.logoWidth}
             height={EVERDOER_BRAND.logoHeight}
             className="h-9 w-auto"
-            data-testid="crankleads-logo"
+            data-testid="done-for-you-logo"
           />
         </div>
         <div className="bg-card border border-border rounded-xl p-6 shadow-xl shadow-black/10">

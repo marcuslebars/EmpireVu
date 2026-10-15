@@ -1,5 +1,5 @@
 /**
- * CrankLeads setup checklist — "is this buyer's system actually working yet?" One function,
+ * Done-for-you setup checklist — "is this buyer's system actually working yet?" One function,
  * several callers: the setup follow-up job (reminders + live detection), the done-for-you
  * orchestrator (24h escalation), the in-app "We're setting you up" view and dashboard card
  * (GET /api/organizations/{orgId}/setup-checklist, normal RLS auth), and the daily operator
@@ -11,7 +11,7 @@
  *                                    organization_id + company_id; works on an RLS client or
  *                                    the worker's service-role client).
  *   loadSetupChecklist(ctx, opts)  — org → tier + company → facts → checklist; null when the
- *                                    org is not a CrankLeads org or has no company yet.
+ *                                    org is not a done-for-you org or has no company yet.
  *
  * "Live" (done-for-you, docs/done-for-you.md → "Automatic switch-on"):
  *
@@ -208,7 +208,7 @@ export interface ComputeSetupChecklistInput {
   companyId: string;
   tier: PlanTier;
   facts: SetupFacts;
-  /** Absolute app origin for deep links (the CrankLeads host), no trailing slash needed. */
+  /** Absolute app origin for deep links (the done-for-you host), no trailing slash needed. */
   appBaseUrl: string;
   /** The one-tap forwarding page (/forward/:token) — the forwarding step's deep link when set. */
   forwardUrl?: string | null;
@@ -348,13 +348,13 @@ export async function loadSetupFacts(ctx: TenantServiceContext, companyId: strin
   };
 }
 
-/** Only CrankLeads orgs have a setup checklist, so its deep links default to the CrankLeads host. */
+/** Only done-for-you orgs have a setup checklist, so its deep links default to the done-for-you host. */
 function defaultAppBaseUrl(): string {
   return appBaseUrlFor("crankleads");
 }
 
 export interface LoadSetupChecklistOptions {
-  /** The CrankLeads company (crankleads_purchases.company_id). Default: the org's first company. */
+  /** The done-for-you company (crankleads_purchases.company_id). Default: the org's first company. */
   companyId?: string | null;
   /** Skip the organizations lookup when the caller already knows the tier. */
   tier?: PlanTier | null;
@@ -364,7 +364,7 @@ export interface LoadSetupChecklistOptions {
 }
 
 /**
- * The checklist for `ctx.organizationId`, or null when the org is not a CrankLeads org
+ * The checklist for `ctx.organizationId`, or null when the org is not a done-for-you org
  * (organizations.crankleads_tier null) or has no company yet.
  */
 export async function loadSetupChecklist(

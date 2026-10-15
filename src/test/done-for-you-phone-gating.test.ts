@@ -1,6 +1,6 @@
 /**
  * Server-side phone-step gating with the REAL orgCan (billing/gating.ts) over an in-memory
- * DB: only a CrankLeads Catch/Close org is refused the AI receptionist. A self-serve
+ * DB: only a done-for-you Catch/Close org is refused the AI receptionist. A self-serve
  * trial `operate` org, an existing operate org, Front Desk and house orgs proceed exactly as
  * before; a marina_reception feature-flag override re-opens it for a Catch org.
  */
@@ -68,7 +68,7 @@ function seed(orgRow: Record<string, unknown>, flags: Record<string, unknown>[] 
 }
 
 describe("POST /onboarding/phone (AI receptionist) — real orgCan", () => {
-  it("allows a self-serve trial operate org (no CrankLeads tier) — unchanged behaviour", async () => {
+  it("allows a self-serve trial operate org (no done-for-you tier) — unchanged behaviour", async () => {
     seed(org({ plan: "operate", subscription_status: "trialing", trial_ends_at: future }));
     expect((await call()).status).toBe(200);
     expect(provisionPhoneForCompany).toHaveBeenCalledTimes(1);
@@ -81,7 +81,7 @@ describe("POST /onboarding/phone (AI receptionist) — real orgCan", () => {
     }
   });
 
-  it("refuses a CrankLeads Catch or Close org (operate, no marina_reception) — nothing provisioned", async () => {
+  it("refuses a done-for-you Catch or Close org (operate, no marina_reception) — nothing provisioned", async () => {
     for (const tier of ["catch", "close"]) {
       seed(org({ crankleads_tier: tier }));
       const res = await call();
@@ -91,7 +91,7 @@ describe("POST /onboarding/phone (AI receptionist) — real orgCan", () => {
     expect(provisionPhoneForCompany).not.toHaveBeenCalled();
   });
 
-  it("allows CrankLeads Front Desk, and a Catch org with a marina_reception override", async () => {
+  it("allows done-for-you Front Desk, and a Catch org with a marina_reception override", async () => {
     seed(org({ plan: "front_desk", crankleads_tier: "front_desk" }));
     expect((await call()).status).toBe(200);
     seed(org({ crankleads_tier: "catch" }), [{ organization_id: "org-1", feature: "marina_reception", enabled: true, limit_value: null }]);

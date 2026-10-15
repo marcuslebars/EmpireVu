@@ -1,6 +1,6 @@
 /**
  * /welcome/crankleads?session_id=… — polls the purchase status, shows "setting up", then
- * "Done! Check your email (j***@…)" with a resend button and an "Open CrankLeads" link.
+ * "Done! Check your email (j***@…)" with a resend button and an "Open Everdoer" link.
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -42,7 +42,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("CrankLeads welcome page", () => {
+describe("Done-for-you welcome page", () => {
   it("shows setting-up, then done with the masked email, resend and Open Everdoer", async () => {
     renderPage();
     await screen.findByText(/setting up your system/i);
@@ -73,7 +73,7 @@ describe("CrankLeads welcome page", () => {
     document.head.appendChild(icon);
 
     const { unmount } = renderPage();
-    const logo = await screen.findByTestId("crankleads-logo");
+    const logo = await screen.findByTestId("done-for-you-logo");
     expect(logo).toHaveAttribute("src", "/brand/everdoer/everdoer-logo-on-dark.svg");
     expect(logo).toHaveAttribute("alt", "Everdoer");
     expect(document.title).toBe("Welcome — Everdoer");

@@ -1,13 +1,13 @@
 /**
- * CrankLeads offer → EmpireVu configuration. The ONE place that maps a CrankLeads tier
+ * Done-for-you offer → EmpireVu configuration. The ONE place that maps a done-for-you tier
  * (what the buyer picked on crankleads.com) onto an EmpireVu plan, Stripe price ids,
  * industry pack and starter automations.
  *
- * NO DOLLAR AMOUNTS (Working Protocol #4). The CrankLeads prices (CAD setup fee + monthly)
+ * NO DOLLAR AMOUNTS (Working Protocol #4). The done-for-you prices (CAD setup fee + monthly)
  * live in Stripe — created by `npm run stripe:setup-done-for-you` — and are referenced here
  * only by their Price ids from env.
  *
- * CrankLeads is the offer; EmpireVu is the product the buyer logs into. Nothing here
+ * Done-for-you is the offer; EmpireVu is the product the buyer logs into. Nothing here
  * rebrands the app.
  */
 import type { PurchasablePlan } from "@/server/services/billing/config";
@@ -42,7 +42,7 @@ export const DONE_FOR_YOU_TIER_PLAN: Record<PlanTier, PurchasablePlan> = {
   front_desk: "front_desk",
 };
 
-/** Stripe metadata `source` stamped on every CrankLeads Checkout Session + Subscription. */
+/** Stripe metadata `source` stamped on every done-for-you Checkout Session + Subscription. */
 export const DONE_FOR_YOU_SOURCE = "crankleads";
 
 // ── Stripe price ids (env only) ───────────────────────────────────────────────
@@ -101,7 +101,7 @@ export function doneForYouFoundingCouponId(): string | null {
   return envValue("STRIPE_COUPON_EVERDOER_FOUNDING");
 }
 
-/** Reverse map: a CrankLeads monthly Price id → its tier, or null. */
+/** Reverse map: a done-for-you monthly Price id → its tier, or null. */
 export function planTierForPriceId(priceId: string | null | undefined): PlanTier | null {
   if (!priceId) return null;
   for (const tier of PLAN_TIERS) {
@@ -110,7 +110,7 @@ export function planTierForPriceId(priceId: string | null | undefined): PlanTier
   return null;
 }
 
-/** A CrankLeads monthly Price id → the EmpireVu plan it buys, or null (used by billing/env.ts). */
+/** A done-for-you monthly Price id → the EmpireVu plan it buys, or null (used by billing/env.ts). */
 export function doneForYouPlanForPriceId(priceId: string | null | undefined): PurchasablePlan | null {
   const tier = planTierForPriceId(priceId);
   return tier ? DONE_FOR_YOU_TIER_PLAN[tier] : null;
@@ -279,7 +279,7 @@ export function dfyRecipeSlugs(tier: PlanTier): string[] {
 }
 
 /**
- * Every recipe a CrankLeads company on this tier may have ACTIVE: the tier's pack recipes
+ * Every recipe a done-for-you company on this tier may have ACTIVE: the tier's pack recipes
  * (packRecipesForTier) plus the tier's switch-on set (dfyRecipeSlugs). Anything else the
  * recipe catalog installed (e.g. stale-lead-nudge on a Catch buyer) stays draft.
  */

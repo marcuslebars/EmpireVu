@@ -1,5 +1,5 @@
 /**
- * Re-run CrankLeads provisioning for one purchase. See docs/crankleads-purchase.md.
+ * Re-run done-for-you provisioning for one purchase. See docs/crankleads-purchase.md.
  *
  * SANCTIONED EXCEPTION (service role) — jobs. Delegates to services/done-for-you/rerun.ts.
  * Needs NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY,

@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// CrankLeads: a company only runs its tier's automations.
+// Done-for-you: a company only runs its tier's automations.
 // Called with a context pinned to ONE organization (provisioning, done-for-you switch-on, the
 // one-off repair job); every read/write is filtered by organization_id + company_id.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ export interface RepairTierAutomationsItem {
 }
 
 /**
- * Every CrankLeads org (platform_brand 'crankleads' with a tier): list — and with `apply`, set to
+ * Every done-for-you org (platform_brand 'crankleads' with a tier): list — and with `apply`, set to
  * draft — the active catalog recipes outside the tier. Dry-run by default. Idempotent (a second
  * run finds nothing). Each company is handled with a context pinned to its own organization.
  */

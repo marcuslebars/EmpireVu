@@ -1,10 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SANCTIONED EXCEPTION (service role): public CrankLeads checkout.
+// SANCTIONED EXCEPTION (service role): public done-for-you checkout.
 // POST /api/public/crankleads/checkout is called by crankleads.com with NO session — the
 // buyer has no account yet — so there is no RLS identity. This module writes only the
 // service-role-only staging table crankleads_purchases (via ./purchases.ts) and creates a
 // Stripe Checkout Session from env price ids. It never reads or writes tenant data; the
-// tier/price can only be one of the three configured CrankLeads prices.
+// tier/price can only be one of the three configured done-for-you prices.
 // Listed in docs/EMPIREVU_RUNBOOK.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import type Stripe from "stripe";
@@ -98,8 +98,8 @@ export class DoneForYouCheckoutUnavailableError extends Error {}
  * Session params plus `managed_payments`, which this stripe SDK version doesn't type yet.
  *
  * The account has Stripe Managed Payments (Stripe as merchant of record) ON by default.
- * It only supports digital products and rejects `automatic_tax`; CrankLeads includes a
- * done-for-you setup service and EmpireVu runs its own invoicing, so every CrankLeads
+ * It only supports digital products and rejects `automatic_tax`; the done-for-you offer includes a
+ * setup service and EmpireVu runs its own invoicing, so every done-for-you
  * session opts out explicitly. HST is then handled by `automatic_tax` (Stripe Tax) when
  * STRIPE_AUTOMATIC_TAX=true. See docs/crankleads-purchase.md.
  */
@@ -136,7 +136,7 @@ export function buildDoneForYouSessionParams(
     utm: utmMetadata(utm),
   };
 
-  // After paying, the buyer lands on the CrankLeads app host (CRANKLEADS_APP_BASE_URL) — the
+  // After paying, the buyer lands on the done-for-you app host (CRANKLEADS_APP_BASE_URL) — the
   // same host their welcome email and every later link uses (docs/everdoer-branding.md).
   const base = appBaseUrlFor("crankleads");
   const brand = doneForYouCheckoutBranding();
@@ -157,7 +157,7 @@ export function buildDoneForYouSessionParams(
     billing_address_collection: "required",
     automatic_tax: { enabled: doneForYouAutomaticTax() },
     managed_payments: { enabled: false },
-    // The buyer bought CrankLeads: brand the payment page as CrankLeads, not the account's
+    // The buyer bought done-for-you: brand the payment page as Everdoer, not the account's
     // EmpireVu default (Stripe allows a logo OR an icon, not both — the wordmark logo).
     branding_settings: {
       display_name: brand.displayName,
@@ -167,7 +167,7 @@ export function buildDoneForYouSessionParams(
       font_family: "inter",
       border_style: "rounded",
     },
-    // Only our server-side founding coupon can discount a CrankLeads checkout — no
+    // Only our server-side founding coupon can discount a done-for-you checkout — no
     // promotion-code box (any active promo code in the account would otherwise apply).
     ...(coupon ? { discounts: [{ coupon }] } : { allow_promotion_codes: false }),
     metadata,

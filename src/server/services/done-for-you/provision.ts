@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SANCTIONED EXCEPTION (service role): CrankLeads purchase provisioning.
+// SANCTIONED EXCEPTION (service role): Done-for-you purchase provisioning.
 // Runs in the billing worker (on a verified, durably recorded Stripe
 // checkout.session.completed) and in the operator re-run job — neither has a user session,
 // and the owner account does not exist yet. The tenant is never taken from a request: the
@@ -57,7 +57,7 @@ import { createAndSendSetupIntake, ensureSetupIntake } from "@/server/services/d
 import { restrictAutomationsToTier } from "@/server/services/done-for-you/tier-automations";
 import { appBaseUrlFor } from "@/server/services/platform-brand";
 
-/** The timezone every CrankLeads company starts in (Ontario). Editable in Settings. */
+/** The timezone every done-for-you company starts in (Ontario). Editable in Settings. */
 export const DONE_FOR_YOU_DEFAULT_TIMEZONE = "America/Toronto";
 
 export interface ProvisionDeps {
@@ -100,15 +100,15 @@ function idOf(value: unknown): string | null {
 // ── Stripe object helpers ─────────────────────────────────────────────────────
 
 /**
- * Is this Checkout Session (or subscription/invoice) a CrankLeads purchase? `metadata.source` is
+ * Is this Checkout Session (or subscription/invoice) a done-for-you purchase? `metadata.source` is
  * "crankleads" on every live object and "everdoer" on new ones once EVERDOER_WRITE_NEW_NAMES is
- * on; both count (crankleads/stripe-source.ts).
+ * on; both count (done-for-you/stripe-source.ts).
  */
 export function isDoneForYouObject(object: StripeObject | null | undefined): boolean {
   return doneForYouMetadataOf(object) !== null;
 }
 
-/** The CrankLeads metadata on a session, subscription, or invoice (via its subscription details). */
+/** The done-for-you metadata on a session, subscription, or invoice (via its subscription details). */
 function doneForYouMetadataOf(object: StripeObject | null | undefined): Record<string, unknown> | null {
   if (!object) return null;
   const candidates = [
@@ -369,7 +369,7 @@ async function ensureOrganization(
     stripeCustomerId: customerId,
     billingEmail: purchase.owner_email,
     planTier: tier,
-    // A CrankLeads buyer sees CrankLeads everywhere, never EmpireVu (docs/everdoer-branding.md).
+    // A done-for-you buyer sees Everdoer everywhere, never EmpireVu (docs/everdoer-branding.md).
     platformBrand: "crankleads",
     // Never move an existing user's default org out from under them.
     setAsDefaultOrganization: !existingUser,
@@ -518,7 +518,7 @@ export async function requeueDeferredBillingEvents(admin: AdminClient, customerI
 }
 
 /**
- * Is there a CrankLeads purchase that WILL own this event's customer once provisioning
+ * Is there a done-for-you purchase that WILL own this event's customer once provisioning
  * finishes? Used by the billing processor to retry (not dead-letter) an event for an
  * unknown customer. A `failed` purchase is not pending: those dead-letter, and the re-run
  * job re-queues them after it succeeds.
@@ -700,11 +700,11 @@ interface FailureContext {
 }
 
 /**
- * The ONE failure policy for every CrankLeads provisioning entry point. Any error at all
+ * The ONE failure policy for every done-for-you provisioning entry point. Any error at all
  * (DB, missing metadata, claim race, a step, even recording the failure):
  *   • not the last attempt → DeferBillingEventError, so the billing queue retries it;
  *   • last attempt → operator "ACTION NEEDED" alert (whatever state the purchase is in),
- *     then CrankleadsProvisioningFailedError (the job dead-letters; the ledger row stays).
+ *     then DoneForYouProvisioningFailedError (the job dead-letters; the ledger row stays).
  */
 async function handleProvisioningFailure(
   err: unknown,
@@ -795,7 +795,7 @@ export async function provisionPurchase(
 }
 
 /**
- * Billing-worker entry for a CrankLeads `checkout.session.completed` /
+ * Billing-worker entry for a done-for-you `checkout.session.completed` /
  * `checkout.session.async_payment_succeeded`. Returns the org id once provisioned, or null
  * when the session isn't settled yet (async payment methods — the *_succeeded event follows).
  * EVERYTHING in here (resolving/rebuilding the purchase, marking it paid, provisioning) is

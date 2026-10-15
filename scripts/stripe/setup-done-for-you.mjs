@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Create (or find) the CrankLeads Stripe catalog: one Product per tier, each with a one-time
+ * Create (or find) the done-for-you Stripe catalog: one Product per tier, each with a one-time
  * setup-fee Price and a monthly recurring Price (CAD), plus an optional founding-client
  * coupon that discounts the SETUP FEES only. Idempotent — safe to re-run: products are found
  * by id (crankleads_<tier>), prices by lookup_key (crankleads_<tier>_setup / _monthly), the

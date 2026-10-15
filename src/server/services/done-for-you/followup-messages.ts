@@ -1,8 +1,8 @@
 /**
- * CrankLeads setup follow-up messages — PURE renderers (golden-tested in
+ * Done-for-you setup follow-up messages — PURE renderers (golden-tested in
  * src/test/done-for-you-setup-followups.test.ts). Purchase-context, so they are sent as
- * CrankLeads (sender name CRANKLEADS_OFFER_NAME), and the app the owner logs into is CrankLeads
- * too (appUrl = the CrankLeads app host). Never "EmpireVu" (docs/everdoer-branding.md).
+ * Done-for-you (sender name CRANKLEADS_OFFER_NAME), and the app the owner logs into is the done-for-you
+ * app too (appUrl = the done-for-you app host). Never "EmpireVu" (docs/everdoer-branding.md).
  * No prices (Working Protocol #4). No employee names (Protocol #16) — "your AI receptionist".
  *
  * Done-for-you (docs/done-for-you.md): we set everything up, so a reminder asks for exactly
