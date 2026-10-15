@@ -55,7 +55,7 @@ files stay in `public/brand/` because emails and pages already sent link to them
   byte-identical to before the rebrand. On: "Everdoer: " on every org's owner texts and Everdoer
   in every platform SMS. Before turning it on, update the A2P 10DLC campaign's brand and sample
   messages in Twilio. Unset it to roll back (docs/messaging-compliance.md).
-* `PLATFORM_BRAND_NAME` [monthly-scorecard]: still overrides the scorecard name for standard
+* `EVERDOER_BRAND_NAME` (old `PLATFORM_BRAND_NAME` still read) [monthly-scorecard]: still overrides the scorecard name for standard
   orgs. Defaults to "Everdoer". Leave it unset (or set it to `Everdoer`); if it is set to
   `EmpireVu` today, remove it.
 * `EVERDOER_APP_BASE_URL`: see `REBRAND_CHECKLIST.md` for the host move.

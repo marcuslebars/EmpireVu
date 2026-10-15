@@ -41,7 +41,7 @@ const REMINDER: Parameters<typeof renderReminderSms>[0] = {
 };
 
 describe("EVERDOER_SMS_BRANDING off (default): every SMS text is byte-identical to before the rebrand", () => {
-  it("owner prefix: 'done-for-you: ' for done-for-you, nothing for house orgs", () => {
+  it("owner prefix: 'CrankLeads: ' for done-for-you, nothing for house orgs", () => {
     expect(smsBrandingOn()).toBe(false);
     for (const v of ["crankleads", "done_for_you"]) expect(signaturePrefix(v)).toBe("CrankLeads: ");
     for (const v of ["empirevu", "standard", null, undefined]) expect(signaturePrefix(v)).toBe("");
@@ -57,6 +57,9 @@ describe("EVERDOER_SMS_BRANDING off (default): every SMS text is byte-identical 
     expect(smsPlatformName("standard")).toBe("EmpireVu");
     vi.stubEnv("PLATFORM_BRAND_NAME", "Acme");
     expect(smsPlatformName("standard")).toBe("Acme");
+    vi.stubEnv("EVERDOER_BRAND_NAME", "Acme Pro");
+    expect(smsPlatformName("standard")).toBe("Acme Pro"); // the new name wins over the old one
+    vi.stubEnv("EVERDOER_BRAND_NAME", "");
     expect(renderForwardingSms({ ownerName: "Jane Doe", businessName: "Jane's Roofing", forwardUrl: "https://x.test/f/t", phonePath: "missed_call_catcher", method: "dial_code" })).toMatch(/^CrankLeads: Hi Jane, /);
     expect(renderLiveSms({ ownerName: "Jane Doe", businessName: "Jane's Roofing", phonePath: "missed_call_catcher", number: null, siteUrl: null, appUrl: "https://x.test", setPasswordUrl: null })).toMatch(/^CrankLeads: /);
     expect(renderReminderSms({ ...REMINDER })).toMatch(/^CrankLeads: Hi Jane, /);
@@ -69,7 +72,7 @@ describe("EVERDOER_SMS_BRANDING on: Everdoer everywhere, for every org", () => {
     for (const v of ["", "0", "no", "off"]) expect(smsBrandingOn({ EVERDOER_SMS_BRANDING: v })).toBe(false);
   });
 
-  it("'Everdoer: ' (10 septets, shorter than 'done-for-you: ') for every org", () => {
+  it("'Everdoer: ' (10 septets, shorter than 'CrankLeads: ') for every org", () => {
     vi.stubEnv("EVERDOER_SMS_BRANDING", "1");
     expect(OWNER_SMS_PREFIX).toBe("Everdoer: ");
     expect(septets(OWNER_SMS_PREFIX)).toBeLessThan(septets(LEGACY_OWNER_SMS_PREFIX));

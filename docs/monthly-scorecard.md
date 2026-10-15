@@ -22,7 +22,7 @@ statement can reuse this service's metric definitions and month helpers.
 | Scorecard assembly, deltas, settings, operator note | `src/server/services/monthly-scorecard/scorecard.ts` |
 | Send pass (idempotent, opt-out, dry-run) | `src/server/services/monthly-scorecard/send.ts` |
 | Email template (HTML + text, pure) | `src/server/templates/monthly-scorecard.ts` |
-| Platform brand (the ONE place) | `src/server/services/monthly-scorecard/platform-brand.ts` (`PLATFORM_BRAND_NAME`, default `Everdoer`) |
+| Platform brand (the ONE place) | `src/server/services/monthly-scorecard/platform-brand.ts` (`EVERDOER_BRAND_NAME`, old `PLATFORM_BRAND_NAME` still read; default `Everdoer`) |
 | Cron job | `src/server/jobs/monthly-scorecard.ts`, `npm run job:monthly-scorecard`, `railway.monthly-scorecard.json` |
 | API | `GET/PUT /api/organizations/:orgId/ui/monthly-scorecard` |
 | In-app page | `src/screens/ReportsMonthlyPage.tsx` (`/reports/monthly`, linked from the attribution report and the command palette) |
@@ -100,7 +100,7 @@ example the October note before the November 1st run).
   platform, and the client would never get them. With no recipient, the company is skipped
   and logged as `skipped / no_email`.
 - **Delivery**: `deliverMessage` (email). It writes `message_log` with no contact and meters
-  `email_sent`. The From display name is `PLATFORM_BRAND_NAME`. Owner reporting has no consent
+  `email_sent`. The From display name is `EVERDOER_BRAND_NAME` (old `PLATFORM_BRAND_NAME` still read). Owner reporting has no consent
   check and no approval gate, the same as the digest.
 - **Opt-out**: `companies.monthly_scorecard = { "enabled": false }`. By default it's enabled,
   because every done-for-you client gets one. Admins can toggle it on the page or with

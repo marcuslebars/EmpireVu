@@ -7,7 +7,7 @@
  *   - owner texts: "CrankLeads: " for done-for-you orgs, no prefix for other orgs;
  *   - platform-number unknown-sender / HELP replies: the CrankLeads text;
  *   - done-for-you setup / reminder / "you're live" / forwarding texts and the weekly report text:
- *     "CrankLeads" (standard orgs' weekly text: PLATFORM_BRAND_NAME, else "EmpireVu").
+ *     "CrankLeads" (standard orgs' weekly text: EVERDOER_BRAND_NAME (old: PLATFORM_BRAND_NAME), else "EmpireVu").
  * With it on (EVERDOER_SMS_BRANDING=1 [web, worker, billing-worker]): "Everdoer" everywhere,
  * and owner texts are signed "Everdoer: " for EVERY org.
  *
@@ -30,5 +30,6 @@ export function smsBrandingOn(env: Record<string, string | undefined> = process.
 export function smsPlatformName(line: ProductLine, env: Record<string, string | undefined> = process.env): string {
   if (smsBrandingOn(env)) return EVERDOER_SMS_NAME;
   if (line === "done_for_you") return LEGACY_DFY_SMS_NAME;
-  return env.PLATFORM_BRAND_NAME?.trim() || LEGACY_STANDARD_SMS_NAME;
+  // EVERDOER_BRAND_NAME first; PLATFORM_BRAND_NAME is its old name (same as monthly-scorecard/platform-brand.ts).
+  return env.EVERDOER_BRAND_NAME?.trim() || env.PLATFORM_BRAND_NAME?.trim() || LEGACY_STANDARD_SMS_NAME;
 }
