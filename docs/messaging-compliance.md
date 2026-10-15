@@ -43,7 +43,7 @@ A missed call caught by the [missed-call catcher](missed-call-catcher.md) is an 
 
 ## Done-for-you setup reminders (owner, transactional)
 
-The setup follow-ups ([crankleads-purchase.md](crankleads-purchase.md#setup-follow-ups-automatic-chasing-until-the-buyer-is-live))
+The setup follow-ups ([done-for-you-purchase.md](done-for-you-purchase.md#setup-follow-ups-automatic-chasing-until-the-buyer-is-live))
 message the **account owner who just bought the service**, about finishing that purchase's
 setup — transactional, not marketing, so (like `notify_owner`) they are not consent-checked.
 They still respect the owner: weekdays 09:00–18:00 company-local only (the one "you're live"

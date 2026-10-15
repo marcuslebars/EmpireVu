@@ -98,7 +98,7 @@ delete from operator_health_reports where report_date = current_date;
 
 The loader reads across tenants with the service role. This is a **sanctioned exception**
 (header comments in `services/operator-health/load.ts`, `service.ts` and
-`jobs/operator-health.ts`; listed in `EMPIREVU_RUNBOOK.md`). It is operator-only and aggregate,
+`jobs/operator-health.ts`; listed in `EVERDOER_RUNBOOK.md`). It is operator-only and aggregate,
 and it takes **no request input**: it runs in the worker or the CLI, with no route. Per-account
 reads (setup checklist, activity counts, forwarded-call proof) are filtered by each row's own
 stored `organization_id` (+ `company_id`). The only write is the `operator_health_reports` row.

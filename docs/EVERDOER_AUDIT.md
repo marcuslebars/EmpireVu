@@ -147,7 +147,7 @@ Effort: **S** ≤ half-day · **M** ~1–2 days · **L** ~3–5 days.
 | 11 | **Reseed A1 family**: org "A1 Group" + A1 Marine Care / A1 Marine Storage / A1 Coatings; me as owner; verify company scoping end-to-end | 3 | S |
 | 12 | **Finish mission write-side UI**: ContactDetail buttons, Tasks comment box (needs comment client/hook), Calendar `no_show`/views, company filter + cross-brand flags | 4 | M |
 | 13 | **Honest non-mission pages**: stub-empty or de-nav Files/Projects/Team; make Settings honest | 4 | S |
-| 14 | **E2E matrix + `docs/EMPIREVU_RUNBOOK.md`** incl. cutover criteria | 5 | M |
+| 14 | **E2E matrix + `docs/EVERDOER_RUNBOOK.md`** incl. cutover criteria | 5 | M |
 
 ### CAN WAIT
 - `live-data.ts` in-memory joins → SQL views/RPC (perf at scale).

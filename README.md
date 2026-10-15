@@ -4,7 +4,7 @@ The central hub for my companies — the CRM and **central lead record** for the
 
 Multi-tenant on Supabase/Postgres: one organization → many companies → contacts / bookings / tasks, with an activity-event trace backbone and a DB-backed workflow automation engine.
 
-> Renamed from **Syncoree**. See `docs/EMPIREVU_AUDIT.md` for the full Phase 0 audit (live-vs-mock inventory, backend surface, workflow engine, architecture decision, and the completion plan).
+> Renamed from **Syncoree**. See `docs/EVERDOER_AUDIT.md` for the full Phase 0 audit (live-vs-mock inventory, backend surface, workflow engine, architecture decision, and the completion plan).
 
 ## Architecture
 
@@ -13,7 +13,7 @@ Multi-tenant on Supabase/Postgres: one organization → many companies → conta
 - **Data** — Supabase/Postgres with Row Level Security on every business table; `src/server/services` is the multi-tenant service layer; `src/server/db` holds types and helpers.
 - **Automation** — `src/server/services/workflow-engine` executes workflows off `activity_events`; `workflow_event_jobs` is the DB-backed queue and `src/server/workers/workflow-event-worker.ts` is the Railway polling worker.
 
-> **Deployment is being consolidated to a single origin** (the web runtime serves both the API and the built SPA) so Supabase cookie auth stays same-origin, with the worker as its own service. See `docs/EMPIREVU_RUNBOOK.md` (added in Phase 5) for the deploy topology and env.
+> **Deployment is being consolidated to a single origin** (the web runtime serves both the API and the built SPA) so Supabase cookie auth stays same-origin, with the worker as its own service. See `docs/EVERDOER_RUNBOOK.md` (added in Phase 5) for the deploy topology and env.
 
 ## Structure
 

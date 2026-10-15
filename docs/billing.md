@@ -73,7 +73,7 @@ existing workflow worker already relies on).
 Businesses that buy CrankLeads on crankleads.com go through a public Checkout
 (`POST /api/public/crankleads/checkout`) and are **provisioned automatically by this
 billing worker** on `checkout.session.completed` — see
-[crankleads-purchase.md](crankleads-purchase.md). In short:
+[done-for-you-purchase.md](done-for-you-purchase.md). In short:
 
 - Tier → plan: `catch` / `close` → `operate`, `front_desk` → `front_desk`
   (`src/server/services/crankleads/config.ts`). The CrankLeads monthly prices
@@ -238,7 +238,7 @@ of that org for the internal routes.
 ## Applying / rolling back the migration
 
 Migrations are applied **by hand** in the Supabase SQL editor (see
-`docs/EMPIREVU_RUNBOOK.md`). For billing:
+`docs/EVERDOER_RUNBOOK.md`). For billing:
 
 - **Up:** paste `supabase/migrations/20260804120000_add_billing.sql`.
 - **Verify:** run `supabase/tests/verify-billing.sql` (schema + RLS + payload
