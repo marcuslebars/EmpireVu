@@ -26,14 +26,14 @@
             </intent-filter>
 
             <!-- Auth callbacks (password reset, email confirmation, Google/Apple) and invite links.
-                 Hosts are listed explicitly: a scheme-only filter accepts every com.empirevu.app://
+                 Hosts are listed explicitly: a scheme-only filter accepts every com.everdoer.app://
                  URL, which is a wider entry point than the two the app actually handles. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="com.empirevu.app" android:host="auth-callback" />
-                <data android:scheme="com.empirevu.app" android:host="invite" />
+                <data android:scheme="com.everdoer.app" android:host="auth-callback" />
+                <data android:scheme="com.everdoer.app" android:host="invite" />
             </intent-filter>
         </activity>
 

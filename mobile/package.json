@@ -1,5 +1,5 @@
 {
-  "name": "empirevu-mobile",
+  "name": "everdoer-mobile",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -11,7 +11,7 @@
     "sync": "vite build && cap sync",
     "open:android": "cap open android",
     "open:ios": "cap open ios",
-    "assets": "capacitor-assets generate --iconBackgroundColor #0c0e12 --iconBackgroundColorDark #0c0e12 --splashBackgroundColor #0c0e12 --splashBackgroundColorDark #0c0e12"
+    "assets": "capacitor-assets generate --iconBackgroundColor '#0c0e12' --iconBackgroundColorDark '#0c0e12' --splashBackgroundColor '#0c0e12' --splashBackgroundColorDark '#0c0e12'"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",

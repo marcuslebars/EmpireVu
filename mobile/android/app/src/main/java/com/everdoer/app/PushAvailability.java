@@ -1,4 +1,4 @@
-package com.empirevu.app;
+package com.everdoer.app;
 
 import android.content.Context;
 import com.getcapacitor.JSObject;

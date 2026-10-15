@@ -11,7 +11,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     // Push notifications: hand the APNs device token (or the failure) to the
-    // @capacitor/push-notifications plugin, which registers it with the EmpireVu API.
+    // @capacitor/push-notifications plugin, which registers it with the Everdoer API.
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
     }

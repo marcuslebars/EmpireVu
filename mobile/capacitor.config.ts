@@ -5,8 +5,8 @@ const BACKGROUND = "#0c0e12";
 
 const config: CapacitorConfig = {
   // Reverse-DNS bundle id. It is permanent once published to either store.
-  appId: "com.empirevu.app",
-  appName: "EmpireVu",
+  appId: "com.everdoer.app",
+  appName: "Everdoer",
   webDir: "dist",
   backgroundColor: BACKGROUND,
   ios: {
