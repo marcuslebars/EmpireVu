@@ -6,7 +6,7 @@ import { supabase } from "@m/lib/supabase";
 
 /**
  * Auth actions. Every redirect comes back through the app's URL scheme
- * (com.empirevu.app://auth-callback) — it must be listed under Supabase →
+ * (com.everdoer.app://auth-callback) — it must be listed under Supabase →
  * Authentication → URL Configuration → Redirect URLs.
  */
 type Result = { error: string | null };
@@ -123,11 +123,12 @@ export async function signInWithProvider(provider: "google" | "apple"): Promise<
 }
 
 /**
- * Handle com.empirevu.app://auth-callback?code=…[&flow=recovery]. Returns the flow the
+ * Handle com.everdoer.app://auth-callback?code=…[&flow=recovery]. Returns the flow the
  * link belonged to, or null when the URL was not an auth callback.
  */
 export async function handleAuthCallback(url: string): Promise<{ flow: "signin" | "recovery"; error: string | null } | null> {
-  if (!url.startsWith(AUTH_CALLBACK_URL)) return null;
+  // Exactly the callback (optionally followed by ?query or #fragment), not any URL with that prefix.
+  if (url !== AUTH_CALLBACK_URL && !url.startsWith(`${AUTH_CALLBACK_URL}?`) && !url.startsWith(`${AUTH_CALLBACK_URL}#`)) return null;
   if (isNative) void Browser.close().catch(() => undefined);
 
   const parsed = new URL(url.replace(/^[^:]+:\/\//, "https://callback/"));

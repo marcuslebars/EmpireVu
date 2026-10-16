@@ -30,12 +30,12 @@ export function AcceptInvite({ token }: { token: string }) {
         <>
           <ErrorBanner error={preview.error} />
           <Btn variant="secondary" size="md" onClick={session.clearInvite}>
-            Continue to EmpireVu
+            Continue to Everdoer
           </Btn>
         </>
       ) : (
         <div className="card" style={{ borderRadius: 20, padding: "26px 22px", display: "flex", flexDirection: "column", alignItems: "center", gap: 13, textAlign: "center", boxShadow: "0 24px 48px rgba(0,0,0,.4)" }}>
-          <span style={{ width: 52, height: 52, borderRadius: 16, background: "hsl(215 100% 55% / .12)", color: "hsl(215 100% 66%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ width: 52, height: 52, borderRadius: 16, background: "hsl(82 85% 55% / .12)", color: "hsl(82 85% 66%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Buildings size={25} />
           </span>
           <div className="h3">Join {invite!.organizationName}</div>

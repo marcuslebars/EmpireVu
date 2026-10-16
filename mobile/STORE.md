@@ -1,10 +1,11 @@
-# Store submission — EmpireVu Mobile
+# Store submission — Everdoer Mobile
 
 Everything needed to put the app in front of Google Play and App Store review, in the order
 it's needed. Listing copy is a starting point, written to be true of the app as it exists —
 edit the voice, not the claims.
 
-Package / bundle id: `com.empirevu.app` (permanent once published to either store).
+Package / bundle id: `com.everdoer.app` (permanent once published to either store). This is a new
+app record in both stores, not an update of an earlier listing. Display name: **Everdoer**.
 
 ---
 
@@ -15,15 +16,16 @@ to be done by an owner of the business, not by CI.
 
 | # | What | Where | Blocks |
 |---|---|---|---|
-| 1 | Google Play Console account (one-off $25) | play.google.com/console | Android |
-| 2 | Apple Developer Program ($99/yr) | developer.apple.com | iOS |
+| 1 | Google Play Console account (one-off $25) + a new app `com.everdoer.app` with Play App Signing | play.google.com/console | Android |
+| 2 | Apple Developer Program ($99/yr) + App ID `com.everdoer.app` (Push Notifications, Sign in with Apple), an App Store provisioning profile for it, and an App Store Connect app record "Everdoer" | developer.apple.com, appstoreconnect.apple.com | iOS |
 | 3 | Upload keystore + the four signing secrets in GitHub | local `keytool`, then repo secrets | Android release build |
-| 4 | Firebase project with an Android app for `com.empirevu.app` → `google-services.json` + a service-account JSON | console.firebase.google.com | Android push |
+| 4 | Firebase project with an Android app for `com.everdoer.app` → `google-services.json` + a service-account JSON | console.firebase.google.com | Android push |
 | 5 | APNs auth key (.p8) with its key id and team id | Apple Developer → Keys | iOS push |
-| 6 | Privacy policy URL live | `https://app.empirevu.com/privacy` (ships with PR #95) | both |
-| 7 | Account-deletion URL live | `https://app.empirevu.com/delete-account` (same PR) | Play |
-| 8 | Demo organization + reviewer login (see §1.8) | `npm run job:seed-demo` | both |
-| 9 | Screenshots on that demo org (see §4) | — | both |
+| 6 | Privacy policy URL live | `https://app.everdoer.com/privacy` (served by the web app) | both |
+| 7 | Account-deletion URL live | `https://app.everdoer.com/delete-account` (served by the web app) | Play |
+| 8 | Supabase Auth redirect URL `com.everdoer.app://auth-callback` | Supabase → Authentication → URL Configuration | sign-in links, Google/Apple sign-in |
+| 9 | Demo organization + reviewer login (see §1.9) | `npm run job:seed-demo` | both |
+| 10 | Screenshots on that demo org (see §4) | — | both |
 
 ### 3 — the upload key, step by step
 
@@ -31,7 +33,7 @@ Run this once, keep the file and the passwords somewhere permanent. Losing this 
 never being able to update the app under this listing again.
 
 ```bash
-keytool -genkeypair -v -keystore upload.keystore -alias empirevu -keyalg RSA -keysize 2048 -validity 10000
+keytool -genkeypair -v -keystore upload.keystore -alias everdoer -keyalg RSA -keysize 2048 -validity 10000
 ```
 
 Then add four repository secrets in GitHub (Settings → Secrets and variables → Actions):
@@ -40,13 +42,13 @@ Then add four repository secrets in GitHub (Settings → Secrets and variables �
 |---|---|
 | `ANDROID_KEYSTORE_BASE64` | `base64 -w0 upload.keystore` (on Windows: `certutil -encode`, then strip the header/footer lines) |
 | `ANDROID_KEYSTORE_PASSWORD` | the store password you chose |
-| `ANDROID_KEY_ALIAS` | `empirevu` |
+| `ANDROID_KEY_ALIAS` | `everdoer` |
 | `ANDROID_KEY_PASSWORD` | the key password you chose |
 
 Add `ANDROID_GOOGLE_SERVICES_JSON` (the whole file contents) at the same time — CI now
 **fails** a signed build without it rather than shipping an app whose push silently never works.
 
-### 8 — the demo organization
+### 9 — the demo organization
 
 Both stores require a working login, and both keep it and re-use it on every update.
 A real account hands reviewers real customers — names, phone numbers, message threads —
@@ -79,7 +81,7 @@ FCM_SERVICE_ACCOUNT_JSON   # Firebase → Project settings → Service accounts 
 APNS_KEY_ID
 APNS_TEAM_ID
 APNS_PRIVATE_KEY           # contents of the .p8, newlines preserved
-APNS_BUNDLE_ID=com.empirevu.app
+APNS_BUNDLE_ID=com.everdoer.app
 APNS_PRODUCTION=true
 ```
 
@@ -89,45 +91,45 @@ Until these are set the app works normally and simply sends no pushes.
 
 ## 2. Google Play listing
 
-**App name (30):** EmpireVu
+**App name (30):** Everdoer
 
 **Short description (80):**
 > Leads, jobs, quotes and crew — your whole working day, from your phone.
 
 **Full description (4000):**
 
-> EmpireVu is the operations app for service businesses — trades and field service, studios,
+> Everdoer is the operations app for service businesses — trades and field service, studios,
 > agencies, and anyone who quotes work, books it, and sends someone out to do it.
 >
 > **One inbox for every conversation.** Calls, texts, emails and web enquiries land in a single
 > queue, with the ones waiting on a reply at the top. Nothing sits unanswered because it came
 > in through the wrong channel.
 >
-> **Replies drafted for you.** The assistant reads the conversation and drafts a reply in your
-> voice. You read it, change what you want, and send it — nothing reaches a customer until you
+> **Replies drafted for you.** Marina, your AI assistant, reads the conversation and drafts a
+> reply. You read it, change what you want, and send it — nothing reaches a customer until you
 > approve it.
 >
 > **Quotes that price themselves.** Pick services from your catalog, enter the size of the job,
-> and the total comes back from your own pricing rules — flat, per unit, per hour, by measured
-> size, tiered or bundled. Send it and take the deposit through Stripe.
+> and the total comes back from your own pricing rules — flat, per unit, by measured length or
+> distance, tiered or bundled. Send it with a Stripe deposit link.
 >
 > **The day's jobs, and the people on them.** See what's booked, who's assigned and where the
-> conflicts are. Reschedule from the calendar, assign a task, and everyone sees it.
+> conflicts are. Book a job, add tasks to it and move it through its status from your phone.
 >
 > **Photos from the job, even with no signal.** Shoot before-and-after photos on site; they
 > upload themselves when you're back in coverage and file against the booking.
 >
-> **Voice notes become tasks.** Talk, and the note turns into a task on the right job. Speech is
-> transcribed on the device — no recording is uploaded.
+> **Voice notes become tasks.** Talk, and the note becomes a task — on the job or lead you have
+> open. Dictation uses your phone's built-in speech recognition; no recording is sent to Everdoer.
 >
 > **Alerts worth the interruption.** New leads, approved quotes, deposits paid, schedule
 > conflicts, and a morning digest. Every category is a switch, with quiet hours you set.
 >
-> EmpireVu requires an account. It is sold to businesses; plans and billing are managed on the
+> Everdoer requires an account. It is sold to businesses; plans and billing are managed on the
 > web.
 
 **Category:** Business · **Tags:** business management, CRM, field service, scheduling
-**Contact:** hello@empirevu.com · **Privacy policy:** https://app.empirevu.com/privacy
+**Contact:** hello@everdoer.com · **Privacy policy:** https://app.everdoer.com/privacy
 
 ### Data safety form
 
@@ -137,14 +139,14 @@ Answer it this way — these match what the code actually sends.
 |---|---|
 | Does the app collect or share user data? | Yes, collects. **No** sharing with third parties for their own use. |
 | Is data encrypted in transit? | Yes |
-| Can users request deletion? | Yes — in app, and at https://app.empirevu.com/delete-account |
+| Can users request deletion? | Yes — in app, and at https://app.everdoer.com/delete-account |
 
 | Data type | Collected | Purpose | Required? |
 |---|---|---|---|
 | Name, email address, phone number | Yes | App functionality, account management | Required |
 | Other user content (contacts, bookings, quotes, messages, notes) | Yes | App functionality | Required |
 | Photos | Yes | App functionality (job records) | Optional |
-| Voice / audio | **No** | Dictation is transcribed on-device; no audio leaves the phone | — |
+| Voice / audio | **No** | Dictation uses the phone's built-in speech recognition (Apple / Google); no audio is sent to or stored by Everdoer | — |
 | App activity (in-app actions) | Yes | App functionality, analytics | Required |
 | Device or other IDs | Yes | App functionality (push delivery) | Optional |
 | Location | **No** | Not collected; photo metadata is stripped on upload | — |
@@ -161,9 +163,9 @@ audience 18+. Expect "Everyone" / PEGI 3.
 
 ## 3. App Store Connect listing
 
-**Name:** EmpireVu · **Subtitle (30):** Run the working day
+**Name:** Everdoer · **Subtitle (30):** Run the working day
 **Keywords (100):** field service,crm,quotes,estimates,scheduling,jobs,leads,booking,crew,dispatch
-**Support URL:** https://empirevu.com · **Privacy policy:** https://app.empirevu.com/privacy
+**Support URL:** https://everdoer.com · **Privacy policy:** https://app.everdoer.com/privacy
 **Description:** reuse the Play full description above.
 
 **App privacy (nutrition labels):** Contact Info (name, email, phone), User Content (photos,
@@ -174,13 +176,13 @@ all "App Functionality", **none** used for tracking. This matches `ios/App/App/P
 
 **Review notes — this is what gets apps rejected, so be explicit:**
 
-> EmpireVu is sold to service businesses and requires an account tied to an
+> Everdoer is sold to service businesses and requires an account tied to an
 > organization. Demo account: demo@everdoer.com / <password>. It has an organization with sample leads,
 > bookings and quotes so every screen has data.
 >
 > Billing is deliberately read-only in the app: plans are purchased on the web, and nothing
 > inside the app unlocks digital content. Stripe is used only for deposits on real-world
-> services performed off the app (the demo organization shows boat detailing and storage),
+> services performed off the app (the demo organization, Harbour Point Marine, shows boat detailing and storage),
 > which Guideline 3.1.3(e) permits outside in-app purchase.
 >
 > Account deletion is in the app at More → Settings → Delete account.

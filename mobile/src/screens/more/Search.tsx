@@ -51,8 +51,8 @@ export function Search() {
 
   return (
     <Screen title="Search">
-      <label style={{ display: "flex", alignItems: "center", gap: 9, height: 46, padding: "0 13px", borderRadius: 12, background: "var(--field)", border: "1px solid hsl(215 100% 55% / .35)" }}>
-        <MagnifyingGlass size={16} color="hsl(215 100% 62%)" />
+      <label style={{ display: "flex", alignItems: "center", gap: 9, height: 46, padding: "0 13px", borderRadius: 12, background: "var(--field)", border: "1px solid hsl(82 85% 55% / .35)" }}>
+        <MagnifyingGlass size={16} color="hsl(82 85% 62%)" />
         <input
           autoFocus
           type="search"

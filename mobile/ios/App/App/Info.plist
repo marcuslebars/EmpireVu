@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>EmpireVu</string>
+	<string>Everdoer</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -26,10 +26,10 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.empirevu.app</string>
+			<string>com.everdoer.app</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.empirevu.app</string>
+				<string>com.everdoer.app</string>
 			</array>
 		</dict>
 	</array>
@@ -38,17 +38,17 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>EmpireVu uses the camera to take job photos and attach them to bookings.</string>
+	<string>Everdoer uses the camera to take job photos and attach them to bookings.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>EmpireVu lets you choose existing photos to attach to a booking.</string>
+	<string>Everdoer lets you choose existing photos to attach to a booking.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>EmpireVu can save job photos you take to your photo library.</string>
+	<string>Everdoer can save job photos you take to your photo library.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>EmpireVu uses the microphone when you dictate a voice note or job note.</string>
+	<string>Everdoer uses the microphone when you dictate a voice note or job note.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>EmpireVu turns your voice notes into text on this device so you can create tasks hands-free.</string>
+	<string>Everdoer uses speech recognition to turn your voice notes into text so you can create tasks hands-free.</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>EmpireVu uses Face ID to unlock your workspace without typing your password.</string>
+	<string>Everdoer uses Face ID to unlock your workspace without typing your password.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

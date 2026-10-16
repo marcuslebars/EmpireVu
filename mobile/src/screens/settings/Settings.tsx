@@ -52,7 +52,7 @@ export function Settings() {
               icon={Fingerprint}
               tone="pri"
               label={`Unlock with ${bio.info.label}`}
-              sub={bio.enabled ? "Required when EmpireVu opens" : "Skip the password when EmpireVu opens"}
+              sub={bio.enabled ? "Required when Everdoer opens" : "Skip the password when Everdoer opens"}
               trailing={
                 <Switch
                   on={bio.enabled}
@@ -68,7 +68,7 @@ export function Settings() {
               }
             />
           ) : null}
-          <NavRow icon={Trash} tone="dest" label={<span style={{ color: "var(--dest-l)" }}>Delete account</span>} sub="Permanently remove your EmpireVu account" onClick={() => setDeleting(true)} />
+          <NavRow icon={Trash} tone="dest" label={<span style={{ color: "var(--dest-l)" }}>Delete account</span>} sub="Permanently remove your Everdoer account" onClick={() => setDeleting(true)} />
         </div>
       </Section>
 

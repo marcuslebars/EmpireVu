@@ -406,7 +406,7 @@ function QuoteBuilder({ contactId }: { contactId?: string }) {
           if (!item) return null;
           const unit = item.unitLabel ?? (isDistance(item) ? "km" : "ft");
           return (
-            <div key={s.id} className="card pad" style={{ display: "flex", flexDirection: "column", gap: 9, borderColor: "hsl(215 100% 55% / .28)" }}>
+            <div key={s.id} className="card pad" style={{ display: "flex", flexDirection: "column", gap: 9, borderColor: "hsl(82 85% 55% / .28)" }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                 <span className="grow">
                   <span className="row-title">{item.label}</span>

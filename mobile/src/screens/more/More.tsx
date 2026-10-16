@@ -40,7 +40,7 @@ export function More() {
       <div className="h1">More</div>
 
       <button type="button" className="tile" style={{ padding: 14, borderRadius: 14 }} onClick={() => { tap(); nav.openSheet({ id: "company" }); }}>
-        <span style={{ width: 38, height: 38, flex: "none", borderRadius: 12, background: "hsl(215 100% 55% / .13)", color: "hsl(215 100% 65%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ width: 38, height: 38, flex: "none", borderRadius: 12, background: "hsl(82 85% 55% / .13)", color: "hsl(82 85% 65%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Buildings size={18} />
         </span>
         <span className="grow">
@@ -75,7 +75,7 @@ export function More() {
         Sign out
       </Btn>
       <p className="fine" style={{ textAlign: "center" }}>
-        {session.context.data?.profile?.email ?? session.user?.email} · EmpireVu 1.0.0
+        {session.context.data?.profile?.email ?? session.user?.email} · Everdoer 1.0.0
       </p>
     </Screen>
   );

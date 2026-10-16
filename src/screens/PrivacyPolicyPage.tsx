@@ -12,7 +12,7 @@
 import { EVERDOER_ENTITY_LINE } from "@/lib/platform-brand";
 
 const CONTACT_EMAIL = "hello@everdoer.com";
-const LAST_UPDATED = "13 October 2026";
+const LAST_UPDATED = "15 October 2026";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -35,7 +35,7 @@ export default function PrivacyPolicyPage() {
         <Section title="Who this covers">
           <p>
             Everdoer is business software for marine and field-service companies: a shared inbox,
-            calendar, CRM, quotes and job records, on the web and in the Everdoer mobile app (formerly EmpireVu).
+            calendar, CRM, quotes and job records, on the web and in the Everdoer mobile app.
           </p>
           <p>
             We handle two different kinds of data, and they have different rules.{" "}

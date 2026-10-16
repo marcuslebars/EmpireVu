@@ -20,8 +20,8 @@ export interface BiometricProfile {
   email: string | null;
 }
 
-const KEY = "empirevu.biometric";
-const OFFERED_KEY = "empirevu.biometricOffered";
+const KEY = "everdoer.biometric";
+const OFFERED_KEY = "everdoer.biometricOffered";
 
 export async function biometricInfo(): Promise<BiometricInfo> {
   if (!isNative) return { available: false, label: "Biometrics" };
@@ -75,7 +75,7 @@ export async function authenticate(reason: string): Promise<boolean> {
       cancelTitle: "Use password",
       iosFallbackTitle: "Use password",
       allowDeviceCredential: false,
-      androidTitle: "Sign in to EmpireVu",
+      androidTitle: "Sign in to Everdoer",
       androidSubtitle: reason,
       androidConfirmationRequired: false,
     });

@@ -5,7 +5,7 @@ import { connect, type ClientHttp2Session } from "node:http2";
  * Apple Push Notification service over HTTP/2 with token-based (.p8) auth.
  *
  * Env: APNS_KEY_ID, APNS_TEAM_ID, APNS_PRIVATE_KEY (the .p8 contents; literal "\n" is
- * accepted), APNS_BUNDLE_ID (com.empirevu.app), APNS_PRODUCTION ("true" for App Store /
+ * accepted), APNS_BUNDLE_ID (com.everdoer.app), APNS_PRODUCTION ("true" for App Store /
  * TestFlight builds, anything else uses the sandbox gateway for Xcode debug builds).
  */
 export interface ApnsConfig {

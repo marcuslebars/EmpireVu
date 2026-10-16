@@ -24,7 +24,7 @@ export default function DeleteAccountPage() {
         <section className="flex flex-col gap-3 rounded-xl border border-border bg-secondary p-5">
           <h2 className="text-lg font-semibold text-foreground">In the app</h2>
           <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm leading-relaxed text-muted-foreground">
-            <li>Open the Everdoer app (formerly EmpireVu) and sign in.</li>
+            <li>Open the Everdoer app and sign in.</li>
             <li>
               Go to <span className="text-foreground">More → Settings</span>.
             </li>

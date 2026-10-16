@@ -2,7 +2,7 @@ import { AppleLogo, CaretRight, DeviceMobile, EnvelopeSimple, Fingerprint, Googl
 import { useEffect, useRef, useState } from "react";
 
 import type { AuthRoute } from "@m/App";
-import logoUrl from "@m/assets/empirevu-logo.png";
+import logoUrl from "@m/assets/everdoer-logo.png";
 import { signInWithPassword, signInWithProvider } from "@m/lib/auth";
 import { biometricInfo, getBiometricProfile, type BiometricInfo, type BiometricProfile } from "@m/lib/biometrics";
 import { firstName } from "@m/lib/format";
@@ -13,7 +13,7 @@ import { Btn, ErrorBanner, Field, TextInput } from "@m/ui/kit";
 export function Logo({ height = 30 }: { height?: number }) {
   return (
     <div style={{ display: "flex", justifyContent: "center", padding: "18px 0 4px" }}>
-      <img src={logoUrl} alt="EmpireVu" style={{ height, width: "auto" }} draggable={false} />
+      <img src={logoUrl} alt="Everdoer" style={{ height, width: "auto" }} draggable={false} />
     </div>
   );
 }
@@ -86,9 +86,9 @@ export function SignIn({ go, locked }: { go: (route: AuthRoute) => void; locked:
           <button
             type="button"
             onClick={() => void session.unlock()}
-            style={{ height: 88, borderRadius: 16, border: "1px solid hsl(215 100% 55% / .35)", background: "hsl(215 100% 55% / .08)", display: "flex", alignItems: "center", gap: 14, padding: "0 18px" }}
+            style={{ height: 88, borderRadius: 16, border: "1px solid hsl(82 85% 55% / .35)", background: "hsl(82 85% 55% / .08)", display: "flex", alignItems: "center", gap: 14, padding: "0 18px" }}
           >
-            <span style={{ width: 44, height: 44, flex: "none", borderRadius: 14, background: "hsl(215 100% 55% / .14)", color: "hsl(215 100% 68%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ width: 44, height: 44, flex: "none", borderRadius: 14, background: "hsl(82 85% 55% / .14)", color: "hsl(82 85% 68%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <BioIcon size={24} />
             </span>
             <span style={{ flex: 1, textAlign: "left" }}>
@@ -100,7 +100,7 @@ export function SignIn({ go, locked }: { go: (route: AuthRoute) => void; locked:
                 {bio.profile.email ? ` · ${bio.profile.email}` : ""}
               </span>
             </span>
-            <CaretRight size={16} color="hsl(215 100% 62%)" />
+            <CaretRight size={16} color="hsl(82 85% 62%)" />
           </button>
           <div className="divider-label">
             <span>or use a password</span>

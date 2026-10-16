@@ -81,7 +81,7 @@ export function CommentsSection({
             type="submit"
             aria-label="Post comment"
             disabled={!body.trim() || post.isPending}
-            style={{ width: 42, height: 42, flex: "none", borderRadius: 11, border: 0, background: "var(--pri)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
+            style={{ width: 42, height: 42, flex: "none", borderRadius: 11, border: 0, background: "var(--pri)", color: "var(--pri-ink)", display: "flex", alignItems: "center", justifyContent: "center" }}
           >
             {post.isPending ? <span className="spinner" /> : <PaperPlaneRight size={16} weight="fill" />}
           </button>

@@ -32,8 +32,8 @@ interface ScopeValue {
 
 const ScopeContext = createContext<ScopeValue | null>(null);
 
-const ORG_KEY = "empirevu.orgId";
-const COMPANY_KEY = "empirevu.companyId";
+const ORG_KEY = "everdoer.orgId";
+const COMPANY_KEY = "everdoer.companyId";
 const COMPANY_COLORS = ["hsl(215 100% 55%)", "hsl(152 60% 48%)", "hsl(38 92% 55%)", "hsl(280 70% 58%)", "hsl(195 80% 50%)", "hsl(340 75% 58%)"];
 
 /** Sign-out drops the scope with the session — the next user must not inherit it. */

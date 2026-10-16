@@ -24,10 +24,10 @@ gradle.taskGraph.whenReady { graph ->
 }
 
 android {
-    namespace = "com.empirevu.app"
+    namespace = "com.everdoer.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.empirevu.app"
+        applicationId "com.everdoer.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // Checked above: unset is fatal for release, and only debug falls back to 1.

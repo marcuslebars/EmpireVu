@@ -1,9 +1,12 @@
 /*
- * EmpireVu Mobile theme. Tokens are the web app's own (src/index.css), as specified in the
+ * Everdoer Mobile theme. Tokens are the web app's own (src/index.css), as specified in the
  * design handoff: 9px rows/buttons, 12–14px cards, 20px+ sheets, 16px gutters, Inter.
+ * Everdoer palette: near-black #0C0E12, off-white #F4F4F1, lime #A6EE2B accent. Lime is light,
+ * so anything that sits ON it uses --pri-ink (#0C0E12), never white. The app has no white
+ * surfaces; if one appears, put deep lime #4F8A00 on it, not lime.
  */
 :root {
-  --bg: hsl(222 20% 6%);
+  --bg: hsl(220 20% 5.9%); /* #0C0E12 */
   --bar: hsl(222 20% 4.5%);
   --card: hsl(222 18% 9.5%);
   --raised: hsl(222 18% 11%);
@@ -14,14 +17,15 @@
   --border: hsl(222 14% 14%);
   --border-strong: hsl(222 14% 18%);
   --divider: hsl(222 14% 12%);
-  --fg: hsl(220 10% 93%);
+  --fg: hsl(60 12% 95%); /* #F4F4F1 */
   --fg2: hsl(220 10% 80%);
   --fg3: hsl(220 10% 60%);
   --mut: hsl(220 10% 48%);
   --faint: hsl(220 10% 40%);
 
-  --pri: hsl(215 100% 55%);
-  --pri-l: hsl(215 100% 65%);
+  --pri: hsl(82 85% 55%); /* lime #A6EE2B */
+  --pri-l: hsl(82 85% 65%);
+  --pri-ink: hsl(220 20% 5.9%); /* text and icons on --pri */
   --vio: hsl(252 80% 62%);
   --vio-l: hsl(252 80% 72%);
   --suc: hsl(152 60% 48%);
@@ -89,7 +93,7 @@ button:disabled { opacity: .45; cursor: default; }
 .tab.active { color: var(--pri-l); }
 .tab .badge { position: absolute; top: 2px; left: calc(50% + 6px); min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--dest); color: #fff; font: 700 10px/17px Inter, sans-serif; text-align: center; }
 
-.fab { position: absolute; right: 18px; bottom: calc(var(--tabbar-h) + 16px); width: 58px; height: 58px; border-radius: 20px; border: 0; background: linear-gradient(140deg, var(--pri), var(--vio)); color: #fff; font-size: 25px; box-shadow: 0 12px 28px rgba(0,0,0,.5), 0 0 0 1px hsl(215 100% 55% / .3); z-index: 15; display: flex; align-items: center; justify-content: center; }
+.fab { position: absolute; right: 18px; bottom: calc(var(--tabbar-h) + 16px); width: 58px; height: 58px; border-radius: 20px; border: 0; background: var(--pri); color: var(--pri-ink); font-size: 25px; box-shadow: 0 12px 28px rgba(0,0,0,.5), 0 0 0 1px hsl(82 85% 55% / .3); z-index: 15; display: flex; align-items: center; justify-content: center; }
 
 /* Appearance → Compact cards */
 .compact .page { gap: 10px; }
@@ -112,7 +116,7 @@ button:disabled { opacity: .45; cursor: default; }
 .section { display: flex; flex-direction: column; gap: 9px; }
 .section-head { display: flex; align-items: center; gap: 8px; }
 .section-head .rule { height: 1px; flex: 1; background: linear-gradient(90deg, var(--border), transparent); }
-.link-btn { background: none; border: 0; font: 600 11px/1 Inter, sans-serif; color: hsl(215 100% 62%); padding: 6px; }
+.link-btn { background: none; border: 0; font: 600 11px/1 Inter, sans-serif; color: hsl(82 85% 62%); padding: 6px; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── Surfaces ──────────────────────────────────────────── */
@@ -129,7 +133,7 @@ button.row:active, button.tile:active { background: hsl(222 16% 12%); }
 .grow { flex: 1; min-width: 0; }
 .icon-box { flex: none; display: flex; align-items: center; justify-content: center; border-radius: 10px; width: 30px; height: 30px; font-size: 15px; background: hsl(222 16% 14%); }
 .avatar { flex: none; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 11px; font: 700 12px/1 Inter, sans-serif; }
-.avatar.lg { width: 54px; height: 54px; border-radius: 17px; font-size: 17px; color: #fff; background: linear-gradient(140deg, var(--pri), var(--vio)); }
+.avatar.lg { width: 54px; height: 54px; border-radius: 17px; font-size: 17px; color: var(--pri-ink); background: var(--pri); }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -152,8 +156,8 @@ button.row:active, button.tile:active { background: hsl(222 16% 12%); }
 .btn.sm { height: 36px; border-radius: 10px; font-size: 12px; padding: 0 12px; }
 .btn.block { width: 100%; }
 .btn.flex1 { flex: 1; }
-.btn.primary { background: var(--pri); color: #fff; }
-.btn.primary.glow { box-shadow: 0 8px 20px hsl(215 100% 55% / .25); }
+.btn.primary { background: var(--pri); color: var(--pri-ink); }
+.btn.primary.glow { box-shadow: 0 8px 20px hsl(82 85% 55% / .25); }
 .btn.secondary { background: var(--sec); border: 1px solid var(--border-strong); color: hsl(220 10% 84%); }
 .btn.ghost { background: none; color: hsl(220 10% 55%); font-weight: 500; }
 .btn.dashed { background: none; border: 1px dashed hsl(222 14% 22%); color: hsl(220 10% 55%); }
@@ -161,27 +165,27 @@ button.row:active, button.tile:active { background: hsl(222 16% 12%); }
 
 .seg { display: flex; gap: 4px; padding: 4px; background: var(--track); border: 1px solid var(--border); border-radius: 11px; }
 .seg button { flex: 1; height: 34px; border: 0; border-radius: 8px; font: 600 12px/1 Inter, sans-serif; background: transparent; color: hsl(220 10% 52%); }
-.seg button.on { background: hsl(215 100% 55% / .16); color: var(--pri-l); }
+.seg button.on { background: hsl(82 85% 55% / .16); color: var(--pri-l); }
 
 .pill { flex: none; height: 34px; padding: 0 13px; border-radius: 9px; font: 600 12px/1 Inter, sans-serif; border: 1px solid var(--border); background: var(--sec); color: var(--fg3); }
-.pill.on { background: hsl(215 100% 55% / .14); border-color: hsl(215 100% 55% / .42); color: var(--pri-l); }
+.pill.on { background: hsl(82 85% 55% / .14); border-color: hsl(82 85% 55% / .42); color: var(--pri-l); }
 .pill.tall { height: 38px; border-radius: 10px; }
 .pill.fill { flex: 1; height: 40px; border-radius: 10px; font-size: 11px; padding: 0 6px; }
 
 .switch { width: 46px; height: 28px; flex: none; border-radius: 999px; border: 0; position: relative; background: hsl(222 14% 22%); transition: background .18s ease; }
 .switch.on { background: var(--pri); }
 .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: left .18s cubic-bezier(.16,1,.3,1); }
-.switch.on::after { left: 21px; }
+.switch.on::after { left: 21px; background: var(--pri-ink); }
 
 .field { display: flex; flex-direction: column; gap: 7px; }
 .field label, .field .label { font: 500 12px/1 Inter, sans-serif; color: var(--fg3); }
 .input { height: 48px; border-radius: 11px; border: 1px solid hsl(222 14% 16%); background: var(--field); color: hsl(220 10% 90%); padding: 0 14px; font: 400 16px/1 Inter, sans-serif; outline: none; width: 100%; }
-.input:focus { border-color: hsl(215 100% 55% / .45); }
+.input:focus { border-color: hsl(82 85% 55% / .45); }
 textarea.input { height: auto; padding: 12px 14px; line-height: 1.5; resize: none; }
 .input::placeholder { color: hsl(220 10% 38%); }
 .checkbox { width: 24px; height: 24px; flex: none; border-radius: 8px; border: 1.5px solid hsl(222 14% 24%); background: transparent; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; }
 .checkbox.on { background: var(--suc); border-color: var(--suc); }
-.checkbox.pri.on { background: var(--pri); border-color: var(--pri); }
+.checkbox.pri.on { background: var(--pri); border-color: var(--pri); color: var(--pri-ink); }
 .divider-label { display: flex; align-items: center; gap: 12px; }
 .divider-label::before, .divider-label::after { content: ""; height: 1px; flex: 1; background: var(--border); }
 .divider-label span { font: 600 9.5px/1 Inter, sans-serif; text-transform: uppercase; letter-spacing: .14em; color: var(--faint); }
@@ -207,5 +211,5 @@ textarea.input { height: auto; padding: 12px 14px; line-height: 1.5; resize: non
 .sheet .grabber { width: 38px; height: 4px; border-radius: 2px; background: hsl(222 14% 22%); margin: 0 auto 6px; }
 .sheet .sheet-title { font: 700 15px/1 Inter, sans-serif; letter-spacing: -.02em; }
 .sheet-item { text-align: left; display: flex; gap: 12px; align-items: center; min-height: 56px; padding: 0 14px; border-radius: 13px; border: 1px solid var(--border); background: var(--sec); width: 100%; }
-.sheet-item.on { background: hsl(215 100% 55% / .1); border-color: hsl(215 100% 55% / .35); }
+.sheet-item.on { background: hsl(82 85% 55% / .1); border-color: hsl(82 85% 55% / .35); }
 .sheet-item .label { flex: 1; min-width: 0; font: 600 13.5px/1.3 Inter, sans-serif; color: hsl(220 10% 90%); }

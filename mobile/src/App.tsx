@@ -115,7 +115,7 @@ function Gate() {
   if (session.context.isLoadingError || (session.context.isError && !session.context.data)) {
     return (
       <AuthFrame>
-        <div className="h2">Can't reach EmpireVu</div>
+        <div className="h2">Can't reach Everdoer</div>
         <ErrorBanner error={session.context.error} onRetry={() => void session.context.refetch()} />
         <Btn variant="secondary" size="md" block onClick={() => void session.signOut()}>
           Sign out
@@ -165,9 +165,9 @@ function Reconnecting() {
 
   return (
     <>
-      <div className="h2">{online ? "Can't reach EmpireVu" : "You're offline"}</div>
+      <div className="h2">{online ? "Can't reach Everdoer" : "You're offline"}</div>
       <p className="muted-p">
-        You're still signed in. EmpireVu will reconnect on its own as soon as it can reach the server — no need to sign in again.
+        You're still signed in. Everdoer will reconnect on its own as soon as it can reach the server — no need to sign in again.
       </p>
       <Btn variant="secondary" size="md" block loading={trying} onClick={() => void retry()}>
         Try again

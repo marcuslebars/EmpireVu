@@ -1,4 +1,4 @@
-package com.empirevu.app;
+package com.everdoer.app;
 
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;

@@ -210,7 +210,7 @@ export function usePushRegistration() {
 
     // FCM messages from the server target the "default" channel on Android 8+.
     if (platform === "android") {
-      void PushNotifications.createChannel({ id: "default", name: "EmpireVu", description: "Leads, payments and schedule alerts", importance: 4, visibility: 1, vibration: true }).catch(() => undefined);
+      void PushNotifications.createChannel({ id: "default", name: "Everdoer", description: "Leads, payments and schedule alerts", importance: 4, visibility: 1, vibration: true }).catch(() => undefined);
     }
 
     void refreshRegistration();

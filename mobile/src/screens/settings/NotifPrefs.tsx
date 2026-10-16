@@ -70,7 +70,7 @@ export function NotifPrefs() {
         <div className="banner warn" style={{ gap: 10 }}>
           <Bell size={16} weight="fill" color="var(--warn-l)" />
           <span className="grow" style={{ font: "500 12px/1.45 Inter, sans-serif", color: "hsl(38 92% 74%)" }}>
-            {permission === "denied" ? "Push is off for EmpireVu in your phone's Settings. These preferences apply once it's on." : "Push notifications aren't on yet on this phone."}
+            {permission === "denied" ? "Push is off for Everdoer in your phone's Settings. These preferences apply once it's on." : "Push notifications aren't on yet on this phone."}
           </span>
           {permission === "prompt" ? (
             <Btn

@@ -33,7 +33,7 @@ export interface PendingPhoto {
   nextAttemptAt?: string;
 }
 
-const KEY = "empirevu.photoQueue";
+const KEY = "everdoer.photoQueue";
 const MAX_EDGE = 2048;
 /** 5s, 15s, 45s … capped at 5 min. Bounded, so a failed item always becomes due again. */
 const RETRY_BASE_MS = 5_000;
